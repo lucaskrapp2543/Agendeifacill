@@ -14614,6 +14614,137 @@ Estamos te aguardando! 😎✂️`;
     return isUuid ? p === professional.id : p === professional.name;
   };
 
+  const getAppointmentCompletedAtMs = (apt: Appointment): number => {
+    const dateRaw = String((apt as any)?.appointment_date || '').trim();
+    const timeRaw = String((apt as any)?.appointment_time || '').trim();
+    if (dateRaw) {
+      const normalizedTime = /^\d{2}:\d{2}(:\d{2})?$/.test(timeRaw)
+        ? (timeRaw.length === 5 ? `${timeRaw}:00` : timeRaw)
+        : '23:59:59';
+      const dt = new Date(`${dateRaw}T${normalizedTime}`);
+      if (!Number.isNaN(dt.getTime())) return dt.getTime();
+    }
+    const createdRaw = String((apt as any)?.created_at || '').trim();
+    if (createdRaw) {
+      const dt = new Date(createdRaw);
+      if (!Number.isNaN(dt.getTime())) return dt.getTime();
+    }
+    return Number.MAX_SAFE_INTEGER;
+  };
+
+  const calculateProfessionalNetForAppointment = (professional: any, apt: Appointment): number => {
+    const baseValue = getAppointmentRevenueBase(apt);
+    if (professional?.percentage === 100) {
+      const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+      if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+        const cardTax = (baseValue * paymentTax) / 100;
+        return baseValue - cardTax;
+      }
+      return baseValue;
+    }
+
+    const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+    if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+      if (establishment?.tax_deducted_by_establishment) {
+        return (baseValue * (professional?.percentage || 0)) / 100;
+      }
+      const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
+      return (valueAfterCardTax * (professional?.percentage || 0)) / 100;
+    }
+    return (baseValue * (professional?.percentage || 0)) / 100;
+  };
+
+  const paymentBelongsToSelectedMonth = (payment: any): boolean => {
+    const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+    if (payment?.for_month != null && String(payment.for_month).trim() !== '') {
+      return String(payment.for_month) === monthKey;
+    }
+    const dt = new Date(payment?.payment_date);
+    return dt.getFullYear() === selectedMonth.getFullYear() && dt.getMonth() === selectedMonth.getMonth();
+  };
+
+  const buildValidatedProfessionalPaymentData = (professional: any, appointmentsInMonth: Appointment[]) => {
+    const appointmentRows = appointmentsInMonth
+      .filter((apt) => appointmentBelongsToProfessional(apt, professional) && apt.status === 'completed')
+      .map((apt) => ({
+        completedAt: getAppointmentCompletedAtMs(apt),
+        net: calculateProfessionalNetForAppointment(professional, apt),
+      }))
+      .filter((row) => Number.isFinite(row.net) && row.net > 0 && Number.isFinite(row.completedAt))
+      .sort((a, b) => a.completedAt - b.completedAt);
+
+    let cumulative = 0;
+    const timeline = appointmentRows.map((row) => {
+      cumulative += row.net;
+      return { ...row, cumulative };
+    });
+    const totalRealizedInMonth = cumulative;
+
+    const monthPayments = (allProfessionalPayments || [])
+      .filter((p: any) => p.professional_id === professional.id)
+      .filter((p: any) => Number(p.amount || 0) > 0)
+      .filter((p: any) => {
+        const src = String((p as any)?.payment_source || '').toLowerCase();
+        return !src || src === 'normal';
+      })
+      .filter((p: any) => paymentBelongsToSelectedMonth(p))
+      .sort((a: any, b: any) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
+
+    const getRealizedUntil = (paymentTimeMs: number) => {
+      let realized = 0;
+      for (const row of timeline) {
+        if (row.completedAt <= paymentTimeMs) {
+          realized = row.cumulative;
+        } else {
+          break;
+        }
+      }
+      return realized;
+    };
+
+    let validPaid = 0;
+    let ignoredAdvance = 0;
+    let lastValidPaymentDate: string | null = null;
+    const ignoredPaymentIds: string[] = [];
+
+    monthPayments.forEach((payment: any) => {
+      const paymentAmount = Number(payment.amount || 0);
+      const paymentTimeMs = new Date(payment.payment_date).getTime();
+      const realizedUntilPayment = getRealizedUntil(paymentTimeMs);
+      const allowedAtPayment = Math.max(0, realizedUntilPayment - validPaid);
+      const applied = Math.min(paymentAmount, allowedAtPayment);
+
+      if (applied > 0) {
+        validPaid += applied;
+        lastValidPaymentDate = String(payment.payment_date || '');
+      }
+      const ignored = paymentAmount - applied;
+      if (ignored > 0) {
+        ignoredAdvance += ignored;
+        ignoredPaymentIds.push(String(payment.id));
+      }
+    });
+
+    const lastValidMs = lastValidPaymentDate ? new Date(lastValidPaymentDate).getTime() : Number.NaN;
+    const newSalesSinceLastValid = Number.isNaN(lastValidMs)
+      ? totalRealizedInMonth
+      : timeline
+        .filter((row) => row.completedAt > lastValidMs)
+        .reduce((sum, row) => sum + row.net, 0);
+
+    const pendingAllowed = Math.max(0, totalRealizedInMonth - validPaid);
+
+    return {
+      validPaid,
+      ignoredAdvance,
+      ignoredPaymentIds,
+      newSalesSinceLastValid,
+      pendingAllowed,
+      lastValidPaymentDate,
+      totalRealizedInMonth,
+    };
+  };
+
   // Função para calcular valor total que o CLIENTE PAGA (incluindo produtos V2)
   const calculateClientTotalPayment = (appointment: Appointment): number => {
     // Valor base do serviço
@@ -18006,31 +18137,31 @@ Estamos te aguardando! 😎✂️`;
 
               {activeTab === 'top10-clientes' && (
                 <div className="space-y-6 w-full">
-                  <div className="bg-gradient-to-b from-[#0b1220] via-[#0a1020] to-[#080d1a] rounded-xl shadow-2xl max-w-4xl w-full p-4 sm:p-6 border border-cyan-500/30">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+                  <div className="bg-gradient-to-b from-[#0b1220] via-[#0a1020] to-[#080d1a] rounded-xl shadow-2xl max-w-4xl w-full p-3 sm:p-6 pb-16 sm:pb-6 border border-cyan-500/30">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
                       <div>
-                        <h2 className="text-xl sm:text-2xl font-extrabold text-cyan-100">👑 TOP 5 barbearias do mês</h2>
-                        <p className="text-xs sm:text-sm text-cyan-200/80 mt-1">
+                        <h2 className="text-2xl sm:text-2xl font-extrabold text-cyan-100 leading-7">👑 TOP 5 barbearias do mês</h2>
+                        <p className="text-[13px] sm:text-sm text-cyan-200/80 mt-1 leading-5">
                           Ranking global com base em agendamentos do mês atual (competição atualizada a cada 5 dias).
                         </p>
-                        <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-amber-300/50 bg-amber-400/10 px-3 py-1">
-                          <span className="text-xs sm:text-sm font-extrabold text-amber-200">
+                        <div className="mt-2 rounded-xl border border-amber-300/50 bg-amber-400/10 px-3 py-2">
+                          <span className="text-[13px] sm:text-sm font-extrabold text-amber-200 leading-5 block">
                             🏆 Prêmio: a cada 2 meses no Top 1, ganha o 3º mês de sistema grátis. Enquanto se manter no Top 1, fica destacado no sistema.
                           </span>
                         </div>
-                        <p className="text-[11px] text-cyan-200/70 mt-2">
+                        <p className="text-xs text-cyan-200/70 mt-2">
                           Status da sua barbearia:{' '}
                           <span className={Boolean(establishment?.hide_from_top10_ranking) ? 'text-rose-300 font-bold' : 'text-emerald-300 font-bold'}>
                             {Boolean(establishment?.hide_from_top10_ranking) ? 'Oculta no TOP 5' : 'Participando do TOP 5'}
                           </span>
                         </p>
                       </div>
-                      <div className="flex flex-col gap-2">
+                      <div className="w-full sm:w-auto flex flex-col gap-2">
                         <button
                           type="button"
                           onClick={handleToggleTop10Visibility}
                           disabled={isUpdatingTop10Visibility}
-                          className={`px-3 py-2 rounded-lg border transition-colors text-sm font-bold disabled:opacity-50 ${
+                          className={`w-full sm:w-auto px-3 py-2 rounded-lg border transition-colors text-sm font-bold disabled:opacity-50 ${
                             Boolean(establishment?.hide_from_top10_ranking)
                               ? 'border-emerald-400/50 text-emerald-100 hover:bg-emerald-500/10'
                               : 'border-rose-400/50 text-rose-100 hover:bg-rose-500/10'
@@ -18046,7 +18177,7 @@ Estamos te aguardando! 😎✂️`;
                           type="button"
                           onClick={() => loadTop10BarbershopsLeaderboard(true)}
                           disabled={isLoadingTop10Leaderboard}
-                          className="px-3 py-2 rounded-lg border border-cyan-400/50 text-cyan-100 hover:bg-cyan-500/10 transition-colors text-sm font-bold disabled:opacity-50"
+                          className="w-full sm:w-auto px-3 py-2 rounded-lg border border-cyan-400/50 text-cyan-100 hover:bg-cyan-500/10 transition-colors text-sm font-bold disabled:opacity-50"
                         >
                           {isLoadingTop10Leaderboard ? 'Atualizando...' : 'Atualizar ranking'}
                         </button>
@@ -18099,14 +18230,14 @@ Estamos te aguardando! 😎✂️`;
                           return (
                             <div
                               key={row.establishmentId}
-                              className={`rounded-lg border p-3 flex items-center justify-between gap-3 ${
+                              className={`rounded-lg border p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 ${
                                 isCurrentEstablishment
                                   ? 'border-emerald-400 bg-emerald-500/10'
                                   : 'border-cyan-700/60 bg-white/[0.03]'
                               }`}
                             >
-                              <div className="min-w-0">
-                                <p className="text-sm font-extrabold text-cyan-50 truncate">
+                              <div className="min-w-0 w-full">
+                                <p className="text-sm font-extrabold text-cyan-50 break-words">
                                   #{index + 1} {row.establishmentName}
                                   {row.establishmentCode ? ` (${row.establishmentCode})` : ''}
                                   {isCurrentEstablishment ? ' • VOCÊ' : ''}
@@ -18116,7 +18247,7 @@ Estamos te aguardando! 😎✂️`;
                                   {' '}| Antes: {row.previousCount}
                                 </p>
                               </div>
-                              <div className="text-right shrink-0">
+                              <div className="text-right sm:text-right shrink-0 self-end sm:self-auto">
                                 <p className="text-[11px] text-cyan-200 uppercase">Agendamentos</p>
                                 <p className="text-lg font-extrabold text-emerald-300">{row.appointmentCount}</p>
                               </div>
@@ -23069,6 +23200,8 @@ Estamos te aguardando! 😎✂️`;
                           return products;
                         }, []);
 
+                        const paymentValidation = buildValidatedProfessionalPaymentData(professional, monthlyAppointments);
+
                         console.log(`✅ ${professional.name}: R$ ${professionalRevenue} - ${extraProductsSold} produtos extras`);
 
                         return (
@@ -23173,62 +23306,13 @@ Estamos te aguardando! 😎✂️`;
                                   professionalId={professional.id}
                                   professionalName={professional.name}
                                   currentLiquidValue={calculateProfessionalNetValue(professional.name, monthlyAppointments)}
-                                  // ✅ Pagar baseado em "Novas Vendas" (desde o último pagamento),
-                                  // para não travar quando existe um pagamento antigo no mês (ex.: pagamento do mês anterior registrado no dia 01).
-                                  newSalesValue={(() => {
-                                    // Usar apenas pagamentos "normais" (não assinatura) como referência do último pagamento
-                                    const lastPayment = allProfessionalPayments
-                                      .filter((p: any) => p.professional_id === professional.id)
-                                      .filter((p: any) => {
-                                        const src = String((p as any)?.payment_source || '').toLowerCase();
-                                        return !src || src === 'normal';
-                                      })
-                                      .sort((a: any, b: any) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())[0];
-
-                                    const base = monthlyAppointments
-                                      .filter((apt) =>
-                                        appointmentBelongsToProfessional(apt, professional) &&
-                                        apt.status === 'completed'
-                                      )
-                                      .filter((apt) => {
-                                        // manter consistente com o cálculo exibido em "Novas Vendas"
-                                        if (!lastPayment) return true;
-                                        const aptDate = new Date((apt as any).created_at);
-                                        const paymentDate = new Date(lastPayment.payment_date);
-                                        return aptDate > paymentDate;
-                                      });
-
-                                    const total = base.reduce((total, apt) => {
-                                      const baseValue = getAppointmentRevenueBase(apt);
-                                      let netValue: number;
-
-                                      if (professional.percentage === 100) {
-                                        const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-                                        if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
-                                          const cardTax = (baseValue * paymentTax) / 100;
-                                          netValue = baseValue - cardTax;
-                                        } else {
-                                          netValue = baseValue;
-                                        }
-                                      } else {
-                                        const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-                                        if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
-                                          if (establishment?.tax_deducted_by_establishment) {
-                                            netValue = (baseValue * (professional?.percentage || 0)) / 100;
-                                          } else {
-                                            const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
-                                            netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
-                                          }
-                                        } else {
-                                          netValue = (baseValue * (professional?.percentage || 0)) / 100;
-                                        }
-                                      }
-
-                                      return total + netValue;
-                                    }, 0);
-
-                                    return total;
-                                  })()}
+                                  // Regra global anti-adiantamento:
+                                  // só libera pagamento sobre vendas já realizadas até a data do pagamento.
+                                  newSalesValue={paymentValidation.newSalesSinceLastValid}
+                                  validatedPaidAmount={paymentValidation.validPaid}
+                                  validatedPendingAmount={paymentValidation.pendingAllowed}
+                                  ignoredAdvanceAmount={paymentValidation.ignoredAdvance}
+                                  ignoredPaymentIds={paymentValidation.ignoredPaymentIds}
                                   selectedMonth={selectedMonth}
                                   onPaymentRecorded={() => {
                                     // Recarregar dados se necessário
@@ -23320,60 +23404,10 @@ Estamos te aguardando! 😎✂️`;
                                               paymentFilter === 'debito' ? 'Débito' :
                                                 paymentFilter === 'credito' ? 'Crédito' : 'Todos';
 
-                                        // Calcular Novas Vendas (vendas desde o último pagamento)
-                                        const lastPayment = allProfessionalPayments
-                                          .filter((p: any) => p.professional_id === professional.id)
-                                          .sort((a: any, b: any) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())[0];
-
-                                        const newSalesTotal = lastPayment
-                                          ? filteredAppointments
-                                            .filter(apt => {
-                                              const aptDate = new Date(apt.created_at);
-                                              const paymentDate = new Date(lastPayment.payment_date);
-                                              return aptDate > paymentDate;
-                                            })
-                                            .reduce((total, apt) => {
-                                              const baseValue = getAppointmentRevenueBase(apt);
-                                              let netValue;
-                                              if (professional.percentage === 100) {
-                                                const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-                                                if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
-                                                  const cardTax = (baseValue * paymentTax) / 100;
-                                                  netValue = baseValue - cardTax;
-                                                } else {
-                                                  netValue = baseValue;
-                                                }
-                                              } else {
-                                                // Para outros profissionais: verificar se taxa é descontada do estabelecimento ou do profissional
-                                                const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-                                                if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
-                                                  // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
-                                                  if (establishment?.tax_deducted_by_establishment) {
-                                                    netValue = (baseValue * (professional?.percentage || 0)) / 100;
-                                                  } else {
-                                                    // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
-                                                    const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
-                                                    netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
-                                                  }
-                                                } else {
-                                                  // Se não for cartão, apenas aplicar percentual
-                                                  netValue = (baseValue * (professional?.percentage || 0)) / 100;
-                                                }
-                                              }
-                                              return total + netValue;
-                                            }, 0)
-                                          : netTotal;
-
-                                        // Se já pagou >= líquido do mês, zerar "Novas Vendas" no resumo (evita mostrar valor que não é pendente)
-                                        const monthKeyResumo = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
-                                        const paymentsThisMonth = allProfessionalPayments.filter((p: any) => {
-                                          if (p.professional_id !== professional.id || (p.amount && p.amount <= 0)) return false;
-                                          if (p.for_month != null && p.for_month !== '') return p.for_month === monthKeyResumo;
-                                          const d = new Date(p.payment_date);
-                                          return d.getFullYear() === selectedMonth.getFullYear() && d.getMonth() === selectedMonth.getMonth();
-                                        });
-                                        const totalPaidThisMonth = paymentsThisMonth.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
-                                        const displayNewSales = totalPaidThisMonth >= netTotal ? 0 : newSalesTotal;
+                                        // "Novas Vendas" no resumo segue regra anti-adiantamento.
+                                        const displayNewSales = paymentFilter === 'todos'
+                                          ? paymentValidation.pendingAllowed
+                                          : Math.max(0, netTotal - paymentValidation.validPaid);
 
                                         return (
                                           <div className="bg-white p-4 rounded-lg border border-gray-200 mb-4">
@@ -23399,6 +23433,14 @@ Estamos te aguardando! 😎✂️`;
                                                   {formatCurrency(displayNewSales)}
                                                 </span>
                                               </div>
+                                              {paymentFilter === 'todos' && paymentValidation.ignoredAdvance > 0 && (
+                                                <div className="flex justify-between items-center">
+                                                  <span className="text-amber-700 font-medium">Adiantamentos ignorados:</span>
+                                                  <span className="font-bold text-amber-700">
+                                                    {formatCurrency(paymentValidation.ignoredAdvance)}
+                                                  </span>
+                                                </div>
+                                              )}
                                             </div>
                                           </div>
                                         );

@@ -1055,7 +1055,7 @@ const LandingPage = () => {
               </div>
 
               <div className="mt-8">
-                <PlanosCards whatsappNumber="5548991484275" />
+                <PlanosCards whatsappNumber="5548991484275" hidePrata />
               </div>
             </div>
           </div>

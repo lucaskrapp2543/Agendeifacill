@@ -580,7 +580,7 @@ const LandingVendas = () => {
             </div>
           </div>
 
-          <PlanosCards whatsappNumber="5548991484275" />
+          <PlanosCards whatsappNumber="5548991484275" hidePrata />
         </div>
       </section>
 

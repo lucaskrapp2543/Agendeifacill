@@ -13,6 +13,10 @@ interface ProfessionalPaymentControlProps {
   // Quando informado, passa a considerar este valor como "pendente para pagar"
   // (ex.: novas vendas desde o último pagamento), mesmo que o acumulado do mês tenha ficado "pago a mais".
   newSalesValue?: number;
+  validatedPaidAmount?: number;
+  validatedPendingAmount?: number;
+  ignoredAdvanceAmount?: number;
+  ignoredPaymentIds?: string[];
   selectedMonth?: Date;
   onPaymentRecorded?: () => void;
 }
@@ -23,6 +27,10 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   professionalName,
   currentLiquidValue,
   newSalesValue,
+  validatedPaidAmount,
+  validatedPendingAmount,
+  ignoredAdvanceAmount = 0,
+  ignoredPaymentIds = [],
   selectedMonth,
   onPaymentRecorded
 }) => {
@@ -54,12 +62,21 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
   // O valor original (total do mês) é o currentLiquidValue passado como prop
   const totalLiquidValue = currentLiquidValue; // Valor total do mês
-  const overpaidAmount = Math.max(0, totalPaid - totalLiquidValue);
-  // Pendente = o que falta para fechar o mês (líquido - já pago). Se já pagou a mais, pendente = 0. Assim não aparece valor "enfiado" tipo Novas Vendas quando já está coberto.
-  const pendingToPay = Math.max(0, totalLiquidValue - totalPaid);
+  const totalPaidEffective =
+    typeof validatedPaidAmount === 'number' ? Math.max(0, validatedPaidAmount) : totalPaid;
+  const overpaidAmount = Math.max(0, totalPaidEffective - totalLiquidValue);
+  // Pendente = o que falta para fechar o mês (líquido - já pago), respeitando trava contra adiantamentos.
+  const pendingByLiquid = Math.max(0, totalLiquidValue - totalPaidEffective);
+  const pendingByValidatedRule =
+    typeof validatedPendingAmount === 'number' ? Math.max(0, validatedPendingAmount) : pendingByLiquid;
+  const pendingByNewSales =
+    typeof newSalesValue === 'number' ? Math.max(0, newSalesValue) : pendingByValidatedRule;
+  const pendingToPay = Math.max(0, Math.min(pendingByLiquid, pendingByValidatedRule, pendingByNewSales));
 
   const paymentSummary = getPaymentSummary(professionalId);
-  const professionalPayments = getProfessionalPayments(professionalId);
+  const professionalPayments = getProfessionalPayments(professionalId).filter(
+    (payment) => !ignoredPaymentIds.includes(payment.id)
+  );
 
   const forMonthKey = selectedMonth
     ? `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`
@@ -241,7 +258,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
   const handleDeletePayment = async (paymentId: string, paymentAmount: number) => {
     // Calcular o valor total pago atual
-    const currentTotalPaid = paymentSummary.totalPaid;
+    const currentTotalPaid = totalPaidEffective;
 
     // Calcular o valor que ficaria após deletar este pagamento
     const newTotalPaid = currentTotalPaid - paymentAmount;
@@ -335,9 +352,9 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             <span className="text-sm font-medium text-gray-700">
               Líquido: {formatCurrency(totalLiquidValue)}
             </span>
-            {totalPaid > 0 && (
+            {totalPaidEffective > 0 && (
               <span className="text-xs text-gray-500">
-                (Pago: {formatCurrency(totalPaid)})
+                (Pago: {formatCurrency(totalPaidEffective)})
               </span>
             )}
           </div>
@@ -345,6 +362,11 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           {pendingToPay > 0 && (
             <div className="text-sm text-blue-600 font-medium">
               Pendente: {formatCurrency(pendingToPay)}
+            </div>
+          )}
+          {ignoredAdvanceAmount > 0 && (
+            <div className="text-xs text-amber-700 font-medium">
+              Adiantamentos ignorados: {formatCurrency(ignoredAdvanceAmount)}
             </div>
           )}
         </div>
@@ -531,9 +553,17 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">Total Pago:</span>
               <span className="font-medium text-green-600">
-                {formatCurrency(paymentSummary.totalPaid)}
+                {formatCurrency(totalPaidEffective)}
               </span>
             </div>
+            {ignoredAdvanceAmount > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Adiantamentos ignorados:</span>
+                <span className="font-medium text-amber-700">
+                  {formatCurrency(ignoredAdvanceAmount)}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">Pagamentos:</span>
               <span className="font-medium text-gray-700">
