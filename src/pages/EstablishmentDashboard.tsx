@@ -3658,6 +3658,8 @@ const EstablishmentDashboard = () => {
   // Estado para armazenar vendas de produtos por período
   const [productSalesByPeriod, setProductSalesByPeriod] = useState<Record<string, number>>({});
   const [dashboardProductSalesByPeriod, setDashboardProductSalesByPeriod] = useState<Record<string, number>>({});
+  const [productPayoutByPeriod, setProductPayoutByPeriod] = useState<Record<string, number>>({});
+  const [dashboardProductPayoutByPeriod, setDashboardProductPayoutByPeriod] = useState<Record<string, number>>({});
   const [subscribersFinancialSummary, setSubscribersFinancialSummary] = useState<{
     loading: boolean;
     error: string | null;
@@ -4132,72 +4134,99 @@ const EstablishmentDashboard = () => {
     try {
       const start = startOfMonth(month);
       const end = endOfMonth(month);
-
-      // Buscar todos os appointment_products do período
-      const { data: appointmentProducts, error: productsError } = await supabase
-        .from('appointment_products')
-        .select(`
-          id,
-          product_id,
-          quantity,
-          unit_price,
-          appointment_id
-        `)
-        .order('created_at', { ascending: false });
-
-      if (productsError) {
-        console.error('Erro ao buscar produtos vendidos:', productsError);
-        return;
-      }
-
-      // Buscar appointments relacionados para filtrar por data e establishment
-      const appointmentIds = appointmentProducts?.map(p => p.appointment_id) || [];
-
-      if (appointmentIds.length === 0) {
-        if (target === 'dashboard') setDashboardProductSalesByPeriod({});
-        else setProductSalesByPeriod({});
-        return;
-      }
-
-      const { data: appointments, error: appointmentsError } = await supabase
-        .from('appointments')
-        .select(`
-          id,
-          appointment_date,
-          establishment_id,
-          status
-        `)
-        .in('id', appointmentIds)
-        .eq('establishment_id', establishment.id)
-        .eq('status', 'completed');
-
-      if (appointmentsError) {
-        console.error('Erro ao buscar appointments:', appointmentsError);
-        return;
-      }
-
-      // Filtrar appointments do período selecionado
-      const periodAppointments = appointments?.filter(apt => {
-        const aptDate = new Date(apt.appointment_date);
-        return aptDate >= start && aptDate <= end;
-      }) || [];
-
-      const periodAppointmentIds = new Set(periodAppointments.map(apt => apt.id));
-
-      // Agrupar vendas por product_id
       const salesByProduct: Record<string, number> = {};
-
-      appointmentProducts?.forEach(productSale => {
-        if (periodAppointmentIds.has(productSale.appointment_id)) {
-          const currentQuantity = salesByProduct[productSale.product_id] || 0;
-          salesByProduct[productSale.product_id] = currentQuantity + productSale.quantity;
-        }
+      const payoutByProduct: Record<string, number> = {};
+      const professionalIdToName: Record<string, string> = {};
+      (establishment.professionals || []).forEach((p: any) => {
+        const id = String(p?.id || '').trim();
+        const name = String(p?.name || '').trim();
+        if (id && name) professionalIdToName[id] = name;
       });
+
+      // 1) Buscar agendamentos concluídos do mês (evita puxar appointment_products inteiro da base).
+      const monthAppointments: Array<{ id: string; professional: string | null }> = [];
+      let from = 0;
+      const step = 1000;
+      while (true) {
+        const { data: appointmentsChunk, error: appointmentsError } = await supabase
+          .from('appointments')
+          .select('id,professional')
+          .eq('establishment_id', establishment.id)
+          .eq('status', 'completed')
+          .gte('appointment_date', format(start, 'yyyy-MM-dd'))
+          .lte('appointment_date', format(end, 'yyyy-MM-dd'))
+          .range(from, from + step - 1);
+
+        if (appointmentsError) {
+          console.error('Erro ao buscar appointments do período:', appointmentsError);
+          if (target === 'dashboard') setDashboardProductSalesByPeriod({});
+          else setProductSalesByPeriod({});
+          return;
+        }
+
+        const chunk = appointmentsChunk || [];
+        if (chunk.length === 0) break;
+        monthAppointments.push(...(chunk as Array<{ id: string; professional: string | null }>));
+        if (chunk.length < step) break;
+        from += step;
+        if (from > 250000) break;
+      }
+
+      const appointmentIds = monthAppointments.map((a) => String(a.id || '').trim()).filter(Boolean);
+      const appointmentProfessionalMap: Record<string, string> = {};
+      monthAppointments.forEach((a) => {
+        appointmentProfessionalMap[String(a.id || '').trim()] = String((a as any)?.professional || '').trim();
+      });
+
+      // 2) Buscar appointment_products apenas desses agendamentos (em blocos).
+      if (appointmentIds.length > 0) {
+        const chunkSize = 500;
+        for (let i = 0; i < appointmentIds.length; i += chunkSize) {
+          const idsChunk = appointmentIds.slice(i, i + chunkSize);
+          const { data: productRows, error: productRowsError } = await supabase
+            .from('appointment_products')
+            .select('product_id, quantity, unit_price, appointment_id, professional_id')
+            .in('appointment_id', idsChunk);
+
+          if (productRowsError) {
+            console.error('Erro ao buscar appointment_products por bloco:', productRowsError);
+            continue;
+          }
+
+          (productRows || []).forEach((row: any) => {
+            const pid = String(row?.product_id || '').trim();
+            const qty = Number(row?.quantity || 0);
+            if (!pid || !Number.isFinite(qty) || qty <= 0) return;
+            salesByProduct[pid] = (salesByProduct[pid] || 0) + qty;
+
+            const unit = Number(row?.unit_price || 0);
+            if (!Number.isFinite(unit) || unit <= 0) return;
+            const saleValue = Math.max(0, qty * unit);
+
+            const directProfessionalId = String(row?.professional_id || '').trim();
+            const appointmentId = String(row?.appointment_id || '').trim();
+            const appointmentProfessionalRaw = appointmentProfessionalMap[appointmentId] || '';
+            const professionalName =
+              professionalIdToName[directProfessionalId] ||
+              professionalIdToName[appointmentProfessionalRaw] ||
+              appointmentProfessionalRaw ||
+              '';
+            if (!professionalName) return;
+
+            const product = products.find((p) => String(p.id) === pid);
+            const map = (product as any)?.commission_percentages || {};
+            const pctRaw = Number(map?.[professionalName] ?? 0);
+            const pct = Number.isFinite(pctRaw) ? Math.max(0, Math.min(100, pctRaw)) : 0;
+            const payout = Math.max(0, (saleValue * pct) / 100);
+            payoutByProduct[pid] = Math.round(((payoutByProduct[pid] || 0) + payout) * 100) / 100;
+          });
+        }
+      }
 
       // ✅ Somar também vendas avulsas (product_sales) no período
       const { data: avulsoSales, error: avulsoError } = await supabase
         .from('product_sales')
-        .select('product_id, quantity, sold_at')
+        .select('product_id, quantity, unit_price, professional_id, professional_name, sold_at')
         .eq('establishment_id', establishment.id)
         .gte('sold_at', start.toISOString())
         .lte('sold_at', end.toISOString());
@@ -4210,6 +4239,21 @@ const EstablishmentDashboard = () => {
           const qty = Number(s?.quantity || 0);
           if (!pid || !Number.isFinite(qty) || qty <= 0) return;
           salesByProduct[pid] = (salesByProduct[pid] || 0) + qty;
+
+          const unit = Number(s?.unit_price || 0);
+          if (!Number.isFinite(unit) || unit <= 0) return;
+          const saleValue = Math.max(0, qty * unit);
+          const rawProfessionalId = String(s?.professional_id || '').trim();
+          const rawProfessionalName = String(s?.professional_name || '').trim();
+          const professionalName = professionalIdToName[rawProfessionalId] || rawProfessionalName || '';
+          if (!professionalName) return;
+
+          const product = products.find((p) => String(p.id) === pid);
+          const map = (product as any)?.commission_percentages || {};
+          const pctRaw = Number(map?.[professionalName] ?? 0);
+          const pct = Number.isFinite(pctRaw) ? Math.max(0, Math.min(100, pctRaw)) : 0;
+          const payout = Math.max(0, (saleValue * pct) / 100);
+          payoutByProduct[pid] = Math.round(((payoutByProduct[pid] || 0) + payout) * 100) / 100;
         });
       }
 
@@ -4218,8 +4262,13 @@ const EstablishmentDashboard = () => {
         salesByProduct
       });
 
-      if (target === 'dashboard') setDashboardProductSalesByPeriod(salesByProduct);
-      else setProductSalesByPeriod(salesByProduct);
+      if (target === 'dashboard') {
+        setDashboardProductSalesByPeriod(salesByProduct);
+        setDashboardProductPayoutByPeriod(payoutByProduct);
+      } else {
+        setProductSalesByPeriod(salesByProduct);
+        setProductPayoutByPeriod(payoutByProduct);
+      }
     } catch (error) {
       console.error('Erro ao buscar vendas por período:', error);
     }
@@ -14850,7 +14899,8 @@ Estamos te aguardando! 😎✂️`;
       }, 0);
       const productsNetProfit = products.reduce((total, product) => {
         const periodQuantity = dashboardProductSalesByPeriod[product.id] || 0;
-        return total + ((product.sale_price - product.cost_price) * periodQuantity);
+        const payout = dashboardProductPayoutByPeriod[product.id] || 0;
+        return total + (((product.sale_price - product.cost_price) * periodQuantity) - payout);
       }, 0);
       const productsTotalUnits = products.reduce((total, product) => total + (dashboardProductSalesByPeriod[product.id] || 0), 0);
       const totalProductsWithSales = products.filter(product => (dashboardProductSalesByPeriod[product.id] || 0) > 0).length;
@@ -22813,7 +22863,8 @@ Estamos te aguardando! 😎✂️`;
                       }, 0);
                       const productsNetProfit = products.reduce((total, product) => {
                         const periodQuantity = dashboardProductSalesByPeriod[product.id] || 0;
-                        return total + ((product.sale_price - product.cost_price) * periodQuantity);
+                        const payout = dashboardProductPayoutByPeriod[product.id] || 0;
+                        return total + (((product.sale_price - product.cost_price) * periodQuantity) - payout);
                       }, 0);
                       const productsTotalUnits = products.reduce((total, product) => {
                         const periodQuantity = dashboardProductSalesByPeriod[product.id] || 0;
@@ -26836,7 +26887,8 @@ Estamos te aguardando! 😎✂️`;
                           <p className="text-2xl font-bold text-gray-800">
                             {formatCurrency(products.reduce((total, product) => {
                               const periodQuantity = productSalesByPeriod[product.id] || 0;
-                              return total + ((product.sale_price - product.cost_price) * periodQuantity);
+                              const payout = productPayoutByPeriod[product.id] || 0;
+                              return total + (((product.sale_price - product.cost_price) * periodQuantity) - payout);
                             }, 0))}
                           </p>
                           <p className="text-xs text-gray-500">Lucro real do período</p>
@@ -26911,7 +26963,8 @@ Estamos te aguardando! 😎✂️`;
                     // Usar vendas do período selecionado
                     const periodSoldQuantity = productSalesByPeriod[product.id] || 0;
                     const totalProfit = (product.sale_price - product.cost_price) * product.stock_quantity;
-                    const currentProfit = (product.sale_price - product.cost_price) * periodSoldQuantity;
+                    const productPayoutInPeriod = productPayoutByPeriod[product.id] || 0;
+                    const currentProfit = ((product.sale_price - product.cost_price) * periodSoldQuantity) - productPayoutInPeriod;
                     const periodRevenue = product.sale_price * periodSoldQuantity;
 
                     return (
@@ -26981,6 +27034,12 @@ Estamos te aguardando! 😎✂️`;
                               <span className="text-sm text-black">Lucro do período:</span>
                               <span className="text-sm font-bold text-blue-600">{formatCurrency(currentProfit)}</span>
                             </div>
+                            {productPayoutInPeriod > 0 && (
+                              <div className="flex justify-between">
+                                <span className="text-xs text-amber-700">Repasse colaboradores:</span>
+                                <span className="text-xs font-bold text-amber-700">-{formatCurrency(productPayoutInPeriod)}</span>
+                              </div>
+                            )}
                           </div>
 
                           {/* Botão para ver vendas por funcionário */}
