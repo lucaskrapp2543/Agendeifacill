@@ -1285,20 +1285,23 @@ Por favor, confirme o cancelamento. Obrigado!`;
                   Falta pouco!
                 </h3>
                 <p className="text-gray-600 text-lg">
-                  ⚠️ <strong>IMPORTANTE:</strong> clique em <strong>Confirmar</strong> para avisar seu barbeiro no WhatsApp.
+                  ⚠️ <strong>IMPORTANTE:</strong> você já está confirmado. Agora clique em <strong>Avisar profissional</strong> para avisar seu profissional no WhatsApp.
                 </p>
                 <div className="mt-4 p-3 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-900 text-sm font-semibold">
-                  Se você fechar sem confirmar, <strong>seu barbeiro pode não receber o aviso</strong>.
+                  Você já está confirmado, seu agendamento já aparece no sistema do profissional, agora clique em <strong>Avisar profissional</strong> logo abaixo e confirme para ele no WhatsApp dele!
                 </div>
               </div>
 
               <div className="space-y-3">
+                <p className="text-center text-xs font-extrabold text-amber-700">
+                  Extremamente importante
+                </p>
                 <button
                   onClick={handleConfirmWhatsAppFromModal}
                   className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-bold text-lg shadow-lg hover:shadow-xl transform hover:scale-[1.02] flex items-center justify-center gap-2"
                 >
                   <Phone className="w-5 h-5" />
-                  Confirmar
+                  Avisar profissional
                 </button>
 
                 <button

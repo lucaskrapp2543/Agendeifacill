@@ -63,7 +63,7 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
             {isConfirmationStep
               ? 'Tem certeza que deseja não ativar o lembrete? Se não ativar, você pode esquecer de ir e prejudicar seu profissional.'
               : enableWhatsAppNotifications
-                ? '⚠️ IMPORTANTE: para concluir, toque em "Confirmar" e avise seu barbeiro no WhatsApp.'
+                ? '⚠️ IMPORTANTE: você já está confirmado. Agora só falta avisar seu profissional no WhatsApp.'
                 : 'Clique abaixo para ativar o lembrete.'
             }
           </p>
@@ -78,7 +78,7 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
                 color: '#E6C78B'
               }}
             >
-              Se você fechar esta tela sem confirmar, <span className="text-white font-extrabold">seu barbeiro pode não ser avisado</span> e seu horário pode ficar sem confirmação.
+              Você já está confirmado, seu agendamento já aparece no sistema do profissional, agora clique em <span className="text-white font-extrabold">Avisar profissional</span> logo abaixo e confirme para ele no WhatsApp dele!
             </div>
           )}
 
@@ -110,14 +110,19 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
             {/* Renderizar botões baseado na configuração */}
             {enableWhatsAppNotifications && !isConfirmationStep ? (
               // Nova interface para WhatsApp
-              <button
-                onClick={onConfirmWhatsApp}
-                className="flex-1 px-4 py-3 rounded-xl transition-colors font-extrabold flex items-center justify-center gap-2 active:scale-[0.99]"
-                style={{ background: '#E6C78B', color: '#0B0B0B' }}
-              >
-                <CheckCircle className="w-4 h-4" />
-                Confirmar
-              </button>
+              <div className="flex-1">
+                <p className="text-center text-xs font-extrabold mb-2" style={{ color: '#E6C78B' }}>
+                  Extremamente importante
+                </p>
+                <button
+                  onClick={onConfirmWhatsApp}
+                  className="w-full px-4 py-3 rounded-xl transition-colors font-extrabold flex items-center justify-center gap-2 active:scale-[0.99]"
+                  style={{ background: '#E6C78B', color: '#0B0B0B' }}
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Avisar profissional
+                </button>
+              </div>
             ) : (
               // Interface original para lembretes
               <>
