@@ -2,9 +2,10 @@ import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfDay,
 import { ptBR } from 'date-fns/locale';
 import { AlertTriangle, Bell, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Tag, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { toast as hotToast } from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
-import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
+import * as XLSX from 'xlsx';
 import AdditionalProductModal from '../components/AdditionalProductModal';
 import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
 import { ChangeAppointmentServiceModal } from '../components/ChangeAppointmentServiceModal';
@@ -26,12 +27,11 @@ import ReservarCliente from '../components/ReservarCliente';
 import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
-import { TopMonthlyWinnerCard, type TopMonthlyWinnerCardData } from '../components/TopMonthlyWinnerCard';
 import { TimeSelector } from '../components/TimeSelector';
+import { TopMonthlyWinnerCard, type TopMonthlyWinnerCardData } from '../components/TopMonthlyWinnerCard';
 import { TransferAppointmentModal } from '../components/TransferAppointmentModal';
-import { YouTubeResumePlayer } from '../components/YouTubeResumePlayer';
-import { toast as hotToast } from 'react-hot-toast';
 import { useToast } from '../components/ui/Toaster';
+import { YouTubeResumePlayer } from '../components/YouTubeResumePlayer';
 // UpdateButton removido - sistema automático já cuida de tudo
 import { EstablishmentWhatsappRemindersInfo } from '../../modules/whatsapp-reminders/ui/EstablishmentWhatsappRemindersInfo';
 import { ValidityDisplay } from '../components/ValidityDisplay';
@@ -2524,6 +2524,14 @@ const EstablishmentDashboard = () => {
   const [showQuizAmenitiesModal, setShowQuizAmenitiesModal] = useState(false); // Popup bonito quando faltar comodidade no passo 1
   const [showQuizPixModal, setShowQuizPixModal] = useState(false); // Popup bonito quando faltar PIX no passo 5
   const [showQuizLinksModal, setShowQuizLinksModal] = useState(false); // Popup bonito quando faltar links no passo 6
+  // Modal bonito: horários incompatíveis ao mudar intervalo (20/30/60 min)
+  const [showScheduleIntervalConflictModal, setShowScheduleIntervalConflictModal] = useState(false);
+  const [scheduleIntervalConflictPayload, setScheduleIntervalConflictPayload] = useState<{
+    intervalLabel: string;
+    exampleText: string;
+    instructionText: string;
+    conflicts: { dayLabel: string; fieldLabel: string; time: string }[];
+  } | null>(null);
 
   const [businessHours, setBusinessHours] = useState<Record<string, BusinessHours>>({
     monday: { enabled: true, open1: '00:00', close1: '00:00', open2: '00:00', close2: '00:00' },
@@ -6044,6 +6052,59 @@ const EstablishmentDashboard = () => {
     const newMinutes = roundedMinutes % 60;
 
     return `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+  };
+
+  // Valida se os horários de funcionamento são compatíveis com o intervalo (20, 30 ou 60 min).
+  // Retorna lista de conflitos para exibir mensagem e bloquear a mudança.
+  const getScheduleIntervalConflicts = (
+    hours: Record<string, BusinessHours>,
+    targetInterval: 20 | 30 | 60
+  ): { day: string; dayLabel: string; field: string; fieldLabel: string; time: string }[] => {
+    const dayLabels: Record<string, string> = {
+      monday: 'Segunda-feira',
+      tuesday: 'Terça-feira',
+      wednesday: 'Quarta-feira',
+      thursday: 'Quinta-feira',
+      friday: 'Sexta-feira',
+      saturday: 'Sábado',
+      sunday: 'Domingo'
+    };
+    const fieldLabels: Record<string, string> = {
+      open1: 'Abertura',
+      close1: 'Fecha p/ intervalo',
+      open2: 'Reabertura',
+      close2: 'Fechamento'
+    };
+    const isTimeValid = (timeStr: string): boolean => {
+      if (!timeStr || timeStr === '00:00') return true;
+      const parts = timeStr.split(':');
+      const minutes = (Number(parts[0]) || 0) * 60 + (Number(parts[1]) || 0);
+      if (targetInterval === 20) return minutes % 20 === 0;
+      if (targetInterval === 30) return minutes % 30 === 0;
+      if (targetInterval === 60) return minutes % 60 === 0;
+      return true;
+    };
+    const conflicts: { day: string; dayLabel: string; field: string; fieldLabel: string; time: string }[] = [];
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+    const fields: ('open1' | 'close1' | 'open2' | 'close2')[] = ['open1', 'close1', 'open2', 'close2'];
+    for (const day of days) {
+      const h = (hours as any)?.[day];
+      if (!h?.enabled) continue;
+      for (const field of fields) {
+        const time = String(h[field] || '');
+        if (!time || time === '00:00') continue;
+        if (!isTimeValid(time)) {
+          conflicts.push({
+            day,
+            dayLabel: dayLabels[day] || day,
+            field,
+            fieldLabel: fieldLabels[field] || field,
+            time
+          });
+        }
+      }
+    }
+    return conflicts;
   };
 
   const handleBusinessHoursChange = (
@@ -18230,11 +18291,10 @@ Estamos te aguardando! 😎✂️`;
                           type="button"
                           onClick={handleToggleTop10Visibility}
                           disabled={isUpdatingTop10Visibility}
-                          className={`w-full sm:w-auto px-3 py-2 rounded-lg border transition-colors text-sm font-bold disabled:opacity-50 ${
-                            Boolean(establishment?.hide_from_top10_ranking)
+                          className={`w-full sm:w-auto px-3 py-2 rounded-lg border transition-colors text-sm font-bold disabled:opacity-50 ${Boolean(establishment?.hide_from_top10_ranking)
                               ? 'border-emerald-400/50 text-emerald-100 hover:bg-emerald-500/10'
                               : 'border-rose-400/50 text-rose-100 hover:bg-rose-500/10'
-                          }`}
+                            }`}
                         >
                           {isUpdatingTop10Visibility
                             ? 'Salvando...'
@@ -18299,11 +18359,10 @@ Estamos te aguardando! 😎✂️`;
                           return (
                             <div
                               key={row.establishmentId}
-                              className={`rounded-lg border p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 ${
-                                isCurrentEstablishment
+                              className={`rounded-lg border p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 ${isCurrentEstablishment
                                   ? 'border-emerald-400 bg-emerald-500/10'
                                   : 'border-cyan-700/60 bg-white/[0.03]'
-                              }`}
+                                }`}
                             >
                               <div className="min-w-0 w-full">
                                 <p className="text-sm font-extrabold text-cyan-50 break-words">
@@ -19300,6 +19359,72 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
+                  {/* ✅ Modal bonito: horários incompatíveis ao mudar intervalo de exibição */}
+                  {showScheduleIntervalConflictModal && scheduleIntervalConflictPayload && (
+                    <div
+                      className="fixed inset-0 z-[90] flex items-start sm:items-center justify-center bg-black/70 p-3 sm:p-4 pt-6 sm:pt-4"
+                      onClick={() => setShowScheduleIntervalConflictModal(false)}
+                    >
+                      <div
+                        className="w-full max-w-lg rounded-2xl shadow-2xl border border-amber-500/20 bg-[#0f0f10] overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-amber-500/5">
+                          <div className="flex items-center gap-3">
+                            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/20 text-amber-400 text-xl" aria-hidden>⏰</span>
+                            <div>
+                              <div className="text-sm font-extrabold text-white">Ajuste seus horários primeiro</div>
+                              <div className="text-xs text-amber-200/80">Para usar {scheduleIntervalConflictPayload.intervalLabel}</div>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowScheduleIntervalConflictModal(false)}
+                            className="p-2 rounded-lg hover:bg-white/5 text-white/90"
+                            aria-label="Fechar"
+                            title="Fechar"
+                          >
+                            ✕
+                          </button>
+                        </div>
+
+                        <div className="p-4 space-y-4">
+                          <div className="rounded-xl border border-amber-400/20 bg-amber-500/10 p-3">
+                            <div className="text-xs font-semibold text-amber-200">Horários válidos para este intervalo:</div>
+                            <div className="text-sm text-amber-100/90 mt-1 font-mono">{scheduleIntervalConflictPayload.exampleText}</div>
+                          </div>
+
+                          <div>
+                            <div className="text-xs font-semibold text-white/90 mb-2">Incompatíveis (corrija em Horários e dias de funcionamento):</div>
+                            <ul className="max-h-44 overflow-y-auto rounded-xl border border-white/10 bg-[#1a1b1c] p-2 space-y-1.5">
+                              {scheduleIntervalConflictPayload.conflicts.map((c, i) => (
+                                <li key={i} className="flex items-center gap-2 text-sm text-gray-300 py-1.5 px-2 rounded-lg bg-white/5">
+                                  <span className="shrink-0 w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center text-red-400 text-xs" aria-hidden>!</span>
+                                  <span className="font-medium text-white/90">{c.dayLabel}</span>
+                                  <span className="text-white/50">·</span>
+                                  <span className="text-amber-200/90">{c.fieldLabel}</span>
+                                  <span className="font-mono text-amber-300">{c.time}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          <p className="text-xs text-gray-400 leading-relaxed">
+                            {scheduleIntervalConflictPayload.instructionText}
+                          </p>
+
+                          <button
+                            type="button"
+                            onClick={() => setShowScheduleIntervalConflictModal(false)}
+                            className="w-full px-4 py-3 rounded-xl font-semibold bg-amber-500 text-black hover:bg-amber-400 transition-colors"
+                          >
+                            Entendi
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* ✅ Popup bonito: precisa preencher/salvar PIX para continuar */}
                   {showQuizPixModal && (
                     <div
@@ -19472,398 +19597,396 @@ Estamos te aguardando! 😎✂️`;
                       <h2 className="text-xl font-semibold mb-4">Informações Básicas</h2>
                       <div className="space-y-4">
                         {(!isNewUser || quizStep === 1) && (
-                        <div id="quiz-step-info-basica">
-                          <label className="block text-sm font-medium mb-1">Nome do Estabelecimento</label>
-                          {isNewUser && (
-                            <p className="text-sm text-gray-300 mb-2">
-                              Este e o nome do seu estabelecimento?
-                            </p>
-                          )}
-                          <input
-                            id="wizard-establishment-name"
-                            type="text"
-                            value={establishment?.name || ''}
-                            onChange={(e) => handleInputChange('name', e.target.value)}
-                            className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
-                          />
-                          {isNewUser && quizStep === 1 && (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={handleQuizNext}
-                                className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"
-                              >
-                                Sim, continuar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const el = document.getElementById('wizard-establishment-name');
-                                  if (el instanceof HTMLInputElement) el.focus();
-                                }}
-                                className="px-4 py-2 rounded-lg bg-[#2a2b2c] border border-gray-600 text-white font-semibold hover:border-gray-500"
-                              >
-                                Editar nome
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                          <div id="quiz-step-info-basica">
+                            <label className="block text-sm font-medium mb-1">Nome do Estabelecimento</label>
+                            {isNewUser && (
+                              <p className="text-sm text-gray-300 mb-2">
+                                Este e o nome do seu estabelecimento?
+                              </p>
+                            )}
+                            <input
+                              id="wizard-establishment-name"
+                              type="text"
+                              value={establishment?.name || ''}
+                              onChange={(e) => handleInputChange('name', e.target.value)}
+                              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                            />
+                            {isNewUser && quizStep === 1 && (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={handleQuizNext}
+                                  className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"
+                                >
+                                  Sim, continuar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const el = document.getElementById('wizard-establishment-name');
+                                    if (el instanceof HTMLInputElement) el.focus();
+                                  }}
+                                  className="px-4 py-2 rounded-lg bg-[#2a2b2c] border border-gray-600 text-white font-semibold hover:border-gray-500"
+                                >
+                                  Editar nome
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         )}
 
                         {/* Logo do Estabelecimento */}
                         {(!isNewUser || quizStep === 2) && (
-                        <div id="quiz-step-foto">
-                          <label className="block text-sm font-medium mb-1">Logo do Estabelecimento</label>
-                          {isNewUser && (
-                            <p className="text-sm text-gray-300 mb-2">
-                              Esta e a foto do seu estabelecimento?
-                            </p>
-                          )}
-                          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                            <div className="relative w-24 h-24 flex-shrink-0">
-                              <div className="w-24 h-24 rounded-full overflow-hidden bg-[#242628] border-2 border-dashed border-gray-700">
-                                {establishment?.logo_url ? (
-                                  <div className="relative h-full">
+                          <div id="quiz-step-foto">
+                            <label className="block text-sm font-medium mb-1">Logo do Estabelecimento</label>
+                            {isNewUser && (
+                              <p className="text-sm text-gray-300 mb-2">
+                                Esta e a foto do seu estabelecimento?
+                              </p>
+                            )}
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                              <div className="relative w-24 h-24 flex-shrink-0">
+                                <div className="w-24 h-24 rounded-full overflow-hidden bg-[#242628] border-2 border-dashed border-gray-700">
+                                  {establishment?.logo_url ? (
+                                    <div className="relative h-full">
+                                      <img
+                                        src={establishment.logo_url}
+                                        alt="Logo"
+                                        className="w-full h-full object-cover"
+                                      />
+                                      <button
+                                        onClick={() => handleRemoveLogo()}
+                                        className="absolute top-1 right-1 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+                                      >
+                                        <Trash2 className="h-3 w-3 text-white" />
+                                      </button>
+                                    </div>
+                                  ) : (
                                     <img
-                                      src={establishment.logo_url}
-                                      alt="Logo"
+                                      src="/logoagendamento.png"
+                                      alt="Logo padrão"
                                       className="w-full h-full object-cover"
                                     />
-                                    <button
-                                      onClick={() => handleRemoveLogo()}
-                                      className="absolute top-1 right-1 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
-                                    >
-                                      <Trash2 className="h-3 w-3 text-white" />
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <img
-                                    src="/logoagendamento.png"
-                                    alt="Logo padrão"
-                                    className="w-full h-full object-cover"
+                                  )}
+                                </div>
+                                <label className="absolute bottom-0 right-0 p-1 bg-primary rounded-full cursor-pointer hover:bg-primary/80 transition-colors">
+                                  <Plus className="h-4 w-4 text-white" />
+                                  <input
+                                    ref={wizardLogoInputRef}
+                                    type="file"
+                                    accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
+                                    onChange={handleLogoChange}
+                                    className="hidden"
                                   />
-                                )}
+                                </label>
                               </div>
-                              <label className="absolute bottom-0 right-0 p-1 bg-primary rounded-full cursor-pointer hover:bg-primary/80 transition-colors">
-                                <Plus className="h-4 w-4 text-white" />
-                                <input
-                                  ref={wizardLogoInputRef}
-                                  type="file"
-                                  accept="image/*,image/jpeg,image/jpg,image/png,image/webp"
-                                  onChange={handleLogoChange}
-                                  className="hidden"
-                                />
-                              </label>
+                              <div className="flex-1 min-w-0">
+                                <p className="hidden sm:block text-sm text-gray-400">
+                                  Adicione uma logo para seu estabelecimento. Ela será exibida na página de agendamentos.
+                                  <br />
+                                  Recomendamos uma imagem quadrada de pelo menos 200x200 pixels.
+                                </p>
+                                <button
+                                  onClick={() => showInfoModalFunc(
+                                    'Logo do Estabelecimento',
+                                    'Adicione uma logo para seu estabelecimento. Ela será exibida na página de agendamentos. Recomendamos uma imagem quadrada de pelo menos 200x200 pixels.'
+                                  )}
+                                  className="sm:hidden mt-1 text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
+                                >
+                                  <HelpCircle className="h-3 w-3" />
+                                  Ver informações
+                                </button>
+                              </div>
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="hidden sm:block text-sm text-gray-400">
-                                Adicione uma logo para seu estabelecimento. Ela será exibida na página de agendamentos.
-                                <br />
-                                Recomendamos uma imagem quadrada de pelo menos 200x200 pixels.
-                              </p>
-                              <button
-                                onClick={() => showInfoModalFunc(
-                                  'Logo do Estabelecimento',
-                                  'Adicione uma logo para seu estabelecimento. Ela será exibida na página de agendamentos. Recomendamos uma imagem quadrada de pelo menos 200x200 pixels.'
-                                )}
-                                className="sm:hidden mt-1 text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
-                              >
-                                <HelpCircle className="h-3 w-3" />
-                                Ver informações
-                              </button>
-                            </div>
+                            {isNewUser && quizStep === 2 && (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={handleQuizNext}
+                                  className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"
+                                >
+                                  Sim, continuar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => wizardLogoInputRef.current?.click()}
+                                  className="px-4 py-2 rounded-lg bg-[#2a2b2c] border border-gray-600 text-white font-semibold hover:border-gray-500"
+                                >
+                                  Adicionar foto
+                                </button>
+                              </div>
+                            )}
                           </div>
-                          {isNewUser && quizStep === 2 && (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={handleQuizNext}
-                                className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"
-                              >
-                                Sim, continuar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => wizardLogoInputRef.current?.click()}
-                                className="px-4 py-2 rounded-lg bg-[#2a2b2c] border border-gray-600 text-white font-semibold hover:border-gray-500"
-                              >
-                                Adicionar foto
-                              </button>
-                            </div>
-                          )}
-                        </div>
                         )}
 
                         {!isNewUser && (
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Descrição</label>
-                          <textarea
-                            value={establishment?.description || ''}
-                            onChange={(e) => handleInputChange('description', e.target.value)}
-                            className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
-                            rows={4}
-                          />
-                        </div>
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Descrição</label>
+                            <textarea
+                              value={establishment?.description || ''}
+                              onChange={(e) => handleInputChange('description', e.target.value)}
+                              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                              rows={4}
+                            />
+                          </div>
                         )}
 
                         {/* Segunda Unidade */}
                         {(!isNewUser || quizCompleted) && (
-                        <div className="rounded-lg border border-gray-600 bg-[#1e1f20] p-4">
-                          <h3 className="text-sm font-semibold text-white mb-1">Segunda Unidade</h3>
-                          <p className="text-xs text-gray-400 mb-3">
-                            Aqui você coloca o código da sua segunda unidade. No booking e no painel aparecerá um botão para o cliente acessar a outra unidade.
-                          </p>
-                          <div className="flex flex-wrap items-end gap-2 mb-2">
-                            <span className="text-sm text-gray-400 shrink-0">agendeifacil.com/booking/</span>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              pattern="[0-9]*"
-                              value={((establishment as any)?.second_unit_booking_code ?? '').toString().replace(/\D/g, '')}
-                              onChange={(e) => {
-                                const onlyDigits = (e.target.value || '').replace(/\D/g, '');
-                                handleInputChange('second_unit_booking_code', onlyDigits);
-                              }}
-                              placeholder="código (só números)"
-                              className="w-28 px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
-                            />
-                          </div>
-                          {(establishment as any)?.second_unit_booking_code && (
-                            <div className="mt-3 space-y-2">
-                              {secondUnitName && (
-                                <p className="text-sm text-white font-medium">Nome da outra unidade: <span className="text-amber-300">{secondUnitName}</span></p>
-                              )}
-                              <div>
-                                <label className="block text-xs font-medium text-gray-400 mb-1">Descrição (ex.: endereço ou bairro – aparece abaixo do nome)</label>
-                                <input
-                                  type="text"
-                                  value={(establishment as any)?.second_unit_label || ''}
-                                  onChange={(e) => handleInputChange('second_unit_label', (e.target.value || '').trim())}
-                                  placeholder="Unidade 2 bairro Carandai"
-                                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
-                                />
-                              </div>
-
-                              {/* Acesso rápido: email/senha da outra unidade para logar direto daqui */}
-                              <div className="mt-4 pt-4 border-t border-gray-600">
-                                <h4 className="text-sm font-semibold text-white mb-1">Acesso rápido</h4>
-                                <div className="mb-3 p-2 rounded-lg bg-red-900/30 border border-red-600/50 text-red-200 text-xs">
-                                  <strong>⚠️ Dados sensíveis:</strong> E-mail e senha ficam salvos só neste aparelho. <strong>Não compartilhe esta tela nem tire prints</strong> quando a senha estiver visível.
-                                </div>
-                                <p className="text-xs text-gray-400 mb-3">
-                                  Coloque seu e-mail e senha da outra unidade para acessar ela mais rápido, direto daqui.
-                                </p>
-                                <div className="space-y-2">
+                          <div className="rounded-lg border border-gray-600 bg-[#1e1f20] p-4">
+                            <h3 className="text-sm font-semibold text-white mb-1">Segunda Unidade</h3>
+                            <p className="text-xs text-gray-400 mb-3">
+                              Aqui você coloca o código da sua segunda unidade. No booking e no painel aparecerá um botão para o cliente acessar a outra unidade.
+                            </p>
+                            <div className="flex flex-wrap items-end gap-2 mb-2">
+                              <span className="text-sm text-gray-400 shrink-0">agendeifacil.com/booking/</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={((establishment as any)?.second_unit_booking_code ?? '').toString().replace(/\D/g, '')}
+                                onChange={(e) => {
+                                  const onlyDigits = (e.target.value || '').replace(/\D/g, '');
+                                  handleInputChange('second_unit_booking_code', onlyDigits);
+                                }}
+                                placeholder="código (só números)"
+                                className="w-28 px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
+                              />
+                            </div>
+                            {(establishment as any)?.second_unit_booking_code && (
+                              <div className="mt-3 space-y-2">
+                                {secondUnitName && (
+                                  <p className="text-sm text-white font-medium">Nome da outra unidade: <span className="text-amber-300">{secondUnitName}</span></p>
+                                )}
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-400 mb-1">Descrição (ex.: endereço ou bairro – aparece abaixo do nome)</label>
                                   <input
-                                    type="email"
-                                    value={secondUnitQuickEmail}
-                                    onChange={(e) => {
-                                      const v = e.target.value;
-                                      if (isBlockedQuickAccessEmail(v)) {
-                                        setSecondUnitQuickEmail('');
-                                        return;
-                                      }
-                                      setSecondUnitQuickEmail(v);
-                                    }}
-                                    onBlur={() => {
-                                      if (isBlockedQuickAccessEmail(secondUnitQuickEmail)) {
-                                        setSecondUnitQuickEmail('');
-                                        toast.error('Este e-mail não pode ser usado no Acesso rápido.');
-                                      }
-                                    }}
-                                    placeholder="E-mail da outra unidade"
+                                    type="text"
+                                    value={(establishment as any)?.second_unit_label || ''}
+                                    onChange={(e) => handleInputChange('second_unit_label', (e.target.value || '').trim())}
+                                    placeholder="Unidade 2 bairro Carandai"
                                     className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
                                   />
-                                  <div className="relative">
+                                </div>
+
+                                {/* Acesso rápido: email/senha da outra unidade para logar direto daqui */}
+                                <div className="mt-4 pt-4 border-t border-gray-600">
+                                  <h4 className="text-sm font-semibold text-white mb-1">Acesso rápido</h4>
+                                  <div className="mb-3 p-2 rounded-lg bg-red-900/30 border border-red-600/50 text-red-200 text-xs">
+                                    <strong>⚠️ Dados sensíveis:</strong> E-mail e senha ficam salvos só neste aparelho. <strong>Não compartilhe esta tela nem tire prints</strong> quando a senha estiver visível.
+                                  </div>
+                                  <p className="text-xs text-gray-400 mb-3">
+                                    Coloque seu e-mail e senha da outra unidade para acessar ela mais rápido, direto daqui.
+                                  </p>
+                                  <div className="space-y-2">
                                     <input
-                                      type={showSecondUnitQuickPassword ? 'text' : 'password'}
-                                      value={secondUnitQuickPassword}
+                                      type="email"
+                                      value={secondUnitQuickEmail}
                                       onChange={(e) => {
                                         const v = e.target.value;
-                                        if (isBlockedQuickAccessPassword(v)) {
-                                          setSecondUnitQuickPassword('');
+                                        if (isBlockedQuickAccessEmail(v)) {
+                                          setSecondUnitQuickEmail('');
                                           return;
                                         }
-                                        setSecondUnitQuickPassword(v);
+                                        setSecondUnitQuickEmail(v);
                                       }}
                                       onBlur={() => {
-                                        if (isBlockedQuickAccessPassword(secondUnitQuickPassword)) {
-                                          setSecondUnitQuickPassword('');
-                                          toast.error('Esta senha não pode ser usada no Acesso rápido.');
+                                        if (isBlockedQuickAccessEmail(secondUnitQuickEmail)) {
+                                          setSecondUnitQuickEmail('');
+                                          toast.error('Este e-mail não pode ser usado no Acesso rápido.');
                                         }
                                       }}
-                                      placeholder="Senha da outra unidade"
-                                      className="w-full px-3 py-2 pr-10 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
+                                      placeholder="E-mail da outra unidade"
+                                      className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
                                     />
+                                    <div className="relative">
+                                      <input
+                                        type={showSecondUnitQuickPassword ? 'text' : 'password'}
+                                        value={secondUnitQuickPassword}
+                                        onChange={(e) => {
+                                          const v = e.target.value;
+                                          if (isBlockedQuickAccessPassword(v)) {
+                                            setSecondUnitQuickPassword('');
+                                            return;
+                                          }
+                                          setSecondUnitQuickPassword(v);
+                                        }}
+                                        onBlur={() => {
+                                          if (isBlockedQuickAccessPassword(secondUnitQuickPassword)) {
+                                            setSecondUnitQuickPassword('');
+                                            toast.error('Esta senha não pode ser usada no Acesso rápido.');
+                                          }
+                                        }}
+                                        placeholder="Senha da outra unidade"
+                                        className="w-full px-3 py-2 pr-10 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowSecondUnitQuickPassword((v) => !v)}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-gray-400 hover:text-white"
+                                        title={showSecondUnitQuickPassword ? 'Ocultar senha (recomendado)' : 'Mostrar senha'}
+                                      >
+                                        {showSecondUnitQuickPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                      </button>
+                                      {showSecondUnitQuickPassword && (
+                                        <p className="text-[11px] text-amber-400 mt-1">Senha visível — não compartilhe a tela.</p>
+                                      )}
+                                    </div>
                                     <button
                                       type="button"
-                                      onClick={() => setShowSecondUnitQuickPassword((v) => !v)}
-                                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-gray-400 hover:text-white"
-                                      title={showSecondUnitQuickPassword ? 'Ocultar senha (recomendado)' : 'Mostrar senha'}
+                                      onClick={() => {
+                                        const email = secondUnitQuickEmail.trim();
+                                        const password = secondUnitQuickPassword;
+                                        if (!email || !password) {
+                                          toast.error('Preencha e-mail e senha da outra unidade.');
+                                          return;
+                                        }
+                                        if (isBlockedQuickAccessCredentials(email, password)) {
+                                          toast.error('Este e-mail e senha não podem ser usados no Acesso rápido por segurança.');
+                                          return;
+                                        }
+                                        if (establishment?.id) {
+                                          try {
+                                            localStorage.setItem(`second_unit_quick_${establishment.id}`, JSON.stringify({ email, password }));
+                                          } catch { /* ignore */ }
+                                        }
+                                        sessionStorage.setItem('other_unit_login_email', email);
+                                        sessionStorage.setItem('other_unit_login_password', password);
+                                        sessionStorage.setItem('other_unit_login_flag', 'true');
+                                        signOut();
+                                        navigate('/login');
+                                      }}
+                                      className="w-full py-2 px-3 rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-300 font-semibold hover:bg-amber-500/30 transition-colors"
                                     >
-                                      {showSecondUnitQuickPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                      Logar outra unidade
                                     </button>
-                                    {showSecondUnitQuickPassword && (
-                                      <p className="text-[11px] text-amber-400 mt-1">Senha visível — não compartilhe a tela.</p>
-                                    )}
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const email = secondUnitQuickEmail.trim();
-                                      const password = secondUnitQuickPassword;
-                                      if (!email || !password) {
-                                        toast.error('Preencha e-mail e senha da outra unidade.');
-                                        return;
-                                      }
-                                      if (isBlockedQuickAccessCredentials(email, password)) {
-                                        toast.error('Este e-mail e senha não podem ser usados no Acesso rápido por segurança.');
-                                        return;
-                                      }
-                                      if (establishment?.id) {
-                                        try {
-                                          localStorage.setItem(`second_unit_quick_${establishment.id}`, JSON.stringify({ email, password }));
-                                        } catch { /* ignore */ }
-                                      }
-                                      sessionStorage.setItem('other_unit_login_email', email);
-                                      sessionStorage.setItem('other_unit_login_password', password);
-                                      sessionStorage.setItem('other_unit_login_flag', 'true');
-                                      signOut();
-                                      navigate('/login');
-                                    }}
-                                    className="w-full py-2 px-3 rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-300 font-semibold hover:bg-amber-500/30 transition-colors"
-                                  >
-                                    Logar outra unidade
-                                  </button>
                                 </div>
                               </div>
-                            </div>
-                          )}
-                        </div>
+                            )}
+                          </div>
                         )}
 
                         {(!isNewUser || quizStep === 3) && (
-                        <div id="quiz-step-senha">
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
-                            <label className="block text-sm font-extrabold text-white">🔐 Senha de 4 dígitos (segurança do sistema)</label>
-                            <button
-                              onClick={() => showInfoModalFunc(
-                                'Senha de 4 dígitos para configurações',
-                                'Essa senha deixa seu sistema mais restritivo (recomendado). Ela pode ser exigida para acessar áreas sensíveis do sistema e evitar que outros profissionais mexam onde não devem.\n\n' +
-                                'Ela pode bloquear/autorizar, por exemplo:\n' +
-                                '• Entrar em Configurações / Página\n' +
-                                '• Entrar em Meus serviços (criar/editar/excluir serviços)\n' +
-                                '• Entrar em Meus assinantes\n' +
-                                '• Entrar no Financeiro e visualizar/alterar dados (inclusive de outros profissionais)\n' +
-                                '• Alterar dados sensíveis dos profissionais (ex: % comissão e senha)\n' +
-                                '• Cancelar agendamentos quando o sistema exigir senha\n\n' +
-                                'Defina uma senha de 4 dígitos e clique em Salvar.'
-                              )}
-                              className="sm:hidden text-xs text-amber-300 hover:text-amber-200 underline flex items-center gap-1"
-                            >
-                              <AlertTriangle className="h-3 w-3" />
-                              Ver informações
-                            </button>
-                          </div>
-                          <div className="mb-3 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3">
-                            <div className="flex items-start gap-2">
-                              <AlertTriangle className="h-5 w-5 text-amber-300 mt-0.5 flex-shrink-0" />
-                              <div className="min-w-0">
-                                <div className="text-sm font-extrabold text-amber-100">
-                                  Importante: isso deixa seu sistema mais restritivo (recomendado)
-                                </div>
-                                {isNewUser ? (
-                                  <div className="text-xs text-amber-100/90 mt-1 leading-relaxed">
-                                    Quantos profissionais trabalham no seu estabelecimento?
-                                  </div>
-                                ) : (
-                                  <div className="text-xs text-amber-100/90 mt-1 leading-relaxed">
-                                    A senha salva aqui pode ser usada para <strong>bloquear/autorizar ações sensíveis</strong>, como:
-                                    <span className="block mt-1">
-                                      • Entrar em <strong>Configurações / Página</strong><br />
-                                      • Entrar em <strong>Meus serviços</strong> (criar/editar/excluir serviços)<br />
-                                      • Entrar em <strong>Meus assinantes</strong><br />
-                                      • Entrar no <strong>Financeiro</strong> e ver/alterar dados (inclusive de outros profissionais)<br />
-                                      • Alterar dados dos profissionais (ex: <strong>% comissão</strong> e senha)<br />
-                                      • Cancelar agendamentos quando o sistema exigir senha
-                                    </span>
-                                  </div>
+                          <div id="quiz-step-senha">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
+                              <label className="block text-sm font-extrabold text-white">🔐 Senha de 4 dígitos (segurança do sistema)</label>
+                              <button
+                                onClick={() => showInfoModalFunc(
+                                  'Senha de 4 dígitos para configurações',
+                                  'Essa senha deixa seu sistema mais restritivo (recomendado). Ela pode ser exigida para acessar áreas sensíveis do sistema e evitar que outros profissionais mexam onde não devem.\n\n' +
+                                  'Ela pode bloquear/autorizar, por exemplo:\n' +
+                                  '• Entrar em Configurações / Página\n' +
+                                  '• Entrar em Meus serviços (criar/editar/excluir serviços)\n' +
+                                  '• Entrar em Meus assinantes\n' +
+                                  '• Entrar no Financeiro e visualizar/alterar dados (inclusive de outros profissionais)\n' +
+                                  '• Alterar dados sensíveis dos profissionais (ex: % comissão e senha)\n' +
+                                  '• Cancelar agendamentos quando o sistema exigir senha\n\n' +
+                                  'Defina uma senha de 4 dígitos e clique em Salvar.'
                                 )}
+                                className="sm:hidden text-xs text-amber-300 hover:text-amber-200 underline flex items-center gap-1"
+                              >
+                                <AlertTriangle className="h-3 w-3" />
+                                Ver informações
+                              </button>
+                            </div>
+                            <div className="mb-3 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3">
+                              <div className="flex items-start gap-2">
+                                <AlertTriangle className="h-5 w-5 text-amber-300 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0">
+                                  <div className="text-sm font-extrabold text-amber-100">
+                                    Importante: isso deixa seu sistema mais restritivo (recomendado)
+                                  </div>
+                                  {isNewUser ? (
+                                    <div className="text-xs text-amber-100/90 mt-1 leading-relaxed">
+                                      Quantos profissionais trabalham no seu estabelecimento?
+                                    </div>
+                                  ) : (
+                                    <div className="text-xs text-amber-100/90 mt-1 leading-relaxed">
+                                      A senha salva aqui pode ser usada para <strong>bloquear/autorizar ações sensíveis</strong>, como:
+                                      <span className="block mt-1">
+                                        • Entrar em <strong>Configurações / Página</strong><br />
+                                        • Entrar em <strong>Meus serviços</strong> (criar/editar/excluir serviços)<br />
+                                        • Entrar em <strong>Meus assinantes</strong><br />
+                                        • Entrar no <strong>Financeiro</strong> e ver/alterar dados (inclusive de outros profissionais)<br />
+                                        • Alterar dados dos profissionais (ex: <strong>% comissão</strong> e senha)<br />
+                                        • Cancelar agendamentos quando o sistema exigir senha
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
+                            {isNewUser && (
+                              <div className="mb-3 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setWizardProfessionalCount('one');
+                                    if (establishment?.id) localStorage.setItem(`quiz_prof_count_${establishment.id}`, 'one');
+                                  }}
+                                  className={`px-3 py-2 rounded-lg border text-sm font-semibold ${wizardProfessionalCount === 'one'
+                                      ? 'bg-blue-600 border-blue-500 text-white'
+                                      : 'bg-[#2a2b2c] border-gray-600 text-gray-200'
+                                    }`}
+                                >
+                                  Apenas 1
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setWizardProfessionalCount('multiple');
+                                    if (establishment?.id) localStorage.setItem(`quiz_prof_count_${establishment.id}`, 'multiple');
+                                  }}
+                                  className={`px-3 py-2 rounded-lg border text-sm font-semibold ${wizardProfessionalCount === 'multiple'
+                                      ? 'bg-blue-600 border-blue-500 text-white'
+                                      : 'bg-[#2a2b2c] border-gray-600 text-gray-200'
+                                    }`}
+                                >
+                                  Mais de 1
+                                </button>
+                              </div>
+                            )}
+                            {(!isNewUser || wizardProfessionalCount === 'multiple') && (
+                              <div className="flex gap-2">
+                                <input
+                                  type="password"
+                                  maxLength={4}
+                                  value={pinPassword}
+                                  onChange={(e) => setPinPassword(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                                  placeholder="Digite uma senha de 4 dígitos"
+                                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                                />
+                                <button
+                                  onClick={handleSavePin}
+                                  className="px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-extrabold shadow-lg shadow-blue-600/20"
+                                >
+                                  ✅ Salvar Senha
+                                </button>
+                              </div>
+                            )}
+                            <p className="text-sm text-gray-400 mt-1">
+                              {establishment?.pin_password && establishment.pin_password !== '0000' ? 'Senha atual: ' + establishment.pin_password : 'Nenhuma senha definida'}
+                            </p>
+                            {isNewUser && quizStep === 3 && (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={handleQuizNext}
+                                  className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"
+                                >
+                                  Confirmar e continuar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setQuizAlertMessage('Você pode ajustar essa etapa antes de continuar.')}
+                                  className="px-4 py-2 rounded-lg bg-[#2a2b2c] border border-gray-600 text-white font-semibold hover:border-gray-500"
+                                >
+                                  Editar
+                                </button>
+                              </div>
+                            )}
                           </div>
-                          {isNewUser && (
-                            <div className="mb-3 flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setWizardProfessionalCount('one');
-                                  if (establishment?.id) localStorage.setItem(`quiz_prof_count_${establishment.id}`, 'one');
-                                }}
-                                className={`px-3 py-2 rounded-lg border text-sm font-semibold ${
-                                  wizardProfessionalCount === 'one'
-                                    ? 'bg-blue-600 border-blue-500 text-white'
-                                    : 'bg-[#2a2b2c] border-gray-600 text-gray-200'
-                                }`}
-                              >
-                                Apenas 1
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setWizardProfessionalCount('multiple');
-                                  if (establishment?.id) localStorage.setItem(`quiz_prof_count_${establishment.id}`, 'multiple');
-                                }}
-                                className={`px-3 py-2 rounded-lg border text-sm font-semibold ${
-                                  wizardProfessionalCount === 'multiple'
-                                    ? 'bg-blue-600 border-blue-500 text-white'
-                                    : 'bg-[#2a2b2c] border-gray-600 text-gray-200'
-                                }`}
-                              >
-                                Mais de 1
-                              </button>
-                            </div>
-                          )}
-                          {(!isNewUser || wizardProfessionalCount === 'multiple') && (
-                          <div className="flex gap-2">
-                            <input
-                              type="password"
-                              maxLength={4}
-                              value={pinPassword}
-                              onChange={(e) => setPinPassword(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
-                              placeholder="Digite uma senha de 4 dígitos"
-                              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
-                            />
-                            <button
-                              onClick={handleSavePin}
-                              className="px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-extrabold shadow-lg shadow-blue-600/20"
-                            >
-                              ✅ Salvar Senha
-                            </button>
-                          </div>
-                          )}
-                          <p className="text-sm text-gray-400 mt-1">
-                            {establishment?.pin_password && establishment.pin_password !== '0000' ? 'Senha atual: ' + establishment.pin_password : 'Nenhuma senha definida'}
-                          </p>
-                          {isNewUser && quizStep === 3 && (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={handleQuizNext}
-                                className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"
-                              >
-                                Confirmar e continuar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setQuizAlertMessage('Você pode ajustar essa etapa antes de continuar.')}
-                                className="px-4 py-2 rounded-lg bg-[#2a2b2c] border border-gray-600 text-white font-semibold hover:border-gray-500"
-                              >
-                                Editar
-                              </button>
-                            </div>
-                          )}
-                        </div>
                         )}
                       </div>
                     </div>
@@ -21009,6 +21132,19 @@ Estamos te aguardando! 😎✂️`;
                             checked={use15MinuteInterval}
                             onChange={(e) => {
                               const newValue = e.target.checked;
+                              if (newValue) {
+                                const conflicts = getScheduleIntervalConflicts(businessHours, 30);
+                                if (conflicts.length > 0) {
+                                  setScheduleIntervalConflictPayload({
+                                    intervalLabel: '30 em 30 min',
+                                    exampleText: '09:00, 09:30, 10:00, 10:30',
+                                    instructionText: 'Vá em "Horários e dias de funcionamento", escolha cada dia indicado e altere esses horários (ex.: 09:00 ou 09:30). Depois volte aqui e marque "30 em 30 min".',
+                                    conflicts
+                                  });
+                                  setShowScheduleIntervalConflictModal(true);
+                                  return;
+                                }
+                              }
                               setUse15MinuteInterval(newValue);
                               // Se ativar 30 em 30, desativar 20 em 20 e 1 em 1h
                               const newUse20MinuteSchedule = newValue ? false : use20MinuteSchedule;
@@ -21050,6 +21186,19 @@ Estamos te aguardando! 😎✂️`;
                             checked={use20MinuteSchedule}
                             onChange={(e) => {
                               const newValue = e.target.checked;
+                              if (newValue) {
+                                const conflicts = getScheduleIntervalConflicts(businessHours, 20);
+                                if (conflicts.length > 0) {
+                                  setScheduleIntervalConflictPayload({
+                                    intervalLabel: '20 em 20 min',
+                                    exampleText: '09:00, 09:20, 09:40, 10:00',
+                                    instructionText: 'Vá em "Horários e dias de funcionamento", escolha cada dia indicado e altere esses horários (ex.: no lugar de 09:30 use 09:20 ou 09:40). Depois volte aqui e marque "20 em 20 min".',
+                                    conflicts
+                                  });
+                                  setShowScheduleIntervalConflictModal(true);
+                                  return;
+                                }
+                              }
                               setUse20MinuteSchedule(newValue);
                               // Se ativar 20 em 20, desativar 30 em 30 e 1 em 1h
                               const newUse15MinuteInterval = newValue ? false : use15MinuteInterval;
@@ -21093,6 +21242,19 @@ Estamos te aguardando! 😎✂️`;
                             checked={use60MinuteSchedule}
                             onChange={(e) => {
                               const newValue = e.target.checked;
+                              if (newValue) {
+                                const conflicts = getScheduleIntervalConflicts(businessHours, 60);
+                                if (conflicts.length > 0) {
+                                  setScheduleIntervalConflictPayload({
+                                    intervalLabel: '1 em 1 hora',
+                                    exampleText: '09:00, 10:00, 11:00 (hora cheia)',
+                                    instructionText: 'Vá em "Horários e dias de funcionamento", escolha cada dia indicado e altere esses horários para hora cheia. Depois volte aqui e marque "1 em 1 hora".',
+                                    conflicts
+                                  });
+                                  setShowScheduleIntervalConflictModal(true);
+                                  return;
+                                }
+                              }
                               setUse60MinuteSchedule(newValue);
                               // Se ativar 1 em 1 hora, desativar 20 em 20 e 30 em 30
                               const newUse15MinuteInterval = newValue ? false : use15MinuteInterval;
@@ -21149,11 +21311,10 @@ Estamos te aguardando! 😎✂️`;
                                     });
                                   }, 1000);
                                 }}
-                                className={`px-4 py-2 rounded-md border text-sm font-semibold transition-colors ${
-                                  bookingMinAdvanceHours === hours
+                                className={`px-4 py-2 rounded-md border text-sm font-semibold transition-colors ${bookingMinAdvanceHours === hours
                                     ? 'bg-blue-600 border-blue-500 text-white'
                                     : 'bg-[#1a1b1c] border-gray-600 text-gray-300 hover:border-gray-500'
-                                }`}
+                                  }`}
                                 aria-pressed={bookingMinAdvanceHours === hours}
                               >
                                 {hours} h
@@ -26278,146 +26439,146 @@ Estamos te aguardando! 😎✂️`;
 
               {/* Lembrete/Explicação sobre como usar categorias */}
               {!isServiceWizardOnboarding && (
-              <div className="bg-gray-100 border-l-4 border-gray-400 rounded-lg p-4 mb-6">
-                <div className="flex items-start gap-3">
-                  <div className="flex-shrink-0">
-                    <span className="text-gray-700 text-2xl">💡</span>
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-900 mb-2">Como usar as categorias:</h3>
-                    <p className="text-sm text-gray-700">
-                      Crie a sua categoria, exemplo: <strong>Cabelo</strong>. Dentro da categoria <strong>Cabelo</strong>, você adiciona os serviços de cabelo (Corte, Escova, Hidratação, etc). Assim por diante para outras categorias como <strong>Barba</strong>, <strong>Estética</strong>, etc.
-                    </p>
+                <div className="bg-gray-100 border-l-4 border-gray-400 rounded-lg p-4 mb-6">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0">
+                      <span className="text-gray-700 text-2xl">💡</span>
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-900 mb-2">Como usar as categorias:</h3>
+                      <p className="text-sm text-gray-700">
+                        Crie a sua categoria, exemplo: <strong>Cabelo</strong>. Dentro da categoria <strong>Cabelo</strong>, você adiciona os serviços de cabelo (Corte, Escova, Hidratação, etc). Assim por diante para outras categorias como <strong>Barba</strong>, <strong>Estética</strong>, etc.
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
               )}
 
               {/* Mensagem destacada sobre flexibilidade */}
               {!isServiceWizardOnboarding && (
-              <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                <div className="flex items-start gap-3">
-                  <div className="flex-shrink-0">
-                    <span className="text-amber-700 text-2xl">⭐</span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-extrabold bg-amber-200 text-amber-900 border border-amber-300">
-                        RECOMENDADO
-                      </span>
-                      <span className="text-sm font-extrabold text-amber-900">
-                        Opção mais simples para organizar seus serviços
-                      </span>
+                <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0">
+                      <span className="text-amber-700 text-2xl">⭐</span>
                     </div>
-                    <p className="text-sm text-amber-900/90 font-semibold leading-relaxed">
-                      Você pode criar apenas <strong>1 categoria</strong> chamada <strong>"Meus serviços"</strong> e colocar <strong>todos</strong> os serviços dentro dela.
-                      Depois, se quiser, você pode separar por categorias (Cabelo, Barba, Estética…) sem problema.
-                    </p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-extrabold bg-amber-200 text-amber-900 border border-amber-300">
+                          RECOMENDADO
+                        </span>
+                        <span className="text-sm font-extrabold text-amber-900">
+                          Opção mais simples para organizar seus serviços
+                        </span>
+                      </div>
+                      <p className="text-sm text-amber-900/90 font-semibold leading-relaxed">
+                        Você pode criar apenas <strong>1 categoria</strong> chamada <strong>"Meus serviços"</strong> e colocar <strong>todos</strong> os serviços dentro dela.
+                        Depois, se quiser, você pode separar por categorias (Cabelo, Barba, Estética…) sem problema.
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
               )}
 
               {/* Botão para salvar serviços e abrir todas as funções */}
               {!isServiceWizardOnboarding && (
-              <div className="mb-6 text-center">
-                <button
-                  onClick={async () => {
-                    if (!establishment) return;
+                <div className="mb-6 text-center">
+                  <button
+                    onClick={async () => {
+                      if (!establishment) return;
 
-                    try {
-                      // Buscar serviços de service_subcategories (sistema de categorias)
-                      const { data: subcategoriesData } = await supabase
-                        .from('service_subcategories')
-                        .select(`
+                      try {
+                        // Buscar serviços de service_subcategories (sistema de categorias)
+                        const { data: subcategoriesData } = await supabase
+                          .from('service_subcategories')
+                          .select(`
                           *,
                           service_categories!inner (
                             establishment_id
                           )
                         `)
-                        .eq('service_categories.establishment_id', establishment.id)
-                        .eq('is_active', true);
+                          .eq('service_categories.establishment_id', establishment.id)
+                          .eq('is_active', true);
 
-                      // Converter subcategorias para formato de serviços
-                      const servicesFromCategories = (subcategoriesData || []).map((sub: any) => ({
-                        id: sub.id,
-                        name: sub.name,
-                        price: Number(sub.price),
-                        duration: Number(sub.duration || 30)
-                      }));
+                        // Converter subcategorias para formato de serviços
+                        const servicesFromCategories = (subcategoriesData || []).map((sub: any) => ({
+                          id: sub.id,
+                          name: sub.name,
+                          price: Number(sub.price),
+                          duration: Number(sub.duration || 30)
+                        }));
 
-                      // Buscar serviços salvos em services_with_prices (sistema antigo)
-                      const { data: establishmentData } = await supabase
-                        .from('establishments')
-                        .select('services_with_prices')
-                        .eq('id', establishment.id)
-                        .single();
+                        // Buscar serviços salvos em services_with_prices (sistema antigo)
+                        const { data: establishmentData } = await supabase
+                          .from('establishments')
+                          .select('services_with_prices')
+                          .eq('id', establishment.id)
+                          .single();
 
-                      const savedServices = establishmentData?.services_with_prices || [];
-                      const localServices = servicesWithPrices || [];
+                        const savedServices = establishmentData?.services_with_prices || [];
+                        const localServices = servicesWithPrices || [];
 
-                      // Combinar todos os serviços
-                      const allServices = [...localServices, ...savedServices, ...servicesFromCategories];
+                        // Combinar todos os serviços
+                        const allServices = [...localServices, ...savedServices, ...servicesFromCategories];
 
-                      // Remover duplicatas por ID
-                      const uniqueServices = allServices.reduce((acc: any[], service: any) => {
-                        if (!acc.find(s => s.id === service.id)) {
-                          acc.push(service);
+                        // Remover duplicatas por ID
+                        const uniqueServices = allServices.reduce((acc: any[], service: any) => {
+                          if (!acc.find(s => s.id === service.id)) {
+                            acc.push(service);
+                          }
+                          return acc;
+                        }, []);
+
+                        // Verificar serviços válidos (com nome e preço)
+                        const validServices = uniqueServices.filter((s: any) =>
+                          s.name && s.name.trim().length > 0 && Number(s.price) > 0
+                        );
+
+                        if (validServices.length === 0) {
+                          toast('Adicione pelo menos um serviço com NOME e PREÇO maior que zero antes de salvar.', 'warning');
+                          return;
                         }
-                        return acc;
-                      }, []);
 
-                      // Verificar serviços válidos (com nome e preço)
-                      const validServices = uniqueServices.filter((s: any) =>
-                        s.name && s.name.trim().length > 0 && Number(s.price) > 0
-                      );
+                        // Salvar serviços válidos e completar onboarding
+                        const { error: saveError } = await supabase
+                          .from('establishments')
+                          .update({
+                            services_with_prices: validServices.map((s: any) => ({
+                              id: s.id,
+                              name: s.name.trim(),
+                              price: Number(s.price),
+                              duration: Number(s.duration || 30)
+                            })),
+                            onboarding_step: 4
+                          })
+                          .eq('id', establishment.id);
 
-                      if (validServices.length === 0) {
-                        toast('Adicione pelo menos um serviço com NOME e PREÇO maior que zero antes de salvar.', 'warning');
-                        return;
+                        if (saveError) {
+                          console.error('Erro ao salvar:', saveError);
+                          toast.error('Erro ao salvar serviços. Tente novamente.');
+                          return;
+                        }
+
+                        setOnboardingStep(4);
+                        setEstablishment({
+                          ...establishment,
+                          services_with_prices: validServices
+                        });
+                        setServicesWithPrices(validServices);
+
+                        toast.success('🎉 Parabéns! Todas as funcionalidades foram liberadas!');
+                        setActiveTab('appointments');
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      } catch (error) {
+                        console.error('Erro ao completar onboarding:', error);
+                        toast.error('Erro ao salvar. Tente novamente.');
                       }
-
-                      // Salvar serviços válidos e completar onboarding
-                      const { error: saveError } = await supabase
-                        .from('establishments')
-                        .update({
-                          services_with_prices: validServices.map((s: any) => ({
-                            id: s.id,
-                            name: s.name.trim(),
-                            price: Number(s.price),
-                            duration: Number(s.duration || 30)
-                          })),
-                          onboarding_step: 4
-                        })
-                        .eq('id', establishment.id);
-
-                      if (saveError) {
-                        console.error('Erro ao salvar:', saveError);
-                        toast.error('Erro ao salvar serviços. Tente novamente.');
-                        return;
-                      }
-
-                      setOnboardingStep(4);
-                      setEstablishment({
-                        ...establishment,
-                        services_with_prices: validServices
-                      });
-                      setServicesWithPrices(validServices);
-
-                      toast.success('🎉 Parabéns! Todas as funcionalidades foram liberadas!');
-                      setActiveTab('appointments');
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
-                    } catch (error) {
-                      console.error('Erro ao completar onboarding:', error);
-                      toast.error('Erro ao salvar. Tente novamente.');
-                    }
-                  }}
-                  className="px-8 py-4 bg-black text-white font-bold text-lg rounded-lg hover:bg-gray-800 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 flex items-center gap-3 mx-auto"
-                >
-                  <Check className="h-6 w-6" />
-                  Salvar Serviços e Abrir Todas as Funções
-                </button>
-              </div>
+                    }}
+                    className="px-8 py-4 bg-black text-white font-bold text-lg rounded-lg hover:bg-gray-800 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 flex items-center gap-3 mx-auto"
+                  >
+                    <Check className="h-6 w-6" />
+                    Salvar Serviços e Abrir Todas as Funções
+                  </button>
+                </div>
               )}
 
               {serviceCategories.length === 0 ? (
@@ -29165,11 +29326,10 @@ Estamos te aguardando! 😎✂️`;
           )}
 
           <div
-            className={`fixed inset-x-0 z-[10022] p-3 sm:p-4 pointer-events-none ${
-              appointmentsTutorialStep === 5 && appointmentsTutorialClientsPreview
+            className={`fixed inset-x-0 z-[10022] p-3 sm:p-4 pointer-events-none ${appointmentsTutorialStep === 5 && appointmentsTutorialClientsPreview
                 ? 'top-0'
                 : 'bottom-0'
-            }`}
+              }`}
           >
             <div className="mx-auto w-full max-w-3xl rounded-2xl border border-gray-300 bg-white shadow-2xl p-4 sm:p-5 pointer-events-auto">
               <div className="flex items-start justify-between gap-3">
@@ -29195,13 +29355,13 @@ Estamos te aguardando! 😎✂️`;
                     ? 'Tela de Bloquear Horários aberta. Clique em Próximo para fechar e seguir.'
                     : appointmentsTutorialStep === 4 && appointmentsTutorialAbsencePreview
                       ? 'Tela de Ausência aberta. Aqui você pode deixar ausência em algum dia que desejar para que ninguém agende nesse dia. Clique em Próximo para fechar e seguir.'
-                    : appointmentsTutorialStep === 6 && !appointmentsTutorialDetailsOpened
-                      ? 'Agora clique no agendamento criado para abrir os detalhes. Só depois disso o Próximo será liberado.'
-                    : appointmentsTutorialStep === 5 && appointmentsTutorialClientsCompleted
-                      ? 'Reserva avulsa confirmada. Agora vamos ensinar você a ver como funciona a reserva e as opções dela. Clique em Próximo para continuar.'
-                  : appointmentsTutorialStep === 5 && appointmentsTutorialClientsPreview
-                    ? 'Tela Meus Clientes aberta com Reservar Cliente. Faça a reserva avulsa e clique em Próximo para voltar para Meus Agendamentos.'
-                    : appointmentsTutorialCurrent?.text}
+                      : appointmentsTutorialStep === 6 && !appointmentsTutorialDetailsOpened
+                        ? 'Agora clique no agendamento criado para abrir os detalhes. Só depois disso o Próximo será liberado.'
+                        : appointmentsTutorialStep === 5 && appointmentsTutorialClientsCompleted
+                          ? 'Reserva avulsa confirmada. Agora vamos ensinar você a ver como funciona a reserva e as opções dela. Clique em Próximo para continuar.'
+                          : appointmentsTutorialStep === 5 && appointmentsTutorialClientsPreview
+                            ? 'Tela Meus Clientes aberta com Reservar Cliente. Faça a reserva avulsa e clique em Próximo para voltar para Meus Agendamentos.'
+                            : appointmentsTutorialCurrent?.text}
               </p>
 
               <div className="mt-4 flex items-center justify-between gap-2">

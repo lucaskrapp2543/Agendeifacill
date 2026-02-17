@@ -1365,77 +1365,77 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
     };
 
-  const handleRestoreCancelledAppointment = async (appointment: Appointment) => {
-    try {
-      // Primeiro tenta restaurar normalmente.
-      const { error } = await supabase
-        .from('appointments')
-        .update({ status: 'confirmed' })
-        .eq('id', appointment.id);
+    const handleRestoreCancelledAppointment = async (appointment: Appointment) => {
+      try {
+        // Primeiro tenta restaurar normalmente.
+        const { error } = await supabase
+          .from('appointments')
+          .update({ status: 'confirmed' })
+          .eq('id', appointment.id);
 
-      if (!error) {
+        if (!error) {
+          toast('Agendamento restabelecido com sucesso');
+          onAppointmentUpdate?.();
+          return;
+        }
+
+        const errorMessage = String(error?.message || '').toLowerCase();
+        const isConflictError = errorMessage.includes('já está reservado') || errorMessage.includes('horário');
+        if (!isConflictError) {
+          throw error;
+        }
+
+        // Conflito de horário: permitir forçar restabelecimento
+        // cancelando os agendamentos ativos que colidem com este horário.
+        const toMinutes = (hhmm: string): number => {
+          const [h, m] = String(hhmm || '00:00').split(':').map(Number);
+          return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+        };
+        const overlaps = (startA: number, durA: number, startB: number, durB: number): boolean => {
+          const endA = startA + durA;
+          const endB = startB + durB;
+          return startA < endB && startB < endA;
+        };
+
+        const targetStart = toMinutes(appointment.appointment_time);
+        const targetDur = Number(appointment.duration || 30);
+        const conflictingAppointments = appointments.filter((apt) =>
+          apt.id !== appointment.id &&
+          apt.professional === appointment.professional &&
+          apt.appointment_date === appointment.appointment_date &&
+          apt.status !== 'cancelled' &&
+          overlaps(targetStart, targetDur, toMinutes(apt.appointment_time), Number(apt.duration || 30))
+        );
+
+        if (conflictingAppointments.length === 0) {
+          throw error;
+        }
+
+        const shouldForce = window.confirm(
+          `Esse horário está ocupado por ${conflictingAppointments.length} agendamento(s) ativo(s). Deseja cancelar o(s) conflito(s) e restabelecer este agendamento?`
+        );
+        if (!shouldForce) return;
+
+        const conflictingIds = conflictingAppointments.map((apt) => apt.id);
+        const { error: cancelConflictsError } = await supabase
+          .from('appointments')
+          .update({ status: 'cancelled' })
+          .in('id', conflictingIds);
+        if (cancelConflictsError) throw cancelConflictsError;
+
+        const { error: restoreError } = await supabase
+          .from('appointments')
+          .update({ status: 'confirmed' })
+          .eq('id', appointment.id);
+        if (restoreError) throw restoreError;
+
         toast('Agendamento restabelecido com sucesso');
         onAppointmentUpdate?.();
-        return;
+      } catch (restoreError: any) {
+        console.error('Erro ao restabelecer agendamento:', restoreError);
+        toast(restoreError?.message || 'Erro ao restabelecer agendamento');
       }
-
-      const errorMessage = String(error?.message || '').toLowerCase();
-      const isConflictError = errorMessage.includes('já está reservado') || errorMessage.includes('horário');
-      if (!isConflictError) {
-        throw error;
-      }
-
-      // Conflito de horário: permitir forçar restabelecimento
-      // cancelando os agendamentos ativos que colidem com este horário.
-      const toMinutes = (hhmm: string): number => {
-        const [h, m] = String(hhmm || '00:00').split(':').map(Number);
-        return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
-      };
-      const overlaps = (startA: number, durA: number, startB: number, durB: number): boolean => {
-        const endA = startA + durA;
-        const endB = startB + durB;
-        return startA < endB && startB < endA;
-      };
-
-      const targetStart = toMinutes(appointment.appointment_time);
-      const targetDur = Number(appointment.duration || 30);
-      const conflictingAppointments = appointments.filter((apt) =>
-        apt.id !== appointment.id &&
-        apt.professional === appointment.professional &&
-        apt.appointment_date === appointment.appointment_date &&
-        apt.status !== 'cancelled' &&
-        overlaps(targetStart, targetDur, toMinutes(apt.appointment_time), Number(apt.duration || 30))
-      );
-
-      if (conflictingAppointments.length === 0) {
-        throw error;
-      }
-
-      const shouldForce = window.confirm(
-        `Esse horário está ocupado por ${conflictingAppointments.length} agendamento(s) ativo(s). Deseja cancelar o(s) conflito(s) e restabelecer este agendamento?`
-      );
-      if (!shouldForce) return;
-
-      const conflictingIds = conflictingAppointments.map((apt) => apt.id);
-      const { error: cancelConflictsError } = await supabase
-        .from('appointments')
-        .update({ status: 'cancelled' })
-        .in('id', conflictingIds);
-      if (cancelConflictsError) throw cancelConflictsError;
-
-      const { error: restoreError } = await supabase
-        .from('appointments')
-        .update({ status: 'confirmed' })
-        .eq('id', appointment.id);
-      if (restoreError) throw restoreError;
-
-      toast('Agendamento restabelecido com sucesso');
-      onAppointmentUpdate?.();
-    } catch (restoreError: any) {
-      console.error('Erro ao restabelecer agendamento:', restoreError);
-      toast(restoreError?.message || 'Erro ao restabelecer agendamento');
-    }
-  };
+    };
 
     const handleEditAppointmentValue = (appointmentId: string, currentValue: number) => {
       setEditingAppointmentValue(appointmentId);
@@ -3380,51 +3380,51 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 {hiddenAppointments.map((apt) => {
                                   const hiddenServiceLabels = getAppointmentServiceLabels(apt);
                                   return (
-                                  <div
-                                    key={`hidden-${apt.id}`}
-                                    className="rounded-lg border border-amber-200 bg-amber-50 p-3"
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <div className="min-w-0">
-                                        <div className="text-xs font-extrabold text-amber-900">
-                                          ⛔ {apt.appointment_time} • {apt.is_squeeze ? 'ENCAIXE' : (getDisplayedClientNameWithSubscriberLabel(apt) || 'Cliente')}
-                                        </div>
-                                        <div className="text-[11px] text-amber-900/90 truncate">
-                                          {apt.service}
-                                        </div>
-                                        {hiddenServiceLabels.length > 0 && (
-                                          <div className="mt-1 flex items-center gap-1 flex-wrap">
-                                            {hiddenServiceLabels.map((label) => (
-                                              <span
-                                                key={`hidden-${apt.id}-${label.name}-${label.color}`}
-                                                className="px-2 py-0.5 rounded-full text-[10px] font-extrabold border border-amber-900/20"
-                                                style={{ backgroundColor: label.color, color: getLabelTextColor(label.color) }}
-                                                title={`Etiqueta: ${label.name}`}
-                                              >
-                                                {label.name}
-                                              </span>
-                                            ))}
+                                    <div
+                                      key={`hidden-${apt.id}`}
+                                      className="rounded-lg border border-amber-200 bg-amber-50 p-3"
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                          <div className="text-xs font-extrabold text-amber-900">
+                                            ⛔ {apt.appointment_time} • {apt.is_squeeze ? 'ENCAIXE' : (getDisplayedClientNameWithSubscriberLabel(apt) || 'Cliente')}
                                           </div>
-                                        )}
+                                          <div className="text-[11px] text-amber-900/90 truncate">
+                                            {apt.service}
+                                          </div>
+                                          {hiddenServiceLabels.length > 0 && (
+                                            <div className="mt-1 flex items-center gap-1 flex-wrap">
+                                              {hiddenServiceLabels.map((label) => (
+                                                <span
+                                                  key={`hidden-${apt.id}-${label.name}-${label.color}`}
+                                                  className="px-2 py-0.5 rounded-full text-[10px] font-extrabold border border-amber-900/20"
+                                                  style={{ backgroundColor: label.color, color: getLabelTextColor(label.color) }}
+                                                  title={`Etiqueta: ${label.name}`}
+                                                >
+                                                  {label.name}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                        <div className="shrink-0 text-[11px] font-extrabold text-amber-900">
+                                          {formatCurrency(calculateTotalPrice(apt))}
+                                        </div>
                                       </div>
-                                      <div className="shrink-0 text-[11px] font-extrabold text-amber-900">
-                                        {formatCurrency(calculateTotalPrice(apt))}
-                                      </div>
-                                    </div>
 
-                                    <div className="mt-2 flex gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleOpenRescheduleModal(apt)}
-                                        className="flex-1 px-3 py-2 rounded bg-black text-white text-xs font-semibold hover:bg-gray-800 transition-colors"
-                                      >
-                                        🕒 Trocar horário
-                                      </button>
+                                      <div className="mt-2 flex gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenRescheduleModal(apt)}
+                                          className="flex-1 px-3 py-2 rounded bg-black text-white text-xs font-semibold hover:bg-gray-800 transition-colors"
+                                        >
+                                          🕒 Trocar horário
+                                        </button>
+                                      </div>
+                                      <div className="mt-2 text-[10px] text-amber-900/80">
+                                        Esse agendamento está fora do intervalo configurado da agenda e por isso não aparece nos horários normais.
+                                      </div>
                                     </div>
-                                    <div className="mt-2 text-[10px] text-amber-900/80">
-                                      Esse agendamento está fora do intervalo configurado da agenda e por isso não aparece nos horários normais.
-                                    </div>
-                                  </div>
                                   );
                                 })}
                               </div>
