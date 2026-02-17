@@ -2525,6 +2525,7 @@ const EstablishmentDashboard = () => {
   const [showQuizPixModal, setShowQuizPixModal] = useState(false); // Popup bonito quando faltar PIX no passo 5
   const [showQuizLinksModal, setShowQuizLinksModal] = useState(false); // Popup bonito quando faltar links no passo 6
   // Modal bonito: horários incompatíveis ao mudar intervalo (20/30/60 min)
+  const [showThirdUnitSection, setShowThirdUnitSection] = useState(false);
   const [showScheduleIntervalConflictModal, setShowScheduleIntervalConflictModal] = useState(false);
   const [scheduleIntervalConflictPayload, setScheduleIntervalConflictPayload] = useState<{
     intervalLabel: string;
@@ -19862,6 +19863,56 @@ Estamos te aguardando! 😎✂️`;
                                     </button>
                                   </div>
                                 </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Botão 3ª unidade: abre bloco para preencher código da terceira unidade */}
+                        {(!isNewUser || quizCompleted) && (
+                          <div className="mt-3">
+                            {!(showThirdUnitSection || (establishment as any)?.third_unit_booking_code) ? (
+                              <button
+                                type="button"
+                                onClick={() => setShowThirdUnitSection(true)}
+                                className="w-full py-2.5 px-4 rounded-lg border border-gray-600 bg-[#1e1f20] text-gray-300 hover:bg-[#2a2b2c] hover:text-white hover:border-gray-500 transition-colors text-sm font-medium"
+                              >
+                                3ª unidade
+                              </button>
+                            ) : null}
+                            {(showThirdUnitSection || (establishment as any)?.third_unit_booking_code) && (
+                              <div className="rounded-lg border border-gray-600 bg-[#1e1f20] p-4 mt-2">
+                                <h3 className="text-sm font-semibold text-white mb-1">Terceira Unidade</h3>
+                                <p className="text-xs text-gray-400 mb-3">
+                                  Aqui você coloca o código da sua terceira unidade. No booking e no painel aparecerá um botão para o cliente acessar a outra unidade.
+                                </p>
+                                <div className="flex flex-wrap items-end gap-2 mb-2">
+                                  <span className="text-sm text-gray-400 shrink-0">agendeifacil.com/booking/</span>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    value={((establishment as any)?.third_unit_booking_code ?? '').toString().replace(/\D/g, '')}
+                                    onChange={(e) => {
+                                      const onlyDigits = (e.target.value || '').replace(/\D/g, '');
+                                      handleInputChange('third_unit_booking_code', onlyDigits);
+                                    }}
+                                    placeholder="código (só números)"
+                                    className="w-28 px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
+                                  />
+                                </div>
+                                {(establishment as any)?.third_unit_booking_code && (
+                                  <div className="mt-3">
+                                    <label className="block text-xs font-medium text-gray-400 mb-1">Descrição (ex.: endereço ou bairro – aparece abaixo do nome)</label>
+                                    <input
+                                      type="text"
+                                      value={(establishment as any)?.third_unit_label || ''}
+                                      onChange={(e) => handleInputChange('third_unit_label', (e.target.value || '').trim())}
+                                      placeholder="Unidade 3 centro"
+                                      className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-500"
+                                    />
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>

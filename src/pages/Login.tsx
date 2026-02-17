@@ -11,6 +11,7 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [saveCredentials, setSaveCredentials] = useState(false);
+  const [showProfessionalLogin, setShowProfessionalLogin] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -98,6 +99,7 @@ const Login = () => {
       setEmail(adminLoginEmail);
       setPassword(adminLoginPassword);
       setSaveCredentials(false); // Não salvar credenciais do admin permanentemente
+      setShowProfessionalLogin(true);
 
       // Limpar sessionStorage após usar
       sessionStorage.removeItem('admin_login_email');
@@ -116,6 +118,7 @@ const Login = () => {
       setEmail(otherUnitEmail);
       setPassword(otherUnitPassword);
       setSaveCredentials(false);
+      setShowProfessionalLogin(true);
       sessionStorage.removeItem('other_unit_login_email');
       sessionStorage.removeItem('other_unit_login_password');
       sessionStorage.removeItem('other_unit_login_flag');
@@ -131,6 +134,7 @@ const Login = () => {
       setEmail(savedEmail);
       setPassword(savedPassword);
       setSaveCredentials(true);
+      setShowProfessionalLogin(true);
     }
 
     // Sistema automático de limpeza já cuida de tudo
@@ -245,95 +249,11 @@ const Login = () => {
           />
           <h1 className="text-3xl font-bold text-white mb-2">Login</h1>
           <p className="text-gray-300 text-sm">
-            Você está fazendo login como estabelecimento
+            🤔 Quem é você? Cliente ou dono de estabelecimento?
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6" onClick={(e) => e.stopPropagation()}>
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-400 mb-1">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => {
-                e.stopPropagation();
-                setEmail(e.target.value);
-              }}
-              onFocus={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-              required
-              disabled={isLoading}
-              className="w-full px-4 py-2 bg-black border border-gray-800 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-500 disabled:opacity-50"
-              placeholder="seu@email.com"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-400 mb-1">
-              Senha
-            </label>
-            <div className="relative">
-              <input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  setPassword(e.target.value);
-                }}
-                onFocus={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-                required
-                disabled={isLoading}
-                className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-500 pr-10 disabled:opacity-50"
-                placeholder="********"
-              />
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  setShowPassword(!showPassword);
-                }}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-300 transition-colors"
-              >
-                {showPassword ? (
-                  <EyeOff className="h-5 w-5" />
-                ) : (
-                  <Eye className="h-5 w-5" />
-                )}
-              </button>
-            </div>
-          </div>
-
-          <div className="text-center space-y-3">
-            {/* Checkbox de salvar credenciais - Destacado */}
-            <div className="bg-blue-900/30 border border-blue-500/50 rounded-lg p-4 hover:border-blue-400 transition-colors">
-              <div className="flex items-center justify-center gap-3">
-                <input
-                  id="saveCredentials"
-                  type="checkbox"
-                  checked={saveCredentials}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    setSaveCredentials(e.target.checked);
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="h-5 w-5 text-blue-600 focus:ring-2 focus:ring-blue-500 border-gray-600 rounded cursor-pointer"
-                />
-                <label
-                  htmlFor="saveCredentials"
-                  className="text-sm sm:text-base text-blue-200 font-medium cursor-pointer"
-                >
-                  ✅ Salvar login para acesso rápido
-                </label>
-              </div>
-            </div>
-          </div>
-
           {/* Botões lado a lado */}
           <div className="flex flex-row gap-2 sm:gap-3">
             <button
@@ -344,28 +264,127 @@ const Login = () => {
               Sou Cliente
             </button>
             <button
-              type="submit"
-              disabled={isLoading}
+              type="button"
+              disabled={isLoading || showProfessionalLogin}
               className="flex-1 px-2 py-2 sm:px-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex justify-center items-center disabled:opacity-50 disabled:cursor-not-allowed text-[10px] sm:text-sm whitespace-nowrap"
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowProfessionalLogin(true);
+              }}
             >
-              {isLoading ? (
-                <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
-              ) : (
-                'Sou Profissional'
-              )}
+              Sou Profissional
             </button>
           </div>
 
-          <div className="text-center mt-3">
-            <Link
-              to="/recovery-password"
-              className="text-blue-400 hover:text-blue-300 text-sm transition-colors"
-              onClick={(e) => e.stopPropagation()}
-            >
-              Esqueci minha senha
-            </Link>
-          </div>
+          {showProfessionalLogin && (
+            <>
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-400 mb-1">
+                  Email
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    setEmail(e.target.value);
+                  }}
+                  onFocus={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                  required
+                  disabled={isLoading}
+                  className="w-full px-4 py-2 bg-black border border-gray-800 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-500 disabled:opacity-50"
+                  placeholder="seu@email.com"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-400 mb-1">
+                  Senha
+                </label>
+                <div className="relative">
+                  <input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      setPassword(e.target.value);
+                    }}
+                    onFocus={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    required
+                    disabled={isLoading}
+                    className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-500 pr-10 disabled:opacity-50"
+                    placeholder="********"
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      setShowPassword(!showPassword);
+                    }}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-300 transition-colors"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-5 w-5" />
+                    ) : (
+                      <Eye className="h-5 w-5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoading || !email.trim() || !password}
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isLoading ? (
+                  <div className="mx-auto animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                ) : (
+                  'Logar'
+                )}
+              </button>
+
+              <div className="text-center space-y-3">
+                {/* Checkbox de salvar credenciais - Destacado */}
+                <div className="bg-blue-900/30 border border-blue-500/50 rounded-lg p-4 hover:border-blue-400 transition-colors">
+                  <div className="flex items-center justify-center gap-3">
+                    <input
+                      id="saveCredentials"
+                      type="checkbox"
+                      checked={saveCredentials}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        setSaveCredentials(e.target.checked);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="h-5 w-5 text-blue-600 focus:ring-2 focus:ring-blue-500 border-gray-600 rounded cursor-pointer"
+                    />
+                    <label
+                      htmlFor="saveCredentials"
+                      className="text-sm sm:text-base text-blue-200 font-medium cursor-pointer"
+                    >
+                      ✅ Salvar login para acesso rápido
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-center mt-3">
+                <Link
+                  to="/recovery-password"
+                  className="text-blue-400 hover:text-blue-300 text-sm transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  Esqueci minha senha
+                </Link>
+              </div>
+            </>
+          )}
         </form>
 
         <div className="text-center mt-4 space-y-3">
