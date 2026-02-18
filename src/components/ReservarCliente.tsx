@@ -111,6 +111,7 @@ export default function ReservarCliente({
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [clientSearchQuery, setClientSearchQuery] = useState<string>('');
+  const [serviceSearchQuery, setServiceSearchQuery] = useState<string>('');
   const [loadingClients, setLoadingClients] = useState(false);
 
   // Estados para pagamento antecipado
@@ -1022,6 +1023,19 @@ export default function ReservarCliente({
     return subscriptions;
   })();
 
+  const normalizedServiceSearch = normalizeText(serviceSearchQuery);
+  const serviceMatchesSearch = (value: any): boolean => {
+    if (!normalizedServiceSearch) return true;
+    return normalizeText(value).includes(normalizedServiceSearch);
+  };
+
+  const filteredDirectServices = services.filter((service) => serviceMatchesSearch(service?.name));
+  const filteredServiceCategories = serviceCategories.filter((category) => serviceMatchesSearch(category?.name));
+  const filteredServiceSubcategories = serviceSubcategories.filter((subcategory) => serviceMatchesSearch(subcategory?.name));
+  const filteredSubscriptionsBySearch = filteredSubscriptions.filter(
+    (subscription) => serviceMatchesSearch(subscription?.name) || serviceMatchesSearch(subscription?.service_name)
+  );
+
   const handleServiceSelect = (service: Service) => {
     setSelectedService(service);
     setStep('time');
@@ -1695,12 +1709,26 @@ export default function ReservarCliente({
                 </button>
               </div>
 
+              {/* Campo de busca de serviços */}
+              <div className="mb-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar serviços, categorias e assinaturas..."
+                    value={serviceSearchQuery}
+                    onChange={(e) => setServiceSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-gray-900 bg-white"
+                  />
+                </div>
+              </div>
+
               {/* Serviços Normais */}
               {services.length > 0 && (
                 <div className="mb-6">
                   <h4 className="text-md font-medium text-gray-700 mb-3">Serviços Diretos</h4>
                   <div className="grid grid-cols-1 gap-4">
-                    {services.map((service) => {
+                    {filteredDirectServices.map((service) => {
                       const isSelected = selectedServices.some(s => s.id === service.id);
                       return (
                         <button
@@ -1733,6 +1761,9 @@ export default function ReservarCliente({
                       );
                     })}
                   </div>
+                  {filteredDirectServices.length === 0 && (
+                    <p className="text-sm text-gray-600">Nenhum serviço direto encontrado para essa busca.</p>
+                  )}
 
                   {/* Resumo dos serviços selecionados */}
                   {selectedServices.length > 0 && (
@@ -1773,7 +1804,7 @@ export default function ReservarCliente({
                   {!showCategoryServices ? (
                     // Mostrar lista de categorias
                     <div className="grid grid-cols-1 gap-4">
-                      {serviceCategories.map((category) => (
+                      {filteredServiceCategories.map((category) => (
                         <button
                           key={category.id}
                           onClick={() => handleCategorySelect(category)}
@@ -1809,7 +1840,7 @@ export default function ReservarCliente({
                       </div>
 
                       <div className="grid grid-cols-1 gap-4">
-                        {serviceSubcategories.map((subcategory) => (
+                        {filteredServiceSubcategories.map((subcategory) => (
                           <button
                             key={subcategory.id}
                             onClick={() => handleSubcategorySelect(subcategory)}
@@ -1826,17 +1857,23 @@ export default function ReservarCliente({
                           </button>
                         ))}
                       </div>
+                      {filteredServiceSubcategories.length === 0 && (
+                        <p className="text-sm text-gray-600">Nenhum serviço dessa categoria encontrado para essa busca.</p>
+                      )}
                     </div>
+                  )}
+                  {!showCategoryServices && filteredServiceCategories.length === 0 && (
+                    <p className="text-sm text-gray-600">Nenhuma categoria encontrada para essa busca.</p>
                   )}
                 </div>
               )}
 
               {/* Clubes de Assinatura */}
-              {filteredSubscriptions.length > 0 ? (
+              {filteredSubscriptionsBySearch.length > 0 ? (
                 <div className="space-y-4 mt-6">
                   <h4 className="text-md font-medium text-gray-700">Assinantes</h4>
                   <div className="grid grid-cols-1 gap-4">
-                    {filteredSubscriptions.map((subscription) => (
+                    {filteredSubscriptionsBySearch.map((subscription) => (
                       <button
                         key={subscription.id}
                         onClick={() => handleSubscriptionSelect(subscription)}
@@ -1854,6 +1891,10 @@ export default function ReservarCliente({
                       </button>
                     ))}
                   </div>
+                </div>
+              ) : filteredSubscriptions.length > 0 && normalizedServiceSearch ? (
+                <div className="mt-6">
+                  <p className="text-sm text-gray-600">Nenhuma assinatura encontrada para essa busca.</p>
                 </div>
               ) : null}
             </div>
