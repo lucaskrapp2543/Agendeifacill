@@ -69,9 +69,9 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   const pendingByLiquid = Math.max(0, totalLiquidValue - totalPaidEffective);
   const pendingByValidatedRule =
     typeof validatedPendingAmount === 'number' ? Math.max(0, validatedPendingAmount) : pendingByLiquid;
-  const pendingByNewSales =
-    typeof newSalesValue === 'number' ? Math.max(0, newSalesValue) : pendingByValidatedRule;
-  const pendingToPay = Math.max(0, Math.min(pendingByLiquid, pendingByValidatedRule, pendingByNewSales));
+  // Regra principal: "Pagar pendente" deve respeitar o pendente validado.
+  // newSalesValue é informativo (resumo), não deve reduzir o valor realmente pendente.
+  const pendingToPay = Math.max(0, Math.min(pendingByLiquid, pendingByValidatedRule));
 
   const paymentSummary = getPaymentSummary(professionalId);
   const professionalPayments = getProfessionalPayments(professionalId).filter(
