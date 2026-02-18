@@ -275,7 +275,10 @@ export const checkMonthlyLimit = async (
     const monthlyLimit = (clientSubscription as any).monthly_limit;
     const subscriptionName = clientSubscription.subscriptions?.name || '';
     const subscriptionConfig = (clientSubscription as any)?.subscriptions || {};
-    const divideServicesEnabled = Boolean((subscriptionConfig as any)?.divide_services_enabled) || Boolean(requestedServiceId || requestedServiceName);
+    const hasRequestedServiceLimit = Number.isFinite(requestedServiceLimit) && requestedServiceLimit > 0;
+    const divideServicesEnabled =
+      Boolean((subscriptionConfig as any)?.divide_services_enabled) ||
+      (hasRequestedServiceLimit && Boolean(requestedServiceId || requestedServiceName));
     const dividedServices = parseDividedServices((subscriptionConfig as any)?.divided_services);
 
     // Novo fluxo: limite por serviço quando "Dividir serviços" estiver ativo
@@ -329,7 +332,9 @@ export const checkMonthlyLimit = async (
       }).length;
 
       const serviceLimit = Number(finalRequestedService.limit || 0);
-      const canBookService = serviceLimit > 0 && usageByService < serviceLimit;
+      // Compatibilidade: se o limite do serviço não estiver definido (>0), não bloquear por serviço.
+      const hasServiceLimit = Number.isFinite(serviceLimit) && serviceLimit > 0;
+      const canBookService = !hasServiceLimit || usageByService < serviceLimit;
 
       if (!canBookService) {
         return {
@@ -344,7 +349,7 @@ export const checkMonthlyLimit = async (
       return {
         canBook: true,
         currentUsage: usageByService,
-        monthlyLimit: serviceLimit,
+        monthlyLimit: hasServiceLimit ? serviceLimit : null,
         subscriptionName,
       };
     }
