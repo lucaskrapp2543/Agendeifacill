@@ -991,9 +991,17 @@ export default function ReservarCliente({
   });
   const hasKnownClients = clients.length > 0;
   const disableKnownClientOption = loadingClients || !hasKnownClients;
-  const filteredSubscriptions = selectedClient && selectedClientActiveSubscriptionId
-    ? subscriptions.filter((sub) => String(sub.id) === String(selectedClientActiveSubscriptionId))
-    : subscriptions;
+  const filteredSubscriptions = (() => {
+    if (selectedClient && selectedClientActiveSubscriptionId) {
+      const onlyActivePlan = subscriptions.filter(
+        (sub) => String(sub.id) === String(selectedClientActiveSubscriptionId)
+      );
+      // Compatibilidade: se o filtro não encontrar plano ativo, mantém lista completa
+      // para o profissional decidir manualmente.
+      return onlyActivePlan.length > 0 ? onlyActivePlan : subscriptions;
+    }
+    return subscriptions;
+  })();
 
   const handleServiceSelect = (service: Service) => {
     setSelectedService(service);
@@ -1804,18 +1812,6 @@ export default function ReservarCliente({
                 </div>
               )}
 
-              {/* DEBUG: Mostrar quantidade de assinaturas carregadas */}
-              <div className="mt-4 p-3 bg-yellow-100 border border-yellow-300 rounded-lg">
-                <p className="text-sm text-yellow-800">
-                  🔍 <strong>DEBUG:</strong> {subscriptions.length} assinaturas carregadas
-                </p>
-                {subscriptions.length === 0 && (
-                  <p className="text-xs text-yellow-700 mt-1">
-                    Se você tem clubes de assinatura cadastrados, verifique o console do navegador (F12)
-                  </p>
-                )}
-              </div>
-
               {/* Clubes de Assinatura */}
               {filteredSubscriptions.length > 0 ? (
                 <div className="space-y-4 mt-6">
@@ -1840,18 +1836,7 @@ export default function ReservarCliente({
                     ))}
                   </div>
                 </div>
-              ) : (
-                <div className="mt-6 p-4 bg-gray-100 border border-gray-300 rounded-lg">
-                  <p className="text-sm text-gray-700">
-                    ℹ️ <strong>{selectedClient ? 'Este cliente não tem assinatura ativa.' : 'Nenhum clube de assinatura encontrado.'}</strong>
-                  </p>
-                  <p className="text-xs text-gray-600 mt-1">
-                    {selectedClient
-                      ? 'Para este cliente, use serviço comum ou regularize/ative a assinatura correta.'
-                      : 'Cadastre clubes de assinatura na aba "Assinantes" do dashboard para que eles apareçam aqui.'}
-                  </p>
-                </div>
-              )}
+              ) : null}
             </div>
           )}
 
