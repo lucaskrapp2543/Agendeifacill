@@ -1148,21 +1148,8 @@ export default function ReservarCliente({
       const isSubscriber = selectedSubscription !== null; // serviço/condição de assinante (não substitui o cliente)
       const isKnownClient = selectedClient !== null;
 
-      // Trava de segurança: cliente conhecido só pode usar o plano ativo dele.
-      if (isKnownClient && isSubscriber) {
-        const activeSubId = selectedClientActiveSubscriptionId ? String(selectedClientActiveSubscriptionId) : '';
-        const chosenSubId = selectedSubscription ? String(selectedSubscription.id) : '';
-        if (!activeSubId) {
-          alert('Este cliente não possui assinatura ativa no momento. Selecione um serviço comum.');
-          setLoading(false);
-          return;
-        }
-        if (activeSubId !== chosenSubId) {
-          alert('Plano inválido para este cliente. Use apenas o plano ativo do assinante.');
-          setLoading(false);
-          return;
-        }
-      }
+      // Compatibilidade: permitir reservar mesmo sem assinatura ativa.
+      // A decisão operacional fica com o profissional no fluxo de atendimento.
 
       // Função para gerar UUID consistente a partir de uma string (para clientes manuais)
       const generateUUIDFromString = (str: string): string => {
