@@ -10,6 +10,7 @@ import ReadMore from '../components/ReadMore';
 import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { useAuth } from '../context/AuthContext';
 import { createGuestClientAndLogin, getSubscriptions, supabase, updateClientLastAccess } from '../lib/supabase';
+import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
 import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
 
@@ -91,6 +92,7 @@ export default function BookingPage() {
   // Estados para agendamento assinante
   const [showSubscriberBooking, setShowSubscriberBooking] = useState(false);
   const [selectedSubscriberService, setSelectedSubscriberService] = useState<any>(null);
+  const [selectedDividedSubscriberService, setSelectedDividedSubscriberService] = useState<any>(null);
   const [convertedSubscriberData, setConvertedSubscriberData] = useState<any>(null); // Dados do assinante convertido
   const [showLoginModal, setShowLoginModal] = useState(false); // Estado para controlar o modal de login
   const [subscriberDetectionDisabled, setSubscriberDetectionDisabled] = useState(false); // Estado para desabilitar detecção de assinante
@@ -129,6 +131,53 @@ export default function BookingPage() {
     ? subscriptions.filter((subscription: any) => String(subscription?.id || '').trim() === activeSubscriberPlanId)
     : subscriptions;
 
+  const getDividedServicesFromSubscription = (subscription: any) => {
+    const raw = (subscription as any)?.divided_services;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((service: any) => ({
+        id: String(service?.id || '').trim(),
+        name: String(service?.name || '').trim(),
+        duration: Number(service?.duration || 0),
+        limit: Number(service?.limit || 0),
+      }))
+      .filter((service: any) => service.id && service.name && Number.isFinite(service.duration) && service.duration > 0 && Number.isFinite(service.limit) && service.limit > 0);
+  };
+
+  const isDividedServicesEnabled = Boolean((selectedSubscriberService as any)?.divide_services_enabled);
+  const dividedServicesForSelectedSubscription = getDividedServicesFromSubscription(selectedSubscriberService);
+  const shouldSelectDividedServiceFirst = isDividedServicesEnabled && dividedServicesForSelectedSubscription.length > 0;
+
+  const currentSubscriberServiceForBooking = (() => {
+    if (!selectedSubscriberService) return null;
+    if (!shouldSelectDividedServiceFirst) return selectedSubscriberService;
+    if (!selectedDividedSubscriberService) return null;
+    return {
+      id: String(selectedDividedSubscriberService.id || '').trim(),
+      name: String(selectedDividedSubscriberService.name || '').trim(),
+      booking_service_name: String(selectedDividedSubscriberService.name || '').trim(),
+      service_duration: Number(selectedDividedSubscriberService.duration || 30),
+      duration: Number(selectedDividedSubscriberService.duration || 30),
+      weekdays: selectedSubscriberService?.weekdays || [],
+      subscription_id: selectedSubscriberService?.id,
+      service_id: String(selectedDividedSubscriberService.id || '').trim(),
+      service_limit: Number(selectedDividedSubscriberService.limit || 0),
+    };
+  })();
+
+  const handleRequestChangeSubscriberService = () => {
+    setSelectedDividedSubscriberService(null);
+    // UX: voltar para o topo da seção de assinante para o usuário trocar o serviço.
+    setTimeout(() => {
+      const subscriberSection = document.querySelector('[data-subscriber-booking]');
+      if (subscriberSection) {
+        subscriberSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }, 80);
+  };
+
   // Persistência leve do fluxo "QUERO AGENDAR" (evita voltar pro início se houver remount/reload no mobile)
   const QUICK_BOOKING_FLOW_KEY = 'agf_quick_booking_flow'; // 'modal' | 'form'
   const QUICK_BOOKING_DATA_KEY = 'agf_quick_booking_data'; // { name, phone }
@@ -164,6 +213,7 @@ export default function BookingPage() {
       // Limpar dados de assinante
       setConvertedSubscriberData(null);
       setSelectedSubscriberService(null);
+      setSelectedDividedSubscriberService(null);
       setSubscriberDetectionDisabled(true); // ✅ Desabilitar detecção de assinante
 
       // Fechar formulário de assinante e abrir formulário normal
@@ -181,11 +231,18 @@ export default function BookingPage() {
     setConvertedSubscriberData(subscriberData);
 
     // Configurar o serviço de assinante - duração vem da RPC (service_duration) ou do join subscriptions
+    const planId = subscriberData.subscription_id || subscriberData.subscriptions?.id;
+    const matchedSubscription = subscriptions.find((subscription: any) => String(subscription?.id || '') === String(planId || ''));
     const subscriberService = {
-      id: subscriberData.subscription_id || subscriberData.subscriptions?.id,
-      name: subscriberData.subscription_name || subscriberData.subscriptions?.name,
-      service_duration: subscriberData.service_duration ?? subscriberData.subscriptions?.service_duration ?? 30,
-      weekdays: subscriberData.weekdays || subscriberData.subscriptions?.weekdays || []
+      ...(matchedSubscription || {}),
+      id: planId,
+      name: subscriberData.subscription_name || subscriberData.subscriptions?.name || matchedSubscription?.name,
+      service_duration:
+        subscriberData.service_duration ??
+        subscriberData.subscriptions?.service_duration ??
+        matchedSubscription?.service_duration ??
+        30,
+      weekdays: subscriberData.weekdays || subscriberData.subscriptions?.weekdays || matchedSubscription?.weekdays || []
     };
 
     console.log('🔧 Serviço de assinante configurado:', subscriberService);
@@ -193,6 +250,7 @@ export default function BookingPage() {
     console.log('🔍 DEBUG - Nome do serviço:', subscriberService.name);
 
     setSelectedSubscriberService(subscriberService);
+    setSelectedDividedSubscriberService(null);
 
     // Fechar formulário normal e abrir formulário de assinante
     setShowBookingForm(false);
@@ -828,6 +886,7 @@ export default function BookingPage() {
     if (!selectedSubscriberService) return;
     if (String(selectedSubscriberService?.id || '').trim() === activeSubscriberPlanId) return;
     setSelectedSubscriberService(null);
+    setSelectedDividedSubscriberService(null);
   }, [activeSubscriberPlanId, selectedSubscriberService, showSubscriberBooking]);
 
   const fetchSubscriptions = async () => {
@@ -1023,6 +1082,27 @@ export default function BookingPage() {
       ]);
     };
 
+    // Compatibilidade com bancos sem migração de colunas novas de assinatura.
+    const removeSubscriberExtraFields = (payload: any) => {
+      const cleanPayload: any = { ...(payload || {}) };
+      delete cleanPayload.subscription_id;
+      delete cleanPayload.subscriber_service_id;
+      delete cleanPayload.subscriber_service_name;
+      delete cleanPayload.subscriber_service_limit;
+      return cleanPayload;
+    };
+
+    const shouldRetryWithoutSubscriberFields = (error: any) => {
+      const msg = String(error?.message || '').toLowerCase();
+      return (
+        msg.includes('schema cache') ||
+        msg.includes('could not find the') ||
+        msg.includes('column') ||
+        msg.includes('subscription_id') ||
+        msg.includes('subscriber_service_')
+      );
+    };
+
     try {
       // Lógica para agendamentos reais
       const isEstablishmentOwner = currentUser?.id === establishment.owner_id;
@@ -1037,6 +1117,24 @@ export default function BookingPage() {
         }
         if (activeSubscriberPlanId && !selectedPlanId) {
           toast.error('Plano de assinante não identificado. Reabra o agendamento de assinante e tente novamente.');
+          return;
+        }
+
+        const monthlyLimitCheck = await checkMonthlyLimit(
+          String(appointmentData?.client_whatsapp || ''),
+          establishment.id,
+          new Date(appointmentData?.appointment_date || selectedDate),
+          {
+            id: String(appointmentData?.subscriber_service_id || '').trim() || null,
+            name: String(appointmentData?.subscriber_service_name || appointmentData?.service || '').trim() || null,
+            limit: Number(appointmentData?.subscriber_service_limit || 0) || null,
+          }
+        );
+        if (!monthlyLimitCheck.canBook) {
+          toast.error(
+            monthlyLimitCheck.errorMessage ||
+            'Voce ja atingiu o limite do servico nesta assinatura. Selecione um servico com saldo disponivel.'
+          );
           return;
         }
       }
@@ -1105,24 +1203,41 @@ export default function BookingPage() {
           price: appointmentData?.price
         });
 
-        const { data: inserted, error: insertError } = await withTimeout(
+        const pendingBasePayload = {
+          client_id: currentUser.id,
+          establishment_id: establishment.id,
+          establishment_code: establishment.code,
+          appointment_date: format(selectedDate, 'yyyy-MM-dd'),
+          status: 'pending_payment',
+          payment_status: 'pending',
+          payment_method: 'pendente',
+          ...appointmentData
+        };
+
+        let { data: inserted, error: insertError } = await withTimeout(
           supabase
             .from('appointments')
-            .insert([{
-              client_id: currentUser.id,
-              establishment_id: establishment.id,
-              establishment_code: establishment.code,
-              appointment_date: format(selectedDate, 'yyyy-MM-dd'),
-              status: 'pending_payment',
-              payment_status: 'pending',
-              payment_method: 'pendente',
-              ...appointmentData
-            }])
+            .insert([pendingBasePayload])
             .select('id')
             .single(),
           20000,
           'insert appointments (pending_payment)'
         );
+
+        if (insertError && shouldRetryWithoutSubscriberFields(insertError)) {
+          const legacyPayload = removeSubscriberExtraFields(pendingBasePayload);
+          const retry = await withTimeout(
+            supabase
+              .from('appointments')
+              .insert([legacyPayload])
+              .select('id')
+              .single(),
+            20000,
+            'insert appointments (pending_payment fallback legacy columns)'
+          );
+          inserted = retry.data as any;
+          insertError = retry.error as any;
+        }
 
         if (insertError) throw insertError;
 
@@ -1194,21 +1309,38 @@ export default function BookingPage() {
         payment_method: appointmentData?.payment_method
       });
 
-      const { data: insertedAppointment, error } = await withTimeout(
+      const normalBasePayload = {
+        client_id: currentUser.id,
+        establishment_id: establishment.id,
+        establishment_code: establishment.code, // Salvar código do estabelecimento
+        appointment_date: format(selectedDate, 'yyyy-MM-dd'),
+        ...appointmentData
+      };
+
+      let { data: insertedAppointment, error } = await withTimeout(
         supabase
           .from('appointments')
-          .insert([{
-            client_id: currentUser.id,
-            establishment_id: establishment.id,
-            establishment_code: establishment.code, // Salvar código do estabelecimento
-            appointment_date: format(selectedDate, 'yyyy-MM-dd'),
-            ...appointmentData
-          }])
+          .insert([normalBasePayload])
           .select('id')
           .single(),
         20000,
         'insert appointments (normal)'
       );
+
+      if (error && shouldRetryWithoutSubscriberFields(error)) {
+        const legacyPayload = removeSubscriberExtraFields(normalBasePayload);
+        const retry = await withTimeout(
+          supabase
+            .from('appointments')
+            .insert([legacyPayload])
+            .select('id')
+            .single(),
+          20000,
+          'insert appointments (normal fallback legacy columns)'
+        );
+        insertedAppointment = retry.data as any;
+        error = retry.error as any;
+      }
 
       if (error) throw error;
 
@@ -2504,6 +2636,7 @@ export default function BookingPage() {
                       onClick={() => {
                         setShowSubscriberBooking(false);
                         setSelectedSubscriberService(null);
+                        setSelectedDividedSubscriberService(null);
                       }}
                       className="text-white/60 hover:text-white text-2xl"
                     >
@@ -2542,7 +2675,10 @@ export default function BookingPage() {
                                 )}
                               </div>
                               <button
-                                onClick={() => setSelectedSubscriberService(subscription)}
+                                onClick={() => {
+                                  setSelectedSubscriberService(subscription);
+                                  setSelectedDividedSubscriberService(null);
+                                }}
                                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
                               >
                                 Agendar
@@ -2561,40 +2697,90 @@ export default function BookingPage() {
                     // Tela de agendamento com restrição de dias
                     <div>
                       <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-lg font-semibold">{selectedSubscriberService.name}</h3>
+                        <h3 className="text-lg font-semibold">
+                          {shouldSelectDividedServiceFirst
+                            ? `${selectedSubscriberService.name} - Escolha seu servico`
+                            : selectedSubscriberService.name}
+                        </h3>
                         <button
-                          onClick={() => setSelectedSubscriberService(null)}
+                          onClick={() => {
+                            setSelectedSubscriberService(null);
+                            setSelectedDividedSubscriberService(null);
+                          }}
                           className="text-gray-500 hover:text-gray-700"
                         >
                           ← Voltar
                         </button>
                       </div>
+                      {shouldSelectDividedServiceFirst && !selectedDividedSubscriberService ? (
+                        <div className="space-y-3">
+                          <p className="text-sm text-white/75">
+                            Selecione um servico da assinatura antes de escolher o profissional.
+                          </p>
+                          {dividedServicesForSelectedSubscription.map((service: any) => (
+                            <button
+                              key={service.id}
+                              type="button"
+                              onClick={() => setSelectedDividedSubscriberService(service)}
+                              className="w-full text-left border border-white/10 rounded-2xl p-4 bg-black/30 hover:bg-white/5 transition-colors"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <h4 className="font-semibold text-white">{service.name}</h4>
+                                  <p className="text-xs text-white/70 mt-1">
+                                    Tempo: {service.duration} min • Limite na assinatura: {service.limit}
+                                  </p>
+                                </div>
+                                <span className="px-3 py-1 text-xs rounded-full bg-white/10 text-white/80">
+                                  Escolher
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <>
+                          <p className="text-sm text-gray-600 mb-4">
+                            📅 Dias disponíveis: {selectedSubscriberService.weekdays?.map((day: string) => {
+                              const dayNames = {
+                                'monday': 'Segunda',
+                                'tuesday': 'Terça',
+                                'wednesday': 'Quarta',
+                                'thursday': 'Quinta',
+                                'friday': 'Sexta',
+                                'saturday': 'Sábado',
+                                'sunday': 'Domingo'
+                              };
+                              return dayNames[day as keyof typeof dayNames] || day;
+                            }).join(', ') || 'Não configurado'}
+                          </p>
 
-                      <p className="text-sm text-gray-600 mb-4">
-                        📅 Dias disponíveis: {selectedSubscriberService.weekdays?.map((day: string) => {
-                          const dayNames = {
-                            'monday': 'Segunda',
-                            'tuesday': 'Terça',
-                            'wednesday': 'Quarta',
-                            'thursday': 'Quinta',
-                            'friday': 'Sexta',
-                            'saturday': 'Sábado',
-                            'sunday': 'Domingo'
-                          };
-                          return dayNames[day as keyof typeof dayNames] || day;
-                        }).join(', ') || 'Não configurado'}
-                      </p>
+                          {shouldSelectDividedServiceFirst && selectedDividedSubscriberService && (
+                            <div className="mb-4 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+                              Servico selecionado: <strong>{selectedDividedSubscriberService.name}</strong> ({selectedDividedSubscriberService.duration} min, limite {selectedDividedSubscriberService.limit})
+                              <button
+                                type="button"
+                                onClick={() => setSelectedDividedSubscriberService(null)}
+                                className="ml-2 underline"
+                              >
+                                trocar
+                              </button>
+                            </div>
+                          )}
 
-                      <AppointmentForm
-                        establishment={establishment}
-                        onSubmit={handleSubmit}
-                        selectedDate={selectedDate}
-                        onSelectDate={setSelectedDate}
-                        existingAppointments={existingAppointments}
-                        subscriberService={selectedSubscriberService} // Passar o serviço para restringir dias
-                        isSubscriberBooking={true} // Indica que é agendamento de assinante
-                        guestClientData={guestClientData} // Passar dados do cliente para preenchimento automático
-                      />
+                          <AppointmentForm
+                            establishment={establishment}
+                            onSubmit={handleSubmit}
+                            selectedDate={selectedDate}
+                            onSelectDate={setSelectedDate}
+                            existingAppointments={existingAppointments}
+                            subscriberService={currentSubscriberServiceForBooking} // Passar o serviço para restringir dias
+                            isSubscriberBooking={true} // Indica que é agendamento de assinante
+                            guestClientData={guestClientData} // Passar dados do cliente para preenchimento automático
+                            onRequestChangeSubscriberService={handleRequestChangeSubscriberService}
+                          />
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -3078,6 +3264,7 @@ export default function BookingPage() {
                   onClick={() => {
                     setShowSubscriberBooking(false);
                     setSelectedSubscriberService(null);
+                    setSelectedDividedSubscriberService(null);
                   }}
                   className="text-gray-500 hover:text-gray-700 text-2xl"
                 >
@@ -3116,7 +3303,10 @@ export default function BookingPage() {
                             )}
                           </div>
                           <button
-                            onClick={() => setSelectedSubscriberService(subscription)}
+                            onClick={() => {
+                              setSelectedSubscriberService(subscription);
+                              setSelectedDividedSubscriberService(null);
+                            }}
                             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
                           >
                             Agendar
@@ -3135,42 +3325,92 @@ export default function BookingPage() {
                 // Tela de agendamento com restrição de dias
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold">{selectedSubscriberService.name}</h3>
+                    <h3 className="text-lg font-semibold">
+                      {shouldSelectDividedServiceFirst
+                        ? `${selectedSubscriberService.name} - Escolha seu servico`
+                        : selectedSubscriberService.name}
+                    </h3>
                     <button
-                      onClick={() => setSelectedSubscriberService(null)}
+                      onClick={() => {
+                        setSelectedSubscriberService(null);
+                        setSelectedDividedSubscriberService(null);
+                      }}
                       className="text-gray-500 hover:text-gray-700"
                     >
                       ← Voltar
                     </button>
                   </div>
+                  {shouldSelectDividedServiceFirst && !selectedDividedSubscriberService ? (
+                    <div className="space-y-3">
+                      <p className="text-sm text-gray-700">
+                        Selecione um servico da assinatura antes de escolher o profissional.
+                      </p>
+                      {dividedServicesForSelectedSubscription.map((service: any) => (
+                        <button
+                          key={service.id}
+                          type="button"
+                          onClick={() => setSelectedDividedSubscriberService(service)}
+                          className="w-full text-left border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <h4 className="font-semibold text-gray-900">{service.name}</h4>
+                              <p className="text-xs text-gray-600 mt-1">
+                                Tempo: {service.duration} min • Limite na assinatura: {service.limit}
+                              </p>
+                            </div>
+                            <span className="px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-700">
+                              Escolher
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                        <p className="text-sm text-blue-800">
+                          <strong>Dias disponíveis:</strong> {selectedSubscriberService.weekdays?.map((day: string) => {
+                            const dayNames = {
+                              'monday': 'Segunda-feira',
+                              'tuesday': 'Terça-feira',
+                              'wednesday': 'Quarta-feira',
+                              'thursday': 'Quinta-feira',
+                              'friday': 'Sexta-feira',
+                              'saturday': 'Sábado',
+                              'sunday': 'Domingo'
+                            };
+                            return dayNames[day as keyof typeof dayNames] || day;
+                          }).join(', ') || 'Não configurado'}
+                        </p>
+                      </div>
 
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                    <p className="text-sm text-blue-800">
-                      <strong>Dias disponíveis:</strong> {selectedSubscriberService.weekdays?.map((day: string) => {
-                        const dayNames = {
-                          'monday': 'Segunda-feira',
-                          'tuesday': 'Terça-feira',
-                          'wednesday': 'Quarta-feira',
-                          'thursday': 'Quinta-feira',
-                          'friday': 'Sexta-feira',
-                          'saturday': 'Sábado',
-                          'sunday': 'Domingo'
-                        };
-                        return dayNames[day as keyof typeof dayNames] || day;
-                      }).join(', ') || 'Não configurado'}
-                    </p>
-                  </div>
+                      {shouldSelectDividedServiceFirst && selectedDividedSubscriberService && (
+                        <div className="mb-4 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800">
+                          Servico selecionado: <strong>{selectedDividedSubscriberService.name}</strong> ({selectedDividedSubscriberService.duration} min, limite {selectedDividedSubscriberService.limit})
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDividedSubscriberService(null)}
+                            className="ml-2 underline"
+                          >
+                            trocar
+                          </button>
+                        </div>
+                      )}
 
-                  <AppointmentForm
-                    establishment={establishment}
-                    onSubmit={handleSubmit}
-                    selectedDate={selectedDate}
-                    onSelectDate={setSelectedDate}
-                    existingAppointments={existingAppointments}
-                    subscriberService={selectedSubscriberService} // Passar o serviço para restringir dias
-                    isSubscriberBooking={true} // Indica que é agendamento de assinante
-                    guestClientData={guestClientData} // Passar dados do cliente para preenchimento automático
-                  />
+                      <AppointmentForm
+                        establishment={establishment}
+                        onSubmit={handleSubmit}
+                        selectedDate={selectedDate}
+                        onSelectDate={setSelectedDate}
+                        existingAppointments={existingAppointments}
+                        subscriberService={currentSubscriberServiceForBooking} // Passar o serviço para restringir dias
+                        isSubscriberBooking={true} // Indica que é agendamento de assinante
+                        guestClientData={guestClientData} // Passar dados do cliente para preenchimento automático
+                        onRequestChangeSubscriberService={handleRequestChangeSubscriberService}
+                      />
+                    </>
+                  )}
                 </div>
               )}
             </div>

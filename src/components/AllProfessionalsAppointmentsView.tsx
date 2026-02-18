@@ -37,6 +37,12 @@ interface SoldProduct {
   total: number;
 }
 
+interface PaymentSplitDetail {
+  method: string;
+  amount: number;
+  card_brand?: string | null;
+}
+
 interface Appointment {
   id: string;
   client_id: string;
@@ -51,8 +57,9 @@ interface Appointment {
   duration: number;
   price: number;
   total_price?: number;
-  payment_method?: 'dinheiro' | 'pix' | 'credito' | 'debito' | 'transferencia' | 'pagar_local';
+  payment_method?: 'dinheiro' | 'pix' | 'credito' | 'debito' | 'transferencia' | 'pagar_local' | 'multi';
   card_brand?: string;
+  payment_split_details?: PaymentSplitDetail[] | null;
   pix_payment_status?: string;
   pix_proof_url?: string;
   additional_products?: AdditionalProduct[];
@@ -81,6 +88,13 @@ interface TimeSlot {
   isPast?: boolean;
   parentAppointment?: Appointment;
   squeezes?: Appointment[]; // Encaixes para este slot
+}
+
+interface SqueezeKnownClientOption {
+  id: string;
+  client_id?: string;
+  name: string;
+  whatsapp: string;
 }
 
 interface AllProfessionalsAppointmentsViewProps {
@@ -223,8 +237,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
       opening_amount: number;
       updated_at?: string;
     }>>([]);
-    // Assinaturas do estabelecimento (nome + duração) para exibir duração correta de agendamentos de assinante
-    const [subscriptionDurations, setSubscriptionDurations] = useState<Array<{ name: string; service_duration: number }>>([]);
+    // Assinaturas do estabelecimento para exibir duração correta de agendamentos de assinante
+    const [subscriptionDurations, setSubscriptionDurations] = useState<Array<{
+      name: string;
+      service_duration: number;
+      divide_services_enabled: boolean;
+      divided_services: Array<{ name: string; duration: number }>;
+    }>>([]);
+    const [showSplitPaymentModal, setShowSplitPaymentModal] = useState(false);
+    const [selectedAppointmentForSplitPayment, setSelectedAppointmentForSplitPayment] = useState<Appointment | null>(null);
+    const [splitPaymentRows, setSplitPaymentRows] = useState<Array<{ method: string; amount: string; card_brand?: string }>>([]);
+    const [isSavingSplitPayment, setIsSavingSplitPayment] = useState(false);
     const selectedDateIso = format(selectedDate, 'yyyy-MM-dd');
 
     useEffect(() => {
@@ -236,13 +259,22 @@ export const AllProfessionalsAppointmentsView: React.FC<
       (async () => {
         const { data } = await supabase
           .from('subscriptions')
-          .select('name, service_duration')
+          .select('name, service_duration, divide_services_enabled, divided_services')
           .eq('establishment_id', establishment.id);
         if (cancelled || !data) return;
         setSubscriptionDurations(
           (data || []).map((row: any) => ({
             name: String(row?.name ?? '').trim(),
             service_duration: Number(row?.service_duration) || 30,
+            divide_services_enabled: Boolean(row?.divide_services_enabled),
+            divided_services: Array.isArray(row?.divided_services)
+              ? row.divided_services
+                  .map((service: any) => ({
+                    name: String(service?.name ?? '').trim(),
+                    duration: Number(service?.duration || 0),
+                  }))
+                  .filter((service: any) => service.name && Number.isFinite(service.duration) && service.duration > 0)
+              : [],
           }))
         );
       })();
@@ -678,7 +710,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         try {
           const { data: saleRow, error: saleErr } = await (supabase as any)
             .from('subscription_sale_commissions')
-            .select('commission_percent')
+            .select('commission_percent, commission_amount')
             .eq('establishment_id', establishmentId)
             .eq('client_subscription_id', String(selectedSubscriberOptionId))
             .maybeSingle();
@@ -686,6 +718,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
             const salePercent = Number(String(saleRow?.commission_percent || '').replace(',', '.'));
             if (Number.isFinite(salePercent) && salePercent > 0) {
               multiplier = Math.max(0, 1 - salePercent / 100);
+            } else {
+              // Compatibilidade com dados legados: quando só existe commission_amount.
+              const saleAmount = Number(saleRow?.commission_amount || 0);
+              const subscriptionValue = Number(subCfg?.value || 0);
+              if (Number.isFinite(saleAmount) && saleAmount > 0 && Number.isFinite(subscriptionValue) && subscriptionValue > 0) {
+                const inferredPercent = Math.min(100, Math.max(0, (saleAmount / subscriptionValue) * 100));
+                multiplier = Math.max(0, 1 - inferredPercent / 100);
+              }
             }
           }
         } catch {
@@ -899,6 +939,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [selectedSqueezeService, setSelectedSqueezeService] = useState<any>(null);
     const [squeezeStartTime, setSqueezeStartTime] = useState('');
     const [squeezeEndTime, setSqueezeEndTime] = useState('');
+    const [showSqueezeClientModal, setShowSqueezeClientModal] = useState(false);
+    const [squeezeClientType, setSqueezeClientType] = useState<'avulso' | 'known'>('avulso');
+    const [squeezeKnownClients, setSqueezeKnownClients] = useState<SqueezeKnownClientOption[]>([]);
+    const [squeezeKnownClientsLoading, setSqueezeKnownClientsLoading] = useState(false);
+    const [squeezeKnownClientSearch, setSqueezeKnownClientSearch] = useState('');
+    const [selectedSqueezeKnownClientId, setSelectedSqueezeKnownClientId] = useState<string>('');
 
     // Modal: Horários disponíveis (somente visualização, para print)
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
@@ -933,13 +979,90 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return total;
     };
 
+    const round2 = (value: number) => Math.round((Number(value) || 0) * 100) / 100;
+
+    const getSplitEnabledMethods = (): string[] => {
+      const baseMethods = ['dinheiro', 'pix', 'credito', 'debito', 'pagar_local'];
+      const custom = getCustomPaymentMethods()
+        .map((method) => String(method || '').trim())
+        .filter(Boolean);
+      return Array.from(new Set([...baseMethods, ...custom]));
+    };
+
+    const parsePaymentSplitDetails = (apt: Appointment | null | undefined): PaymentSplitDetail[] => {
+      const raw = (apt as any)?.payment_split_details;
+      if (!Array.isArray(raw)) return [];
+      return raw
+        .map((row: any) => ({
+          method: String(row?.method || '').trim(),
+          amount: round2(Number(row?.amount || 0)),
+          card_brand: row?.card_brand ? String(row.card_brand) : null,
+        }))
+        .filter((row) => row.method && Number.isFinite(row.amount) && row.amount > 0);
+    };
+
+    const getPaymentMethodTax = (method: string, cardBrand?: string | null) => {
+      if ((method === 'credito' || method === 'debito') && cardBrand && cardBrand !== 'bandeira') {
+        return establishment?.card_brand_taxes?.[cardBrand] || 3.5;
+      }
+      switch (method) {
+        case 'credito':
+          return establishment?.credit_card_tax_percentage || 3.5;
+        case 'debito':
+          return establishment?.debit_card_tax_percentage || 2.5;
+        default:
+          return 0;
+      }
+    };
+
+    const getCardTaxAmountForServiceBase = (apt: Appointment, serviceBaseValue: number): number => {
+      const base = Number(serviceBaseValue || 0);
+      if (!(base > 0)) return 0;
+
+      const splitRows = parsePaymentSplitDetails(apt);
+      if (splitRows.length > 0) {
+        const totalCharge = calculateTotalPrice(apt);
+        if (!(totalCharge > 0)) return 0;
+        const ratio = Math.max(0, Math.min(1, base / totalCharge));
+        return round2(
+          splitRows.reduce((sum, row) => {
+            if (row.method !== 'credito' && row.method !== 'debito') return sum;
+            const rate = getPaymentMethodTax(row.method, row.card_brand || null);
+            if (!(rate > 0)) return sum;
+            const servicePortion = row.amount * ratio;
+            return sum + (servicePortion * rate) / 100;
+          }, 0)
+        );
+      }
+
+      if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+        const rate = getPaymentMethodTax(String(apt.payment_method || ''), apt.card_brand || null);
+        if (rate > 0) return round2((base * rate) / 100);
+      }
+      return 0;
+    };
+
+    const getCashAmountForAppointment = (apt: Appointment): number => {
+      const splitRows = parsePaymentSplitDetails(apt);
+      if (splitRows.length > 0) {
+        return round2(
+          splitRows
+            .filter((row) => row.method === 'dinheiro')
+            .reduce((sum, row) => sum + row.amount, 0)
+        );
+      }
+      if (String(apt.payment_method || '').trim() === 'dinheiro') {
+        return calculateTotalPrice(apt);
+      }
+      return 0;
+    };
+
     const dailyCashSalesTotal = appointments
       .filter((apt) =>
         apt.appointment_date === selectedDateIso &&
-        apt.status !== 'cancelled' &&
-        String(apt.payment_method || '').trim() === 'dinheiro'
+        apt.status !== 'cancelled'
       )
-      .reduce((sum, apt) => sum + calculateTotalPrice(apt), 0);
+      .reduce((sum, apt) => sum + getCashAmountForAppointment(apt), 0);
 
     const barbershopCashTotal = barbershopCashOpeningValue + dailyCashSalesTotal;
 
@@ -1014,11 +1137,41 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return 15;
     };
 
+    const normalizeName = (value: string): string =>
+      String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+
     // Para assinantes: usar duração atual da assinatura (pode ter sido alterada depois do agendamento)
     const getEffectiveBaseDuration = (apt: Appointment, interval: number): number => {
       const fallback = Number.isFinite(apt.duration) && apt.duration > 0 ? apt.duration : interval;
       if (!apt.service || subscriptionDurations.length === 0) return fallback;
+
+      const isSubscriberAppointment =
+        Boolean((apt as any)?.is_subscriber) ||
+        String((apt as any)?.client_name || '').toUpperCase().includes('(ASSINANTE)');
+      if (!isSubscriberAppointment) return fallback;
+
       const serviceStr = String(apt.service).trim();
+      const normalizedService = normalizeName(serviceStr);
+
+      // Fluxo novo: assinatura com "dividir serviços" (duração por serviço específico).
+      for (const sub of subscriptionDurations) {
+        if (!sub?.divide_services_enabled || !Array.isArray(sub?.divided_services) || sub.divided_services.length === 0) {
+          continue;
+        }
+        const matchedDividedService = sub.divided_services.find((svc) => {
+          const current = normalizeName(svc?.name || '');
+          return current && (normalizedService === current || normalizedService.includes(current) || current.includes(normalizedService));
+        });
+        if (matchedDividedService && matchedDividedService.duration > 0) {
+          return matchedDividedService.duration;
+        }
+      }
+
+      // Fluxo legado: assinatura com duração única.
       const sub = subscriptionDurations.find(
         (s) => s.name && (serviceStr.includes(s.name) || s.name.includes(serviceStr))
       );
@@ -1561,15 +1714,137 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
     };
 
-    const handlePaymentMethodChange = async (appointmentId: string, paymentMethod: string) => {
+    const shouldRetryWithoutSplitColumn = (error: any): boolean => {
+      const msg = String(error?.message || '').toLowerCase();
+      return msg.includes('payment_split_details') && (msg.includes('column') || msg.includes('schema cache') || msg.includes('could not find'));
+    };
+
+    const handleOpenSplitPaymentModal = (apt: Appointment) => {
+      const existing = parsePaymentSplitDetails(apt);
+      const initialRows =
+        existing.length > 0
+          ? existing.map((row) => ({
+            method: row.method,
+            amount: String(row.amount),
+            card_brand: row.card_brand && row.card_brand !== 'bandeira' ? row.card_brand : 'bandeira',
+          }))
+          : [{ method: 'dinheiro', amount: String(round2(calculateTotalPrice(apt))), card_brand: 'bandeira' }];
+      setSelectedAppointmentForSplitPayment(apt);
+      setSplitPaymentRows(initialRows.slice(0, 4));
+      setShowSplitPaymentModal(true);
+    };
+
+    const handleSaveSplitPayment = async () => {
+      if (!selectedAppointmentForSplitPayment) return;
+
+      const apt = selectedAppointmentForSplitPayment;
+      const maxValue = round2(calculateTotalPrice(apt));
+      const cleanedRows = splitPaymentRows
+        .map((row) => ({
+          method: String(row.method || '').trim(),
+          amount: round2(Number(String(row.amount || '').replace(',', '.'))),
+          card_brand: row.card_brand && row.card_brand !== 'bandeira' ? row.card_brand : null,
+        }))
+        .filter((row) => row.method && Number.isFinite(row.amount) && row.amount > 0);
+
+      if (cleanedRows.length === 0) {
+        toast.error('Adicione pelo menos 1 forma de pagamento válida.');
+        return;
+      }
+      if (cleanedRows.length > 4) {
+        toast.error('Você pode usar no máximo 4 formas de pagamento.');
+        return;
+      }
+      const uniqueMethods = new Set(cleanedRows.map((row) => row.method));
+      if (uniqueMethods.size !== cleanedRows.length) {
+        toast.error('Não repita a mesma forma de pagamento. Use uma de cada.');
+        return;
+      }
+      const totalSplit = round2(cleanedRows.reduce((sum, row) => sum + row.amount, 0));
+      if (totalSplit > maxValue) {
+        toast.error(`A soma das formas (${formatCurrency(totalSplit)}) não pode passar do valor do serviço (${formatCurrency(maxValue)}).`);
+        return;
+      }
+      if (Math.abs(totalSplit - maxValue) > 0.009) {
+        toast.error(`A soma das formas deve fechar exatamente ${formatCurrency(maxValue)}.`);
+        return;
+      }
+      const hasCardWithoutBrand = cleanedRows.some(
+        (row) => (row.method === 'credito' || row.method === 'debito') && !row.card_brand
+      );
+      if (hasCardWithoutBrand) {
+        toast.error('Selecione a bandeira para pagamentos em crédito/débito.');
+        return;
+      }
+
+      setIsSavingSplitPayment(true);
       try {
-        const { error } = await supabase
+        let { error } = await supabase
+          .from('appointments')
+          .update({
+            payment_method: 'multi',
+            status: 'completed',
+            card_brand: null,
+            payment_split_details: cleanedRows,
+          } as any)
+          .eq('id', apt.id);
+
+        if (error && shouldRetryWithoutSplitColumn(error)) {
+          const retry = await supabase
+            .from('appointments')
+            .update({
+              payment_method: 'multi',
+              status: 'completed',
+              card_brand: null,
+            } as any)
+            .eq('id', apt.id);
+          error = retry.error as any;
+          if (!error) {
+            toast.success('Forma de pagamento múltipla salva sem histórico detalhado (coluna ainda não aplicada no banco).');
+          }
+        }
+
+        if (error) throw error;
+
+        if (!showSplitPaymentModal) return;
+        toast.success('Formas de pagamento salvas com sucesso!');
+        setShowSplitPaymentModal(false);
+        setSelectedAppointmentForSplitPayment(null);
+        setSplitPaymentRows([]);
+        if (onAppointmentUpdate) onAppointmentUpdate();
+      } catch (error: any) {
+        console.error('Erro ao salvar formas de pagamento:', error);
+        toast.error(error.message || 'Erro ao salvar formas de pagamento');
+      } finally {
+        setIsSavingSplitPayment(false);
+      }
+    };
+
+    const handlePaymentMethodChange = async (appointment: Appointment, paymentMethod: string) => {
+      if (paymentMethod === 'multi') {
+        handleOpenSplitPaymentModal(appointment);
+        return;
+      }
+      try {
+        let { error } = await supabase
           .from('appointments')
           .update({
             payment_method: paymentMethod === 'pendente' ? null : paymentMethod,
-            status: paymentMethod === 'pendente' ? 'pending' : 'completed'
+            status: paymentMethod === 'pendente' ? 'pending' : 'completed',
+            payment_split_details: null,
           })
-          .eq('id', appointmentId);
+          .eq('id', appointment.id);
+
+        if (error && shouldRetryWithoutSplitColumn(error)) {
+          const retry = await supabase
+            .from('appointments')
+            .update({
+              payment_method: paymentMethod === 'pendente' ? null : paymentMethod,
+              status: paymentMethod === 'pendente' ? 'pending' : 'completed',
+            })
+            .eq('id', appointment.id);
+          error = retry.error as any;
+        }
 
         if (error) throw error;
 
@@ -1742,61 +2017,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const professional = professionals.find((p) => p.id === professionalId);
       const percentage = professional?.percentage || 100;
 
-      // Função auxiliar para obter taxa de pagamento
-      const getPaymentMethodTax = (method: string, cardBrand?: string) => {
-        // Se for cartão e tiver bandeira definida, usar taxa da bandeira
-        if ((method === 'credito' || method === 'debito') && cardBrand && cardBrand !== 'bandeira') {
-          return establishment?.card_brand_taxes?.[cardBrand] || 3.5;
-        }
-        // Fallback para taxas antigas por tipo de cartão
-        switch (method) {
-          case 'credito':
-            return establishment?.credit_card_tax_percentage || 3.5;
-          case 'debito':
-            return establishment?.debit_card_tax_percentage || 2.5;
-          default:
-            return 0;
-        }
-      };
-
       // Calcular líquido diário: verificar se taxa é descontada do estabelecimento ou do profissional
       const dailyNet = dailyAppointments.reduce((total, apt) => {
         const baseValue = calculateServiceTotal(apt);
-        const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-
-        if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
-          // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
-          if (establishment?.tax_deducted_by_establishment) {
-            return total + (baseValue * percentage / 100);
-          } else {
-            // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
-            const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
-            return total + (valueAfterCardTax * percentage / 100);
-          }
-        } else {
-          // Se não for cartão, apenas aplicar percentual
-          return total + (baseValue * percentage / 100);
-        }
+        const cardTaxAmount = getCardTaxAmountForServiceBase(apt, baseValue);
+        const baseAfterTax = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
+        return total + (baseAfterTax * percentage / 100);
       }, 0);
 
       // Calcular líquido mensal: verificar se taxa é descontada do estabelecimento ou do profissional
       const monthlyNet = monthlyAppointmentsForPro.reduce((total, apt) => {
         const baseValue = calculateServiceTotal(apt);
-        const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-
-        if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
-          // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
-          if (establishment?.tax_deducted_by_establishment) {
-            return total + (baseValue * percentage / 100);
-          } else {
-            // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
-            const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
-            return total + (valueAfterCardTax * percentage / 100);
-          }
-        } else {
-          // Se não for cartão, apenas aplicar percentual
-          return total + (baseValue * percentage / 100);
-        }
+        const cardTaxAmount = getCardTaxAmountForServiceBase(apt, baseValue);
+        const baseAfterTax = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
+        return total + (baseAfterTax * percentage / 100);
       }, 0);
 
       return {
@@ -1895,6 +2129,34 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
     };
 
+    // Opções de assinatura para encaixe (sem restrição por cliente)
+    const fetchEstablishmentSubscriptionsForSqueeze = async () => {
+      if (!establishment?.id) return [];
+      try {
+        const { data, error } = await supabase
+          .from('subscriptions')
+          .select('id, name, value, service_duration')
+          .eq('establishment_id', establishment.id)
+          .order('created_at', { ascending: true });
+
+        if (error) throw error;
+
+        return (data || [])
+          .map((sub: any) => ({
+            id: `subscription_${String(sub?.id || '')}`,
+            name: String(sub?.name || '').trim(),
+            price: 0,
+            duration: Number(sub?.service_duration || 30),
+            plan_value: Number(sub?.value || 0),
+            is_subscription: true,
+          }))
+          .filter((sub: any) => sub.name.length > 0);
+      } catch (error) {
+        console.error('Erro ao buscar assinaturas para encaixe:', error);
+        return [];
+      }
+    };
+
     // Função para calcular duração em minutos entre dois horários
     const calculateDuration = (startTime: string, endTime: string): number => {
       const [startHours, startMins] = startTime.split(':').map(Number);
@@ -1947,8 +2209,121 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return startA < endB && startB < endA;
     };
 
+    const normalizeWhatsappKey = (raw: any) => {
+      const digits = String(raw || '').replace(/\D/g, '');
+      if (!digits) return '';
+      if (digits.startsWith('55')) {
+        const after = digits.slice(2);
+        if (after.length === 10 || after.length === 11) return after;
+      }
+      return digits;
+    };
+
+    const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+
+    const loadSqueezeKnownClients = async () => {
+      if (!establishment?.id) return;
+      setSqueezeKnownClientsLoading(true);
+      try {
+        const map = new Map<string, SqueezeKnownClientOption>();
+
+        const { data, error } = await supabase
+          .from('appointments')
+          .select('client_id, client_name, client_whatsapp')
+          .eq('establishment_id', establishment.id)
+          .not('client_name', 'is', null)
+          .not('client_whatsapp', 'is', null)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+
+        (data || []).forEach((row: any) => {
+          const key = normalizeWhatsappKey(row?.client_whatsapp);
+          if (!key || map.has(key)) return;
+          map.set(key, {
+            id: key,
+            client_id: String(row?.client_id || '').trim() || undefined,
+            name: String(row?.client_name || '').trim() || 'Cliente',
+            whatsapp: String(row?.client_whatsapp || '').trim(),
+          });
+        });
+
+        // Completar com clientes manuais (mesma fonte usada em "Meus Clientes")
+        try {
+          const { data: manualRows, error: manualError } = await supabase
+            .from('manual_clients')
+            .select('name, whatsapp')
+            .eq('establishment_id', establishment.id);
+
+          if (manualError) {
+            // Fallback para localStorage quando tabela não existe/erro de permissão
+            const storageKey = `manual_clients_${establishment.id}`;
+            const manualLocal = JSON.parse(localStorage.getItem(storageKey) || '{}');
+            Object.values(manualLocal || {}).forEach((raw: any) => {
+              const key = normalizeWhatsappKey((raw as any)?.whatsapp || '');
+              if (!key || map.has(key)) return;
+              map.set(key, {
+                id: key,
+                name: String((raw as any)?.name || '').trim() || 'Cliente',
+                whatsapp: String((raw as any)?.whatsapp || '').trim(),
+              });
+            });
+          } else {
+            (manualRows || []).forEach((row: any) => {
+              const key = normalizeWhatsappKey(row?.whatsapp);
+              if (!key || map.has(key)) return;
+              map.set(key, {
+                id: key,
+                name: String(row?.name || '').trim() || 'Cliente',
+                whatsapp: String(row?.whatsapp || '').trim(),
+              });
+            });
+          }
+        } catch {
+          const storageKey = `manual_clients_${establishment.id}`;
+          const manualLocal = JSON.parse(localStorage.getItem(storageKey) || '{}');
+          Object.values(manualLocal || {}).forEach((raw: any) => {
+            const key = normalizeWhatsappKey((raw as any)?.whatsapp || '');
+            if (!key || map.has(key)) return;
+            map.set(key, {
+              id: key,
+              name: String((raw as any)?.name || '').trim() || 'Cliente',
+              whatsapp: String((raw as any)?.whatsapp || '').trim(),
+            });
+          });
+        }
+
+        const clients = Array.from(map.values()).sort((a, b) =>
+          String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' })
+        );
+        setSqueezeKnownClients(clients);
+      } catch (error) {
+        console.error('Erro ao carregar clientes conhecidos para encaixe:', error);
+        toast.error('Erro ao carregar clientes conhecidos');
+      } finally {
+        setSqueezeKnownClientsLoading(false);
+      }
+    };
+
+    const openSqueezeClientModal = async () => {
+      if (!selectedSqueezeService || !squeezeStartTime || !squeezeEndTime || !selectedProfessionalForSqueeze || !establishment) {
+        toast.error('Preencha todos os campos');
+        return;
+      }
+      const duration = calculateDuration(squeezeStartTime, squeezeEndTime);
+      if (duration <= 0) {
+        toast.error('O horário de término deve ser depois do horário de início');
+        return;
+      }
+      setSqueezeClientType('avulso');
+      setSelectedSqueezeKnownClientId('');
+      setSqueezeKnownClientSearch('');
+      setShowSqueezeTimeModal(false);
+      setShowSqueezeClientModal(true);
+      await loadSqueezeKnownClients();
+    };
+
     // Função para criar encaixe
-    const handleCreateSqueeze = async () => {
+    const handleCreateSqueeze = async (selectedClient?: SqueezeKnownClientOption | null) => {
       if (!selectedSqueezeService || !squeezeStartTime || !squeezeEndTime || !selectedProfessionalForSqueeze || !establishment) {
         toast.error('Preencha todos os campos');
         return;
@@ -1988,27 +2363,49 @@ export const AllProfessionalsAppointmentsView: React.FC<
           return;
         }
 
-        // Buscar user_id do estabelecimento para usar como client_id
+        // Buscar owner_id como fallback para client_id (necessário para FK em auth.users)
         const { data: establishmentData } = await supabase
           .from('establishments')
           .select('owner_id')
           .eq('id', establishment.id)
           .single();
 
+        const fallbackClientId = String(user?.id || establishmentData?.owner_id || '').trim();
+        if (!fallbackClientId) {
+          toast.error('Não foi possível identificar o usuário para criar o encaixe.');
+          return;
+        }
+
+        const isSubscriptionSqueeze = Boolean((selectedSqueezeService as any)?.is_subscription);
+        const squeezePrice = isSubscriptionSqueeze ? 0 : Number(selectedSqueezeService?.price || 0);
+        const clientName = selectedClient
+          ? String(selectedClient.name || 'Cliente').trim() || 'Cliente'
+          : 'ENCAIXE';
+        const clientWhatsapp = selectedClient
+          ? String(selectedClient.whatsapp || '').trim()
+          : '';
+        const knownClientId = selectedClient?.client_id ? String(selectedClient.client_id).trim() : '';
+        const clientIdForInsert = knownClientId && isUuid(knownClientId) ? knownClientId : fallbackClientId;
+        const isAvulsoSqueeze = !selectedClient;
+
         const { error } = await supabase
           .from('appointments')
           .insert({
-            client_id: establishmentData?.owner_id || '',
+            client_id: clientIdForInsert,
             establishment_id: establishment.id,
             professional: selectedProfessionalForSqueeze,
             service: selectedSqueezeService.name,
-            client_name: 'ENCAIXE',
+            client_name: clientName,
+            client_whatsapp: clientWhatsapp,
             appointment_date: selectedDateStr,
             appointment_time: squeezeStartTime,
             status: 'confirmed',
-            price: selectedSqueezeService.price,
-            total_price: selectedSqueezeService.price,
+            price: squeezePrice,
+            total_price: squeezePrice,
             duration: duration,
+            payment_method: isSubscriptionSqueeze ? 'assinante' : 'dinheiro',
+            is_avulso: isAvulsoSqueeze,
+            is_subscriber: isSubscriptionSqueeze,
             is_squeeze: true // Marcar como encaixe
           });
 
@@ -2019,9 +2416,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
         // Fechar modais e limpar estados
         setShowSqueezeServiceModal(false);
         setShowSqueezeTimeModal(false);
+        setShowSqueezeClientModal(false);
         setSelectedSqueezeService(null);
         setSqueezeStartTime('');
         setSqueezeEndTime('');
+        setSelectedSqueezeKnownClientId('');
+        setSqueezeKnownClientSearch('');
         setSelectedProfessionalForSqueeze(null);
 
         // Atualizar agendamentos
@@ -2649,7 +3049,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           >
                                             <div className="flex items-center justify-between mb-1">
                                               <span className="text-white font-bold text-sm">
-                                                {squeeze.appointment_time} 🟣 ENCAIXE
+                                                {squeeze.appointment_time} 🟣 {squeeze.is_subscriber ? 'ENCAIXE ASSINANTE' : 'ENCAIXE'}
                                               </span>
                                               <span className="text-white text-xs font-bold">
                                                 {formatCurrency(calculateTotalPrice(squeeze))}
@@ -2668,7 +3068,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <div className="border-t-2 border-white/20 p-3 bg-black/10">
                                             <div className="mb-3">
                                               <div className="flex items-center gap-2 mb-2">
-                                                <span className="text-white font-semibold">ENCAIXE</span>
+                                                <span className="text-white font-semibold">
+                                                  {squeeze.is_subscriber ? 'ENCAIXE ASSINANTE' : 'ENCAIXE'}
+                                                </span>
                                               </div>
                                             </div>
                                             <div className="mb-3 text-xs text-white/90 space-y-1">
@@ -2771,7 +3173,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                       <div className="text-white font-semibold text-sm mb-1 truncate">
                                         <div className="flex items-center gap-2 min-w-0">
                                           <span className="truncate">
-                                            {apt.is_squeeze ? 'ENCAIXE' : getDisplayedClientNameWithSubscriberLabel(apt)}
+                                            {apt.is_squeeze
+                                              ? (apt.is_subscriber ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
+                                              : getDisplayedClientNameWithSubscriberLabel(apt)}
                                           </span>
                                           {serviceLabels.map((label) => (
                                             <span
@@ -2833,7 +3237,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         <div className="flex items-center gap-2 mb-2">
                                           <User className="w-4 h-4 text-white" />
                                           <span className="text-white font-semibold">
-                                            {apt.is_squeeze ? 'ENCAIXE' : getDisplayedClientNameWithSubscriberLabel(apt)}
+                                            {apt.is_squeeze
+                                              ? (apt.is_subscriber ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
+                                              : getDisplayedClientNameWithSubscriberLabel(apt)}
                                           </span>
                                           {serviceLabels.map((label) => (
                                             <span
@@ -3063,10 +3469,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         <div className="mb-3">
                                           <select
                                             value={apt.payment_method || 'pendente'}
-                                            onChange={(e) => handlePaymentMethodChange(apt.id, e.target.value)}
+                                            onChange={(e) => handlePaymentMethodChange(apt, e.target.value)}
                                             className="w-full bg-white/20 text-white text-xs rounded px-2 py-1 border border-white/30"
                                           >
                                             <option value="pendente" className="bg-gray-800">Forma de Pagamento</option>
+                                            <option value="multi" className="bg-gray-800">Várias formas de PG</option>
                                             <option value="pix" className="bg-gray-800">PIX</option>
                                             <option value="credito" className="bg-gray-800">Cartão de Crédito</option>
                                             <option value="debito" className="bg-gray-800">Cartão de Débito</option>
@@ -3090,6 +3497,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               <option value="mastercard" className="bg-gray-800">Mastercard</option>
                                               <option value="elo" className="bg-gray-800">Elo</option>
                                             </select>
+                                          )}
+
+                                          {parsePaymentSplitDetails(apt).length > 0 && (
+                                            <div className="mt-1 rounded border border-white/20 bg-black/25 p-2">
+                                              <div className="text-[10px] text-white/70 mb-1">Histórico formas de PG:</div>
+                                              <div className="space-y-0.5">
+                                                {parsePaymentSplitDetails(apt).map((row, idx) => (
+                                                  <div key={`${apt.id}-split-${idx}`} className="text-[10px] text-white/90 flex items-center justify-between">
+                                                    <span>
+                                                      {row.method}
+                                                      {(row.method === 'credito' || row.method === 'debito') && row.card_brand
+                                                        ? ` (${row.card_brand})`
+                                                        : ''}
+                                                    </span>
+                                                    <strong>{formatCurrency(row.amount)}</strong>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
                                           )}
                                         </div>
                                       )}
@@ -3387,7 +3813,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                       <div className="flex items-center justify-between gap-2">
                                         <div className="min-w-0">
                                           <div className="text-xs font-extrabold text-amber-900">
-                                            ⛔ {apt.appointment_time} • {apt.is_squeeze ? 'ENCAIXE' : (getDisplayedClientNameWithSubscriberLabel(apt) || 'Cliente')}
+                                            ⛔ {apt.appointment_time} • {apt.is_squeeze
+                                              ? (apt.is_subscriber ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
+                                              : (getDisplayedClientNameWithSubscriberLabel(apt) || 'Cliente')}
                                           </div>
                                           <div className="text-[11px] text-amber-900/90 truncate">
                                             {apt.service}
@@ -3483,7 +3911,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     const badgeText = isAvulso
                       ? 'RESERVA'
                       : isSqueeze
-                        ? 'ENCAIXE'
+                        ? (apt.is_subscriber ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
                         : isPast
                           ? 'Já passou'
                           : isBlocked
@@ -3702,6 +4130,150 @@ export const AllProfessionalsAppointmentsView: React.FC<
           </div>
         )}
 
+        {showSplitPaymentModal && selectedAppointmentForSplitPayment && (
+          <div className="fixed inset-0 bg-black/60 z-[120] flex items-center justify-center p-4">
+            <div className="w-full max-w-lg rounded-xl border border-white/15 bg-[#111214] shadow-2xl">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                <div>
+                  <h3 className="text-sm font-bold text-white">Várias formas de pagamento</h3>
+                  <p className="text-xs text-white/70">
+                    Valor do serviço: <strong>{formatCurrency(calculateTotalPrice(selectedAppointmentForSplitPayment))}</strong>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isSavingSplitPayment) return;
+                    setShowSplitPaymentModal(false);
+                    setSelectedAppointmentForSplitPayment(null);
+                    setSplitPaymentRows([]);
+                  }}
+                  className="text-white/70 hover:text-white"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="p-4 space-y-2">
+                {splitPaymentRows.map((row, idx) => (
+                  <div key={`split-row-${idx}`} className="rounded-lg border border-white/10 bg-black/25 p-2 space-y-2">
+                    <div className="grid grid-cols-12 gap-2">
+                      <select
+                        value={row.method}
+                        onChange={(e) =>
+                          setSplitPaymentRows((prev) =>
+                            prev.map((r, i) => (i === idx ? { ...r, method: e.target.value } : r))
+                          )
+                        }
+                        className="col-span-6 bg-white/10 text-white text-xs rounded px-2 py-1 border border-white/20"
+                        disabled={isSavingSplitPayment}
+                      >
+                        <option value="" className="bg-gray-800">Método</option>
+                        {getSplitEnabledMethods().map((method) => (
+                          <option key={`split-method-${method}`} value={method} className="bg-gray-800">
+                            {method}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={row.amount}
+                        onChange={(e) =>
+                          setSplitPaymentRows((prev) =>
+                            prev.map((r, i) => (i === idx ? { ...r, amount: e.target.value } : r))
+                          )
+                        }
+                        className="col-span-4 bg-white/10 text-white text-xs rounded px-2 py-1 border border-white/20"
+                        placeholder="Valor"
+                        disabled={isSavingSplitPayment}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setSplitPaymentRows((prev) => prev.filter((_, i) => i !== idx))}
+                        className="col-span-2 rounded bg-red-600/80 hover:bg-red-600 text-white text-xs"
+                        disabled={isSavingSplitPayment || splitPaymentRows.length <= 1}
+                      >
+                        Rem
+                      </button>
+                    </div>
+
+                    {(row.method === 'credito' || row.method === 'debito') && (
+                      <select
+                        value={row.card_brand || 'bandeira'}
+                        onChange={(e) =>
+                          setSplitPaymentRows((prev) =>
+                            prev.map((r, i) => (i === idx ? { ...r, card_brand: e.target.value } : r))
+                          )
+                        }
+                        className="w-full bg-white/10 text-white text-xs rounded px-2 py-1 border border-white/20"
+                        disabled={isSavingSplitPayment}
+                      >
+                        <option value="bandeira" className="bg-gray-800">Bandeira</option>
+                        <option value="visa" className="bg-gray-800">Visa</option>
+                        <option value="mastercard" className="bg-gray-800">Mastercard</option>
+                        <option value="elo" className="bg-gray-800">Elo</option>
+                      </select>
+                    )}
+                  </div>
+                ))}
+
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (splitPaymentRows.length >= 4) return;
+                      setSplitPaymentRows((prev) => [...prev, { method: '', amount: '', card_brand: 'bandeira' }]);
+                    }}
+                    className="px-3 py-1 rounded bg-white/10 hover:bg-white/20 text-white text-xs"
+                    disabled={isSavingSplitPayment || splitPaymentRows.length >= 4}
+                  >
+                    + Adicionar forma ({splitPaymentRows.length}/4)
+                  </button>
+                  <div className="text-xs text-white/80">
+                    Soma:{' '}
+                    <strong>
+                      {formatCurrency(
+                        round2(
+                          splitPaymentRows.reduce(
+                            (sum, row) => sum + Number(String(row.amount || '').replace(',', '.')),
+                            0
+                          )
+                        )
+                      )}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="px-4 py-3 border-t border-white/10 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isSavingSplitPayment) return;
+                    setShowSplitPaymentModal(false);
+                    setSelectedAppointmentForSplitPayment(null);
+                    setSplitPaymentRows([]);
+                  }}
+                  className="px-3 py-1.5 rounded bg-white/10 text-white text-xs hover:bg-white/20"
+                  disabled={isSavingSplitPayment}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSplitPayment}
+                  className="px-3 py-1.5 rounded bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700"
+                  disabled={isSavingSplitPayment}
+                >
+                  {isSavingSplitPayment ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Modal de Informações do Profissional */}
         {selectedProfessionalForInfo && (
           <ProfessionalInfoModal
@@ -3752,6 +4324,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     setSelectedProfessionalForSqueeze(null);
                   }}
                   fetchServices={fetchEstablishmentServices}
+                  fetchSubscriptions={fetchEstablishmentSubscriptionsForSqueeze}
                 />
               </div>
             </div>
@@ -3822,12 +4395,149 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     Cancelar
                   </button>
                   <button
-                    onClick={handleCreateSqueeze}
+                    onClick={openSqueezeClientModal}
                     className="flex-1 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
                   >
-                    Criar Encaixe
+                    Escolher cliente
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de Seleção de Cliente para Encaixe */}
+        {showSqueezeClientModal && selectedSqueezeService && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md mx-4 border border-gray-700">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-white">Escolher cliente do encaixe</h3>
+                <button
+                  onClick={() => {
+                    setShowSqueezeClientModal(false);
+                    setShowSqueezeTimeModal(true);
+                  }}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSqueezeClientType('avulso')}
+                    className={`px-3 py-2 rounded-lg border text-sm font-semibold transition-colors ${squeezeClientType === 'avulso'
+                        ? 'bg-emerald-600 text-white border-emerald-500'
+                        : 'bg-[#2a2b2c] text-gray-300 border-gray-600 hover:border-gray-500'
+                      }`}
+                  >
+                    Cliente avulso
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSqueezeClientType('known')}
+                    className={`px-3 py-2 rounded-lg border text-sm font-semibold transition-colors ${squeezeClientType === 'known'
+                        ? 'bg-blue-600 text-white border-blue-500'
+                        : 'bg-[#2a2b2c] text-gray-300 border-gray-600 hover:border-gray-500'
+                      }`}
+                  >
+                    Cliente conhecido
+                  </button>
+                </div>
+
+                {squeezeClientType === 'known' && (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={squeezeKnownClientSearch}
+                      onChange={(e) => setSqueezeKnownClientSearch(e.target.value)}
+                      placeholder="Buscar por nome ou WhatsApp"
+                      className="w-full px-3 py-2 bg-[#2a2b2c] border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white"
+                    />
+                    <div className="max-h-56 overflow-y-auto space-y-2 border border-gray-700 rounded-lg p-2 bg-[#111213]">
+                      {squeezeKnownClientsLoading ? (
+                        <p className="text-sm text-gray-400 text-center py-4">Carregando clientes...</p>
+                      ) : (() => {
+                        const q = String(squeezeKnownClientSearch || '').trim().toLowerCase();
+                        const qDigits = q.replace(/\D/g, '');
+                        const filtered = squeezeKnownClients.filter((c) => {
+                          if (!q) return true;
+                          const name = String(c.name || '').toLowerCase();
+                          const digits = String(c.whatsapp || '').replace(/\D/g, '');
+                          return name.includes(q) || (qDigits && digits.includes(qDigits));
+                        });
+                        if (filtered.length === 0) {
+                          return <p className="text-sm text-gray-400 text-center py-4">Nenhum cliente encontrado.</p>;
+                        }
+                        return filtered.map((c) => {
+                          const selected = selectedSqueezeKnownClientId === c.id;
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => setSelectedSqueezeKnownClientId(c.id)}
+                              className={`w-full text-left px-3 py-2 rounded-lg border transition-colors ${selected
+                                  ? 'bg-blue-600/30 border-blue-500 text-white'
+                                  : 'bg-[#1f2937] border-gray-600 text-gray-200 hover:border-gray-500'
+                                }`}
+                            >
+                              <div className="text-sm font-semibold">{c.name}</div>
+                              <div className="text-xs text-gray-300">{String(c.whatsapp || '').replace(/\D/g, '')}</div>
+                            </button>
+                          );
+                        });
+                      })()}
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      Para cliente conhecido, o encaixe salva nome + WhatsApp e segue o mesmo caminho de lembrete do agendamento normal.
+                    </p>
+                  </div>
+                )}
+
+                {squeezeClientType === 'avulso' && (
+                  <div className="rounded-lg border border-gray-700 bg-[#111213] p-3">
+                    <p className="text-sm text-gray-300">
+                      O encaixe será criado como <strong className="text-white">cliente avulso</strong>, mantendo o fluxo atual.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2 mt-6">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSqueezeClientModal(false);
+                    setShowSqueezeTimeModal(true);
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Voltar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (squeezeClientType === 'known') {
+                      const selectedClient = squeezeKnownClients.find((c) => c.id === selectedSqueezeKnownClientId) || null;
+                      if (!selectedClient) {
+                        toast.error('Selecione um cliente conhecido.');
+                        return;
+                      }
+                      if (!String(selectedClient.whatsapp || '').trim()) {
+                        toast.error('Cliente conhecido sem WhatsApp. Escolha outro cliente ou use avulso.');
+                        return;
+                      }
+                      void handleCreateSqueeze(selectedClient);
+                      return;
+                    }
+                    void handleCreateSqueeze(null);
+                  }}
+                  className="flex-1 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
+                >
+                  Criar encaixe
+                </button>
               </div>
             </div>
           </div>
@@ -3918,49 +4628,79 @@ const SqueezeServiceList: React.FC<{
   onSelectService: (service: any) => void;
   onClose: () => void;
   fetchServices: (professionalId?: string) => Promise<any[]>;
-}> = ({ onSelectService, onClose, fetchServices, selectedProfessionalId }) => {
+  fetchSubscriptions: () => Promise<any[]>;
+}> = ({ onSelectService, onClose, fetchServices, fetchSubscriptions, selectedProfessionalId }) => {
   const [services, setServices] = useState<any[]>([]);
+  const [subscriptions, setSubscriptions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const loadServices = async () => {
       setLoading(true);
-      const fetchedServices = await fetchServices(selectedProfessionalId || undefined);
+      const [fetchedServices, fetchedSubscriptions] = await Promise.all([
+        fetchServices(selectedProfessionalId || undefined),
+        fetchSubscriptions()
+      ]);
       setServices(fetchedServices);
+      setSubscriptions(fetchedSubscriptions);
       setLoading(false);
     };
     loadServices();
-  }, [fetchServices, selectedProfessionalId]);
+  }, [fetchServices, fetchSubscriptions, selectedProfessionalId]);
 
   if (loading) {
     return <div className="text-center py-4 text-gray-400">Carregando serviços...</div>;
   }
 
-  if (services.length === 0) {
+  if (services.length === 0 && subscriptions.length === 0) {
     return (
       <div className="text-center py-4 text-gray-400">
-        Nenhum serviço cadastrado. Adicione serviços em "Meus Serviços".
+        Nenhuma opção encontrada. Adicione serviços ou assinaturas.
       </div>
     );
   }
 
   return (
     <div className="space-y-2">
-      {services.map((service) => (
-        <button
-          key={service.id}
-          onClick={() => onSelectService(service)}
-          className="w-full text-left px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-gray-600 rounded-lg transition-colors"
-        >
-          <div className="font-semibold text-white">{service.name}</div>
-          <div className="text-sm text-gray-300">
-            {new Intl.NumberFormat('pt-BR', {
-              style: 'currency',
-              currency: 'BRL',
-            }).format(service.price)}
+      {services.length > 0 && (
+        <>
+          {services.map((service) => (
+            <button
+              key={service.id}
+              onClick={() => onSelectService(service)}
+              className="w-full text-left px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-gray-600 rounded-lg transition-colors"
+            >
+              <div className="font-semibold text-white">{service.name}</div>
+              <div className="text-sm text-gray-300">
+                {new Intl.NumberFormat('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                }).format(service.price)}
+              </div>
+            </button>
+          ))}
+        </>
+      )}
+
+      {subscriptions.length > 0 && (
+        <div className="pt-2">
+          <div className="text-xs font-bold text-amber-300 mb-2">ASSINATURAS (sem restrição)</div>
+          <div className="space-y-2">
+            {subscriptions.map((sub) => (
+              <button
+                key={sub.id}
+                onClick={() => onSelectService(sub)}
+                className="w-full text-left px-4 py-3 bg-amber-900/20 hover:bg-amber-800/30 border border-amber-500/40 rounded-lg transition-colors"
+              >
+                <div className="font-semibold text-white">👑 {sub.name}</div>
+                <div className="text-sm text-amber-200">
+                  Assinatura • {Number(sub.duration || 30)} min • GRATUITO
+                </div>
+              </button>
+            ))}
           </div>
-        </button>
-      ))}
+        </div>
+      )}
     </div>
   );
 };

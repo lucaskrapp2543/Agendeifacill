@@ -91,6 +91,7 @@ interface AppointmentFormProps {
   subscriberDetectionDisabled?: boolean; // Estado externo para desabilitar detecção
   onSubscriberDetectionDisabledChange?: (disabled: boolean) => void; // Callback para mudar o estado
   guestClientData?: { name: string; phone: string } | null; // Dados do cliente convidado (sem login)
+  onRequestChangeSubscriberService?: () => void; // Solicita voltar para seleção de serviço da assinatura
 }
 
 export function AppointmentForm({
@@ -106,7 +107,8 @@ export function AppointmentForm({
   onOpenRenewSubscription,
   subscriberDetectionDisabled: externalSubscriberDetectionDisabled,
   guestClientData,
-  onSubscriberDetectionDisabledChange
+  onSubscriberDetectionDisabledChange,
+  onRequestChangeSubscriberService
 }: AppointmentFormProps) {
   const { user } = useAuth();
   const isEstablishmentOwner = user?.id === establishment?.owner_id;
@@ -768,7 +770,14 @@ export function AppointmentForm({
     monthlyLimit: number | null;
     subscriptionName: string;
   } | null>(null);
+  const isServiceSpecificLimitError = /limite do servi[cç]o/i.test(String(monthlyLimitError || ''));
   const [isValidatingOneWeek, setIsValidatingOneWeek] = useState(false);
+
+  const getResolvedSubscriberDuration = (): number => {
+    const raw = (subscriberService as any)?.service_duration ?? (subscriberService as any)?.duration;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+  };
 
   // Função para validar limite mensal de assinantes
   const validateMonthlyLimit = async () => {
@@ -795,7 +804,18 @@ export function AppointmentForm({
 
     try {
       console.log('🔍 Chamando checkMonthlyLimit...');
-      const limitCheck = await checkMonthlyLimit(clientWhatsapp, establishment.id, selectedDate);
+      const limitCheck = await checkMonthlyLimit(
+        clientWhatsapp,
+        establishment.id,
+        selectedDate,
+        isSubscriberBooking
+          ? {
+            id: String((subscriberService as any)?.service_id || (subscriberService as any)?.id || '').trim() || null,
+            name: String((subscriberService as any)?.name || '').trim() || null,
+            limit: Number((subscriberService as any)?.service_limit || 0) || null,
+          }
+          : undefined
+      );
       console.log('📊 Resultado do checkMonthlyLimit:', limitCheck);
 
       if (!limitCheck.canBook && limitCheck.errorMessage) {
@@ -1473,11 +1493,13 @@ export function AppointmentForm({
         client_name: isSubscriberBooking ? `${clientName} (ASSINANTE)` : clientName, // Adicionar (ASSINANTE) apenas no envio
         client_whatsapp: whatsappNumbers,
         client_cpf: establishment?.require_cpf && clientCpf ? clientCpf.replace(/\D/g, '') : null, // Adicionar CPF se solicitado
-        service: isSubscriberBooking && subscriberService ? subscriberService.name : serviceNames,
+        service: isSubscriberBooking && subscriberService
+          ? String((subscriberService as any)?.booking_service_name || (subscriberService as any)?.name || '').trim()
+          : serviceNames,
         professional: selectedProfessional?.id || '',
         appointment_date: formattedDate,
         appointment_time: selectedTime,
-        duration: isSubscriberBooking && subscriberService ? (subscriberService.service_duration || 30) : totalDuration, // Usar duração total
+        duration: isSubscriberBooking && subscriberService ? getResolvedSubscriberDuration() : totalDuration, // Usar duração total
         price_original: cupomAplicado ? basePrice : null,
         coupon_code: cupomAplicado ? cupomAplicado.code : null,
         coupon_discount_percent: cupomAplicado ? appliedPercent : null,
@@ -1486,7 +1508,19 @@ export function AppointmentForm({
         payment_method: isSubscriberBooking ? 'assinante' : (requireAdvancePayment ? 'pendente' : selectedPaymentMethod),
         observation: observation.trim() || null, // Adicionar observação (null se vazia)
         is_child_service: isChildService === true, // Adicionar serviço infantil (garantir boolean)
-        is_subscriber: isSubscriberBooking // Adicionar flag de assinante
+        is_subscriber: isSubscriberBooking, // Adicionar flag de assinante
+        subscription_id: isSubscriberBooking
+          ? String((subscriberService as any)?.subscription_id || (subscriberService as any)?.id || '').trim() || null
+          : null,
+        subscriber_service_id: isSubscriberBooking
+          ? String((subscriberService as any)?.service_id || '').trim() || null
+          : null,
+        subscriber_service_name: isSubscriberBooking
+          ? String((subscriberService as any)?.name || '').trim() || null
+          : null,
+        subscriber_service_limit: isSubscriberBooking
+          ? Number((subscriberService as any)?.service_limit || 0) || null
+          : null
       };
 
       console.log('🚀 DEBUG - Dados do agendamento sendo enviados:', appointmentData);
@@ -1658,7 +1692,7 @@ export function AppointmentForm({
   };
 
   const getDuracaoTotalServicosSelecionados = (): number => {
-    if (isSubscriberBooking) return subscriberService?.service_duration || 30;
+    if (isSubscriberBooking) return getResolvedSubscriberDuration();
     // multi-serviço (lista)
     if (useMultiService) {
       return (selectedServices || []).reduce((sum, s) => sum + (Number((s as any)?.duration) || 0), 0);
@@ -2184,7 +2218,9 @@ export function AppointmentForm({
                     {!monthlyLimitData.monthlyLimit
                       ? '✅ Sem limite definido - pode agendar normalmente.'
                       : monthlyLimitData.currentUsage >= monthlyLimitData.monthlyLimit
-                        ? '🚫 Limite atingido! Agende como cliente normal.'
+                        ? (isServiceSpecificLimitError
+                          ? '🚫 Limite deste serviço atingido. Escolha outro serviço da assinatura.'
+                          : '🚫 Limite atingido! Agende como cliente normal.')
                         : monthlyLimitData.currentUsage >= monthlyLimitData.monthlyLimit * 0.8
                           ? '⚠️ Cuidado! Você está próximo do limite mensal.'
                           : '✅ Você ainda pode agendar normalmente.'
@@ -2227,48 +2263,65 @@ export function AppointmentForm({
                       <strong>Uso atual:</strong> {monthlyLimitData.currentUsage} de {monthlyLimitData.monthlyLimit} agendamentos
                     </p>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        if (onOpenRenewSubscription && detectedSubscriber) {
-                          onOpenRenewSubscription(detectedSubscriber);
+                  {isServiceSpecificLimitError ? (
+                    <div className="space-y-2">
+                      <div className="rounded-md bg-orange-50 border border-orange-200 px-3 py-2 text-xs text-orange-700">
+                        Escolha outro serviço da assinatura que ainda tenha saldo disponível.
+                      </div>
+                      {onRequestChangeSubscriberService && (
+                        <button
+                          type="button"
+                          onClick={onRequestChangeSubscriberService}
+                          className="w-full px-3 py-1 bg-amber-600 text-white text-xs rounded hover:bg-amber-700 transition-colors"
+                        >
+                          🔁 Trocar serviço da assinatura
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          if (onOpenRenewSubscription && detectedSubscriber) {
+                            onOpenRenewSubscription(detectedSubscriber);
+                            setMonthlyLimitError(null);
+                            setMonthlyLimitData(null);
+                            setShowSubscriberNotification(false);
+                            return;
+                          }
+                          if (!establishment?.whatsapp) {
+                            alert('❌ WhatsApp do estabelecimento não está configurado. Entre em contato por telefone ou email.');
+                            return;
+                          }
+                          const cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
+                          const whatsappUrl = `https://wa.me/55${cleanWhatsapp}?text=Olá! Gostaria de renovar minha assinatura. Como posso proceder?`;
+                          window.open(whatsappUrl, '_blank');
+                          alert('Redirecionando para WhatsApp do estabelecimento para renovação da assinatura...');
+                        }}
+                        className="flex-1 px-3 py-1 bg-orange-600 text-white text-xs rounded hover:bg-orange-700 transition-colors"
+                      >
+                        🔄 Renovar Assinatura
+                      </button>
+                      <button
+                        onClick={() => {
+                          // Marcar como agendamento normal (não assinante)
+                          if (onConvertToSubscriber) {
+                            onConvertToSubscriber(false);
+                          }
                           setMonthlyLimitError(null);
                           setMonthlyLimitData(null);
-                          setShowSubscriberNotification(false);
-                          return;
-                        }
-                        if (!establishment?.whatsapp) {
-                          alert('❌ WhatsApp do estabelecimento não está configurado. Entre em contato por telefone ou email.');
-                          return;
-                        }
-                        const cleanWhatsapp = establishment.whatsapp.replace(/\D/g, '');
-                        const whatsappUrl = `https://wa.me/55${cleanWhatsapp}?text=Olá! Gostaria de renovar minha assinatura. Como posso proceder?`;
-                        window.open(whatsappUrl, '_blank');
-                        alert('Redirecionando para WhatsApp do estabelecimento para renovação da assinatura...');
-                      }}
-                      className="flex-1 px-3 py-1 bg-orange-600 text-white text-xs rounded hover:bg-orange-700 transition-colors"
-                    >
-                      🔄 Renovar Assinatura
-                    </button>
-                    <button
-                      onClick={() => {
-                        // Marcar como agendamento normal (não assinante)
-                        if (onConvertToSubscriber) {
-                          onConvertToSubscriber(false);
-                        }
-                        setMonthlyLimitError(null);
-                        setMonthlyLimitData(null);
-                        setShowSubscriberNotification(false); // ✅ Fechar também a notificação de assinante
-                        setDetectedSubscriber(null); // ✅ Limpar dados do assinante detectado
-                        setSubscriberDetectionDisabled(true); // ✅ Desabilitar detecção de assinante
-                        setMonthlyLimitValidationDisabled(true); // ✅ Desabilitar validação de limite mensal
-                        console.log('🚫 DEBUG - Detecção de assinante DESABILITADA');
-                      }}
-                      className="flex-1 px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
-                    >
-                      📅 Agendar como cliente normal
-                    </button>
-                  </div>
+                          setShowSubscriberNotification(false); // ✅ Fechar também a notificação de assinante
+                          setDetectedSubscriber(null); // ✅ Limpar dados do assinante detectado
+                          setSubscriberDetectionDisabled(true); // ✅ Desabilitar detecção de assinante
+                          setMonthlyLimitValidationDisabled(true); // ✅ Desabilitar validação de limite mensal
+                          console.log('🚫 DEBUG - Detecção de assinante DESABILITADA');
+                        }}
+                        className="flex-1 px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+                      >
+                        📅 Agendar como cliente normal
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -3121,7 +3174,7 @@ export function AppointmentForm({
                   id: subscriberService.id,
                   name: subscriberService.name,
                   price: 0, // Preço 0 para assinantes
-                  duration: subscriberService.service_duration || 30 // Usar duração da assinatura
+                  duration: getResolvedSubscriberDuration() // Usar duração da assinatura
                 } : useMultiService && selectedServices.length > 0 ? {
                   id: 'multiple',
                   name: selectedServices.map(s => s.name).join(' + '),
@@ -3716,7 +3769,7 @@ export function AppointmentForm({
                     <div><strong>Horário:</strong> {selectedTime}</div>
                     <div><strong>Duração:</strong> {
                       isSubscriberBooking && subscriberService
-                        ? `${subscriberService.service_duration || 30} minutos` // Usar duração da assinatura
+                        ? `${getResolvedSubscriberDuration()} minutos` // Usar duração da assinatura
                         : useMultiService && selectedServices.length > 0
                           ? `${selectedServices.reduce((sum, s) => sum + (s.duration || 30), 0)} minutos`
                           : useCategoryService

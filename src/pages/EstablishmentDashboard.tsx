@@ -249,8 +249,9 @@ interface Appointment {
   is_premium: boolean;
   duration: number;
   price: number;
-  payment_method?: 'dinheiro' | 'pix' | 'credito' | 'debito' | 'transferencia';
+  payment_method?: 'dinheiro' | 'pix' | 'credito' | 'debito' | 'transferencia' | 'pagar_local' | 'multi';
   card_brand?: string;
+  payment_split_details?: Array<{ method: string; amount: number; card_brand?: string | null }> | null;
   pix_payment_status?: string;
   pix_proof_url?: string;
   additional_products?: AdditionalProduct[];
@@ -7855,7 +7856,8 @@ Estamos te aguardando! 😎✂️`;
           is_subscriber,
           is_avulso,
           additional_products,
-          total_price
+          total_price,
+          payment_split_details
         `)
         .eq('establishment_id', establishment.id)
         .gte('appointment_date', startOfSelectedDate)
@@ -9272,10 +9274,8 @@ Estamos te aguardando! 😎✂️`;
     return appointments.reduce((total, appointment) => {
       if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
         const baseValue = getAppointmentRevenueBase(appointment);
-        const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
-        if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
-          return total + (baseValue * paymentTax) / 100;
-        }
+        const taxAmount = getCardTaxAmountFromAppointment(appointment, baseValue);
+        return total + taxAmount;
       }
       return total;
     }, 0);
@@ -14600,21 +14600,9 @@ Estamos te aguardando! 😎✂️`;
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
         const baseValue = getAppointmentRevenueBase(appointment);
-        const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
-        let netValue;
-
-        if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
-          if (establishment?.tax_deducted_by_establishment) {
-            netValue = (baseValue * (professional?.percentage || 0)) / 100;
-          } else {
-            // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
-            const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
-            netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
-          }
-        } else {
-          // Se não for cartão, apenas aplicar percentual
-          netValue = (baseValue * (professional?.percentage || 0)) / 100;
-        }
+        const cardTaxAmount = getCardTaxAmountFromAppointment(appointment, baseValue);
+        const netBase = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
+        const netValue = (netBase * (professional?.percentage || 0)) / 100;
 
         console.log(`💰 ${appointment.client_name}: R$ ${baseValue} → Líquido: R$ ${netValue} (${professional?.percentage || 0}%)`);
         return total + netValue;
@@ -14650,8 +14638,8 @@ Estamos te aguardando! 😎✂️`;
     // Obter percentual do profissional
     const percentage = getProfessionalPercentageByName(appointment.professional);
 
-    // Obter taxa do método de pagamento (incluindo taxas por bandeira)
-    const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
+    // Obter valor de taxa (incluindo múltiplas formas de pagamento)
+    const cardTaxAmount = getCardTaxAmountFromAppointment(appointment, baseValue);
 
     console.log('🚨 TESTE - Cálculo líquido:', {
       appointment: appointment.client_name,
@@ -14660,7 +14648,7 @@ Estamos te aguardando! 😎✂️`;
       percentage,
       paymentMethod: appointment.payment_method,
       cardBrand: appointment.card_brand,
-      paymentTax,
+      paymentTax: cardTaxAmount,
       establishmentTaxes: {
         credit: establishment?.credit_card_tax_percentage,
         debit: establishment?.debit_card_tax_percentage,
@@ -14668,34 +14656,28 @@ Estamos te aguardando! 😎✂️`;
       }
     });
 
-    // Se for pagamento com cartão, verificar se a taxa é descontada do estabelecimento ou do profissional
-    if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
-      // Se a taxa é descontada pelo estabelecimento, o profissional recebe % do valor bruto (sem descontar taxa)
+    // Se houver cartão e a taxa é do profissional, desconta antes do percentual
+    if (cardTaxAmount > 0) {
       if (establishment?.tax_deducted_by_establishment) {
         const result = (baseValue * percentage) / 100;
         console.log('🚨 TESTE - Cartão (taxa pelo estabelecimento):', {
           baseValue,
-          paymentTax,
+          cardTaxAmount,
           percentage,
-          result,
-          calculation: `${baseValue} * ${percentage}% = ${result} (taxa não descontada do profissional)`
-        });
-        return result;
-      } else {
-        // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
-        const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
-        const result = (valueAfterCardTax * percentage) / 100;
-
-        console.log('🚨 TESTE - Cartão (taxa pelo profissional):', {
-          baseValue,
-          paymentTax,
-          valueAfterCardTax,
-          percentage,
-          result,
-          calculation: `${baseValue} - (${baseValue} * ${paymentTax}%) = ${valueAfterCardTax} → ${valueAfterCardTax} * ${percentage}% = ${result}`
+          result
         });
         return result;
       }
+      const valueAfterCardTax = Math.max(0, baseValue - cardTaxAmount);
+      const result = (valueAfterCardTax * percentage) / 100;
+      console.log('🚨 TESTE - Cartão (taxa pelo profissional):', {
+        baseValue,
+        cardTaxAmount,
+        valueAfterCardTax,
+        percentage,
+        result
+      });
+      return result;
     }
 
     // Se não for cartão, usar cálculo normal (apenas percentual do profissional)
@@ -14764,21 +14746,15 @@ Estamos te aguardando! 😎✂️`;
 
   const calculateProfessionalNetForAppointment = (professional: any, apt: Appointment): number => {
     const baseValue = getAppointmentRevenueBase(apt);
+    const cardTaxAmount = getCardTaxAmountFromAppointment(apt, baseValue);
     if (professional?.percentage === 100) {
-      const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-      if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
-        const cardTax = (baseValue * paymentTax) / 100;
-        return baseValue - cardTax;
-      }
+      if (cardTaxAmount > 0) return Math.max(0, baseValue - cardTaxAmount);
       return baseValue;
     }
 
-    const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-    if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
-      if (establishment?.tax_deducted_by_establishment) {
-        return (baseValue * (professional?.percentage || 0)) / 100;
-      }
-      const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
+    if (cardTaxAmount > 0) {
+      if (establishment?.tax_deducted_by_establishment) return (baseValue * (professional?.percentage || 0)) / 100;
+      const valueAfterCardTax = Math.max(0, baseValue - cardTaxAmount);
       return (valueAfterCardTax * (professional?.percentage || 0)) / 100;
     }
     return (baseValue * (professional?.percentage || 0)) / 100;
@@ -15197,6 +15173,42 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
+  const parsePaymentSplitDetails = (appointment: Appointment): Array<{ method: string; amount: number; card_brand?: string | null }> => {
+    const raw = (appointment as any)?.payment_split_details;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((row: any) => ({
+        method: String(row?.method || '').trim(),
+        amount: Number(row?.amount || 0),
+        card_brand: row?.card_brand ? String(row.card_brand) : null,
+      }))
+      .filter((row) => row.method && Number.isFinite(row.amount) && row.amount > 0);
+  };
+
+  const getCardTaxAmountFromAppointment = (appointment: Appointment, baseValue?: number): number => {
+    const base = Number.isFinite(Number(baseValue)) ? Number(baseValue) : getAppointmentRevenueBase(appointment);
+    if (!(base > 0)) return 0;
+
+    const splitRows = parsePaymentSplitDetails(appointment);
+    if (splitRows.length > 0) {
+      const totalCharge = Number((appointment as any)?.total_price || appointment.price || 0);
+      if (!(totalCharge > 0)) return 0;
+      const ratio = Math.max(0, Math.min(1, base / totalCharge));
+      return splitRows.reduce((sum, row) => {
+        if (row.method !== 'credito' && row.method !== 'debito') return sum;
+        const rate = getPaymentMethodTax(row.method, row.card_brand || undefined);
+        const servicePortion = row.amount * ratio;
+        return sum + (servicePortion * rate) / 100;
+      }, 0);
+    }
+
+    if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
+      const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
+      return (base * paymentTax) / 100;
+    }
+    return 0;
+  };
+
   // Função para calcular relatório de taxas
   const calculateTaxesReport = async () => {
     if (!establishment) return;
@@ -15217,7 +15229,7 @@ Estamos te aguardando! 😎✂️`;
         .gte('appointment_date', monthStart.toISOString().split('T')[0])
         .lte('appointment_date', monthEnd.toISOString().split('T')[0])
         .eq('status', 'completed')
-        .in('payment_method', ['credito', 'debito']);
+        .in('payment_method', ['credito', 'debito', 'multi']);
 
       const { data: yearlyAppointments } = await supabase
         .from('appointments')
@@ -15226,23 +15238,33 @@ Estamos te aguardando! 😎✂️`;
         .gte('appointment_date', startOfYear.toISOString().split('T')[0])
         .lte('appointment_date', endOfYear.toISOString().split('T')[0])
         .eq('status', 'completed')
-        .in('payment_method', ['credito', 'debito']);
+        .in('payment_method', ['credito', 'debito', 'multi']);
 
       // Calcular taxas por bandeira
       const calculateTaxesByBrand = (appointments: any[]) => {
         const taxesByBrand: Record<string, { totalTax: number; count: number }> = {};
 
         appointments.forEach(appointment => {
+          const splitRows = parsePaymentSplitDetails(appointment as Appointment);
+          if (splitRows.length > 0) {
+            splitRows.forEach((row) => {
+              if (row.method !== 'credito' && row.method !== 'debito') return;
+              const taxRate = getPaymentMethodTax(row.method, row.card_brand || undefined);
+              const taxAmount = (row.amount * taxRate) / 100;
+              const brand = row.card_brand || 'sem_bandeira';
+              if (!taxesByBrand[brand]) taxesByBrand[brand] = { totalTax: 0, count: 0 };
+              taxesByBrand[brand].totalTax += taxAmount;
+              taxesByBrand[brand].count += 1;
+            });
+            return;
+          }
+
+          if (appointment.payment_method !== 'credito' && appointment.payment_method !== 'debito') return;
           const baseValue = appointment.total_price || appointment.price || 0;
           const taxRate = getPaymentMethodTax(appointment.payment_method, appointment.card_brand);
           const taxAmount = (baseValue * taxRate) / 100;
-
           const brand = appointment.card_brand || 'sem_bandeira';
-
-          if (!taxesByBrand[brand]) {
-            taxesByBrand[brand] = { totalTax: 0, count: 0 };
-          }
-
+          if (!taxesByBrand[brand]) taxesByBrand[brand] = { totalTax: 0, count: 0 };
           taxesByBrand[brand].totalTax += taxAmount;
           taxesByBrand[brand].count += 1;
         });

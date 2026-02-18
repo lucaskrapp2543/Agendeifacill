@@ -27,6 +27,15 @@ export interface Database {
           coupon_discount_percent?: number | null; // Desconto em %
           coupon_discount_amount?: number | null; // Valor do desconto em R$
           total_price?: number; // Preço total incluindo produtos extras
+          subscription_id?: string | null;
+          subscriber_service_id?: string | null;
+          subscriber_service_name?: string | null;
+          subscriber_service_limit?: number | null;
+          payment_split_details?: Array<{
+            method: string;
+            amount: number;
+            card_brand?: string | null;
+          }> | null;
         }
       },
       establishments: {
@@ -116,6 +125,8 @@ export interface Database {
           monthly_service_limit?: number | null;
           divide_total_enabled?: boolean | null;
           divide_total_attendances?: number | null;
+          divide_services_enabled?: boolean | null;
+          divided_services?: any[] | null;
         };
         Insert: {
           establishment_id: string;
@@ -133,6 +144,8 @@ export interface Database {
           monthly_service_limit?: number | null;
           divide_total_enabled?: boolean | null;
           divide_total_attendances?: number | null;
+          divide_services_enabled?: boolean | null;
+          divided_services?: any[] | null;
         };
         Update: {
           name?: string;
@@ -149,6 +162,8 @@ export interface Database {
           monthly_service_limit?: number | null;
           divide_total_enabled?: boolean | null;
           divide_total_attendances?: number | null;
+          divide_services_enabled?: boolean | null;
+          divided_services?: any[] | null;
         };
       };
       discount_coupons: {

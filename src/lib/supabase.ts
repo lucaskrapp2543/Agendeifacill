@@ -1621,7 +1621,14 @@ export const createSubscription = async (
   fixedCommissionValue?: number,
   description?: string,
   divideTotalEnabled?: boolean,
-  divideTotalAttendances?: number | null
+  divideTotalAttendances?: number | null,
+  divideServicesEnabled?: boolean,
+  dividedServices?: Array<{
+    id: string;
+    name: string;
+    duration: number;
+    limit: number;
+  }> | null
 ) => {
   // Tentar calcular o próximo sort_order (para novas assinaturas entrarem no fim).
   // Se a coluna ainda não existir (DB sem a migration), seguimos sem sort_order para não quebrar.
@@ -1657,6 +1664,8 @@ export const createSubscription = async (
       divideTotalAttendances !== undefined && divideTotalAttendances !== null && Number.isFinite(Number(divideTotalAttendances))
         ? Number(divideTotalAttendances)
         : null,
+    divide_services_enabled: Boolean(divideServicesEnabled),
+    divided_services: Array.isArray(dividedServices) ? dividedServices : null,
   };
   if (typeof nextSortOrder === 'number') {
     payload.sort_order = nextSortOrder;
@@ -1665,10 +1674,17 @@ export const createSubscription = async (
   // Tentar inserir com as colunas novas. Se o banco ainda não tem a migration,
   // fazer fallback removendo esses campos para não quebrar.
   let { data, error } = await supabase.from('subscriptions').insert([payload]).select().single();
-  if (error && String((error as any)?.message || '').toLowerCase().includes('divide_total')) {
+  if (
+    error &&
+    ['divide_total', 'divide_services', 'divided_services'].some((token) =>
+      String((error as any)?.message || '').toLowerCase().includes(token)
+    )
+  ) {
     const fallbackPayload: any = { ...payload };
     delete fallbackPayload.divide_total_enabled;
     delete fallbackPayload.divide_total_attendances;
+    delete fallbackPayload.divide_services_enabled;
+    delete fallbackPayload.divided_services;
     ({ data, error } = await supabase.from('subscriptions').insert([fallbackPayload]).select().single());
   }
   return { data, error };
@@ -1818,7 +1834,9 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
           value,
           duration_months,
           weekdays,
-          service_duration
+          service_duration,
+          divide_services_enabled,
+          divided_services
         )
       `)
       .eq('establishment_id', establishmentId)
