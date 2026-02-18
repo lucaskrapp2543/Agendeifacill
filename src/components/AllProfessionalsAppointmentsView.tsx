@@ -202,6 +202,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [showColorLegend, setShowColorLegend] = useState<'red' | 'yellow' | 'green' | null>(null);
     const [showReminderInfo, setShowReminderInfo] = useState(false);
     const [showPendingWarning, setShowPendingWarning] = useState(false);
+    const [showMonthPendingModal, setShowMonthPendingModal] = useState(false);
+    const [monthPendingAppointments, setMonthPendingAppointments] = useState<Appointment[]>([]);
+    const [isLoadingMonthPending, setIsLoadingMonthPending] = useState(false);
     const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
     const [editingValue, setEditingValue] = useState<string>('');
     const [editingAvulsoNameId, setEditingAvulsoNameId] = useState<string | null>(null);
@@ -790,6 +793,117 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const alreadyHasLabel = (name || '').includes('(ASSINANTE)');
       return alreadyHasLabel ? `${base} 👑` : `${base} (ASSINANTE) 👑`;
     };
+
+    const handleOpenMonthPendingModal = async () => {
+      if (!establishment?.id) {
+        toast.error('Estabelecimento não identificado.');
+        return;
+      }
+
+      const start = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1), 'yyyy-MM-dd');
+      const end = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0), 'yyyy-MM-dd');
+
+      setIsLoadingMonthPending(true);
+      setShowMonthPendingModal(true);
+      try {
+        const baseSelect = `
+            id,
+            client_id,
+            client_name,
+            client_whatsapp,
+            client_cpf,
+            service,
+            professional,
+            appointment_date,
+            appointment_time,
+            status,
+            duration,
+            price,
+            total_price,
+            payment_method,
+            card_brand,
+            pix_payment_status,
+            pix_proof_url,
+            additional_products,
+            sold_products,
+            observation,
+            establishment_observation,
+            is_premium,
+            is_subscriber,
+            is_child_service,
+            is_avulso,
+            is_squeeze
+          `;
+        let { data, error } = await supabase
+          .from('appointments')
+          .select(baseSelect)
+          .eq('establishment_id', establishment.id)
+          .gte('appointment_date', start)
+          .lte('appointment_date', end)
+          .in('status', ['pending', 'confirmed'])
+          .order('appointment_date', { ascending: true })
+          .order('appointment_time', { ascending: true });
+
+        const missingSoldProductsColumn =
+          error &&
+          String(error?.message || '').toLowerCase().includes('sold_products') &&
+          String(error?.message || '').toLowerCase().includes('column');
+
+        if (missingSoldProductsColumn) {
+          const legacySelect = `
+            id,
+            client_id,
+            client_name,
+            client_whatsapp,
+            client_cpf,
+            service,
+            professional,
+            appointment_date,
+            appointment_time,
+            status,
+            duration,
+            price,
+            total_price,
+            payment_method,
+            card_brand,
+            pix_payment_status,
+            pix_proof_url,
+            additional_products,
+            observation,
+            establishment_observation,
+            is_premium,
+            is_subscriber,
+            is_child_service,
+            is_avulso,
+            is_squeeze
+          `;
+          const retry = await supabase
+            .from('appointments')
+            .select(legacySelect)
+            .eq('establishment_id', establishment.id)
+            .gte('appointment_date', start)
+            .lte('appointment_date', end)
+            .in('status', ['pending', 'confirmed'])
+            .order('appointment_date', { ascending: true })
+            .order('appointment_time', { ascending: true });
+          data = retry.data as any;
+          error = retry.error as any;
+        }
+
+        if (error) throw error;
+        setMonthPendingAppointments((data as Appointment[]) || []);
+      } catch (error: any) {
+        console.error('Erro ao carregar pendentes do mês:', error);
+        toast.error(error?.message || 'Erro ao carregar pendentes do mês.');
+        setMonthPendingAppointments([]);
+      } finally {
+        setIsLoadingMonthPending(false);
+      }
+    };
+
+    const monthPendingTotal = monthPendingAppointments.length;
+    const monthPendingOnlyCount = monthPendingAppointments.filter((apt) => apt.status === 'pending').length;
+    const monthPendingConfirmedCount = monthPendingAppointments.filter((apt) => apt.status === 'confirmed').length;
 
     const normalizeServiceKey = (value: string): string => {
       return String(value || '')
@@ -2740,6 +2854,74 @@ export const AllProfessionalsAppointmentsView: React.FC<
           </div>
         )}
 
+        {/* Modal: Pendentes do mês */}
+        {showMonthPendingModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowMonthPendingModal(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-gradient-to-r from-yellow-700 to-yellow-800 text-white p-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-bold">⏳ Pendentes do mês</h2>
+                  <p className="text-xs text-yellow-100">
+                    {format(selectedDate, 'MM/yyyy')}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowMonthPendingModal(false)}
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-4 max-h-[70vh] overflow-y-auto">
+                {!isLoadingMonthPending && (
+                  <div className="mb-3 rounded-lg border border-yellow-200 bg-yellow-50 p-2">
+                    <div className="text-xs text-yellow-900 font-semibold">
+                      Não concluídos do mês: <strong>{monthPendingTotal}</strong>
+                    </div>
+                    <div className="mt-1 text-[11px] text-yellow-800">
+                      Pendentes: <strong>{monthPendingOnlyCount}</strong> • Confirmados: <strong>{monthPendingConfirmedCount}</strong>
+                    </div>
+                  </div>
+                )}
+                {isLoadingMonthPending ? (
+                  <div className="py-8 text-center text-gray-600">Carregando pendentes...</div>
+                ) : monthPendingAppointments.length === 0 ? (
+                  <div className="py-8 text-center text-gray-600">
+                    Nenhum agendamento pendente neste mês.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {monthPendingAppointments.map((apt) => (
+                      <div key={`month-pending-${apt.id}`} className="rounded-lg border border-gray-200 p-3 bg-gray-50">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-extrabold text-gray-900 truncate">
+                              {String(getDisplayedClientName(apt) || apt.client_name || 'Cliente')}
+                            </div>
+                            <div className="text-xs text-gray-700 truncate">{apt.service}</div>
+                            <div className="text-[11px] text-gray-600">
+                              {String(apt.appointment_date || '').slice(0, 10).split('-').reverse().join('/')} às {apt.appointment_time} • {getProfessionalName(String(apt.professional || ''))}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <div className="text-xs font-bold text-yellow-700">
+                              {apt.status === 'confirmed' ? 'CONFIRMADO' : 'PENDENTE'}
+                            </div>
+                            <div className="text-xs text-gray-700 font-semibold">
+                              {formatCurrency(calculateTotalPrice(apt))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
 
         {/* Layout Horizontal Scrollável - MOBILE E DESKTOP */}
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -4599,6 +4781,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
               title="Dicas sobre envio de lembretes"
             >
               📬 Enviar lembrete para clientes
+            </button>
+          </div>
+
+          <div className="mt-2 flex justify-center">
+            <button
+              onClick={() => void handleOpenMonthPendingModal()}
+              className="px-3 py-2 text-xs font-medium rounded transition-colors bg-yellow-700 text-white hover:bg-yellow-800"
+              title="Listar todos os pendentes do mês selecionado"
+            >
+              ⏳ Pendentes do mês
             </button>
           </div>
         </div>
