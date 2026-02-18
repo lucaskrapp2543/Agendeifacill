@@ -64,6 +64,8 @@ interface ReservarClienteProps {
   establishmentId: string;
   use15MinuteInterval?: boolean;
   use20MinuteScheduleProp?: boolean;
+  use60MinuteScheduleProp?: boolean;
+  closedTimeEnabledProp?: boolean;
   onClose: () => void;
   onAppointmentCreated?: (payload: { isAvulso: boolean; createdCount: number }) => void;
 }
@@ -72,6 +74,8 @@ export default function ReservarCliente({
   establishmentId,
   use15MinuteInterval = false,
   use20MinuteScheduleProp = false,
+  use60MinuteScheduleProp = false,
+  closedTimeEnabledProp = false,
   onClose,
   onAppointmentCreated,
 }: ReservarClienteProps) {
@@ -810,7 +814,9 @@ export default function ReservarCliente({
 
         // Determinar o intervalo baseado na configuração
         let interval = 30; // Padrão: 30 em 30 minutos
-        if (use20MinuteScheduleProp) {
+        if (use60MinuteScheduleProp) {
+          interval = 60; // Horários de 1 em 1 hora
+        } else if (use20MinuteScheduleProp) {
           interval = 20; // Horários de 20 em 20 minutos
         } else if (!use15MinuteInterval) {
           interval = 15; // Horários de 15 em 15 minutos (quando DESMARCADO)
@@ -825,10 +831,14 @@ export default function ReservarCliente({
         const buildPeriodSlotMinutes = (periodStart: number, periodEnd: number) => {
           const candidate = new Set<number>();
           for (let m = periodStart; m < periodEnd; m += interval) candidate.add(m);
-          professionalAppointments.forEach((apt) => {
-            const aptEndMins = timeToMinutes(apt.appointment_time) + (apt.duration || 30);
-            if (aptEndMins >= periodStart && aptEndMins < periodEnd) candidate.add(aptEndMins);
-          });
+          // Quando "Tempo fechado" está DESMARCADO, libera slot no término do atendimento
+          // (ex.: 09:00 + 30min => abre 09:30), inclusive em grade de 1h.
+          if (!closedTimeEnabledProp) {
+            professionalAppointments.forEach((apt) => {
+              const aptEndMins = timeToMinutes(apt.appointment_time) + (apt.duration || 30);
+              if (aptEndMins >= periodStart && aptEndMins < periodEnd) candidate.add(aptEndMins);
+            });
+          }
           return Array.from(candidate).sort((a, b) => a - b);
         };
 
@@ -965,7 +975,16 @@ export default function ReservarCliente({
     };
 
     loadTimeSlots();
-  }, [selectedService, selectedServices, selectedDate, selectedProfessional]);
+  }, [
+    selectedService,
+    selectedServices,
+    selectedDate,
+    selectedProfessional,
+    use15MinuteInterval,
+    use20MinuteScheduleProp,
+    use60MinuteScheduleProp,
+    closedTimeEnabledProp
+  ]);
 
   const handleClientSelect = (client: Client) => {
     setSelectedClient(client);

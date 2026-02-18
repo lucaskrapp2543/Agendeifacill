@@ -29476,6 +29476,8 @@ Estamos te aguardando! 😎✂️`;
             establishmentId={establishment.id}
             use15MinuteInterval={use15MinuteInterval}
             use20MinuteScheduleProp={use20MinuteSchedule}
+            use60MinuteScheduleProp={use60MinuteSchedule}
+            closedTimeEnabledProp={closedTimeEnabled}
             onAppointmentCreated={({ isAvulso }) => {
               if (!showAppointmentsTutorial || appointmentsTutorialStep !== 5 || !appointmentsTutorialClientsPreview) {
                 return;
