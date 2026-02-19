@@ -4198,8 +4198,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       {/* Modal para editar data de término */}
       {showEditEndDateModal && selectedClientForEdit && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-lg border border-gray-800">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start sm:items-center justify-center z-50 p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 w-full max-w-lg border border-gray-800 max-h-[92vh] overflow-y-auto my-3 sm:my-0">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-white">Editar Assinante</h3>
               <button
@@ -4393,7 +4393,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 );
               })()}
 
-              <div className="flex gap-3 pt-4">
+              <div className="flex gap-3 pt-4 sticky bottom-0 bg-[#1a1b1c]">
                 <button
                   type="button"
                   onClick={() => {
