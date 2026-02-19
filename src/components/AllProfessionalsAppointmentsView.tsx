@@ -1302,6 +1302,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return Math.max(interval, base + extra);
     };
 
+    const appointmentBelongsToProfessionalColumn = (apt: Appointment, professional: Professional): boolean => {
+      const aptProfessional = String(apt?.professional || '').trim();
+      if (!aptProfessional) return false;
+      if (aptProfessional === String(professional?.id || '').trim()) return true;
+      const professionalName = String((professional as any)?.name || '').trim();
+      return professionalName
+        ? aptProfessional.toLowerCase() === professionalName.toLowerCase()
+        : false;
+    };
+
     const intervaloAgendaMinutos = getIntervaloAgendaMinutos();
 
     // Gerar todos os horários possíveis do dia com agendamentos mesclados
@@ -1371,13 +1381,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
       // Separar encaixes dos agendamentos normais
       const normalAppointments = appointments.filter((apt) =>
-        apt.professional === professional.id &&
+        appointmentBelongsToProfessionalColumn(apt, professional) &&
         apt.appointment_date === selectedDateStr &&
         !apt.is_squeeze
       );
 
       const squeezeAppointments = appointments.filter((apt) =>
-        apt.professional === professional.id &&
+        appointmentBelongsToProfessionalColumn(apt, professional) &&
         apt.appointment_date === selectedDateStr &&
         apt.is_squeeze
       );
@@ -1391,6 +1401,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
       // Incluir só horário de TÉRMINO fora do grid (ex: 14:50) — não adicionar 16:30, 16:50 etc. se já estão na grade ou não há agendamento terminando ali
       const periodStartMins = parse(startTime, 'HH:mm', selectedDate).getTime();
       const periodEndMins = parse(endTime, 'HH:mm', selectedDate).getTime();
+
+      // ✅ Incluir INÍCIO de agendamento fora da grade (ex.: 12:05) para exibir card no horário real.
+      professionalAppointments.forEach((apt) => {
+        const aptStart = parse(apt.appointment_time, 'HH:mm', selectedDate);
+        const startTimeStr = format(aptStart, 'HH:mm');
+        const [sh, sm] = startTimeStr.split(':').map(Number);
+        const aptStartMins = sh * 60 + sm;
+        const isOffGridStart = aptStartMins % interval !== 0;
+        const inPeriod = aptStart.getTime() >= periodStartMins && aptStart.getTime() < periodEndMins;
+        if (isOffGridStart && inPeriod && !allSlots.includes(startTimeStr)) {
+          allSlots.push(startTimeStr);
+        }
+      });
+
       professionalAppointments.forEach((apt) => {
         const aptStart = parse(apt.appointment_time, 'HH:mm', selectedDate);
         const duration = getDuracaoTotalAgendamento(apt, interval);
@@ -2949,7 +2973,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 // ✅ Agendamentos com horário "picado" (fora do intervalo), que não entram na grade
                 const hiddenAppointments = appointments
                   .filter((apt) =>
-                    apt.professional === professional.id &&
+                    appointmentBelongsToProfessionalColumn(apt, professional) &&
                     apt.appointment_date === selectedDateStr &&
                     apt.status !== 'cancelled' &&
                     !slotTimeSet.has(String(apt.appointment_time || '').trim())
@@ -2961,30 +2985,32 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
                 // Contar TODOS os agendamentos do dia (sem depender da grade)
                 const professionalAppointmentsCount = appointments.filter((apt) =>
-                  apt.professional === professional.id &&
+                  appointmentBelongsToProfessionalColumn(apt, professional) &&
                   apt.appointment_date === selectedDateStr &&
                   apt.status !== 'cancelled'
                 ).length;
 
                 const pendingCount = appointments.filter((apt) =>
-                  apt.professional === professional.id &&
+                  appointmentBelongsToProfessionalColumn(apt, professional) &&
                   apt.appointment_date === selectedDateStr &&
                   (apt.status === 'pending' || apt.status === 'confirmed')
                 ).length;
 
                 const completedCount = appointments.filter((apt) =>
-                  apt.professional === professional.id &&
+                  appointmentBelongsToProfessionalColumn(apt, professional) &&
                   apt.appointment_date === selectedDateStr &&
                   apt.status === 'completed'
                 ).length;
 
                 const cancelledCount = appointments.filter((apt) =>
-                  apt.professional === professional.id &&
+                  appointmentBelongsToProfessionalColumn(apt, professional) &&
                   apt.appointment_date === selectedDateStr &&
                   apt.status === 'cancelled'
                 ).length;
 
-                const hiddenOpen = Boolean(hiddenAppointmentsOpenByProfessional[professional.id]);
+                const hiddenOpen =
+                  hiddenAppointments.length > 0 &&
+                  (hiddenAppointmentsOpenByProfessional[professional.id] ?? true);
 
                 // Debug para comparar
                 if (professional.id === professionals[0]?.id) {
@@ -3961,7 +3987,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           </div>
                         )}
 
-                        {/* ✅ Agendamentos ocultos (horário fora do intervalo) */}
+                        {/* ✅ Agendamentos picados (fora da grade padrão) */}
                         {hiddenAppointments.length > 0 && (
                           <div className="mt-2 pt-2 border-t border-black/10">
                             <button
@@ -3972,13 +3998,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                   [professional.id]: !Boolean(prev[professional.id]),
                                 }))
                               }
-                              className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 transition-colors"
-                              title="Agendamentos em horário picado (fora do intervalo), que não aparecem na grade"
+                              className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 hover:bg-amber-100 transition-colors"
+                              title="Agendamentos com horário picado (ex: 12:05), fora da grade padrão"
                             >
-                              <span className="text-xs font-extrabold text-gray-900">
-                                Agendamentos ocultos ({hiddenAppointments.length})
+                              <span className="text-xs font-extrabold text-amber-900">
+                                Horários picados ({hiddenAppointments.length})
                               </span>
-                              <span className="text-xs text-gray-600 font-semibold">
+                              <span className="text-xs text-amber-800 font-semibold">
                                 {hiddenOpen ? 'Ocultar' : 'Ver'}
                               </span>
                             </button>
