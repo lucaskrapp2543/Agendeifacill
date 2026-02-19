@@ -64,6 +64,7 @@ interface SubscribersManagerProps {
 export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establishmentId, clients, onClientUpdated, establishment, onEstablishmentUpdate }) => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const subscriptionLabelPalette = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#ffffff', '#9ca3af'];
 
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [clientSubscriptions, setClientSubscriptions] = useState<ClientSubscription[]>([]);
@@ -80,6 +81,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [newDivideTotalAttendances, setNewDivideTotalAttendances] = useState<string>(''); // Ex: 4
   const [newDivideServicesEnabled, setNewDivideServicesEnabled] = useState(false);
   const [newDividedServices, setNewDividedServices] = useState<DividedSubscriptionService[]>([]);
+  const [newSubscriptionLabelColor, setNewSubscriptionLabelColor] = useState<string>('');
 
   const [selectedSubscriptionToAdd, setSelectedSubscriptionToAdd] = useState<string>('');
   const [selectedClientToAdd, setSelectedClientToAdd] = useState<string>('');
@@ -378,6 +380,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [editDivideTotalAttendances, setEditDivideTotalAttendances] = useState<string>(''); // Ex: 4
   const [editDivideServicesEnabled, setEditDivideServicesEnabled] = useState(false);
   const [editDividedServices, setEditDividedServices] = useState<DividedSubscriptionService[]>([]);
+  const [editSubscriptionLabelColor, setEditSubscriptionLabelColor] = useState<string>('');
 
   // Estados para edição de link personalizado
   const [showEditLinkModal, setShowEditLinkModal] = useState(false);
@@ -1485,7 +1488,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         newDivideTotalEnabled,
         newDivideTotalEnabled ? divideAttendancesNum : null,
         newDivideServicesEnabled,
-        newDivideServicesEnabled ? normalizedDividedServices : null
+        newDivideServicesEnabled ? normalizedDividedServices : null,
+        newSubscriptionLabelColor || null
       );
       if (error) {
         throw error;
@@ -1501,6 +1505,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setNewDivideTotalAttendances('');
       setNewDivideServicesEnabled(false);
       setNewDividedServices([]);
+      setNewSubscriptionLabelColor('');
       fetchSubscriptions(); // Atualiza a lista
     } catch (error: any) {
       console.error('Erro ao criar assinatura:', error);
@@ -1713,14 +1718,27 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         divide_total_attendances: nextDivideEnabled ? nextDivideAttendancesNum : null,
         divide_services_enabled: nextDivideServicesEnabled,
         divided_services: nextDivideServicesEnabled ? nextDividedServices : null,
+        label_color: editSubscriptionLabelColor || null,
       };
-      const { data: updatedRow, error } = await supabase
+      let { data: updatedRow, error } = await supabase
         .from('subscriptions')
         .update(payload)
         .eq('id', selectedSubscriptionForEdit.id)
         .eq('establishment_id', establishmentId)
         .select('id')
         .single();
+
+      if (error && String((error as any)?.message || '').toLowerCase().includes('label_color')) {
+        const fallbackPayload: any = { ...payload };
+        delete fallbackPayload.label_color;
+        ({ data: updatedRow, error } = await supabase
+          .from('subscriptions')
+          .update(fallbackPayload)
+          .eq('id', selectedSubscriptionForEdit.id)
+          .eq('establishment_id', establishmentId)
+          .select('id')
+          .single());
+      }
 
       if (error) {
         throw error;
@@ -1752,6 +1770,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setEditDivideTotalAttendances('');
       setEditDivideServicesEnabled(false);
       setEditDividedServices([]);
+      setEditSubscriptionLabelColor('');
       fetchSubscriptions(); // Revalidar lista com o servidor
     } catch (error: any) {
       console.error('Erro ao salvar assinatura:', error);
@@ -2943,6 +2962,33 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               </div>
             )}
           </div>
+          <div className="p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-sm font-semibold text-white">🏷️ Etiqueta</p>
+              <button
+                type="button"
+                onClick={() => setNewSubscriptionLabelColor('')}
+                className="text-xs text-gray-300 hover:text-white"
+              >
+                Limpar
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {subscriptionLabelPalette.map((color) => {
+                const selected = newSubscriptionLabelColor === color;
+                return (
+                  <button
+                    key={`new-subscription-color-${color}`}
+                    type="button"
+                    onClick={() => setNewSubscriptionLabelColor(color)}
+                    className={`h-7 w-7 rounded-full border-2 transition-all ${selected ? 'border-white scale-110' : 'border-white/30 hover:border-white/60'}`}
+                    style={{ backgroundColor: color }}
+                    title="Selecionar cor da etiqueta"
+                  />
+                );
+              })}
+            </div>
+          </div>
           {!newDivideServicesEnabled && (
             <div>
               <label htmlFor="subscriptionDuration" className="block text-sm font-medium text-gray-400 mb-1">Duração do Serviço (minutos)</label>
@@ -3339,6 +3385,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       );
                       setEditDivideServicesEnabled(Boolean((sub as any)?.divide_services_enabled));
                       setEditDividedServices(parseDividedServices((sub as any)?.divided_services));
+                      setEditSubscriptionLabelColor(String((sub as any)?.label_color || ''));
                       setShowEditDescriptionModal(true);
                     }}
                     className="text-gray-600 hover:text-gray-800 transition-colors"
@@ -4375,6 +4422,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   setEditDivideTotalAttendances('');
                   setEditDivideServicesEnabled(false);
                   setEditDividedServices([]);
+                  setEditSubscriptionLabelColor('');
                 }}
                 className="text-gray-400 hover:text-white transition-colors"
               >
@@ -4555,6 +4603,33 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   </div>
                 )}
               </div>
+              <div className="p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-sm font-semibold text-white">🏷️ Etiqueta</p>
+                  <button
+                    type="button"
+                    onClick={() => setEditSubscriptionLabelColor('')}
+                    className="text-xs text-gray-300 hover:text-white"
+                  >
+                    Limpar
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {subscriptionLabelPalette.map((color) => {
+                    const selected = editSubscriptionLabelColor === color;
+                    return (
+                      <button
+                        key={`edit-subscription-color-${color}`}
+                        type="button"
+                        onClick={() => setEditSubscriptionLabelColor(color)}
+                        className={`h-7 w-7 rounded-full border-2 transition-all ${selected ? 'border-white scale-110' : 'border-white/30 hover:border-white/60'}`}
+                        style={{ backgroundColor: color }}
+                        title="Selecionar cor da etiqueta"
+                      />
+                    );
+                  })}
+                </div>
+              </div>
 
               {/* Dias da Semana */}
               <div>
@@ -4656,6 +4731,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   setEditDivideTotalAttendances('');
                   setEditDivideServicesEnabled(false);
                   setEditDividedServices([]);
+                  setEditSubscriptionLabelColor('');
                 }}
                 className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
               >

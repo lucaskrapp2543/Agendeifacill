@@ -24,6 +24,7 @@ interface ServiceCategory {
   establishment_id: string;
   is_active: boolean;
   display_order: number;
+  excluded_professional_ids?: string[] | null;
 }
 
 interface ServiceSubcategory {
@@ -138,6 +139,36 @@ export default function ReservarCliente({
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .trim();
+  };
+
+  const parseExcludedProfessionalIds = (raw: any): string[] => {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((id: any) => String(id || '').trim())
+      .filter(Boolean);
+  };
+
+  const normalizeSpecificService = (raw: any, fallbackKey: string): Service | null => {
+    const name = String(raw?.name || raw?.service_name || '').trim();
+    const price = Number(raw?.price ?? raw?.service_price ?? 0);
+    const duration = Number(raw?.duration ?? raw?.service_duration_minutes ?? 0);
+    const rawId = String(raw?.id || raw?.service_id || '').trim();
+
+    if (!name || !Number.isFinite(price) || price <= 0) return null;
+
+    return {
+      id: rawId ? `specific-${rawId}` : `specific-generated-${fallbackKey}`,
+      name,
+      price,
+      duration: Number.isFinite(duration) && duration > 0 ? duration : 30,
+    };
+  };
+
+  const isCategoryBlockedForProfessional = (category: any, professionalId?: string | null): boolean => {
+    const pid = String(professionalId || '').trim();
+    if (!pid) return false;
+    const excludedIds = parseExcludedProfessionalIds((category as any)?.excluded_professional_ids);
+    return excludedIds.includes(pid);
   };
 
   // Reserva recorrente mensal (mesmo dia da semana/horário, até o fim do mês)
@@ -513,6 +544,10 @@ export default function ReservarCliente({
         setServiceSubcategories([]);
         return;
       }
+      if (isCategoryBlockedForProfessional(selectedCategory, selectedProfessional?.id)) {
+        setServiceSubcategories([]);
+        return;
+      }
 
       try {
         console.log('🔍 Carregando subcategorias para categoria:', selectedCategory.name);
@@ -533,7 +568,7 @@ export default function ReservarCliente({
     };
 
     loadServiceSubcategories();
-  }, [selectedCategory]);
+  }, [selectedCategory, selectedProfessional?.id]);
 
   // Carregar serviços do profissional selecionado
   useEffect(() => {
@@ -548,14 +583,13 @@ export default function ReservarCliente({
           ? (selectedProfessional as any).specific_services
           : [];
         const formattedSpecific: Service[] = specificRaw
-          .filter((s: any) => s && s.id && s.name)
-          .map((s: any) => ({
-            id: `specific-${String(s.id)}`,
-            name: String(s.name || '').trim(),
-            price: Number(s.price || 0),
-            duration: Number(s.duration || 30),
-          }))
-          .filter((s: any) => s.name && s.price > 0);
+          .map((s: any, index: number) =>
+            normalizeSpecificService(
+              s,
+              `${String(selectedProfessional?.id || 'prof')}-${index}-${String(s?.name || s?.service_name || '')}`
+            )
+          )
+          .filter(Boolean) as Service[];
 
         const normalizeNameKey = (name: any) =>
           String(name || '')
@@ -586,7 +620,8 @@ export default function ReservarCliente({
                 id,
                 establishment_id,
                 is_active,
-                display_order
+                display_order,
+                excluded_professional_ids
               )
             `
           )
@@ -601,7 +636,10 @@ export default function ReservarCliente({
           .order('display_order', { ascending: true });
 
         if (!subErr && Array.isArray(subcats) && subcats.length > 0) {
-          const formatted = subcats.map((s: any) => ({
+          const selectedProfessionalId = String(selectedProfessional?.id || '').trim();
+          const formatted = subcats
+            .filter((s: any) => !isCategoryBlockedForProfessional((s as any)?.service_categories, selectedProfessionalId))
+            .map((s: any) => ({
             id: String(s.id),
             name: String(s.name || '').trim(),
             price: Number(s.price || 0),
@@ -1029,8 +1067,12 @@ export default function ReservarCliente({
     return normalizeText(value).includes(normalizedServiceSearch);
   };
 
+  const visibleServiceCategories = serviceCategories.filter(
+    (category) => !isCategoryBlockedForProfessional(category, selectedProfessional?.id)
+  );
+
   const filteredDirectServices = services.filter((service) => serviceMatchesSearch(service?.name));
-  const filteredServiceCategories = serviceCategories.filter((category) => serviceMatchesSearch(category?.name));
+  const filteredServiceCategories = visibleServiceCategories.filter((category) => serviceMatchesSearch(category?.name));
   const filteredServiceSubcategories = serviceSubcategories.filter((subcategory) => serviceMatchesSearch(subcategory?.name));
   const filteredSubscriptionsBySearch = filteredSubscriptions.filter(
     (subscription) => serviceMatchesSearch(subscription?.name) || serviceMatchesSearch(subscription?.service_name)
@@ -1088,6 +1130,15 @@ export default function ReservarCliente({
     setSelectedSubcategory(null);
     setShowCategoryServices(true);
   };
+
+  useEffect(() => {
+    if (selectedCategory && isCategoryBlockedForProfessional(selectedCategory, selectedProfessional?.id)) {
+      setSelectedCategory(null);
+      setSelectedSubcategory(null);
+      setShowCategoryServices(false);
+      setServiceSubcategories([]);
+    }
+  }, [selectedProfessional?.id, selectedCategory]);
 
   const handleSubcategorySelect = (subcategory: ServiceSubcategory) => {
     setSelectedSubcategory(subcategory);

@@ -598,6 +598,12 @@ export default function BookingPage() {
       // ✅ Preferir serviços do sistema novo (categorias/subcategorias).
       // Importante: buscar direto via join (!inner) para não depender de listar categorias antes.
       let servicesFromCategories: any[] = [];
+      const parseExcludedProfessionalIds = (raw: any): string[] => {
+        if (!Array.isArray(raw)) return [];
+        return raw
+          .map((id: any) => String(id || '').trim())
+          .filter(Boolean);
+      };
       try {
         const { data: subs, error: subErr } = await supabase
           .from('service_subcategories')
@@ -623,6 +629,7 @@ export default function BookingPage() {
               name: s.name,
               price: Number(s.price || 0),
               duration: Number(s.duration || 30),
+              excluded_professional_ids: parseExcludedProfessionalIds((s as any)?.excluded_professional_ids),
             }));
         }
       } catch (e) {

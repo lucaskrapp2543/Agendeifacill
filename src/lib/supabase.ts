@@ -1628,7 +1628,8 @@ export const createSubscription = async (
     name: string;
     duration: number;
     limit: number;
-  }> | null
+  }> | null,
+  labelColor?: string | null
 ) => {
   // Tentar calcular o próximo sort_order (para novas assinaturas entrarem no fim).
   // Se a coluna ainda não existir (DB sem a migration), seguimos sem sort_order para não quebrar.
@@ -1666,6 +1667,7 @@ export const createSubscription = async (
         : null,
     divide_services_enabled: Boolean(divideServicesEnabled),
     divided_services: Array.isArray(dividedServices) ? dividedServices : null,
+    label_color: labelColor && String(labelColor).trim() ? String(labelColor).trim() : null,
   };
   if (typeof nextSortOrder === 'number') {
     payload.sort_order = nextSortOrder;
@@ -1676,7 +1678,7 @@ export const createSubscription = async (
   let { data, error } = await supabase.from('subscriptions').insert([payload]).select().single();
   if (
     error &&
-    ['divide_total', 'divide_services', 'divided_services'].some((token) =>
+    ['divide_total', 'divide_services', 'divided_services', 'label_color'].some((token) =>
       String((error as any)?.message || '').toLowerCase().includes(token)
     )
   ) {
@@ -1685,6 +1687,7 @@ export const createSubscription = async (
     delete fallbackPayload.divide_total_attendances;
     delete fallbackPayload.divide_services_enabled;
     delete fallbackPayload.divided_services;
+    delete fallbackPayload.label_color;
     ({ data, error } = await supabase.from('subscriptions').insert([fallbackPayload]).select().single());
   }
   return { data, error };

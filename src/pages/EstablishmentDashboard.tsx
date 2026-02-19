@@ -213,6 +213,7 @@ interface ServiceCategory {
   is_active: boolean;
   hidden_from_booking?: boolean;
   oculto_da_reserva?: boolean;
+  excluded_professional_ids?: string[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -3928,7 +3929,9 @@ const EstablishmentDashboard = () => {
   const [showDiscountCouponsModal, setShowDiscountCouponsModal] = useState(false);
   const [selectedCategoryForSubcategory, setSelectedCategoryForSubcategory] = useState<string | null>(null);
   const [newCategory, setNewCategory] = useState({ name: '' });
+  const [newCategoryExcludedProfessionalIds, setNewCategoryExcludedProfessionalIds] = useState<string[]>([]);
   const [editingCategory, setEditingCategory] = useState<ServiceCategory | null>(null);
+  const [editCategoryExcludedProfessionalIds, setEditCategoryExcludedProfessionalIds] = useState<string[]>([]);
   const [editingSubcategory, setEditingSubcategory] = useState<ServiceSubcategory | null>(null);
   const [selectedSubcategoryForLabel, setSelectedSubcategoryForLabel] = useState<ServiceSubcategory | null>(null);
   const [subcategoryLabelDraft, setSubcategoryLabelDraft] = useState({ name: '', color: '#111827' });
@@ -5081,7 +5084,12 @@ const EstablishmentDashboard = () => {
         return;
       }
 
-      setServiceCategories(data || []);
+      setServiceCategories(
+        (data || []).map((category: any) => ({
+          ...category,
+          excluded_professional_ids: parseExcludedProfessionalIds(category?.excluded_professional_ids),
+        }))
+      );
     } catch (error) {
       console.error('Erro ao buscar categorias de serviços:', error);
     }
@@ -5171,6 +5179,10 @@ const EstablishmentDashboard = () => {
     if (!establishment) return;
 
     const categoryName = (forcedCategoryName ?? newCategory.name ?? '').trim();
+    const excludedProfessionalIdsForCategory =
+      forcedCategoryName
+        ? []
+        : newCategoryExcludedProfessionalIds;
 
     if (!categoryName) {
       toast('Por favor, digite o nome da categoria', 'error');
@@ -5206,16 +5218,32 @@ const EstablishmentDashboard = () => {
       }
 
       // Criar a nova categoria com display_order: 0 (aparecerá primeiro)
-      const { data: insertedCategory, error } = await supabase
+      let { data: insertedCategory, error } = await supabase
         .from('service_categories')
         .insert({
           establishment_id: establishment.id,
           name: categoryName.toUpperCase(),
           is_active: true,
-          display_order: 0
+          display_order: 0,
+          excluded_professional_ids: excludedProfessionalIdsForCategory.length > 0 ? excludedProfessionalIdsForCategory : null
         })
         .select('id')
         .single();
+
+      if (error && String((error as any)?.message || '').toLowerCase().includes('excluded_professional_ids')) {
+        const fallbackInsert = await supabase
+          .from('service_categories')
+          .insert({
+            establishment_id: establishment.id,
+            name: categoryName.toUpperCase(),
+            is_active: true,
+            display_order: 0
+          })
+          .select('id')
+          .single();
+        insertedCategory = fallbackInsert.data as any;
+        error = fallbackInsert.error as any;
+      }
 
       if (error) {
         console.error('❌ Erro ao adicionar categoria:', error);
@@ -5248,7 +5276,8 @@ const EstablishmentDashboard = () => {
                 establishment_id: establishment.id,
                 name: categoryName.toUpperCase(),
                 is_active: true,
-                display_order: 0
+                display_order: 0,
+                excluded_professional_ids: excludedProfessionalIdsForCategory.length > 0 ? excludedProfessionalIdsForCategory : null
               })
               .select('id')
               .single();
@@ -5277,6 +5306,7 @@ const EstablishmentDashboard = () => {
       }
 
       setNewCategory({ name: '' });
+      setNewCategoryExcludedProfessionalIds([]);
       setShowAddCategoryModal(false);
       if (insertedCategory?.id) {
         setPendingScrollToCategoryId(String(insertedCategory.id));
@@ -5325,6 +5355,17 @@ const EstablishmentDashboard = () => {
     const t = setTimeout(() => setHighlightedCategoryId(null), 25000);
     return () => clearTimeout(t);
   }, [highlightedCategoryId]);
+
+  const activeProfessionalsForService = (establishment?.professionals || []).filter(
+    (prof: any) => String(prof?.name || '').trim() && !Boolean((prof as any)?.hidden_from_booking)
+  );
+
+  const parseExcludedProfessionalIds = (raw: any): string[] => {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((id: any) => String(id || '').trim())
+      .filter(Boolean);
+  };
 
   const handleAddSubcategory = async () => {
     if (!selectedCategoryForSubcategory) return;
@@ -5388,22 +5429,25 @@ const EstablishmentDashboard = () => {
         error,
       });
 
-      if (error) {
-        console.error('❌ Erro ao adicionar subcategoria:', error);
+      let effectiveInsertedSubcategory = insertedSubcategory;
+      let effectiveError = error;
+
+      if (effectiveError) {
+        console.error('❌ Erro ao adicionar subcategoria:', effectiveError);
         console.error('❌ Detalhes do erro:', {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          hint: error.hint
+          code: (effectiveError as any).code,
+          message: (effectiveError as any).message,
+          details: (effectiveError as any).details,
+          hint: (effectiveError as any).hint
         });
 
         // ⚠️ MOSTRAR ERRO COMPLETO NA TELA para debug
-        const errorMsg = error.message || 'Erro desconhecido';
-        const errorCode = error.code || 'SEM_CODIGO';
+        const errorMsg = (effectiveError as any).message || 'Erro desconhecido';
+        const errorCode = (effectiveError as any).code || 'SEM_CODIGO';
         console.error(`🚨 ERRO VISÍVEL: ${errorCode} - ${errorMsg}`);
 
         // Se for erro de RLS, tentar novamente após refresh mais agressivo
-        if (error.code === '42501' || error.message?.includes('row-level security') || error.message?.includes('violates row-level security')) {
+        if ((effectiveError as any).code === '42501' || (effectiveError as any).message?.includes('row-level security') || (effectiveError as any).message?.includes('violates row-level security')) {
           console.warn('⚠️ Erro de RLS detectado, tentando refresh mais agressivo...');
 
           // Tentar fazer login novamente silenciosamente
@@ -5464,10 +5508,10 @@ const EstablishmentDashboard = () => {
       setSelectedCategoryForSubcategory(null);
 
       // ✅ Atualização imediata da UI (não depender só do fetch)
-      if (insertedSubcategory) {
+      if (effectiveInsertedSubcategory) {
         setServiceSubcategories(prev => {
-          if (prev.some(s => s.id === insertedSubcategory.id)) return prev;
-          const next = [...prev, insertedSubcategory as any] as ServiceSubcategory[];
+          if (prev.some(s => s.id === (effectiveInsertedSubcategory as any).id)) return prev;
+          const next = [...prev, effectiveInsertedSubcategory as any] as ServiceSubcategory[];
           next.sort((a, b) => {
             const cat = a.category_id.localeCompare(b.category_id);
             if (cat !== 0) return cat;
@@ -5623,10 +5667,21 @@ const EstablishmentDashboard = () => {
     }
 
     try {
-      const { error } = await supabase
+      let { error } = await supabase
         .from('service_categories')
-        .update({ name: editingCategory.name.toUpperCase() })
+        .update({
+          name: editingCategory.name.toUpperCase(),
+          excluded_professional_ids: editCategoryExcludedProfessionalIds.length > 0 ? editCategoryExcludedProfessionalIds : null
+        })
         .eq('id', editingCategory.id);
+
+      if (error && String((error as any)?.message || '').toLowerCase().includes('excluded_professional_ids')) {
+        const fallback = await supabase
+          .from('service_categories')
+          .update({ name: editingCategory.name.toUpperCase() })
+          .eq('id', editingCategory.id);
+        error = fallback.error as any;
+      }
 
       if (error) {
         console.error('Erro ao editar categoria:', error);
@@ -5638,13 +5693,18 @@ const EstablishmentDashboard = () => {
       setServiceCategories(prev =>
         prev.map(cat =>
           cat.id === editingCategory.id
-            ? { ...cat, name: editingCategory.name.toUpperCase() }
+            ? {
+              ...cat,
+              name: editingCategory.name.toUpperCase(),
+              excluded_professional_ids: editCategoryExcludedProfessionalIds.length > 0 ? editCategoryExcludedProfessionalIds : null
+            }
             : cat
         )
       );
 
       setShowEditCategoryModal(false);
       setEditingCategory(null);
+      setEditCategoryExcludedProfessionalIds([]);
       toast('Categoria editada com sucesso!', 'success');
     } catch (error: any) {
       console.error('Erro ao editar categoria:', error);
@@ -5665,7 +5725,7 @@ const EstablishmentDashboard = () => {
     }
 
     try {
-      const { error } = await supabase
+      let { error } = await supabase
         .from('service_subcategories')
         .update({
           name: editingSubcategory.name,
@@ -5684,7 +5744,12 @@ const EstablishmentDashboard = () => {
       setServiceSubcategories(prev =>
         prev.map(sub =>
           sub.id === editingSubcategory.id
-            ? { ...sub, name: editingSubcategory.name, price: price, duration: duration }
+            ? {
+              ...sub,
+              name: editingSubcategory.name,
+              price: price,
+              duration: duration
+            }
             : sub
         )
       );
@@ -26753,6 +26818,7 @@ Estamos te aguardando! 😎✂️`;
                             <button
                               onClick={() => {
                                 setEditingCategory(category);
+                                setEditCategoryExcludedProfessionalIds(parseExcludedProfessionalIds((category as any)?.excluded_professional_ids));
                                 setShowEditCategoryModal(true);
                               }}
                               className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
@@ -28608,7 +28674,10 @@ Estamos te aguardando! 😎✂️`;
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Adicionar Categoria</h3>
                 <button
-                  onClick={() => setShowAddCategoryModal(false)}
+                  onClick={() => {
+                    setShowAddCategoryModal(false);
+                    setNewCategoryExcludedProfessionalIds([]);
+                  }}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <X className="h-5 w-5" />
@@ -28632,11 +28701,52 @@ Estamos te aguardando! 😎✂️`;
                     O nome será convertido automaticamente para maiúsculas
                   </p>
                 </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-800 mb-1">
+                    Profissionais ativos do estabelecimento
+                  </label>
+                  <p className="text-xs text-gray-500 mb-2">
+                    {activeProfessionalsForService.length > 0
+                      ? activeProfessionalsForService.map((p: any) => p.name).join(' | ')
+                      : 'Nenhum profissional ativo disponível.'}
+                  </p>
+                  <label className="block text-sm font-semibold text-gray-800 mb-2">
+                    Quais profissionais não refletem essa categoria?
+                  </label>
+                  <div className="max-h-36 overflow-y-auto space-y-2 border border-gray-200 rounded-lg p-2 bg-gray-50">
+                    {activeProfessionalsForService.length === 0 && (
+                      <p className="text-xs text-gray-500">Adicione profissionais para configurar.</p>
+                    )}
+                    {activeProfessionalsForService.map((professional: any) => {
+                      const professionalId = String(professional?.id || '').trim();
+                      const checked = newCategoryExcludedProfessionalIds.includes(professionalId);
+                      return (
+                        <label key={`new-category-excluded-${professionalId}`} className="flex items-center gap-2 text-sm text-gray-800">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const isChecked = e.target.checked;
+                              setNewCategoryExcludedProfessionalIds((prev) => {
+                                if (isChecked) return prev.includes(professionalId) ? prev : [...prev, professionalId];
+                                return prev.filter((id) => id !== professionalId);
+                              });
+                            }}
+                          />
+                          <span>{professional.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
 
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
-                    onClick={() => setShowAddCategoryModal(false)}
+                    onClick={() => {
+                      setShowAddCategoryModal(false);
+                      setNewCategoryExcludedProfessionalIds([]);
+                    }}
                     className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                   >
                     Cancelar
@@ -28731,7 +28841,6 @@ Estamos te aguardando! 😎✂️`;
                     />
                   )}
                 </div>
-
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
@@ -28876,6 +28985,7 @@ Estamos te aguardando! 😎✂️`;
                   onClick={() => {
                     setShowEditCategoryModal(false);
                     setEditingCategory(null);
+                    setEditCategoryExcludedProfessionalIds([]);
                   }}
                   className="text-gray-400 hover:text-gray-600"
                 >
@@ -28900,6 +29010,44 @@ Estamos te aguardando! 😎✂️`;
                     O nome será convertido automaticamente para maiúsculas
                   </p>
                 </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-800 mb-1">
+                    Profissionais ativos do estabelecimento
+                  </label>
+                  <p className="text-xs text-gray-500 mb-2">
+                    {activeProfessionalsForService.length > 0
+                      ? activeProfessionalsForService.map((p: any) => p.name).join(' | ')
+                      : 'Nenhum profissional ativo disponível.'}
+                  </p>
+                  <label className="block text-sm font-semibold text-gray-800 mb-2">
+                    Quais profissionais não refletem essa categoria?
+                  </label>
+                  <div className="max-h-36 overflow-y-auto space-y-2 border border-gray-200 rounded-lg p-2 bg-gray-50">
+                    {activeProfessionalsForService.length === 0 && (
+                      <p className="text-xs text-gray-500">Adicione profissionais para configurar.</p>
+                    )}
+                    {activeProfessionalsForService.map((professional: any) => {
+                      const professionalId = String(professional?.id || '').trim();
+                      const checked = editCategoryExcludedProfessionalIds.includes(professionalId);
+                      return (
+                        <label key={`edit-category-excluded-${professionalId}`} className="flex items-center gap-2 text-sm text-gray-800">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const isChecked = e.target.checked;
+                              setEditCategoryExcludedProfessionalIds((prev) => {
+                                if (isChecked) return prev.includes(professionalId) ? prev : [...prev, professionalId];
+                                return prev.filter((id) => id !== professionalId);
+                              });
+                            }}
+                          />
+                          <span>{professional.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
 
                 <div className="flex gap-3 pt-4">
                   <button
@@ -28907,6 +29055,7 @@ Estamos te aguardando! 😎✂️`;
                     onClick={() => {
                       setShowEditCategoryModal(false);
                       setEditingCategory(null);
+                      setEditCategoryExcludedProfessionalIds([]);
                     }}
                     className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                   >
@@ -29012,7 +29161,6 @@ Estamos te aguardando! 😎✂️`;
                     />
                   )}
                 </div>
-
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"

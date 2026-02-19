@@ -23,6 +23,7 @@ interface Service {
   name: string;
   price: number;
   duration: number;
+  excluded_professional_ids?: string[] | null;
 }
 
 interface Professional {
@@ -636,10 +637,17 @@ export function AppointmentForm({
     // Buscar serviços específicos do profissional selecionado
     const professional = establishment?.professionals?.find(p => p.id === selectedProfessional.id);
 
-    // ✅ CORRIGIDO: Verificar se specific_services existe, é um array e não está vazio
+    // ✅ Compat: aceita formatos legados de serviços específicos (name/service_name, id opcional)
     const specificServices = professional && (professional as any).specific_services
       ? (Array.isArray((professional as any).specific_services)
-        ? (professional as any).specific_services.filter((s: any) => s && s.id && s.name) // Filtrar serviços válidos
+        ? (professional as any).specific_services
+          .map((s: any, index: number) =>
+            normalizeSpecificService(
+              s,
+              `${String(selectedProfessional?.id || 'prof')}-${index}-${String(s?.name || s?.service_name || '')}`
+            )
+          )
+          .filter(Boolean)
         : [])
       : [];
 
@@ -673,6 +681,36 @@ export function AppointmentForm({
     }
 
     return combinedServices;
+  };
+
+  const normalizeSpecificService = (raw: any, fallbackKey: string): Service | null => {
+    const name = String(raw?.name || raw?.service_name || '').trim();
+    const price = Number(raw?.price ?? raw?.service_price ?? 0);
+    const duration = Number(raw?.duration ?? raw?.service_duration_minutes ?? 0);
+    const rawId = String(raw?.id || raw?.service_id || '').trim();
+
+    if (!name || !Number.isFinite(price) || price <= 0) return null;
+
+    return {
+      id: rawId || `specific-generated-${fallbackKey}`,
+      name,
+      price,
+      duration: Number.isFinite(duration) && duration > 0 ? duration : 30,
+    };
+  };
+
+  const parseExcludedProfessionalIds = (raw: any): string[] => {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((id: any) => String(id || '').trim())
+      .filter(Boolean);
+  };
+
+  const isCategoryBlockedForSelectedProfessional = (category: any): boolean => {
+    const selectedProfessionalId = String(selectedProfessional?.id || '').trim();
+    if (!selectedProfessionalId) return false;
+    const excludedIds = parseExcludedProfessionalIds((category as any)?.excluded_professional_ids);
+    return excludedIds.includes(selectedProfessionalId);
   };
 
   const [pixProofUrl, setPixProofUrl] = useState<string | null>(null);
@@ -1113,28 +1151,48 @@ export function AppointmentForm({
   }
 
   // ✅ MODIFICADO: Verificar se há serviços gerais OU serviços específicos do PROFISSIONAL SELECIONADO
-  const hasGeneralServices = establishment.services_with_prices && establishment.services_with_prices.length > 0;
+  const visibleLegacyServicesForSelectedProfessional = establishment.services_with_prices || [];
+  const visibleServiceCategories = serviceCategories
+    .map((category: any) => ({
+      ...category,
+      subcategories: category?.subcategories || [],
+    }))
+    .filter((category: any) => !isCategoryBlockedForSelectedProfessional(category) && (category?.subcategories || []).length > 0);
+
+  useEffect(() => {
+    if (selectedCategory && !visibleServiceCategories.some((category: any) => category.id === selectedCategory)) {
+      setSelectedCategory(undefined);
+      setSelectedSubcategory(undefined);
+      setSelectedCategoryServices([]);
+    }
+  }, [selectedProfessional?.id, serviceCategories]);
+
+  const hasGeneralServices = visibleLegacyServicesForSelectedProfessional.length > 0;
 
   // Verificar serviços específicos apenas do profissional selecionado
   const selectedProfessionalData = selectedProfessional
     ? establishment.professionals?.find(p => p.id === selectedProfessional.id)
     : null;
 
-  // ✅ CORRIGIDO: Verificação mais robusta - garantir que é array válido e não vazio
-  const hasSpecificServices = selectedProfessionalData
-    ? (selectedProfessionalData as any).specific_services &&
-    Array.isArray((selectedProfessionalData as any).specific_services) &&
-    (selectedProfessionalData as any).specific_services.length > 0 &&
-    (selectedProfessionalData as any).specific_services.some((s: any) => s && s.id && s.name) // Verificar se há pelo menos um serviço válido
-    : false;
+  const normalizedSpecificServicesForSelectedProfessional: Service[] = selectedProfessionalData
+    ? (Array.isArray((selectedProfessionalData as any).specific_services)
+      ? (selectedProfessionalData as any).specific_services
+        .map((s: any, index: number) =>
+          normalizeSpecificService(
+            s,
+            `${String((selectedProfessionalData as any)?.id || selectedProfessional?.id || 'prof')}-${index}-${String(s?.name || s?.service_name || '')}`
+          )
+        )
+        .filter(Boolean)
+      : [])
+    : [];
+
+  const hasSpecificServices = normalizedSpecificServicesForSelectedProfessional.length > 0;
 
   // ✅ Serviços específicos disponíveis do profissional selecionado (para o booking)
   const professionalSpecificServicesForBooking: Service[] = hasSpecificServices && selectedProfessionalData
-    ? (Array.isArray((selectedProfessionalData as any).specific_services)
-      ? (selectedProfessionalData as any).specific_services
-      : [])
-      .filter((s: any) => s && s.id && s.name)
-      .map((s: any) => ({
+    ? normalizedSpecificServicesForSelectedProfessional
+      .map((s: Service) => ({
         id: `specific-${s.id}`,
         name: `${s.name} (${(selectedProfessionalData as any)?.name || selectedProfessional?.name || 'Profissional'})`,
         price: Number(s.price) || 0,
@@ -1143,7 +1201,7 @@ export function AppointmentForm({
     : [];
 
   // ✅ Controlar quais botões/tabs aparecem (categoria só se existir)
-  const hasCategoryTab = serviceCategories.length > 0;
+  const hasCategoryTab = visibleServiceCategories.length > 0;
   const hasProfessionalTab = professionalSpecificServicesForBooking.length > 0;
   const hasAnyTab = hasCategoryTab || hasProfessionalTab;
 
@@ -1176,7 +1234,7 @@ export function AppointmentForm({
     hasSpecificServices,
     hasGeneralServices,
     specificServices: selectedProfessionalData ? (selectedProfessionalData as any).specific_services : null,
-    generalServicesCount: establishment.services_with_prices?.length || 0
+    generalServicesCount: visibleLegacyServicesForSelectedProfessional.length
   });
 
   // ✅ CORRIGIDO: Mostrar botão "Escolha 1 ou mais serviços" APENAS se houver serviços específicos
@@ -2408,8 +2466,8 @@ export function AppointmentForm({
                 setSelectedProfessional(professional || undefined);
 
                 // ✅ NOVO: Se houver apenas 1 categoria, selecionar automaticamente
-                if (professional && serviceCategories.length === 1) {
-                  const singleCategory = serviceCategories[0];
+                if (professional && visibleServiceCategories.length === 1) {
+                  const singleCategory = visibleServiceCategories[0];
                   setUseCategoryService(true);
                   setUseMultiService(false);
                   setSelectedCategory(singleCategory.id);
@@ -2496,7 +2554,7 @@ export function AppointmentForm({
               )}
 
               {/* Só mostrar SERVIÇOS EM CATEGORIA se existir pelo menos 1 categoria */}
-              {serviceCategories.length > 0 && (
+              {visibleServiceCategories.length > 0 && (
                 <button
                   type="button"
                   onClick={() => {
@@ -2611,7 +2669,7 @@ export function AppointmentForm({
                     </div>
                   </div>
                 ) : (
-                  serviceCategories.length === 0 ? (
+                  visibleServiceCategories.length === 0 ? (
                     <div className="space-y-4" data-services-section>
                       <div
                         className="p-3 rounded-2xl"
@@ -2626,7 +2684,7 @@ export function AppointmentForm({
                       </div>
 
                       <div className="space-y-3">
-                        {(establishment?.services_with_prices || [])
+                        {visibleLegacyServicesForSelectedProfessional
                           .filter((s: any) => s && s.id && s.name)
                           .map((raw: any) => {
                             const svc = {
@@ -2733,7 +2791,7 @@ export function AppointmentForm({
                         </div>
                         {/* Lista de categorias como botões visíveis */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {serviceCategories.map((category) => (
+                          {visibleServiceCategories.map((category) => (
                             <button
                               key={category.id}
                               type="button"
@@ -2790,7 +2848,7 @@ export function AppointmentForm({
 
                       {/* Seletor de Subcategoria */}
                       {selectedCategory && (() => {
-                        const selectedCategoryData = serviceCategories.find(cat => cat.id === selectedCategory);
+                        const selectedCategoryData = visibleServiceCategories.find(cat => cat.id === selectedCategory);
                         const hasSubcategories = selectedCategoryData?.subcategories && selectedCategoryData.subcategories.length > 0;
 
                         if (!hasSubcategories) {
@@ -2813,7 +2871,7 @@ export function AppointmentForm({
 
                             {/* ✅ Sempre usar cards (remove o dropdown antigo) */}
                             <div className="space-y-3">
-                              {serviceCategories
+                              {visibleServiceCategories
                                 .find(cat => cat.id === selectedCategory)
                                 ?.subcategories.map((subcategory: any) => {
                                   const isSelected = selectedCategoryServices.some(service => service.id === subcategory.id);

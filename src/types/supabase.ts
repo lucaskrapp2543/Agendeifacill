@@ -127,6 +127,7 @@ export interface Database {
           divide_total_attendances?: number | null;
           divide_services_enabled?: boolean | null;
           divided_services?: any[] | null;
+          label_color?: string | null;
         };
         Insert: {
           establishment_id: string;
@@ -146,6 +147,7 @@ export interface Database {
           divide_total_attendances?: number | null;
           divide_services_enabled?: boolean | null;
           divided_services?: any[] | null;
+          label_color?: string | null;
         };
         Update: {
           name?: string;
@@ -164,6 +166,7 @@ export interface Database {
           divide_total_attendances?: number | null;
           divide_services_enabled?: boolean | null;
           divided_services?: any[] | null;
+          label_color?: string | null;
         };
       };
       discount_coupons: {

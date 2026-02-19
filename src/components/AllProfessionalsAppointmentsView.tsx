@@ -68,6 +68,7 @@ interface Appointment {
   establishment_observation?: string;
   is_premium?: boolean;
   is_subscriber?: boolean;
+  subscription_id?: string | null;
   is_child_service?: boolean;
   is_avulso?: boolean;
   is_squeeze?: boolean; // Indica se é um encaixe
@@ -242,10 +243,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
     }>>([]);
     // Assinaturas do estabelecimento para exibir duração correta de agendamentos de assinante
     const [subscriptionDurations, setSubscriptionDurations] = useState<Array<{
+      id: string;
       name: string;
       service_duration: number;
       divide_services_enabled: boolean;
       divided_services: Array<{ name: string; duration: number }>;
+      label_color?: string | null;
     }>>([]);
     const [showSplitPaymentModal, setShowSplitPaymentModal] = useState(false);
     const [selectedAppointmentForSplitPayment, setSelectedAppointmentForSplitPayment] = useState<Appointment | null>(null);
@@ -260,13 +263,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
       let cancelled = false;
       (async () => {
-        const { data } = await supabase
+        let { data, error } = await supabase
           .from('subscriptions')
-          .select('name, service_duration, divide_services_enabled, divided_services')
+          .select('id, name, service_duration, divide_services_enabled, divided_services, label_color')
           .eq('establishment_id', establishment.id);
+        if (error && String((error as any)?.message || '').toLowerCase().includes('label_color')) {
+          ({ data } = await supabase
+            .from('subscriptions')
+            .select('id, name, service_duration, divide_services_enabled, divided_services')
+            .eq('establishment_id', establishment.id));
+        }
         if (cancelled || !data) return;
         setSubscriptionDurations(
           (data || []).map((row: any) => ({
+            id: String(row?.id || ''),
             name: String(row?.name ?? '').trim(),
             service_duration: Number(row?.service_duration) || 30,
             divide_services_enabled: Boolean(row?.divide_services_enabled),
@@ -278,6 +288,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   }))
                   .filter((service: any) => service.name && Number.isFinite(service.duration) && service.duration > 0)
               : [],
+            label_color: String(row?.label_color || '').trim() || null,
           }))
         );
       })();
@@ -958,6 +969,26 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return Array.from(unique.values()).slice(0, 2);
     };
 
+    const getSubscriptionLabelColor = (apt: Appointment): string | null => {
+      if (!apt?.is_subscriber) return null;
+      const aptSubscriptionId = String((apt as any)?.subscription_id || '').trim();
+      if (aptSubscriptionId) {
+        const byId = subscriptionDurations.find((sub) => String(sub?.id || '') === aptSubscriptionId);
+        const color = normalizeLabelColor(String(byId?.label_color || ''));
+        if (byId?.label_color && color !== '#111827') return color;
+      }
+
+      const serviceStr = String(apt?.service || '').trim();
+      if (!serviceStr) return null;
+      const byName = subscriptionDurations.find((sub) => {
+        const subName = String(sub?.name || '').trim();
+        return subName && (serviceStr.includes(subName) || subName.includes(serviceStr));
+      });
+      if (!byName?.label_color) return null;
+      const color = normalizeLabelColor(byName.label_color);
+      return color === '#111827' ? null : color;
+    };
+
     const isAvulsoLike = (apt: Appointment): boolean => {
       const name = getDisplayedClientName(apt);
       return Boolean(apt.is_avulso) || /^CLIENTE\s+AVULSO(\s*-)?/i.test(String(name || '').trim());
@@ -1270,9 +1301,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
       const serviceStr = String(apt.service).trim();
       const normalizedService = normalizeName(serviceStr);
+      const aptSubscriptionId = String((apt as any)?.subscription_id || '').trim();
 
       // Fluxo novo: assinatura com "dividir serviços" (duração por serviço específico).
       for (const sub of subscriptionDurations) {
+        if (aptSubscriptionId && String(sub?.id || '') !== aptSubscriptionId) continue;
         if (!sub?.divide_services_enabled || !Array.isArray(sub?.divided_services) || sub.divided_services.length === 0) {
           continue;
         }
@@ -3351,6 +3384,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               const apt = slot.appointment;
                               const isExpanded = expandedAppointments[apt.id];
                               const serviceLabels = getAppointmentServiceLabels(apt);
+                              const subscriptionLabelColor = getSubscriptionLabelColor(apt);
 
                               return (
                                 <div
@@ -3413,6 +3447,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         </div>
                                       </div>
                                       <div className="text-white/90 text-xs truncate">
+                                        {subscriptionLabelColor && (
+                                          <span
+                                            className="inline-block h-2.5 w-2.5 rounded-full mr-1.5 align-middle border border-white/70"
+                                            style={{ backgroundColor: subscriptionLabelColor }}
+                                            title="Etiqueta da assinatura"
+                                          />
+                                        )}
                                         {apt.service}
                                       </div>
                                       <div className="text-white/70 text-xs mt-1">
@@ -4013,6 +4054,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               <div className="mt-2 space-y-2">
                                 {hiddenAppointments.map((apt) => {
                                   const hiddenServiceLabels = getAppointmentServiceLabels(apt);
+                                  const hiddenSubscriptionLabelColor = getSubscriptionLabelColor(apt);
                                   return (
                                     <div
                                       key={`hidden-${apt.id}`}
@@ -4026,6 +4068,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               : (getDisplayedClientNameWithSubscriberLabel(apt) || 'Cliente')}
                                           </div>
                                           <div className="text-[11px] text-amber-900/90 truncate">
+                                            {hiddenSubscriptionLabelColor && (
+                                              <span
+                                                className="inline-block h-2.5 w-2.5 rounded-full mr-1.5 align-middle border border-amber-900/30"
+                                                style={{ backgroundColor: hiddenSubscriptionLabelColor }}
+                                                title="Etiqueta da assinatura"
+                                              />
+                                            )}
                                             {apt.service}
                                           </div>
                                           {hiddenServiceLabels.length > 0 && (
