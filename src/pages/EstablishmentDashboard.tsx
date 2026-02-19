@@ -21373,14 +21373,15 @@ Estamos te aguardando! 😎✂️`;
                                 key={hours}
                                 type="button"
                                 onClick={() => {
-                                  setBookingMinAdvanceHours(hours);
+                                  const nextHours = bookingMinAdvanceHours === hours ? 0 : hours;
+                                  setBookingMinAdvanceHours(nextHours);
                                   notifySettingsNeedManualSave(true);
                                   if (scheduleConfigAutoSaveTimeoutRef.current) {
                                     clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
                                   }
                                   scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
                                     autoSaveScheduleConfig({
-                                      bookingMinAdvanceHours: hours
+                                      bookingMinAdvanceHours: nextHours
                                     });
                                   }, 1000);
                                 }}
@@ -21396,6 +21397,9 @@ Estamos te aguardando! 😎✂️`;
                           </div>
                           <p className="text-xs text-gray-500 mt-3">
                             Exemplo: se for 11:00 e estiver em 1 h, o cliente s&oacute; consegue agendar a partir de 12:00.
+                          </p>
+                          <p className="text-xs text-gray-400 mt-1">
+                            Dica: clique novamente na op&ccedil;&atilde;o selecionada para desmarcar.
                           </p>
                         </div>
 
