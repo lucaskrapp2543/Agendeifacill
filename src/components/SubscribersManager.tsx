@@ -103,8 +103,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       .trim()
       .toLowerCase();
 
-  const normalizePhoneDigits = (value: string): string =>
-    String(value || '').replace(/\D/g, '');
+  const normalizePhoneDigits = (value: string): string => {
+    const digits = String(value || '').replace(/\D/g, '');
+    // Padrao interno: DDD + numero (sem 55), para evitar duplicidade 55/sem55.
+    if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+      return digits.slice(2);
+    }
+    return digits;
+  };
 
   const knownClients = useMemo<KnownClientSuggestion[]>(() => {
     const byNameAndPhone = new Map<string, KnownClientSuggestion>();
@@ -354,6 +360,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [selectedClientForEdit, setSelectedClientForEdit] = useState<ClientSubscription | null>(null);
   const [newEndDate, setNewEndDate] = useState('');
   const [newStartDate, setNewStartDate] = useState('');
+  const [editSubscriberName, setEditSubscriberName] = useState('');
+  const [editSubscriberPhone, setEditSubscriberPhone] = useState('');
+  const [editSubscriberEmail, setEditSubscriberEmail] = useState('');
+  const [editSubscriberSubscriptionId, setEditSubscriberSubscriptionId] = useState('');
   const [editSubscriberPaymentMethod, setEditSubscriberPaymentMethod] = useState('');
   const [editSubscriberObservation, setEditSubscriberObservation] = useState('');
   const [isSavingEndDate, setIsSavingEndDate] = useState(false);
@@ -1534,8 +1544,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         subscriptionId: selectedSubscriptionToAdd
       });
 
-      // Normalizar número de telefone (remover formatação)
-      const normalizedPhone = newClientPhone.replace(/\D/g, '');
+      // Normalizar telefone para padrao unico (DDD + numero, sem 55)
+      const normalizedPhone = normalizePhoneDigits(newClientPhone);
 
       // Usar o novo sistema independente de assinantes
       const { data, error } = await createIndependentSubscriber({
@@ -1919,7 +1929,23 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     e.preventDefault();
 
     if (!selectedClientForEdit || !newEndDate || !newStartDate) {
-      toast.error('Datas de início e término são obrigatórias.');
+      toast.error('Preencha os dados obrigatórios.');
+      return;
+    }
+
+    const nextName = String(editSubscriberName || '').trim();
+    const nextPhone = normalizePhoneDigits(editSubscriberPhone);
+    const nextSubscriptionId = String(editSubscriberSubscriptionId || '').trim();
+    if (!nextName) {
+      toast.error('Informe o nome do assinante.');
+      return;
+    }
+    if (!nextPhone) {
+      toast.error('Informe o telefone do assinante.');
+      return;
+    }
+    if (!nextSubscriptionId) {
+      toast.error('Selecione uma assinatura.');
       return;
     }
 
@@ -1936,7 +1962,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       // Log da alteração para auditoria
       const logData = {
         subscriber_id: selectedClientForEdit.id,
-        subscriber_name: selectedClientForEdit.profiles?.full_name || 'Cliente Desconhecido',
+        subscriber_name: nextName || selectedClientForEdit.profiles?.full_name || 'Cliente Desconhecido',
         old_end_date: selectedClientForEdit.end_date,
         new_end_date: newEndDate,
         old_status: selectedClientForEdit.payment_status,
@@ -1950,8 +1976,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       let { error } = await supabase
         .from('client_subscriptions')
         .update({
+          subscription_id: nextSubscriptionId,
           start_date: newStartDate,
           end_date: newEndDate,
+          subscriber_name: nextName,
+          subscriber_whatsapp: nextPhone,
+          subscriber_email: String(editSubscriberEmail || '').trim() || null,
           payment_status: newStatus,
           subscriber_payment_method: editSubscriberPaymentMethod || null,
           subscriber_observation: editSubscriberObservation.trim().slice(0, 150) || null,
@@ -1960,10 +1990,20 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         .eq('id', selectedClientForEdit.id);
 
       const errMsg = String(error?.message || '').toLowerCase();
-      if (error && (errMsg.includes('subscriber_payment_method') || errMsg.includes('subscriber_observation'))) {
+      if (
+        error &&
+        (
+          errMsg.includes('subscriber_name') ||
+          errMsg.includes('subscriber_whatsapp') ||
+          errMsg.includes('subscriber_email') ||
+          errMsg.includes('subscriber_payment_method') ||
+          errMsg.includes('subscriber_observation')
+        )
+      ) {
         ({ error } = await supabase
           .from('client_subscriptions')
           .update({
+            subscription_id: nextSubscriptionId,
             start_date: newStartDate,
             end_date: newEndDate,
             payment_status: newStatus,
@@ -1991,6 +2031,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setSelectedClientForEdit(null);
       setNewEndDate('');
       setNewStartDate('');
+      setEditSubscriberName('');
+      setEditSubscriberPhone('');
+      setEditSubscriberEmail('');
+      setEditSubscriberSubscriptionId('');
       setEditSubscriberPaymentMethod('');
       setEditSubscriberObservation('');
 
@@ -2010,6 +2054,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     setSelectedClientForEdit(clientSubscription);
     setNewEndDate(clientSubscription.end_date);
     setNewStartDate(clientSubscription.start_date);
+    setEditSubscriberName(String((clientSubscription as any)?.subscriber_name || clientSubscription.profiles?.full_name || ''));
+    setEditSubscriberPhone(normalizePhoneDigits(String((clientSubscription as any)?.subscriber_whatsapp || clientSubscription.client_whatsapp || '')));
+    setEditSubscriberEmail(String((clientSubscription as any)?.subscriber_email || clientSubscription.profiles?.email || ''));
+    setEditSubscriberSubscriptionId(String(clientSubscription.subscription_id || ''));
     setEditSubscriberPaymentMethod(String((clientSubscription as any)?.subscriber_payment_method || ''));
     setEditSubscriberObservation(String((clientSubscription as any)?.subscriber_observation || ''));
     setShowEditEndDateModal(true);
@@ -3510,7 +3558,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 if (suggestion) applyKnownClientSuggestion(suggestion, 'phone');
               }}
               onBlur={(e) => {
-                const suggestion = findKnownClientByPhone(e.target.value);
+                const sanitized = normalizePhoneDigits(e.target.value);
+                if (sanitized !== newClientPhone) {
+                  setNewClientPhone(sanitized);
+                }
+                const suggestion = findKnownClientByPhone(sanitized);
                 if (suggestion) applyKnownClientSuggestion(suggestion, 'phone');
               }}
               list="knownClientPhonesList"
@@ -3876,11 +3928,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       <button
                         onClick={() => openEditEndDateModal(cs)}
                         className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700 shadow-md"
-                        title="Editar data de término"
+                        title="Editar assinante"
                       >
                         <Edit className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
-                        <span className="hidden sm:inline">Editar Data</span>
-                        <span className="sm:hidden">Data</span>
+                        <span className="hidden sm:inline">Editar Assinante</span>
+                        <span className="sm:hidden">Editar</span>
                       </button>
                       <button
                         onClick={() => openLimitModal(cs)}
@@ -4147,15 +4199,19 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       {/* Modal para editar data de término */}
       {showEditEndDateModal && selectedClientForEdit && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md border border-gray-800">
+          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-lg border border-gray-800">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">Editar Datas do Plano</h3>
+              <h3 className="text-lg font-semibold text-white">Editar Assinante</h3>
               <button
                 onClick={() => {
                   setShowEditEndDateModal(false);
                   setSelectedClientForEdit(null);
                   setNewEndDate('');
                   setNewStartDate('');
+                  setEditSubscriberName('');
+                  setEditSubscriberPhone('');
+                  setEditSubscriberEmail('');
+                  setEditSubscriberSubscriptionId('');
                   setEditSubscriberPaymentMethod('');
                   setEditSubscriberObservation('');
                 }}
@@ -4177,6 +4233,68 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             </div>
 
             <form onSubmit={handleUpdateEndDate} className="space-y-4">
+              <div>
+                <label htmlFor="editSubscriberName" className="block text-sm font-medium text-gray-400 mb-1">
+                  Nome do Cliente
+                </label>
+                <input
+                  type="text"
+                  id="editSubscriberName"
+                  value={editSubscriberName}
+                  onChange={(e) => setEditSubscriberName(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label htmlFor="editSubscriberPhone" className="block text-sm font-medium text-gray-400 mb-1">
+                  Número de Telefone
+                </label>
+                <input
+                  type="tel"
+                  id="editSubscriberPhone"
+                  value={editSubscriberPhone}
+                  onChange={(e) => setEditSubscriberPhone(e.target.value)}
+                  onBlur={(e) => setEditSubscriberPhone(normalizePhoneDigits(e.target.value))}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label htmlFor="editSubscriberEmail" className="block text-sm font-medium text-gray-400 mb-1">
+                  E-mail
+                </label>
+                <input
+                  type="email"
+                  id="editSubscriberEmail"
+                  value={editSubscriberEmail}
+                  onChange={(e) => setEditSubscriberEmail(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="editSubscriberSubscriptionId" className="block text-sm font-medium text-gray-400 mb-1">
+                  Assinatura
+                </label>
+                <select
+                  id="editSubscriberSubscriptionId"
+                  value={editSubscriberSubscriptionId}
+                  onChange={(e) => setEditSubscriberSubscriptionId(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                  required
+                >
+                  <option value="">Selecione uma assinatura</option>
+                  {subscriptions.map((sub) => (
+                    <option key={sub.id} value={sub.id}>
+                      {sub.name} ({new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(sub.value || 0))})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label htmlFor="newStartDate" className="block text-sm font-medium text-gray-400 mb-1">
                   Nova Data de Início
@@ -4283,6 +4401,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     setSelectedClientForEdit(null);
                     setNewEndDate('');
                     setNewStartDate('');
+                    setEditSubscriberName('');
+                    setEditSubscriberPhone('');
+                    setEditSubscriberEmail('');
+                    setEditSubscriberSubscriptionId('');
                     setEditSubscriberPaymentMethod('');
                     setEditSubscriberObservation('');
                   }}
@@ -4295,7 +4417,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   disabled={isSavingEndDate}
                   className="flex-1 px-4 py-2 bg-black hover:bg-gray-800 text-white rounded-lg transition-colors disabled:opacity-50"
                 >
-                  {isSavingEndDate ? 'Salvando...' : 'Salvar Datas'}
+                  {isSavingEndDate ? 'Salvando...' : 'Salvar Alterações'}
                 </button>
               </div>
             </form>

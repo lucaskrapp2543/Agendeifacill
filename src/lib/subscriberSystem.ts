@@ -30,12 +30,22 @@ export interface CreateSubscriberData {
   observation?: string;
 }
 
+const normalizeSubscriberWhatsapp = (value: string): string => {
+  const digits = String(value || '').replace(/\D/g, '');
+  // Padrao interno: DDD + numero, sem 55.
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    return digits.slice(2);
+  }
+  return digits;
+};
+
 /**
  * Criar um novo assinante independente
  */
 export const createIndependentSubscriber = async (data: CreateSubscriberData) => {
   try {
     console.log('🆕 Criando assinante independente:', data);
+    const normalizedWhatsapp = normalizeSubscriberWhatsapp(data.whatsapp);
     const normalizedObservation = String(data.observation || '').trim().slice(0, 150);
     const payload: any = {
       client_id: uuidv4(), // Gerar UUID válido para assinantes
@@ -47,7 +57,7 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
       last_payment_date: null,
       // Novos campos para dados completos do assinante
       subscriber_name: data.name,
-      subscriber_whatsapp: data.whatsapp,
+      subscriber_whatsapp: normalizedWhatsapp,
       subscriber_email: data.email || null,
       subscriber_payment_method: String(data.payment_method || '').trim() || null,
       subscriber_observation: normalizedObservation || null,
