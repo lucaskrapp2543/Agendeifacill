@@ -48,6 +48,7 @@ interface SubscribersManagerProps {
   clients: Client[]; // Usar Client ao invés de Profile
   onClientUpdated?: () => void; // Nova prop para notificar atualizações
   establishment?: {
+    code?: string;
     limit_subscriber_bookings?: boolean;
     prevent_same_day_reschedule?: boolean;
     limit_subscribers_one_week?: boolean;
@@ -191,6 +192,53 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     if (key === 'dinheiro') return 'Dinheiro';
     if (key === 'pagar_local') return 'Pagar no Local';
     return method;
+  };
+
+  const getSubscriberWhatsappForLink = (clientSubscription: any): string => {
+    const raw = String(
+      clientSubscription?.subscriber_whatsapp ||
+      clientSubscription?.client_whatsapp ||
+      ''
+    ).trim();
+    const digits = raw.replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('55')) return digits;
+    return `55${digits}`;
+  };
+
+  const getSubscriberPlanName = (clientSubscription: any): string => {
+    const fromJoined = String(clientSubscription?.subscriptions?.name || '').trim();
+    if (fromJoined) return fromJoined;
+    const fromList = subscriptions.find((sub: any) => String(sub?.id) === String(clientSubscription?.subscription_id));
+    return String(fromList?.name || 'Plano').trim() || 'Plano';
+  };
+
+  const handleSendBillingReminder = (clientSubscription: ClientSubscription) => {
+    const whatsappNumber = getSubscriberWhatsappForLink(clientSubscription as any);
+    if (!whatsappNumber) {
+      toast.error('Esse assinante não possui WhatsApp válido para envio.');
+      return;
+    }
+
+    const planName = getSubscriberPlanName(clientSubscription as any);
+    const endDateRaw = String((clientSubscription as any)?.end_date || '').trim();
+    let endDateLabel = endDateRaw;
+    try {
+      if (endDateRaw) {
+        endDateLabel = format(parseISO(endDateRaw), 'dd/MM/yyyy', { locale: ptBR });
+      }
+    } catch {
+      // Mantém valor original caso não seja uma data ISO válida.
+    }
+
+    const bookingCode = String(establishment?.code || '').trim() || String(establishmentId || '').trim();
+    const bookingUrl = `https://agendeifacil.com/booking/${bookingCode}`;
+    const message =
+      `Olá! Passando para lembrar que seu plano (${planName}) venceu em ${endDateLabel}.\n\n` +
+      `Para renovar, acesse ${bookingUrl} e vá na sua assinatura, depois clique no botão "Renovar".\n\n` +
+      `É simples, rápido e fácil.`;
+
+    window.open(`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
   const createEmptyDividedService = (): DividedSubscriptionService => ({
@@ -3895,7 +3943,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     </div>
 
                     {/* Botões de ação em grid para mobile */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
                       <button
                         onClick={() => {
                           setSelectedClientForView(cs);
@@ -3942,6 +3990,15 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         <span className="text-xs sm:text-sm">🔢</span>
                         <span className="hidden sm:inline ml-1">Limitar Cliente</span>
                         <span className="sm:hidden ml-1">Limite</span>
+                      </button>
+                      <button
+                        onClick={() => handleSendBillingReminder(cs)}
+                        className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700 shadow-md"
+                        title="Enviar cobrança por WhatsApp"
+                      >
+                        <span className="text-xs sm:text-sm">💬</span>
+                        <span className="hidden sm:inline ml-1">Enviar cobrança</span>
+                        <span className="sm:hidden ml-1">Cobrança</span>
                       </button>
                     </div>
 

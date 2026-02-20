@@ -1,4 +1,5 @@
 import type { Handler } from '@netlify/functions';
+import { runSendExpiredSubscriptionRemindersOnce } from '../../modules/whatsapp-reminders/jobs/sendExpiredSubscriptionReminders';
 import { runSendWhatsappRemindersOnce } from '../../modules/whatsapp-reminders/jobs/sendWhatsappReminders';
 
 /**
@@ -33,9 +34,20 @@ export const handler: Handler = async (event) => {
       }
     }
     const result = await runSendWhatsappRemindersOnce();
+    let expiredSubscriptions: any = { skipped: true, reason: 'not_executed' };
+    try {
+      expiredSubscriptions = await runSendExpiredSubscriptionRemindersOnce();
+    } catch (expiredError: any) {
+      // Nao interrompe o lembrete de agendamento ja existente.
+      expiredSubscriptions = {
+        skipped: true,
+        reason: 'execution_error',
+        error: String(expiredError?.message || expiredError),
+      };
+    }
     return {
       statusCode: 200,
-      body: JSON.stringify({ ok: true, result }),
+      body: JSON.stringify({ ok: true, result, expiredSubscriptions }),
       headers: { 'content-type': 'application/json; charset=utf-8' },
     };
   } catch (e: any) {

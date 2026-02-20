@@ -37,6 +37,10 @@ export default function BookingPage() {
   const [selectedSubscriptionForPix, setSelectedSubscriptionForPix] = useState<any | null>(null);
   const [subscriptionPixInitialFlow, setSubscriptionPixInitialFlow] = useState<'default' | 'credit' | 'whatsapp'>('default');
   const [renewalPrefill, setRenewalPrefill] = useState<{ name: string; whatsapp: string } | null>(null);
+  const [showRenewLookupModal, setShowRenewLookupModal] = useState(false);
+  const [renewLookupSubscription, setRenewLookupSubscription] = useState<any | null>(null);
+  const [renewLookupPhone, setRenewLookupPhone] = useState('');
+  const [isRenewLookupLoading, setIsRenewLookupLoading] = useState(false);
   const [showSubscriptionsDropdown, setShowSubscriptionsDropdown] = useState(false);
   const [showBusinessHours, setShowBusinessHours] = useState(false);
   const [duplicateCarouselIndex, setDuplicateCarouselIndex] = useState(0);
@@ -281,6 +285,108 @@ export default function BookingPage() {
       whatsapp: String(detectedSubscriber?.whatsapp || detectedSubscriber?.subscriber_whatsapp || '').trim(),
     });
     setShowSubscriptionPixModal(true);
+  };
+
+  const openRenewLookupForSubscription = (subscription: any) => {
+    setRenewLookupSubscription(subscription);
+    setRenewLookupPhone('');
+    setShowRenewLookupModal(true);
+  };
+
+  const buildPhoneCandidates = (rawPhone: string): string[] => {
+    const digits = String(rawPhone || '').replace(/\D/g, '');
+    if (!digits) return [];
+    const candidates = new Set<string>();
+    candidates.add(digits);
+    if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+      candidates.add(digits.slice(2));
+    } else if (digits.length === 10 || digits.length === 11) {
+      candidates.add(`55${digits}`);
+    }
+    return Array.from(candidates).filter(Boolean);
+  };
+
+  const findRenewSubscriberByPhone = async () => {
+    if (!establishment?.id || !renewLookupSubscription?.id) {
+      toast.error('Plano inválido para renovação.');
+      return;
+    }
+
+    const phoneCandidates = buildPhoneCandidates(renewLookupPhone);
+    if (phoneCandidates.length === 0) {
+      toast.error('Digite um número de telefone válido.');
+      return;
+    }
+
+    setIsRenewLookupLoading(true);
+    try {
+      const safeInList = (arr: string[]) => arr.map((p) => `"${p}"`).join(',');
+      let rows: any[] = [];
+      let queryError: any = null;
+
+      // Tentativa principal: subscriber_whatsapp (novo padrão)
+      {
+        const { data, error } = await supabase
+          .from('client_subscriptions')
+          .select('id, subscription_id, subscriber_name, subscriber_whatsapp, subscriber_email, payment_status, start_date, end_date, created_at')
+          .eq('establishment_id', String(establishment.id))
+          .eq('subscription_id', String(renewLookupSubscription.id))
+          .in('subscriber_whatsapp', phoneCandidates)
+          .order('created_at', { ascending: false })
+          .limit(5);
+        rows = (data as any[]) || [];
+        queryError = error;
+      }
+
+      // Fallback: client_whatsapp (bases antigas)
+      if (rows.length === 0) {
+        const { data, error } = await supabase
+          .from('client_subscriptions')
+          .select('id, subscription_id, subscriber_name, subscriber_whatsapp, subscriber_email, payment_status, start_date, end_date, created_at, client_whatsapp')
+          .eq('establishment_id', String(establishment.id))
+          .eq('subscription_id', String(renewLookupSubscription.id))
+          .in('client_whatsapp', phoneCandidates)
+          .order('created_at', { ascending: false })
+          .limit(5);
+        if (!queryError) queryError = error;
+        if ((data as any[])?.length) {
+          rows = (data as any[]) || [];
+        }
+      }
+
+      if (queryError && rows.length === 0) {
+        const details = [
+          (queryError as any)?.message,
+          (queryError as any)?.code,
+          (queryError as any)?.details,
+          (queryError as any)?.hint,
+        ].filter(Boolean).join(' | ');
+        throw new Error(details || 'Erro ao localizar assinante para renovação.');
+      }
+
+      const found = rows[0];
+      if (!found) {
+        toast.error('Não encontramos assinante desse plano com esse número.');
+        return;
+      }
+
+      setSubscriptionPixInitialFlow('default');
+      setSelectedSubscriptionForPix(renewLookupSubscription);
+      setRenewalPrefill({
+        name: String(found?.subscriber_name || '').trim(),
+        whatsapp: String(found?.subscriber_whatsapp || found?.client_whatsapp || '').trim(),
+      });
+      setShowRenewLookupModal(false);
+      setRenewLookupSubscription(null);
+      setRenewLookupPhone('');
+      setShowSubscriptionPixModal(true);
+      toast.success('Assinante encontrado! Finalize a renovação.');
+    } catch (error: any) {
+      console.error('❌ Erro ao localizar assinante para renovação:', error);
+      toast.error(error?.message || 'Erro ao localizar assinante para renovação.');
+    } finally {
+      setIsRenewLookupLoading(false);
+    }
   };
 
   const pulseKeyframes = `
@@ -2360,16 +2466,18 @@ export default function BookingPage() {
                       {subscriptions.map((subscription) => (
                         <div
                           key={subscription.id}
-                          className="flex items-center justify-between p-3 hover:bg-white/5 border-b border-white/10 last:border-b-0"
+                          className="p-3 hover:bg-white/5 border-b border-white/10 last:border-b-0 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
                         >
-                          <div className="flex-1 min-w-0">
-                            <div className="font-semibold text-white truncate">{subscription.name || 'Assinatura'}</div>
+                          <div className="flex-1 min-w-0 text-center sm:text-left">
+                            <div className="font-semibold text-white text-base leading-tight break-words sm:truncate">
+                              {subscription.name || 'Assinatura'}
+                            </div>
                             <div className="text-sm text-white/60">
                               R$ {(subscription.value || 0).toFixed(2).replace('.', ',')} / {subscription.duration_months || 1}{' '}
                               {subscription.duration_months === 1 ? 'mês' : 'meses'}
                             </div>
                             {subscription.weekdays && subscription.weekdays.length > 0 && (
-                              <div className="text-xs text-[#e6d7b1] mt-1">
+                              <div className="text-xs text-[#e6d7b1] mt-1 break-words">
                                 📅 {subscription.weekdays.map((day: string) => {
                                   const dayNames = {
                                     monday: 'Seg',
@@ -2385,7 +2493,7 @@ export default function BookingPage() {
                               </div>
                             )}
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center justify-center gap-2 w-full sm:w-auto sm:justify-end">
                             {subscription.description && (
                               <button
                                 onClick={() => {
@@ -2404,6 +2512,12 @@ export default function BookingPage() {
                               className="bg-[#e6d7b1] hover:bg-[#f3e7c7] text-black px-3 py-1 rounded-lg text-sm font-extrabold transition-colors"
                             >
                               Assinar
+                            </button>
+                            <button
+                              onClick={() => openRenewLookupForSubscription(subscription)}
+                              className="bg-white/10 hover:bg-white/20 text-white px-3 py-1 rounded-lg text-sm font-extrabold transition-colors border border-white/20"
+                            >
+                              Renovar
                             </button>
                           </div>
                         </div>
@@ -3836,6 +3950,78 @@ export default function BookingPage() {
             email: pendingCustomerData?.email || user?.email || undefined
           }}
         />
+      )}
+
+      {showRenewLookupModal && renewLookupSubscription && (
+        <div className="fixed inset-0 z-[120] bg-black/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#1a1b1c] border border-gray-700 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-white text-lg font-bold">Renovar assinatura</h3>
+              <button
+                onClick={() => {
+                  if (isRenewLookupLoading) return;
+                  setShowRenewLookupModal(false);
+                  setRenewLookupSubscription(null);
+                  setRenewLookupPhone('');
+                }}
+                className="text-gray-400 hover:text-white text-xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-300 mb-1">
+              Plano: <span className="text-white font-semibold">{String(renewLookupSubscription?.name || 'Assinatura')}</span>
+            </p>
+            <p className="text-xs text-gray-400 mb-4">
+              Informe o número do cliente para localizar e preencher automaticamente.
+            </p>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                findRenewSubscriberByPhone();
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Número do cliente
+                </label>
+                <input
+                  type="tel"
+                  value={renewLookupPhone}
+                  onChange={(e) => setRenewLookupPhone(e.target.value)}
+                  placeholder="Ex: 47999516120"
+                  className="w-full px-3 py-2 rounded-lg bg-[#2a2b2c] border border-gray-600 text-white placeholder-gray-500 focus:outline-none focus:border-[#e6d7b1]"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isRenewLookupLoading) return;
+                    setShowRenewLookupModal(false);
+                    setRenewLookupSubscription(null);
+                    setRenewLookupPhone('');
+                  }}
+                  className="px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isRenewLookupLoading}
+                  className="px-3 py-2 rounded-lg bg-[#e6d7b1] hover:bg-[#f3e7c7] text-black font-extrabold transition-colors disabled:opacity-60"
+                >
+                  {isRenewLookupLoading ? 'Buscando...' : 'Continuar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* Modal: Assinatura via PIX (Pagar.me) */}
