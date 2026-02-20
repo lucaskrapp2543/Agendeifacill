@@ -58,6 +58,7 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
   };
 
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [provider, setProvider] = useState('wasender');
   const [status, setStatus] = useState<InstanceRow['status']>('pending');
   const [enabled, setEnabled] = useState(false);
   const [remindBeforeMinutes, setRemindBeforeMinutes] = useState(60);
@@ -95,6 +96,7 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
       setSettings((cfg as any) || null);
 
       setPhoneNumber(String((inst as any)?.phone_number || ''));
+      setProvider(String((inst as any)?.provider || 'wasender').trim().toLowerCase() || 'wasender');
       setStatus(String((inst as any)?.status || 'pending'));
       setEnabled(Boolean((cfg as any)?.enabled ?? false));
       setRemindBeforeMinutes(Number((cfg as any)?.remind_before_minutes ?? 60));
@@ -148,7 +150,7 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
 
         const payload: any = {
           establishment_id: establishmentId,
-          provider: 'wasender',
+          provider: provider,
           phone_number: phoneNumber.trim(),
           status,
         };
@@ -206,7 +208,29 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
       <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
           <div className="text-sm text-gray-300" style={{ color: '#d1d5db' }}>
-            WhatsApp do estabelecimento (E.164, só dígitos)
+            Provedor de envio
+          </div>
+          <select
+            className="mt-1 w-full rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
+            style={{
+              backgroundColor: 'rgba(0,0,0,0.35)',
+              color: '#ffffff',
+              borderColor: '#374151',
+            }}
+            value={provider}
+            onChange={e => setProvider(String(e.target.value || 'wasender').trim().toLowerCase())}
+            disabled={loading}
+          >
+            <option value="wasender">Wasender (QR)</option>
+            <option value="meta">Meta oficial (Cloud API)</option>
+          </select>
+        </div>
+
+        <div>
+          <div className="text-sm text-gray-300" style={{ color: '#d1d5db' }}>
+            {provider === 'meta'
+              ? 'Meta phone_number_id (ID numérico da Meta)'
+              : 'WhatsApp do estabelecimento (E.164, só dígitos)'}
           </div>
           <input
             className="mt-1 w-full rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
@@ -217,7 +241,7 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
             }}
             value={phoneNumber}
             onChange={e => setPhoneNumber(e.target.value)}
-            placeholder="5511999999999"
+            placeholder={provider === 'meta' ? 'Ex: 123456789012345' : 'Ex: 5511999999999'}
             disabled={loading}
           />
         </div>
@@ -285,7 +309,9 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
 
         <div className="md:col-span-2">
           <div className="text-sm text-gray-300" style={{ color: '#d1d5db' }}>
-            API Key (criptografada) — gere via helper e cole aqui (não é exibida depois)
+            {provider === 'meta'
+              ? 'Access Token da Meta (criptografado) — gere via helper e cole aqui'
+              : 'API Key do Wasender (criptografada) — gere via helper e cole aqui'}
           </div>
           <textarea
             className="mt-1 w-full rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"

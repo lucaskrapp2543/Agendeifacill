@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { format, parseISO } from 'date-fns';
 import { decryptApiKey } from '../server/crypto';
-import { wasenderSendMessage } from '../server/wasenderClient';
+import { sendWhatsappByProvider } from '../server/providerClient';
 
 type ExpiredSubscriptionRow = {
   id: string;
@@ -84,9 +84,6 @@ export async function runSendExpiredSubscriptionRemindersOnce() {
   if (!supabaseUrl || !serviceKey) {
     throw new Error('SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são obrigatórios para o job.');
   }
-  if (!wasenderBaseUrl) {
-    throw new Error('WASENDER_BASE_URL é obrigatório (ex.: https://wasenderapi.com).');
-  }
 
   const now = getNowInTimezoneParts(timezone);
   if (!isInsideWindow(now.hour, now.minute, sendHour, sendMinute, windowMinutes)) {
@@ -138,7 +135,7 @@ export async function runSendExpiredSubscriptionRemindersOnce() {
 
   const { data: instancesData, error: instancesError } = await supabase
     .from('whatsapp_instances')
-    .select('establishment_id, api_key_encrypted, status')
+    .select('establishment_id, api_key_encrypted, status, provider, phone_number')
     .in('establishment_id', establishmentIds)
     .eq('status', 'active');
 
@@ -146,13 +143,18 @@ export async function runSendExpiredSubscriptionRemindersOnce() {
     throw instancesError;
   }
 
-  const instanceByEstablishment = new Map<string, { api_key_encrypted: string; status: string }>();
+  const instanceByEstablishment = new Map<
+    string,
+    { api_key_encrypted: string; status: string; provider: string; phone_number: string }
+  >();
   for (const i of (instancesData as any[]) || []) {
     const estId = String(i.establishment_id || '').trim();
     if (!estId) continue;
     instanceByEstablishment.set(estId, {
       api_key_encrypted: String(i.api_key_encrypted || ''),
       status: String(i.status || ''),
+      provider: String(i.provider || 'wasender'),
+      phone_number: String(i.phone_number || ''),
     });
   }
 
@@ -214,9 +216,11 @@ export async function runSendExpiredSubscriptionRemindersOnce() {
       let usedPhone = phoneCandidates[0];
       for (const candidate of phoneCandidates) {
         usedPhone = candidate;
-        sendRes = await wasenderSendMessage({
-          baseUrl: wasenderBaseUrl,
-          apiKey,
+        sendRes = await sendWhatsappByProvider({
+          provider: String(instance.provider || 'wasender'),
+          encryptedApiKeyDecrypted: apiKey,
+          wasenderBaseUrl,
+          metaPhoneNumberId: String(instance.phone_number || '').trim(),
           to: candidate,
           text: message,
         });

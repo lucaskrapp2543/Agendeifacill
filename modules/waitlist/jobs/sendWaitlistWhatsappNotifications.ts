@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { decryptApiKey } from '../../whatsapp-reminders/server/crypto';
-import { wasenderSendMessage } from '../../whatsapp-reminders/server/wasenderClient';
+import { sendWhatsappByProvider } from '../../whatsapp-reminders/server/providerClient';
 
 type PendingOutboxRow = {
   id: string;
@@ -22,9 +22,6 @@ export async function runSendWaitlistWhatsappNotificationsOnce() {
 
   if (!supabaseUrl || !serviceKey) {
     throw new Error('SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são obrigatórios para o job.');
-  }
-  if (!wasenderBaseUrl) {
-    throw new Error('WASENDER_BASE_URL é obrigatório (ex.: https://wasenderapi.com).');
   }
 
   const supabase = createClient(supabaseUrl, serviceKey, {
@@ -108,9 +105,11 @@ export async function runSendWaitlistWhatsappNotificationsOnce() {
       }
 
       const apiKey = decryptApiKey(inst.api_key_encrypted);
-      const sendRes = await wasenderSendMessage({
-        baseUrl: wasenderBaseUrl,
-        apiKey,
+      const sendRes = await sendWhatsappByProvider({
+        provider: String(inst.provider || 'wasender'),
+        encryptedApiKeyDecrypted: apiKey,
+        wasenderBaseUrl,
+        metaPhoneNumberId: String(inst.phone_number || '').trim(),
         to: r.phone_to,
         text: r.message,
       });
