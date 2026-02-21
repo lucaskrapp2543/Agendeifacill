@@ -1,4 +1,4 @@
-import { metaSendMessage } from './metaClient';
+import { metaSendMessage, type MetaTemplatePayload } from './metaClient';
 import { wasenderSendMessage } from './wasenderClient';
 
 export type ProviderSendResult = {
@@ -21,6 +21,7 @@ export async function sendWhatsappByProvider(params: {
   encryptedApiKeyDecrypted: string;
   wasenderBaseUrl?: string;
   metaPhoneNumberId?: string;
+  metaTemplate?: MetaTemplatePayload;
 }): Promise<ProviderSendResult> {
   const provider = normalizeProvider(params.provider);
 
@@ -30,6 +31,7 @@ export async function sendWhatsappByProvider(params: {
       phoneNumberId: String(params.metaPhoneNumberId || '').trim(),
       to: params.to,
       text: params.text,
+      template: params.metaTemplate,
     });
   }
 

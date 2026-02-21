@@ -20,6 +20,15 @@ type SettingsRow = {
   message_template: string | null;
 };
 
+type ReminderMetrics = {
+  monthLabel: string;
+  total: number;
+  sent: number;
+  failed: number;
+  delivered: number;
+  read: number;
+};
+
 /**
  * Seção isolada para ser embutida no Admin (por estabelecimento).
  *
@@ -64,6 +73,14 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
   const [remindBeforeMinutes, setRemindBeforeMinutes] = useState(60);
   const [messageTemplate, setMessageTemplate] = useState<string>('');
   const [apiKeyEncrypted, setApiKeyEncrypted] = useState('');
+  const [metrics, setMetrics] = useState<ReminderMetrics>({
+    monthLabel: '',
+    total: 0,
+    sent: 0,
+    failed: 0,
+    delivered: 0,
+    read: 0,
+  });
 
   const statusLabel = useMemo(() => {
     if (!instance) return 'Não configurado';
@@ -92,6 +109,28 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
         .maybeSingle();
       if (cfgErr) throw cfgErr;
 
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+      const monthStartIso = monthStart.toISOString();
+      const monthLabel = monthStart.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+      const { data: logsData, error: logsErr } = await supabase
+        .from('whatsapp_reminder_logs')
+        .select('status, meta_status')
+        .eq('establishment_id', establishmentId)
+        .gte('created_at', monthStartIso);
+      if (logsErr) throw logsErr;
+
+      const logs = (logsData as Array<{ status?: string | null; meta_status?: string | null }>) || [];
+      const sent = logs.filter(l => String(l.status || '').toLowerCase() === 'sent').length;
+      const failed = logs.filter(l => String(l.status || '').toLowerCase() === 'failed').length;
+      const delivered = logs.filter(l => {
+        const st = String(l.meta_status || '').toLowerCase();
+        return st === 'delivered' || st === 'read';
+      }).length;
+      const read = logs.filter(l => String(l.meta_status || '').toLowerCase() === 'read').length;
+
       setInstance((inst as any) || null);
       setSettings((cfg as any) || null);
 
@@ -101,6 +140,14 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
       setEnabled(Boolean((cfg as any)?.enabled ?? false));
       setRemindBeforeMinutes(Number((cfg as any)?.remind_before_minutes ?? 60));
       setMessageTemplate(String((cfg as any)?.message_template || '').trim() || templatePadrao);
+      setMetrics({
+        monthLabel,
+        total: logs.length,
+        sent,
+        failed,
+        delivered,
+        read,
+      });
     } catch (e) {
       console.error(e);
       toast.error('Erro ao carregar config de WhatsApp');
@@ -328,6 +375,32 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
           />
           <div className="mt-1 text-xs text-gray-400" style={{ color: '#9ca3af' }}>
             Por segurança, após salvar este campo é limpo e a chave não é exibida novamente. Isso não significa que “não salvou”.
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-md border border-gray-700 bg-black/30 p-3">
+        <div className="text-sm font-semibold text-white">Métricas do mês ({metrics.monthLabel || '-'})</div>
+        <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-5">
+          <div className="rounded border border-gray-700 p-2">
+            <div className="text-[11px] text-gray-400">Total</div>
+            <div className="text-base font-bold text-white">{metrics.total}</div>
+          </div>
+          <div className="rounded border border-gray-700 p-2">
+            <div className="text-[11px] text-gray-400">Enviados</div>
+            <div className="text-base font-bold text-emerald-400">{metrics.sent}</div>
+          </div>
+          <div className="rounded border border-gray-700 p-2">
+            <div className="text-[11px] text-gray-400">Falhas</div>
+            <div className="text-base font-bold text-red-400">{metrics.failed}</div>
+          </div>
+          <div className="rounded border border-gray-700 p-2">
+            <div className="text-[11px] text-gray-400">Entregues</div>
+            <div className="text-base font-bold text-cyan-400">{metrics.delivered}</div>
+          </div>
+          <div className="rounded border border-gray-700 p-2">
+            <div className="text-[11px] text-gray-400">Lidas</div>
+            <div className="text-base font-bold text-violet-400">{metrics.read}</div>
           </div>
         </div>
       </div>

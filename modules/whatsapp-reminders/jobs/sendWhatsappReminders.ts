@@ -20,6 +20,13 @@ type DueReminderRow = {
   instance_status: string;
 };
 
+function getMetaMessageIdFromSendResponse(data: unknown): string | null {
+  const maybeObj = (data as any) || null;
+  const first = maybeObj?.messages?.[0];
+  const id = String(first?.id || '').trim();
+  return id || null;
+}
+
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -92,6 +99,11 @@ function computeNextAttemptAt(attemptCount: number): string | null {
   return d.toISOString();
 }
 
+function isMetaProvider(provider: string): boolean {
+  const value = String(provider || '').trim().toLowerCase();
+  return value === 'meta' || value === 'meta_cloud' || value === 'meta_cloud_api' || value === 'cloud_api';
+}
+
 export async function runSendWhatsappRemindersOnce() {
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -130,14 +142,18 @@ export async function runSendWhatsappRemindersOnce() {
       const apiKey = decryptApiKey(r.api_key_encrypted);
 
       const template = (r.message_template || '').trim() || defaultTemplate();
+      const appointmentDateLabel = formatReminderDateLabel(r.appointment_date, tz);
+      const appointmentTimeLabel = r.appointment_time?.slice(0, 5) || r.appointment_time;
       const msg = renderTemplate(template, {
         client_name: r.client_name || 'cliente',
         establishment_name: r.establishment_name || 'a barbearia',
         service_name: r.service_name || 'serviço',
         professional_name: r.professional_name || 'profissional',
-        appointment_date: formatReminderDateLabel(r.appointment_date, tz),
-        appointment_time: r.appointment_time?.slice(0, 5) || r.appointment_time,
+        appointment_date: appointmentDateLabel,
+        appointment_time: appointmentTimeLabel,
       });
+      const useMetaTemplate = isMetaProvider(r.provider);
+      const metaTemplateName = String(process.env.META_TEMPLATE_APPOINTMENT_REMINDER || 'lembrete_agendamento_v1').trim();
 
       const toCandidates = normalizePhoneCandidates(r.client_whatsapp);
       if (toCandidates.length === 0) {
@@ -155,6 +171,21 @@ export async function runSendWhatsappRemindersOnce() {
           metaPhoneNumberId: String(r.instance_phone_number || '').trim(),
           to: cand,
           text: msg,
+          metaTemplate:
+            useMetaTemplate && metaTemplateName
+              ? {
+                  name: metaTemplateName,
+                  languageCode: 'pt_BR',
+                  parameters: [
+                    r.client_name || 'cliente',
+                    r.establishment_name || 'a barbearia',
+                    appointmentDateLabel,
+                    String(appointmentTimeLabel || ''),
+                    r.service_name || 'serviço',
+                    r.professional_name || 'profissional',
+                  ],
+                }
+              : undefined,
         });
         if (sendRes.ok) break;
       }
@@ -163,6 +194,7 @@ export async function runSendWhatsappRemindersOnce() {
       const providerResponse = JSON.stringify(sendRes.data ?? sendRes.errorText ?? null);
       const attemptInc = 1;
       const nextAttemptAt = sendRes.ok ? null : computeNextAttemptAt(attemptInc);
+      const metaMessageId = useMetaTemplate && sendRes.ok ? getMetaMessageIdFromSendResponse(sendRes.data) : null;
 
       // ✅ UPSERT para permitir retries (tabela tem UNIQUE(appointment_id))
       const { data: existingLog } = await supabase
@@ -180,6 +212,9 @@ export async function runSendWhatsappRemindersOnce() {
           message: msg,
           status,
           provider_response: providerResponse,
+          meta_message_id: metaMessageId,
+          meta_status: sendRes.ok && useMetaTemplate ? 'sent' : null,
+          meta_status_updated_at: sendRes.ok && useMetaTemplate ? new Date().toISOString() : null,
           attempt_count: nextAttemptCount,
           last_attempt_at: new Date().toISOString(),
           next_attempt_at: sendRes.ok ? null : computeNextAttemptAt(nextAttemptCount),
