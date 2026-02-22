@@ -27,15 +27,18 @@ import EstablishmentDirectBooking from './pages/EstablishmentDirectBooking';
 import LandingInfo from './pages/LandingInfo';
 import LandingPage from './pages/LandingPage';
 import LandingVendas from './pages/LandingVendas';
+import DataDeletionPage from './pages/DataDeletionPage';
 import Login from './pages/Login';
 import NotFound from './pages/NotFound';
 import Planos from './pages/Planos';
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import PremiumDashboard from './pages/PremiumDashboard';
 import Register from './pages/Register';
 import RegistrationFreeSuccess from './pages/RegistrationFreeSuccess';
 import RegistrationSuccess from './pages/RegistrationSuccess';
 import { Success } from './pages/Success';
 import Suporte060622 from './pages/Suporte060622';
+import TermsOfServicePage from './pages/TermsOfServicePage';
 import ViewAppointmentsPage from './pages/ViewAppointmentsPage';
 
 import AdminDashboard from './pages/AdminDashboard';
@@ -186,6 +189,9 @@ function App() {
                   <Route path="/success" element={<Success />} />
                   <Route path="/registration-success" element={<RegistrationSuccess />} />
                   <Route path="/registrationfree-success" element={<RegistrationFreeSuccess />} />
+                  <Route path="/privacy" element={<PrivacyPolicyPage />} />
+                  <Route path="/terms" element={<TermsOfServicePage />} />
+                  <Route path="/data-deletion" element={<DataDeletionPage />} />
 
                   {/* Rota dinâmica para agendamento direto */}
                   <Route path="/:slug" element={<EstablishmentDirectBooking />} />
