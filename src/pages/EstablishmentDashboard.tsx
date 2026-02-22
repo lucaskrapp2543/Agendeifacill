@@ -7841,7 +7841,7 @@ Estamos te aguardando! 😎✂️`;
       // - Sem transaction_id: cancelar rapidamente
       // - Com transaction_id: dar uma janela maior, mas cancelar se ficar velho demais sem confirmação
       const thresholdNoTxMinutes = 15;
-      const thresholdWithTxMinutes = 90;
+      const thresholdWithTxMinutes = 24 * 60; // manter 24h para confirmação assíncrona e evitar falso-cancelamento
       const thresholdNoTxDate = new Date(Date.now() - thresholdNoTxMinutes * 60 * 1000).toISOString();
       const thresholdWithTxDate = new Date(Date.now() - thresholdWithTxMinutes * 60 * 1000).toISOString();
 

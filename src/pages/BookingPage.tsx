@@ -847,7 +847,7 @@ export default function BookingPage() {
       // Obs: a liberação de horário é mais importante que manter pendências antigas indefinidamente.
 
       const thresholdNoTxMinutes = 15;
-      const thresholdWithTxMinutes = 90; // janela segura p/ webhook + possíveis atrasos; evita "fantasmas" eternos
+      const thresholdWithTxMinutes = 24 * 60; // dar 24h para confirmação assíncrona (webhook/atrasos) e evitar falso-cancelamento
       const thresholdNoTxDate = new Date(Date.now() - thresholdNoTxMinutes * 60 * 1000).toISOString();
       const thresholdWithTxDate = new Date(Date.now() - thresholdWithTxMinutes * 60 * 1000).toISOString();
 
@@ -943,53 +943,16 @@ export default function BookingPage() {
     }
   };
 
-  // ✅ Se o PIX é obrigatório e o usuário fechar/recarregar a página sem pagar,
-  // precisamos cancelar o pending_payment para não "travar" o horário.
-  // Usamos fetch keepalive direto no REST do Supabase para aumentar a chance de concluir no unload.
+  // ✅ Não cancelar no unload/visibility.
+  // Em mobile, alternar para app do banco pode disparar hidden/pagehide e causar falso-cancelamento.
+  // A limpeza de pendências antigas já trata vagas presas com segurança.
   useEffect(() => {
     if (!showPaymentModal) return;
     if (!pendingAppointmentId) return;
     if (paymentIsOptional) return;
 
-    const appointmentId = pendingAppointmentId;
-
-    const cancelPendingPaymentKeepalive = () => {
-      try {
-        const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim();
-        const anonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
-        if (!supabaseUrl || !anonKey) return;
-
-        void fetch(`${supabaseUrl}/rest/v1/appointments?id=eq.${encodeURIComponent(appointmentId)}`, {
-          method: 'PATCH',
-          headers: {
-            apikey: anonKey,
-            Authorization: `Bearer ${anonKey}`,
-            'Content-Type': 'application/json',
-            Prefer: 'return=minimal',
-          },
-          body: JSON.stringify({ status: 'cancelled', payment_status: 'failed' }),
-          // @ts-expect-error - keepalive existe em browsers modernos
-          keepalive: true,
-        });
-      } catch {
-        // silêncio: é melhor tentar do que bloquear o usuário
-      }
-    };
-
-    const handleBeforeUnload = () => cancelPendingPaymentKeepalive();
-    const handlePageHide = () => cancelPendingPaymentKeepalive();
-    const handleVisibilityChange = () => {
-      if (document.hidden) cancelPendingPaymentKeepalive();
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('pagehide', handlePageHide);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      window.removeEventListener('pagehide', handlePageHide);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      // noop intencional
     };
   }, [showPaymentModal, pendingAppointmentId, paymentIsOptional]);
 
@@ -3890,18 +3853,14 @@ export default function BookingPage() {
           isOpen={showPaymentModal}
           onClose={() => {
             setShowPaymentModal(false);
-            // Se fechar sem pagar:
-            // - obrigatório: cancela
-            // - opcional: mantém agendamento
-            if (!paymentIsOptional && pendingAppointmentId) {
+            // Não cancelar no fechamento do modal. Mantém pendente para permitir confirmação assíncrona.
+            if (pendingAppointmentId) {
               supabase
                 .from('appointments')
-                .update({ status: 'cancelled', payment_status: 'failed' })
+                .update({ payment_status: 'unpaid' } as any)
                 .eq('id', pendingAppointmentId);
-              toast.error('Pagamento não concluído. Agendamento cancelado.');
-            } else {
-              toast('Pagamento não concluído. Agendamento mantido.', 'warning');
             }
+            toast('Pagamento não concluído agora. Agendamento ficou pendente de confirmação.', 'warning');
           }}
           appointmentId={pendingAppointmentId}
           amount={pendingPaymentAmount}
@@ -3937,11 +3896,7 @@ export default function BookingPage() {
             setShowPaymentModal(false);
             setPendingAppointmentId(null);
             setPendingCustomerData(null);
-            if (!paymentIsOptional) {
-              toast.error('Pagamento não concluído. Agendamento cancelado.');
-            } else {
-              toast('Pagamento não concluído. Agendamento mantido.', 'warning');
-            }
+            toast('Pagamento não concluído agora. Agendamento ficou pendente de confirmação.', 'warning');
           }}
           cancelAppointmentOnFailure={!paymentIsOptional}
           customerData={{

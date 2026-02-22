@@ -865,12 +865,8 @@ export const PaymentModal = ({
         if (attempts >= maxAttempts) {
           toast('Tempo limite de pagamento excedido', 'error');
           setHasPagarMeError(true);
-          // ✅ Se pagamento é obrigatório, cancelar agendamento imediatamente
-          if (cancelAppointmentOnFailure) {
-            console.log('❌ Pagamento obrigatório expirou (Mercado Pago), cancelando agendamento...');
-            await cancelAppointment();
-            onPaymentFailure();
-          }
+          await markAppointmentPaymentUnpaid();
+          onPaymentFailure();
         }
         return;
       }
@@ -938,10 +934,8 @@ export const PaymentModal = ({
           setCardRefusedReason(statusDetail || 'Pagamento no cartão recusado');
           setSelectedMethod(null); // Volta para seleção e mostra botão PIX
 
-          // ✅ Se pagamento é obrigatório, cancelar agendamento imediatamente
           if (cancelAppointmentOnFailure) {
-            console.log('❌ Pagamento obrigatório recusado (Mercado Pago), cancelando agendamento...');
-            await cancelAppointment();
+            await markAppointmentPaymentUnpaid();
             onPaymentFailure();
           }
         } else {
@@ -1243,11 +1237,8 @@ export const PaymentModal = ({
       try {
         setIsCheckingPayment(false);
         toast('⏳ Tempo do PIX expirou. Gere novamente para pagar.', 'warning');
-        if (cancelAppointmentOnFailure) {
-          await cancelAppointment();
-        } else {
-          await markAppointmentPaymentUnpaid();
-        }
+        // Evita falso-cancelamento quando o pagamento confirma com atraso/webhook.
+        await markAppointmentPaymentUnpaid();
       } finally {
         onPaymentFailure();
         onClose();
@@ -1426,14 +1417,7 @@ export const PaymentModal = ({
             reasonStr ? `Pagamento recusado/cancelado: ${reasonStr}` : 'Pagamento recusado ou cancelado',
             'error'
           );
-          // ✅ Se pagamento é obrigatório, cancelar agendamento imediatamente
-          if (cancelAppointmentOnFailure) {
-            console.log('❌ Pagamento obrigatório recusado/falhou, cancelando agendamento...');
-            await cancelAppointment();
-          } else {
-            // Se pagamento é opcional, apenas marcar como não pago
-            await markAppointmentPaymentUnpaid();
-          }
+          await markAppointmentPaymentUnpaid();
           onPaymentFailure();
         } else if (attempts >= maxAttempts) {
           clearInterval(checkInterval);
@@ -1441,13 +1425,7 @@ export const PaymentModal = ({
           setIsCheckingPayment(false);
           isCheckingPaymentRef.current = false;
           toast('Tempo limite de pagamento excedido', 'error');
-          // ✅ Se pagamento é obrigatório, cancelar agendamento imediatamente
-          if (cancelAppointmentOnFailure) {
-            console.log('❌ Pagamento obrigatório falhou/expirou, cancelando agendamento...');
-            await cancelAppointment();
-          } else {
-            await markAppointmentPaymentUnpaid();
-          }
+          await markAppointmentPaymentUnpaid();
           onPaymentFailure();
         }
       } catch (error: any) {
@@ -1458,11 +1436,7 @@ export const PaymentModal = ({
           pagarmeStatusIntervalRef.current = null;
           setIsCheckingPayment(false);
           isCheckingPaymentRef.current = false;
-          if (cancelAppointmentOnFailure) {
-            await cancelAppointment();
-          } else {
-            await markAppointmentPaymentUnpaid();
-          }
+          await markAppointmentPaymentUnpaid();
           onPaymentFailure();
         }
       }
