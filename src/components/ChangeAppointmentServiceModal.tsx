@@ -35,6 +35,15 @@ const normalizarTexto = (v: any): string =>
 const fmtBRL = (value: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
 
+const toPositiveNumber = (value: unknown, fallback: number): number => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  const normalized = raw.replace(',', '.').replace(/[^0-9.-]/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
 export function ChangeAppointmentServiceModal({
   isOpen,
   onClose,
@@ -164,13 +173,38 @@ export function ChangeAppointmentServiceModal({
           subscriptionsData
             .filter((sub: any) => !Boolean(sub?.is_hidden))
             .forEach((sub: any) => {
+              const subId = String(sub?.id || '').trim();
               const subName = String(sub?.name || '').trim();
-              if (!subName) return;
+              if (!subId || !subName) return;
+
+              const dividedServices = Array.isArray(sub?.divided_services) ? sub.divided_services : [];
+              const divideServicesEnabled = Boolean(sub?.divide_services_enabled);
+
+              // Quando "dividir serviços" está ativo, usar SEMPRE a duração de cada serviço dividido.
+              if (divideServicesEnabled && dividedServices.length > 0) {
+                dividedServices.forEach((service: any, index: number) => {
+                  const serviceName = String(service?.name || '').trim();
+                  if (!serviceName) return;
+                  const duration = toPositiveNumber(service?.duration, 0);
+                  if (duration <= 0) return;
+                  const dividedId = String(service?.id || '').trim() || `idx_${index}`;
+
+                  all.push({
+                    id: `subscription:${subId}:service:${dividedId}`,
+                    name: `${subName} - ${serviceName}`,
+                    price: 0,
+                    duration,
+                    source: 'subscription',
+                  });
+                });
+                return;
+              }
+
               all.push({
-                id: `subscription:${String(sub?.id || '').trim()}`,
+                id: `subscription:${subId}`,
                 name: subName,
                 price: 0, // Atendimento por assinatura não cobra serviço avulso
-                duration: Number(sub?.service_duration || 30),
+                duration: toPositiveNumber(sub?.service_duration, 30),
                 source: 'subscription',
               });
             });

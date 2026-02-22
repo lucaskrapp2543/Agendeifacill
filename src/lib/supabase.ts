@@ -722,6 +722,20 @@ const retryRequest = async (fn: () => Promise<any>) => {
   }
 };
 
+const getDayKeyFromDate = (dateIso: string): string => {
+  const d = new Date(`${String(dateIso || '').slice(0, 10)}T12:00:00`);
+  const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  return days[d.getDay()] || 'monday';
+};
+
+const overlapsInterval = (startMinutes: number, durationMinutes: number, intervalStart: number, intervalEnd: number): boolean => {
+  const endMinutes = startMinutes + durationMinutes;
+  const startsIn = startMinutes >= intervalStart && startMinutes < intervalEnd;
+  const endsIn = endMinutes > intervalStart && endMinutes <= intervalEnd;
+  const encompasses = startMinutes <= intervalStart && endMinutes >= intervalEnd;
+  return startsIn || endsIn || encompasses;
+};
+
 export const createAppointment = async (appointmentData: any) => {
   console.log('🚀 Criando agendamento:', appointmentData);
 
@@ -749,7 +763,8 @@ export const createAppointment = async (appointmentData: any) => {
 
     // Verificar conflitos
     const newStartMinutes = timeToMinutes(appointmentData.appointment_time);
-    const newEndMinutes = newStartMinutes + appointmentData.duration;
+    const newDurationMinutes = Math.max(1, Math.round(Number(appointmentData?.duration || 30)));
+    const newEndMinutes = newStartMinutes + newDurationMinutes;
 
     for (const existing of existingAppointments || []) {
       const existingStartMinutes = timeToMinutes(existing.appointment_time);
@@ -763,6 +778,68 @@ export const createAppointment = async (appointmentData: any) => {
         console.error('🔴 CONFLITO DETECTADO:', conflictMessage);
         throw new Error(conflictMessage);
       }
+    }
+
+    // VALIDAÇÃO RÍGIDA: nunca permitir agendamento dentro do intervalo do profissional.
+    // Essa checagem roda no momento de salvar, protegendo até fluxos alternativos.
+    try {
+      const { data: establishmentData } = await retryRequest(async () => {
+        return await supabase
+          .from('establishments')
+          .select('business_hours, professionals')
+          .eq('id', appointmentData.establishment_id)
+          .maybeSingle();
+      });
+
+      const professionals = Array.isArray((establishmentData as any)?.professionals)
+        ? (establishmentData as any).professionals
+        : [];
+      const professionalRef = String(appointmentData?.professional || '').trim();
+      const selectedProfessional = professionals.find((p: any) => {
+        const pid = String(p?.id || '').trim();
+        const pname = String(p?.name || '').trim();
+        return (pid && pid === professionalRef) || (pname && pname === professionalRef);
+      });
+
+      const dayKey = getDayKeyFromDate(String(appointmentData?.appointment_date || ''));
+      const workDay = selectedProfessional?.work_hours?.[dayKey];
+
+      // Se o profissional marcou o dia como fechado, não permite.
+      if (workDay && workDay.enabled === false) {
+        throw new Error('Esse profissional está fechado nesse dia.');
+      }
+
+      // Regra principal: intervalo do profissional (work_hours) tem prioridade.
+      if (workDay && workDay.enabled === true && workDay.break_start && workDay.break_end) {
+        const breakStart = timeToMinutes(String(workDay.break_start));
+        const breakEnd = timeToMinutes(String(workDay.break_end));
+        if (overlapsInterval(newStartMinutes, newDurationMinutes, breakStart, breakEnd)) {
+          throw new Error('Esse horário cai dentro do intervalo do profissional.');
+        }
+      } else {
+        // Fallback de compatibilidade: se não há work_hours do profissional, usa intervalo do estabelecimento.
+        const businessHours = (establishmentData as any)?.business_hours?.[dayKey];
+        const close1 = String(businessHours?.close1 || '').trim();
+        const open2 = String(businessHours?.open2 || '').trim();
+        if (close1 && open2) {
+          const breakStart = timeToMinutes(close1);
+          const breakEnd = timeToMinutes(open2);
+          if (breakEnd > breakStart && overlapsInterval(newStartMinutes, newDurationMinutes, breakStart, breakEnd)) {
+            throw new Error('Esse horário cai dentro do intervalo do estabelecimento.');
+          }
+        }
+      }
+    } catch (intervalError: any) {
+      const msg = String(intervalError?.message || '').trim();
+      if (
+        msg.includes('intervalo do profissional') ||
+        msg.includes('intervalo do estabelecimento') ||
+        msg.includes('profissional está fechado')
+      ) {
+        throw intervalError;
+      }
+      // Se falhar a leitura de configuração, não bloqueia fluxo antigo.
+      console.warn('⚠️ Não foi possível validar intervalo do profissional na gravação:', intervalError);
     }
 
     console.log('✅ Nenhum conflito detectado, prosseguindo com criação...');

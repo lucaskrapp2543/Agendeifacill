@@ -31,6 +31,15 @@ interface Professional {
   name: string;
   photo_url?: string;
   offers_child_service?: boolean;
+  work_hours?: {
+    [key: string]: {
+      enabled: boolean;
+      entry_time?: string;
+      break_start?: string;
+      break_end?: string;
+      exit_time?: string;
+    };
+  } | null;
 }
 
 interface Appointment {
@@ -450,6 +459,53 @@ export function AppointmentForm({
     minAllowedDateTime.setMinutes(minAllowedDateTime.getMinutes() + minHours * 60);
 
     return slotDateTime < minAllowedDateTime;
+  };
+
+  const timeToMinutes = (time: string): number => {
+    const [hours, minutes] = String(time || '00:00').split(':').map(Number);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return 0;
+    return hours * 60 + minutes;
+  };
+
+  const getSelectedDurationForValidation = (): number => {
+    if (isSubscriberBooking) return getResolvedSubscriberDuration();
+    if (useMultiService) {
+      return (selectedServices || []).reduce((sum, s) => sum + (Number((s as any)?.duration) || 0), 0);
+    }
+    if (useCategoryService) {
+      const specificDur = (selectedProfessionalSpecificServices || []).reduce(
+        (sum, s) => sum + (Number((s as any)?.duration) || 0),
+        0
+      );
+      if (useMultiCategoryService) {
+        const categoryDur = (selectedCategoryServices || []).reduce((sum, s: any) => sum + (Number(s?.duration) || 0), 0);
+        return specificDur + categoryDur;
+      }
+      return specificDur + (Number((selectedSubcategory as any)?.duration) || 0);
+    }
+    return Number((selectedService as any)?.duration) || 0;
+  };
+
+  const isSelectedTimeInsideProfessionalBreak = (): boolean => {
+    if (!selectedProfessional || !selectedTime) return false;
+
+    const dayKey = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][selectedDate.getDay()];
+    const dayWork = (selectedProfessional as any)?.work_hours?.[dayKey];
+    if (!dayWork || dayWork.enabled !== true) return false;
+    if (!dayWork.break_start || !dayWork.break_end) return false;
+
+    const start = timeToMinutes(selectedTime);
+    const duration = Math.max(1, Math.round(getSelectedDurationForValidation() || 30));
+    const end = start + duration;
+
+    const breakStart = timeToMinutes(dayWork.break_start);
+    const breakEnd = timeToMinutes(dayWork.break_end);
+
+    const serviceStartsInBreak = start >= breakStart && start < breakEnd;
+    const serviceEndsInBreak = end > breakStart && end <= breakEnd;
+    const serviceEncompassesBreak = start <= breakStart && end >= breakEnd;
+
+    return serviceStartsInBreak || serviceEndsInBreak || serviceEncompassesBreak;
   };
 
   // ✅ Cupom de desconto (booking)
@@ -1384,6 +1440,11 @@ export function AppointmentForm({
       const minHours = getMinimumAdvanceHours();
       const hourLabel = minHours === 1 ? '1 hora' : `${minHours} horas`;
       toast.error(`Voce esta em cima da hora para agendar. Tente um horario mais a frente (minimo de ${hourLabel} de antecedencia).`);
+      return;
+    }
+
+    if (selectedTime && isSelectedTimeInsideProfessionalBreak()) {
+      toast.error('Esse horario cai dentro do intervalo do profissional. Escolha outro horario.');
       return;
     }
 

@@ -98,6 +98,17 @@ interface SqueezeKnownClientOption {
   whatsapp: string;
 }
 
+interface AppointmentChangeLog {
+  id: string;
+  event_type: string;
+  description?: string | null;
+  changed_by_name?: string | null;
+  old_values?: Record<string, any> | null;
+  new_values?: Record<string, any> | null;
+  metadata?: Record<string, any> | null;
+  created_at: string;
+}
+
 interface AllProfessionalsAppointmentsViewProps {
   professionals: Professional[];
   appointments: Appointment[];
@@ -216,6 +227,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [selectedAppointmentForReschedule, setSelectedAppointmentForReschedule] = useState<Appointment | null>(null);
     const [showChangeServiceModal, setShowChangeServiceModal] = useState(false);
     const [selectedAppointmentForServiceChange, setSelectedAppointmentForServiceChange] = useState<Appointment | null>(null);
+    const [showAppointmentHistoryModal, setShowAppointmentHistoryModal] = useState(false);
+    const [selectedAppointmentForHistory, setSelectedAppointmentForHistory] = useState<Appointment | null>(null);
+    const [appointmentHistoryRows, setAppointmentHistoryRows] = useState<AppointmentChangeLog[]>([]);
+    const [isLoadingAppointmentHistory, setIsLoadingAppointmentHistory] = useState(false);
     const [showSubscriberAttendanceModal, setShowSubscriberAttendanceModal] = useState(false);
     const [subscriberOptions, setSubscriberOptions] = useState<Array<{
       id: string;
@@ -425,6 +440,160 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const handleCloseChangeServiceModal = () => {
       setShowChangeServiceModal(false);
       setSelectedAppointmentForServiceChange(null);
+    };
+
+    const getHistoryEventLabel = (eventType: string): string => {
+      const key = String(eventType || '').trim().toLowerCase();
+      if (key === 'service_changed') return 'Serviço alterado';
+      if (key === 'finished_early') return 'Terminou antes';
+      if (key === 'additional_service_added') return 'Extra adicionado';
+      if (key === 'additional_service_removed') return 'Extra removido';
+      return key || 'Evento';
+    };
+
+    const toFiniteNumberOrNull = (value: unknown): number | null => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const formatCurrencyMaybe = (value: unknown): string | null => {
+      const n = toFiniteNumberOrNull(value);
+      if (n === null) return null;
+      return formatCurrency(n);
+    };
+
+    const formatDurationMaybe = (value: unknown): string | null => {
+      const n = toFiniteNumberOrNull(value);
+      if (n === null) return null;
+      return `${Math.round(n)} min`;
+    };
+
+    const buildHistoryHighlights = (row: AppointmentChangeLog): string[] => {
+      const oldV = (row.old_values || {}) as Record<string, any>;
+      const newV = (row.new_values || {}) as Record<string, any>;
+      const meta = (row.metadata || {}) as Record<string, any>;
+      const lines: string[] = [];
+      const key = String(row.event_type || '').trim().toLowerCase();
+
+      if (key === 'service_changed') {
+        const oldService = String(oldV.service || '').trim();
+        const newService = String(newV.service || '').trim();
+        if (oldService || newService) lines.push(`Serviço: ${oldService || '-'} -> ${newService || '-'}`);
+
+        const oldPrice = formatCurrencyMaybe(oldV.price);
+        const newPrice = formatCurrencyMaybe(newV.price);
+        if (oldPrice || newPrice) lines.push(`Valor do serviço: ${oldPrice || '-'} -> ${newPrice || '-'}`);
+
+        const oldDuration = formatDurationMaybe(oldV.duration);
+        const newDuration = formatDurationMaybe(newV.duration);
+        if (oldDuration || newDuration) lines.push(`Duração: ${oldDuration || '-'} -> ${newDuration || '-'}`);
+
+        const oldTotal = formatCurrencyMaybe(oldV.total_price);
+        const newTotal = formatCurrencyMaybe(newV.total_price);
+        if (oldTotal || newTotal) lines.push(`Total para cobrar: ${oldTotal || '-'} -> ${newTotal || '-'}`);
+      } else if (key === 'finished_early') {
+        const oldDuration = formatDurationMaybe(oldV.duration);
+        const newDuration = formatDurationMaybe(newV.duration);
+        if (oldDuration || newDuration) lines.push(`Duração real: ${oldDuration || '-'} -> ${newDuration || '-'}`);
+
+        const released = toFiniteNumberOrNull(meta.time_released_minutes);
+        if (released !== null) lines.push(`Tempo liberado: ${Math.round(released)} min`);
+
+        const newEnd = String(meta.new_end_time || '').trim();
+        const oldEnd = String(meta.original_end_time || '').trim();
+        if (newEnd || oldEnd) lines.push(`Janela liberada: ${newEnd || '-'} até ${oldEnd || '-'}`);
+      } else if (key === 'additional_service_added') {
+        const p = (meta.product_added || {}) as Record<string, any>;
+        const pName = String(p.name || '').trim() || 'Extra';
+        const pPrice = formatCurrencyMaybe(p.price);
+        const pDuration = formatDurationMaybe(p.duration);
+        lines.push(`Item: ${pName}${pPrice ? ` • ${pPrice}` : ''}${pDuration ? ` • ${pDuration}` : ''}`);
+
+        const oldCount = toFiniteNumberOrNull(oldV.additional_products_count);
+        const newCount = toFiniteNumberOrNull(newV.additional_products_count);
+        if (oldCount !== null || newCount !== null) lines.push(`Qtd. de extras: ${oldCount ?? '-'} -> ${newCount ?? '-'}`);
+
+        const oldTotal = formatCurrencyMaybe(oldV.total_price);
+        const newTotal = formatCurrencyMaybe(newV.total_price);
+        if (oldTotal || newTotal) lines.push(`Total para cobrar: ${oldTotal || '-'} -> ${newTotal || '-'}`);
+      } else if (key === 'additional_service_removed') {
+        const p = (meta.product_removed || {}) as Record<string, any>;
+        const pName = String(p.name || '').trim() || 'Extra';
+        const pPrice = formatCurrencyMaybe(p.price);
+        const pDuration = formatDurationMaybe(p.duration);
+        lines.push(`Item removido: ${pName}${pPrice ? ` • ${pPrice}` : ''}${pDuration ? ` • ${pDuration}` : ''}`);
+
+        const oldCount = toFiniteNumberOrNull(oldV.additional_products_count);
+        const newCount = toFiniteNumberOrNull(newV.additional_products_count);
+        if (oldCount !== null || newCount !== null) lines.push(`Qtd. de extras: ${oldCount ?? '-'} -> ${newCount ?? '-'}`);
+
+        const oldTotal = formatCurrencyMaybe(oldV.total_price);
+        const newTotal = formatCurrencyMaybe(newV.total_price);
+        if (oldTotal || newTotal) lines.push(`Total para cobrar: ${oldTotal || '-'} -> ${newTotal || '-'}`);
+      }
+
+      if (lines.length === 0 && row.description) lines.push(String(row.description));
+      return lines;
+    };
+
+    const formatJsonPreview = (value: unknown): string => {
+      try {
+        if (value === null || value === undefined) return '-';
+        if (typeof value === 'string') return value || '-';
+        return JSON.stringify(value, null, 2);
+      } catch {
+        return '-';
+      }
+    };
+
+    const handleOpenAppointmentHistoryModal = async (apt: Appointment) => {
+      const establishmentId = String(establishment?.id || '').trim();
+      if (!establishmentId || !apt?.id) {
+        toast('Não foi possível carregar o histórico desse agendamento.', 'error');
+        return;
+      }
+
+      setSelectedAppointmentForHistory(apt);
+      setShowAppointmentHistoryModal(true);
+      setIsLoadingAppointmentHistory(true);
+
+      try {
+        const { data, error } = await (supabase as any)
+          .from('appointment_change_logs')
+          .select('id, event_type, description, changed_by_name, old_values, new_values, metadata, created_at')
+          .eq('establishment_id', establishmentId)
+          .eq('appointment_id', String(apt.id))
+          .order('created_at', { ascending: false })
+          .limit(100);
+
+        if (error) {
+          const msg = String((error as any)?.message || '').toLowerCase();
+          const historyTableMissing =
+            msg.includes('appointment_change_logs') &&
+            (msg.includes('does not exist') || msg.includes('relation') || msg.includes('schema cache') || msg.includes('column'));
+          if (historyTableMissing) {
+            toast('Histórico ainda não disponível neste banco. Rode a migration nova.', 'warning');
+            setAppointmentHistoryRows([]);
+            return;
+          }
+          throw error;
+        }
+
+        setAppointmentHistoryRows(Array.isArray(data) ? (data as AppointmentChangeLog[]) : []);
+      } catch (error: any) {
+        console.error('❌ Erro ao carregar histórico do agendamento:', error);
+        toast(error?.message || 'Erro ao carregar histórico.', 'error');
+        setAppointmentHistoryRows([]);
+      } finally {
+        setIsLoadingAppointmentHistory(false);
+      }
+    };
+
+    const handleCloseAppointmentHistoryModal = () => {
+      setShowAppointmentHistoryModal(false);
+      setSelectedAppointmentForHistory(null);
+      setAppointmentHistoryRows([]);
+      setIsLoadingAppointmentHistory(false);
     };
 
     const handleConfirmChangeService = async (services: Array<{ id: string; name: string; price: number; duration: number }>) => {
@@ -3979,6 +4148,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             📝 Minhas Observações
                                           </button>
 
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              void handleOpenAppointmentHistoryModal(apt);
+                                            }}
+                                            className="w-full px-2 py-1.5 text-xs bg-amber-700 text-white rounded hover:bg-amber-800"
+                                            title="Ver histórico de alterações desse agendamento"
+                                          >
+                                            📜 Ver histórico
+                                          </button>
+
                                           {apt.is_child_service !== undefined && (
                                             <div className="text-center">
                                               <span className={`inline-block px-2 py-1 text-xs rounded ${apt.is_child_service ? 'bg-gray-700' : 'bg-gray-600'} text-white border border-gray-500`}>
@@ -4220,6 +4400,91 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 >
                   Fechar
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Histórico do agendamento */}
+        {showAppointmentHistoryModal && selectedAppointmentForHistory && (
+          <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
+            <div className="w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl border border-white/10 bg-white">
+              <div className="p-4 border-b border-gray-200">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-gray-900 font-extrabold text-lg">Histórico do agendamento</div>
+                    <div className="text-xs text-gray-600 mt-1">
+                      {String(getDisplayedClientName(selectedAppointmentForHistory) || selectedAppointmentForHistory.client_name || 'Cliente')} • {selectedAppointmentForHistory.appointment_time}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCloseAppointmentHistoryModal}
+                    className="h-9 w-9 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center"
+                    title="Fechar"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 max-h-[70vh] overflow-y-auto space-y-3">
+                {isLoadingAppointmentHistory ? (
+                  <div className="text-sm text-gray-600">Carregando histórico...</div>
+                ) : appointmentHistoryRows.length === 0 ? (
+                  <div className="text-sm text-gray-600">Sem histórico para este agendamento.</div>
+                ) : (
+                  appointmentHistoryRows.map((row) => (
+                    <div key={row.id} className="rounded-lg border border-gray-200 p-3 bg-gray-50">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm font-extrabold text-gray-900">{getHistoryEventLabel(row.event_type)}</div>
+                        <div className="text-xs text-gray-600">
+                          {(() => {
+                            try {
+                              return format(parseISO(String(row.created_at)), 'dd/MM/yyyy HH:mm');
+                            } catch {
+                              return String(row.created_at || '');
+                            }
+                          })()}
+                        </div>
+                      </div>
+                      {row.description && (
+                        <div className="text-xs text-gray-700 mt-1">{row.description}</div>
+                      )}
+                      {row.changed_by_name && (
+                        <div className="text-[11px] text-gray-500 mt-1">Por: {row.changed_by_name}</div>
+                      )}
+
+                      <div className="mt-2 rounded border border-gray-200 bg-white p-2 space-y-1">
+                        {buildHistoryHighlights(row).map((line, idx) => (
+                          <div key={`${row.id}-line-${idx}`} className="text-xs text-gray-800">
+                            • {line}
+                          </div>
+                        ))}
+                      </div>
+
+                      <details className="mt-2 rounded border border-gray-200 bg-white p-2">
+                        <summary className="text-[11px] font-semibold text-gray-700 cursor-pointer">
+                          Ver detalhes técnicos
+                        </summary>
+                        <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2">
+                          <div className="rounded border border-gray-200 bg-gray-50 p-2">
+                            <div className="text-[11px] font-bold text-gray-700 mb-1">Antes</div>
+                            <pre className="text-[10px] text-gray-700 whitespace-pre-wrap break-words">{formatJsonPreview(row.old_values)}</pre>
+                          </div>
+                          <div className="rounded border border-gray-200 bg-gray-50 p-2">
+                            <div className="text-[11px] font-bold text-gray-700 mb-1">Depois</div>
+                            <pre className="text-[10px] text-gray-700 whitespace-pre-wrap break-words">{formatJsonPreview(row.new_values)}</pre>
+                          </div>
+                          <div className="rounded border border-gray-200 bg-gray-50 p-2">
+                            <div className="text-[11px] font-bold text-gray-700 mb-1">Detalhes</div>
+                            <pre className="text-[10px] text-gray-700 whitespace-pre-wrap break-words">{formatJsonPreview(row.metadata)}</pre>
+                          </div>
+                        </div>
+                      </details>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>

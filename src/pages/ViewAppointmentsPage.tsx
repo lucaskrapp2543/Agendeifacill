@@ -1029,19 +1029,17 @@ Por favor, confirme o cancelamento. Obrigado!`;
               <ArrowLeft className="w-5 h-5" />
               <span>Voltar</span>
             </button>
-            {appointments.length > 0 && (
-              <button
-                onClick={handleLogout}
-                className="px-4 py-2 text-sm rounded-xl transition-colors font-semibold hover:bg-white/5"
-                style={{
-                  background: '#151515',
-                  border: '1px solid rgba(255,255,255,0.06)',
-                  color: '#A1A1A1'
-                }}
-              >
-                Desconectar
-              </button>
-            )}
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 text-sm rounded-xl transition-colors font-semibold hover:bg-white/5"
+              style={{
+                background: '#151515',
+                border: '1px solid rgba(255,255,255,0.06)',
+                color: '#A1A1A1'
+              }}
+            >
+              Desconectar
+            </button>
           </div>
           <h1 className="text-2xl font-extrabold" style={{ color: '#E6C78B' }}>
             Meus Agendamentos

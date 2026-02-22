@@ -350,6 +350,45 @@ const EstablishmentDashboard = () => {
   const lastSaldoFetchEstIdRef = useRef<string>('');
   const { notifyNewAppointment, notifyCancelledAppointment } = useNotifications();
 
+  const writeAppointmentChangeLog = async (params: {
+    appointmentId: string;
+    eventType: 'service_changed' | 'finished_early' | 'additional_service_added' | 'additional_service_removed';
+    description: string;
+    oldValues?: Record<string, any> | null;
+    newValues?: Record<string, any> | null;
+    metadata?: Record<string, any> | null;
+  }) => {
+    const establishmentId = String(establishment?.id || '').trim();
+    const appointmentId = String(params.appointmentId || '').trim();
+    if (!establishmentId || !appointmentId) return;
+
+    try {
+      const payload = {
+        establishment_id: establishmentId,
+        appointment_id: appointmentId,
+        changed_by_user_id: String(user?.id || '').trim() || null,
+        changed_by_name: String(user?.email || '').trim() || null,
+        event_type: params.eventType,
+        description: String(params.description || '').trim() || null,
+        old_values: params.oldValues || null,
+        new_values: params.newValues || null,
+        metadata: params.metadata || null,
+      };
+
+      const { error } = await (supabase as any).from('appointment_change_logs').insert(payload);
+      if (error) {
+        const msg = String((error as any)?.message || '').toLowerCase();
+        const tableMissing =
+          msg.includes('appointment_change_logs') &&
+          (msg.includes('does not exist') || msg.includes('relation') || msg.includes('schema cache') || msg.includes('column'));
+        if (tableMissing) return;
+        console.warn('⚠️ Falha ao gravar histórico de alteração do agendamento:', error);
+      }
+    } catch (logError) {
+      console.warn('⚠️ Erro inesperado ao gravar histórico do agendamento:', logError);
+    }
+  };
+
   // Estados básicos
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('passo-a-passo');
@@ -11303,6 +11342,24 @@ Estamos te aguardando! 😎✂️`;
       }
       if (error) throw error;
 
+      await writeAppointmentChangeLog({
+        appointmentId: apt.id,
+        eventType: 'service_changed',
+        description: 'Serviço do agendamento alterado manualmente.',
+        oldValues: {
+          service: String(apt.service || ''),
+          price: Number(apt.price || 0),
+          duration: Number(apt.duration || 0),
+          total_price: Number((apt as any).total_price || 0),
+        },
+        newValues: {
+          service: String(payload.service || ''),
+          price: Number(payload.price || 0),
+          duration: Number(payload.duration || 0),
+          total_price: Number(payload.total_price || 0),
+        },
+      });
+
       toast.success('Serviço alterado com sucesso!');
 
       // Recarregar listas (dia e mês) para refletir a mudança
@@ -11384,6 +11441,23 @@ Estamos te aguardando! 😎✂️`;
       if (error) {
         throw error;
       }
+
+      await writeAppointmentChangeLog({
+        appointmentId: appointment.id,
+        eventType: 'finished_early',
+        description: 'Duração do atendimento ajustada para término antecipado.',
+        oldValues: {
+          duration: Number(originalDuration || 0),
+        },
+        newValues: {
+          duration: Number(actualDuration || 0),
+        },
+        metadata: {
+          time_released_minutes: Number(timeReleased || 0),
+          original_end_time: String(originalEndTimeStr || ''),
+          new_end_time: String(availableStartTime || ''),
+        },
+      });
 
       // ✅ OTIMIZAÇÃO: Atualizar lista em background (sem await para não bloquear)
       Promise.all([
@@ -14288,6 +14362,27 @@ Estamos te aguardando! 😎✂️`;
 
       if (error) throw error;
 
+      await writeAppointmentChangeLog({
+        appointmentId,
+        eventType: 'additional_service_added',
+        description: 'Serviço extra adicionado ao agendamento.',
+        oldValues: {
+          additional_products_count: Number(currentAdditionalProducts.length || 0),
+          total_price: Number((appointment as any).total_price || appointment.price || 0),
+        },
+        newValues: {
+          additional_products_count: Number(updatedAdditionalProducts.length || 0),
+          total_price: Number(newTotalPrice || 0),
+        },
+        metadata: {
+          product_added: {
+            name: String(product?.name || ''),
+            price: Number(product?.price || 0),
+            duration: Number((product as any)?.duration || 0),
+          },
+        },
+      });
+
       // Atualiza o estado local
       setAppointments(prevAppointments =>
         prevAppointments.map(a =>
@@ -14331,6 +14426,31 @@ Estamos te aguardando! 😎✂️`;
         .eq('id', appointmentId);
 
       if (error) throw error;
+
+      const removedProduct = currentAdditionalProducts[productIndex];
+      await writeAppointmentChangeLog({
+        appointmentId,
+        eventType: 'additional_service_removed',
+        description: 'Serviço extra removido do agendamento.',
+        oldValues: {
+          additional_products_count: Number(currentAdditionalProducts.length || 0),
+          total_price: Number((appointment as any).total_price || appointment.price || 0),
+        },
+        newValues: {
+          additional_products_count: Number(updatedAdditionalProducts.length || 0),
+          total_price: Number(newTotalPrice || 0),
+        },
+        metadata: {
+          product_removed: removedProduct
+            ? {
+              name: String((removedProduct as any)?.name || ''),
+              price: Number((removedProduct as any)?.price || 0),
+              duration: Number((removedProduct as any)?.duration || 0),
+            }
+            : null,
+          removed_index: Number(productIndex),
+        },
+      });
 
       // Atualiza o estado local
       setAppointments(prevAppointments =>
