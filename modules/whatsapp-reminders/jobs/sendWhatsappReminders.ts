@@ -153,7 +153,7 @@ export async function runSendWhatsappRemindersOnce() {
         appointment_time: appointmentTimeLabel,
       });
       const useMetaTemplate = isMetaProvider(r.provider);
-      const metaTemplateName = String(process.env.META_TEMPLATE_APPOINTMENT_REMINDER || 'lembrete_agendamento_v1').trim();
+      const metaTemplateName = String(process.env.META_TEMPLATE_APPOINTMENT_REMINDER || 'lembrete_agendamento_v1a').trim();
 
       const toCandidates = normalizePhoneCandidates(r.client_whatsapp);
       if (toCandidates.length === 0) {
