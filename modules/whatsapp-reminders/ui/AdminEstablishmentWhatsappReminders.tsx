@@ -38,6 +38,7 @@ type ReminderMetrics = {
  *   Use o helper: `modules/whatsapp-reminders/tools/encryptApiKey.ts`.
  */
 export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) {
+  const META_PHONE_ID_CACHE_KEY = 'agendeifacil_meta_phone_number_id';
   const [loading, setLoading] = useState(false);
   const [instance, setInstance] = useState<InstanceRow | null>(null);
   const [settings, setSettings] = useState<SettingsRow | null>(null);
@@ -81,6 +82,24 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
     delivered: 0,
     read: 0,
   });
+
+  const readCachedMetaPhoneId = (): string => {
+    try {
+      return String(window.localStorage.getItem(META_PHONE_ID_CACHE_KEY) || '').trim();
+    } catch {
+      return '';
+    }
+  };
+
+  const writeCachedMetaPhoneId = (value: string) => {
+    const v = String(value || '').trim();
+    if (!v) return;
+    try {
+      window.localStorage.setItem(META_PHONE_ID_CACHE_KEY, v);
+    } catch {
+      // ignore
+    }
+  };
 
   const statusLabel = useMemo(() => {
     if (!instance) return 'Não configurado';
@@ -140,6 +159,15 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
       setEnabled(Boolean((cfg as any)?.enabled ?? false));
       setRemindBeforeMinutes(Number((cfg as any)?.remind_before_minutes ?? 60));
       setMessageTemplate(String((cfg as any)?.message_template || '').trim() || templatePadrao);
+      if (String((inst as any)?.provider || '').trim().toLowerCase() === 'meta') {
+        const currentMetaPhoneId = String((inst as any)?.phone_number || '').trim();
+        if (currentMetaPhoneId) {
+          writeCachedMetaPhoneId(currentMetaPhoneId);
+        } else {
+          const cached = readCachedMetaPhoneId();
+          if (cached) setPhoneNumber(cached);
+        }
+      }
       setMetrics({
         monthLabel,
         total: logs.length,
@@ -209,6 +237,9 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
           onConflict: 'establishment_id',
         });
         if (iErr) throw iErr;
+        if (provider === 'meta') {
+          writeCachedMetaPhoneId(phoneNumber.trim());
+        }
       }
 
       toast.success('Configuração de WhatsApp salva');
@@ -265,7 +296,27 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
               borderColor: '#374151',
             }}
             value={provider}
-            onChange={e => setProvider(String(e.target.value || 'wasender').trim().toLowerCase())}
+            onChange={e => {
+              const nextProvider = String(e.target.value || 'wasender').trim().toLowerCase();
+              setProvider(nextProvider);
+
+              if (nextProvider === 'meta') {
+                // Fluxo padrão Meta: reduzir fricção para ativação em massa.
+                setEnabled(true);
+                setStatus('active');
+                if (!Number.isFinite(remindBeforeMinutes) || remindBeforeMinutes < 5) {
+                  setRemindBeforeMinutes(60);
+                }
+                if (!messageTemplate.trim()) {
+                  setMessageTemplate(templatePadrao);
+                }
+
+                const cachedMetaPhoneId = readCachedMetaPhoneId();
+                if (!phoneNumber.trim() && cachedMetaPhoneId) {
+                  setPhoneNumber(cachedMetaPhoneId);
+                }
+              }
+            }}
             disabled={loading}
           >
             <option value="wasender">Wasender (QR)</option>
@@ -352,6 +403,11 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
             onChange={e => setMessageTemplate(e.target.value)}
             disabled={loading}
           />
+          {provider === 'meta' && (
+            <div className="mt-1 text-xs text-emerald-300">
+              No provedor Meta oficial, o envio usa o template aprovado na Meta. Este campo fica como fallback/legado.
+            </div>
+          )}
         </div>
 
         <div className="md:col-span-2">

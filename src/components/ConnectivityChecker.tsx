@@ -14,27 +14,100 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
   const [isConnected, setIsConnected] = useState(true);
   const [isChecking, setIsChecking] = useState(false);
   const [lastCheck, setLastCheck] = useState<Date | null>(null);
+  const [consecutiveFailures, setConsecutiveFailures] = useState(0);
+
+  const checkSupabaseHealth = async (): Promise<boolean> => {
+    const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim();
+    const anonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
+    if (!supabaseUrl) return navigator.onLine;
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(`${supabaseUrl}/auth/v1/health`, {
+        method: 'GET',
+        cache: 'no-store',
+        signal: controller.signal,
+        headers: anonKey
+          ? {
+              apikey: anonKey,
+              Authorization: `Bearer ${anonKey}`,
+            }
+          : undefined,
+      });
+      // Se respondeu 401/403, o servidor está alcançável (não é falta de internet).
+      if (res.status === 401 || res.status === 403) return true;
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  };
 
   const checkConnectivity = async () => {
     setIsChecking(true);
     try {
-      // Teste simples de conectividade com Supabase
-      const { data, error } = await supabase
-        .from('establishments')
-        .select('id')
-        .limit(1);
+      // 1) Sem rede local no aparelho: desconectado imediatamente.
+      if (!navigator.onLine) {
+        setConsecutiveFailures(prev => prev + 1);
+        setIsConnected(false);
+        setLastCheck(new Date());
+        onConnectionStatusChange?.(false);
+        dlog('🔍 Verificação de conectividade: ❌ Offline (navigator.onLine=false)');
+        return;
+      }
 
-      const connected = !error;
-      setIsConnected(connected);
-      setLastCheck(new Date());
-      onConnectionStatusChange?.(connected);
+      // 2) Health check direto no Supabase (evita falso negativo por RLS/permissão).
+      const healthOk = await checkSupabaseHealth();
+      if (healthOk) {
+        setConsecutiveFailures(0);
+        setIsConnected(true);
+        setLastCheck(new Date());
+        onConnectionStatusChange?.(true);
+        dlog('🔍 Verificação de conectividade: ✅ Conectado (health check)');
+        return;
+      }
 
-      dlog('🔍 Verificação de conectividade:', connected ? '✅ Conectado' : '❌ Desconectado');
+      // 3) Fallback legado (se health falhar momentaneamente).
+      // Erro de permissão/RLS aqui não significa "sem internet", apenas regra de banco.
+      const { error } = await supabase.from('establishments').select('id').limit(1);
+      const errMsg = String((error as any)?.message || '').toLowerCase();
+      const isPermissionLikeError =
+        errMsg.includes('permission') ||
+        errMsg.includes('rls') ||
+        errMsg.includes('not authorized') ||
+        errMsg.includes('jwt');
+
+      if (isPermissionLikeError) {
+        setConsecutiveFailures(0);
+        setIsConnected(true);
+        setLastCheck(new Date());
+        onConnectionStatusChange?.(true);
+        dlog('🔍 Verificação de conectividade: ✅ Conectado (erro de permissão ignorado)');
+        return;
+      }
+
+      // 4) Só mostra tela de "sem conexão" após 2 falhas seguidas, para não punir oscilações móveis.
+      setConsecutiveFailures(prev => {
+        const next = prev + 1;
+        const connected = next < 2;
+        setIsConnected(connected);
+        setLastCheck(new Date());
+        onConnectionStatusChange?.(connected);
+        dlog('🔍 Verificação de conectividade:', connected ? '🟡 Instável (1ª falha)' : '❌ Desconectado (2 falhas)');
+        return next;
+      });
     } catch (error) {
       console.error('❌ Erro na verificação de conectividade:', error);
-      setIsConnected(false);
-      setLastCheck(new Date());
-      onConnectionStatusChange?.(false);
+      setConsecutiveFailures(prev => {
+        const next = prev + 1;
+        const connected = next < 2;
+        setIsConnected(connected);
+        setLastCheck(new Date());
+        onConnectionStatusChange?.(connected);
+        return next;
+      });
     } finally {
       setIsChecking(false);
     }

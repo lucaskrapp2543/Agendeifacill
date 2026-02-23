@@ -13,6 +13,43 @@ type SettingsRow = {
   remind_before_minutes: number;
 };
 
+type ReminderLogRaw = {
+  appointment_id?: string | null;
+  phone_to?: string | null;
+  status?: string | null;
+  meta_status?: string | null;
+  last_error?: string | null;
+  provider_response?: string | null;
+  created_at?: string | null;
+  message?: string | null;
+};
+
+type AppointmentMini = {
+  id: string;
+  client_name?: string | null;
+  appointment_date?: string | null;
+  appointment_time?: string | null;
+  service_name?: string | null;
+  professional?: string | null;
+};
+
+type ProfessionalMini = {
+  id: string;
+  name: string;
+};
+
+type ReminderLogView = {
+  id: string;
+  kind: 'sent' | 'failed' | 'delivered';
+  createdAtLabel: string;
+  clientName: string;
+  scheduleLabel: string;
+  serviceName: string;
+  professionalName: string;
+  phoneTo: string;
+  errorText: string | null;
+};
+
 /**
  * Tela/Bloco para o dashboard do estabelecimento.
  *
@@ -21,8 +58,13 @@ type SettingsRow = {
  */
 export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establishmentId: string }) {
   const [loading, setLoading] = useState(false);
+  const [logsLoading, setLogsLoading] = useState(false);
   const [instance, setInstance] = useState<InstanceRow | null>(null);
   const [settings, setSettings] = useState<SettingsRow | null>(null);
+  const [logFilter, setLogFilter] = useState<'sent' | 'failed' | 'delivered'>('sent');
+  const [logRows, setLogRows] = useState<ReminderLogView[]>([]);
+  const [logCounters, setLogCounters] = useState({ sent: 0, failed: 0, delivered: 0 });
+  const [logLoadError, setLogLoadError] = useState<string | null>(null);
 
   const ativo = Boolean(settings?.enabled) && instance?.status === 'active';
   const suporteWhatsapp = '5548991265320';
@@ -49,6 +91,173 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
     window.open(`https://wa.me/${suporteWhatsapp}?text=${msg}`, '_blank', 'noopener,noreferrer');
   };
 
+  const classifyReminderLog = (row: ReminderLogRaw): 'sent' | 'failed' | 'delivered' => {
+    const status = String(row.status || '').toLowerCase();
+    const metaStatus = String(row.meta_status || '').toLowerCase();
+    if (status === 'failed') return 'failed';
+    if (metaStatus === 'delivered' || metaStatus === 'read') return 'delivered';
+    return 'sent';
+  };
+
+  const formatCreatedAt = (iso: string | null | undefined): string => {
+    if (!iso) return '-';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toLocaleString('pt-BR');
+  };
+
+  const formatSchedule = (apt: AppointmentMini | null | undefined): string => {
+    const date = String(apt?.appointment_date || '').trim();
+    const time = String(apt?.appointment_time || '').trim();
+    if (!date && !time) return '-';
+    const dateLabel = date
+      ? (() => {
+          const d = new Date(`${date}T00:00:00`);
+          if (Number.isNaN(d.getTime())) return date;
+          return d.toLocaleDateString('pt-BR');
+        })()
+      : '';
+    const timeLabel = time ? time.slice(0, 5) : '';
+    return `${dateLabel}${dateLabel && timeLabel ? ' às ' : ''}${timeLabel}`.trim() || '-';
+  };
+
+  const extractClientNameFromMessage = (message: string): string | null => {
+    const normalized = String(message || '').replace(/\n/g, ' ');
+    const match = normalized.match(/Cliente:\s*([^.\n]+)/i);
+    if (!match) return null;
+    const value = String(match[1] || '').trim();
+    return value || null;
+  };
+
+  const loadReminderLogs = async () => {
+    if (!establishmentId) return;
+    setLogsLoading(true);
+    setLogLoadError(null);
+    try {
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+
+      // Compatibilidade com bancos em versões diferentes (com/sem colunas novas).
+      const logSelectCandidates = [
+        'appointment_id,phone_to,status,meta_status,last_error,provider_response,created_at,message',
+        'appointment_id,phone_to,status,meta_status,provider_response,created_at,message',
+        'appointment_id,phone_to,status,meta_status,created_at,message',
+        'appointment_id,phone_to,status,created_at,message',
+      ];
+
+      let rows: ReminderLogRaw[] = [];
+      let logsLoaded = false;
+      let lastLogsError: any = null;
+      for (const selectCols of logSelectCandidates) {
+        const { data, error } = await supabase
+          .from('whatsapp_reminder_logs')
+          .select(selectCols)
+          .eq('establishment_id', establishmentId)
+          .gte('created_at', monthStart.toISOString())
+          .order('created_at', { ascending: false })
+          .limit(150);
+        if (!error) {
+          rows = (data as ReminderLogRaw[]) || [];
+          logsLoaded = true;
+          break;
+        }
+        lastLogsError = error;
+      }
+      if (!logsLoaded) throw lastLogsError || new Error('Falha ao carregar logs de WhatsApp.');
+      const appointmentIds = Array.from(
+        new Set(rows.map(r => String(r.appointment_id || '').trim()).filter(Boolean))
+      );
+
+      const professionalsById = new Map<string, string>();
+      const { data: estData, error: estErr } = await supabase
+        .from('establishments')
+        .select('professionals')
+        .eq('id', establishmentId)
+        .maybeSingle();
+      if (!estErr) {
+        const professionalsRaw = (estData as any)?.professionals;
+        if (Array.isArray(professionalsRaw)) {
+          for (const item of professionalsRaw) {
+            const p = item as ProfessionalMini;
+            const pid = String((p as any)?.id || '').trim();
+            const pname = String((p as any)?.name || '').trim();
+            if (pid && pname) professionalsById.set(pid, pname);
+          }
+        }
+      }
+
+      const appointmentById = new Map<string, AppointmentMini>();
+      if (appointmentIds.length > 0) {
+        const appointmentSelectCandidates = [
+          'id,client_name,appointment_date,appointment_time,service_name,professional',
+          'id,client_name,appointment_date,appointment_time,service,professional',
+        ];
+        let loadedAppointments = false;
+        let lastAppointmentError: any = null;
+        for (const selectCols of appointmentSelectCandidates) {
+          const { data: aptData, error: aptErr } = await supabase
+            .from('appointments')
+            .select(selectCols)
+            .in('id', appointmentIds);
+          if (!aptErr) {
+            for (const apt of (aptData as any[]) || []) {
+              appointmentById.set(String(apt.id), apt as AppointmentMini);
+            }
+            loadedAppointments = true;
+            break;
+          }
+          lastAppointmentError = aptErr;
+        }
+        if (!loadedAppointments) throw lastAppointmentError || new Error('Falha ao carregar agendamentos dos logs.');
+      }
+
+      const counters = { sent: 0, failed: 0, delivered: 0 };
+      const mapped: ReminderLogView[] = rows.map((row, idx) => {
+        const kind = classifyReminderLog(row);
+        counters[kind] += 1;
+
+        const appointment = appointmentById.get(String(row.appointment_id || '').trim());
+        const fallbackClient = extractClientNameFromMessage(String(row.message || '')) || 'Cliente não identificado';
+        const clientName = String(appointment?.client_name || fallbackClient).trim() || 'Cliente não identificado';
+        const scheduleLabel = formatSchedule(appointment);
+        const serviceName = String((appointment as any)?.service_name || (appointment as any)?.service || '').trim() || '-';
+        const professionalRaw = String(appointment?.professional || '').trim();
+        const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          professionalRaw
+        );
+        const professionalName = looksLikeUuid
+          ? String(professionalsById.get(professionalRaw) || professionalRaw || '-')
+          : String(professionalRaw || '-');
+        const phoneTo = String(row.phone_to || '').trim() || '-';
+        const errorTextRaw = row.last_error || row.provider_response || null;
+        const errorText = errorTextRaw ? String(errorTextRaw).slice(0, 220) : null;
+
+        return {
+          id: `${String(row.appointment_id || 'sem-id')}-${idx}`,
+          kind,
+          createdAtLabel: formatCreatedAt(row.created_at),
+          clientName,
+          scheduleLabel,
+          serviceName,
+          professionalName,
+          phoneTo,
+          errorText,
+        };
+      });
+
+      setLogCounters(counters);
+      setLogRows(mapped);
+    } catch (e) {
+      console.error(e);
+      setLogLoadError('Não foi possível carregar o histórico com o esquema atual deste banco.');
+      setLogCounters({ sent: 0, failed: 0, delivered: 0 });
+      setLogRows([]);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
   useEffect(() => {
     const load = async () => {
       if (!establishmentId) return;
@@ -70,6 +279,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
 
         setSettings((cfg as any) || null);
         setInstance((inst as any) || null);
+        await loadReminderLogs();
       } catch (e) {
         console.error(e);
         toast.error('Erro ao carregar status dos lembretes WhatsApp');
@@ -80,6 +290,10 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
 
     load();
   }, [establishmentId]);
+
+  const filteredLogRows = useMemo(() => {
+    return logRows.filter(row => row.kind === logFilter);
+  }, [logRows, logFilter]);
 
   return (
     <div className="w-full">
@@ -97,6 +311,91 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]">
+          {ativo && (
+            <div className="lg:col-span-2 rounded-2xl border border-cyan-500/20 bg-black/40 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm font-bold text-cyan-200">Histórico de envios (mês atual)</div>
+                <button
+                  type="button"
+                  onClick={() => void loadReminderLogs()}
+                  className="rounded-lg border border-cyan-500/30 bg-black/40 px-3 py-1.5 text-xs font-semibold text-cyan-100 hover:bg-black/60"
+                >
+                  Atualizar histórico
+                </button>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setLogFilter('sent')}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    logFilter === 'sent'
+                      ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200'
+                      : 'border-gray-600 bg-black/30 text-gray-200 hover:bg-black/50'
+                  }`}
+                >
+                  Enviados ({logCounters.sent})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLogFilter('failed')}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    logFilter === 'failed'
+                      ? 'border-red-400/60 bg-red-500/20 text-red-200'
+                      : 'border-gray-600 bg-black/30 text-gray-200 hover:bg-black/50'
+                  }`}
+                >
+                  Falhos ({logCounters.failed})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLogFilter('delivered')}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    logFilter === 'delivered'
+                      ? 'border-cyan-400/60 bg-cyan-500/20 text-cyan-200'
+                      : 'border-gray-600 bg-black/30 text-gray-200 hover:bg-black/50'
+                  }`}
+                >
+                  Entregues ({logCounters.delivered})
+                </button>
+              </div>
+
+              <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+                {logsLoading ? (
+                  <div className="rounded-xl border border-gray-700 bg-black/30 p-3 text-sm text-gray-300">Carregando histórico...</div>
+                ) : logLoadError ? (
+                  <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{logLoadError}</div>
+                ) : filteredLogRows.length === 0 ? (
+                  <div className="rounded-xl border border-gray-700 bg-black/30 p-3 text-sm text-gray-400">
+                    Nenhum registro nesse filtro no mês atual.
+                  </div>
+                ) : (
+                  filteredLogRows.map(row => (
+                    <div key={row.id} className="rounded-xl border border-gray-700 bg-black/30 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-semibold text-white">{row.clientName}</div>
+                        <div className="text-[11px] text-gray-400">Enviado em: {row.createdAtLabel}</div>
+                      </div>
+                      <div className="mt-1 text-xs text-gray-300">
+                        Horário agendado: <span className="text-white">{row.scheduleLabel}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-gray-300">
+                        Serviço: <span className="text-white">{row.serviceName}</span> • Profissional:{' '}
+                        <span className="text-white">{row.professionalName}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-gray-400">Destino: {row.phoneTo}</div>
+                      {row.kind === 'failed' && row.errorText && (
+                        <div className="mt-2 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-[11px] text-red-100">
+                          Erro: {row.errorText}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Coluna esquerda: visual */}
           <div className="rounded-2xl border border-amber-500/20 bg-black/40 p-4">
             <div className="text-sm font-bold text-amber-200">Visual do lembrete</div>
@@ -118,9 +417,8 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
               <div className="rounded-xl border border-emerald-500/15 bg-black/30 p-4">
                 <div className="text-sm font-bold text-emerald-200">Como funciona</div>
                 <div className="mt-2 text-sm text-gray-200 leading-relaxed">
-                  Quando estiver ativo, o Agendei Fácil envia automaticamente um lembrete por WhatsApp para o cliente cerca de{' '}
-                  <span className="font-semibold text-white">1 hora</span> antes do agendamento. As mensagens são enviadas do seu próprio
-                  número conectado ao sistema.
+                  Nosso sistema envia mensagem automática para seus clientes no WhatsApp deles. E você consegue ver acima os lembretes
+                  enviados.
                 </div>
               </div>
 
