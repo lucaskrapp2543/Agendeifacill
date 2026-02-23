@@ -68,7 +68,7 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
   };
 
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [provider, setProvider] = useState('wasender');
+  const [provider, setProvider] = useState('meta');
   const [status, setStatus] = useState<InstanceRow['status']>('pending');
   const [enabled, setEnabled] = useState(false);
   const [remindBeforeMinutes, setRemindBeforeMinutes] = useState(60);
@@ -99,6 +99,45 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
     } catch {
       // ignore
     }
+  };
+
+  const isLikelyMetaPhoneNumberId = (value: string): boolean => {
+    const digits = String(value || '').replace(/\D/g, '');
+    // phone_number_id da Meta costuma ser numérico longo (não telefone E.164 comum).
+    return digits.length >= 14;
+  };
+
+  const resolveDefaultMetaPhoneId = async (): Promise<string> => {
+    const cached = readCachedMetaPhoneId();
+    if (cached && isLikelyMetaPhoneNumberId(cached)) return cached;
+
+    try {
+      const { data, error } = await supabase
+        .from('whatsapp_instances')
+        .select('phone_number,status,provider')
+        .eq('provider', 'meta')
+        .not('phone_number', 'is', null)
+        .limit(30);
+      if (error) throw error;
+
+      const rows = (data as Array<{ phone_number?: string | null; status?: string | null; provider?: string | null }>) || [];
+      const normalized = rows
+        .map(r => ({
+          phone: String(r.phone_number || '').trim(),
+          status: String(r.status || '').trim().toLowerCase(),
+        }))
+        .filter(r => r.phone && isLikelyMetaPhoneNumberId(r.phone));
+
+      const activeFirst = normalized.find(r => r.status === 'active')?.phone || normalized[0]?.phone || '';
+      if (activeFirst) {
+        writeCachedMetaPhoneId(activeFirst);
+        return activeFirst;
+      }
+    } catch {
+      // fallback silencioso
+    }
+
+    return '';
   };
 
   const statusLabel = useMemo(() => {
@@ -153,20 +192,19 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
       setInstance((inst as any) || null);
       setSettings((cfg as any) || null);
 
-      setPhoneNumber(String((inst as any)?.phone_number || ''));
-      setProvider(String((inst as any)?.provider || 'wasender').trim().toLowerCase() || 'wasender');
-      setStatus(String((inst as any)?.status || 'pending'));
+      const currentPhoneNumber = String((inst as any)?.phone_number || '').trim();
+      setPhoneNumber(currentPhoneNumber);
+      setProvider('meta');
+      setStatus(String((inst as any)?.status || 'active'));
       setEnabled(Boolean((cfg as any)?.enabled ?? false));
       setRemindBeforeMinutes(Number((cfg as any)?.remind_before_minutes ?? 60));
       setMessageTemplate(String((cfg as any)?.message_template || '').trim() || templatePadrao);
-      if (String((inst as any)?.provider || '').trim().toLowerCase() === 'meta') {
-        const currentMetaPhoneId = String((inst as any)?.phone_number || '').trim();
-        if (currentMetaPhoneId) {
-          writeCachedMetaPhoneId(currentMetaPhoneId);
-        } else {
-          const cached = readCachedMetaPhoneId();
-          if (cached) setPhoneNumber(cached);
-        }
+
+      if (currentPhoneNumber && isLikelyMetaPhoneNumberId(currentPhoneNumber)) {
+        writeCachedMetaPhoneId(currentPhoneNumber);
+      } else {
+        const defaultMetaId = await resolveDefaultMetaPhoneId();
+        if (defaultMetaId) setPhoneNumber(defaultMetaId);
       }
       setMetrics({
         monthLabel,
@@ -225,7 +263,7 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
 
         const payload: any = {
           establishment_id: establishmentId,
-          provider: provider,
+          provider: 'meta',
           phone_number: phoneNumber.trim(),
           status,
         };
@@ -237,9 +275,7 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
           onConflict: 'establishment_id',
         });
         if (iErr) throw iErr;
-        if (provider === 'meta') {
-          writeCachedMetaPhoneId(phoneNumber.trim());
-        }
+        writeCachedMetaPhoneId(phoneNumber.trim());
       }
 
       toast.success('Configuração de WhatsApp salva');
@@ -288,47 +324,21 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
           <div className="text-sm text-gray-300" style={{ color: '#d1d5db' }}>
             Provedor de envio
           </div>
-          <select
+          <input
             className="mt-1 w-full rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
             style={{
               backgroundColor: 'rgba(0,0,0,0.35)',
               color: '#ffffff',
               borderColor: '#374151',
             }}
-            value={provider}
-            onChange={e => {
-              const nextProvider = String(e.target.value || 'wasender').trim().toLowerCase();
-              setProvider(nextProvider);
-
-              if (nextProvider === 'meta') {
-                // Fluxo padrão Meta: reduzir fricção para ativação em massa.
-                setEnabled(true);
-                setStatus('active');
-                if (!Number.isFinite(remindBeforeMinutes) || remindBeforeMinutes < 5) {
-                  setRemindBeforeMinutes(60);
-                }
-                if (!messageTemplate.trim()) {
-                  setMessageTemplate(templatePadrao);
-                }
-
-                const cachedMetaPhoneId = readCachedMetaPhoneId();
-                if (!phoneNumber.trim() && cachedMetaPhoneId) {
-                  setPhoneNumber(cachedMetaPhoneId);
-                }
-              }
-            }}
-            disabled={loading}
-          >
-            <option value="wasender">Wasender (QR)</option>
-            <option value="meta">Meta oficial (Cloud API)</option>
-          </select>
+            value="Meta oficial (Cloud API)"
+            disabled
+          />
         </div>
 
         <div>
           <div className="text-sm text-gray-300" style={{ color: '#d1d5db' }}>
-            {provider === 'meta'
-              ? 'Meta phone_number_id (ID numérico da Meta)'
-              : 'WhatsApp do estabelecimento (E.164, só dígitos)'}
+            Meta phone_number_id (ID numérico da Meta)
           </div>
           <input
             className="mt-1 w-full rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
@@ -339,7 +349,7 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
             }}
             value={phoneNumber}
             onChange={e => setPhoneNumber(e.target.value)}
-            placeholder={provider === 'meta' ? 'Ex: 123456789012345' : 'Ex: 5511999999999'}
+            placeholder="Ex: 123456789012345"
             disabled={loading}
           />
         </div>
@@ -403,18 +413,14 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
             onChange={e => setMessageTemplate(e.target.value)}
             disabled={loading}
           />
-          {provider === 'meta' && (
-            <div className="mt-1 text-xs text-emerald-300">
-              No provedor Meta oficial, o envio usa o template aprovado na Meta. Este campo fica como fallback/legado.
-            </div>
-          )}
+          <div className="mt-1 text-xs text-emerald-300">
+            No provedor Meta oficial, o envio usa o template aprovado na Meta. Este campo fica como fallback/legado.
+          </div>
         </div>
 
         <div className="md:col-span-2">
           <div className="text-sm text-gray-300" style={{ color: '#d1d5db' }}>
-            {provider === 'meta'
-              ? 'Access Token da Meta (criptografado) — gere via helper e cole aqui'
-              : 'API Key do Wasender (criptografada) — gere via helper e cole aqui'}
+            Access Token da Meta (criptografado) — gere via helper e cole aqui
           </div>
           <textarea
             className="mt-1 w-full rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
