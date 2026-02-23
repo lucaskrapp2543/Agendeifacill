@@ -2015,7 +2015,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
           .update({ sold_products: updatedProducts })
           .eq('id', appointmentId);
 
-        if (error) throw error;
+        if (error) {
+          const msg = String(error?.message || '').toLowerCase();
+          const missingSoldProductsColumn =
+            msg.includes('sold_products') && (msg.includes('column') || msg.includes('schema cache') || msg.includes('could not find'));
+
+          // Compatibilidade com bancos sem coluna sold_products:
+          // remove os itens da tabela appointment_products (fonte real dos produtos V2).
+          if (missingSoldProductsColumn) {
+            const { error: deleteError } = await supabase
+              .from('appointment_products')
+              .delete()
+              .eq('appointment_id', appointmentId)
+              .eq('product_id', productId);
+
+            if (deleteError) throw deleteError;
+          } else {
+            throw error;
+          }
+        }
 
         // Devolver o produto ao estoque
         if (establishment?.id) {
