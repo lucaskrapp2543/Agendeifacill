@@ -437,6 +437,8 @@ const EstablishmentDashboard = () => {
   const [editingClientAlert, setEditingClientAlert] = useState<string | null>(null);
   const [newAlert, setNewAlert] = useState('');
   const [isExportingClients, setIsExportingClients] = useState(false);
+  const [isImportingClients, setIsImportingClients] = useState(false);
+  const importClientsInputRef = useRef<HTMLInputElement>(null);
 
   // ✅ Controle interno de faltas por cliente
   const [showClientInfoModal, setShowClientInfoModal] = useState(false);
@@ -9949,6 +9951,141 @@ Estamos te aguardando! 😎✂️`;
     } catch (e) {
       console.error('❌ Falha ao baixar arquivo:', e);
       toast('Não foi possível baixar o arquivo no seu navegador.', 'error');
+    }
+  };
+
+  const formatSupabaseError = (error: any, fallback: string): string => {
+    const message = String(error?.message || '').trim() || fallback;
+    const code = String(error?.code || '').trim();
+    const details = String(error?.details || '').trim();
+    const hint = String(error?.hint || '').trim();
+    return [message, code ? `code: ${code}` : '', details ? `details: ${details}` : '', hint ? `hint: ${hint}` : '']
+      .filter(Boolean)
+      .join(' | ');
+  };
+
+  const normalizeWhatsappForImport = (input: string): string => {
+    const digits = String(input || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) return digits;
+    if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+    return digits;
+  };
+
+  const normalizeHeaderKey = (value: string): string =>
+    String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+
+  const handleImportClientsFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!establishment?.id) {
+      toast('Estabelecimento não carregado. Tente atualizar a página.', 'error');
+      return;
+    }
+    if (isImportingClients) return;
+
+    setIsImportingClients(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array', raw: false });
+      const firstSheetName = workbook.SheetNames?.[0];
+      if (!firstSheetName) {
+        toast('Arquivo sem planilha válida.', 'error');
+        return;
+      }
+
+      const sheet = workbook.Sheets[firstSheetName];
+      const matrix = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: '' });
+      if (!Array.isArray(matrix) || matrix.length === 0) {
+        toast('Arquivo vazio. Envie CSV/Excel com nome e telefone.', 'error');
+        return;
+      }
+
+      const firstRow = (matrix[0] || []).map((cell: any) => String(cell || '').trim());
+      const firstRowNormalized = firstRow.map((cell) => normalizeHeaderKey(cell));
+
+      const nameCandidates = new Set(['nome', 'name', 'cliente', 'clientenome', 'clientname', 'fullname']);
+      const phoneCandidates = new Set(['telefone', 'whatsapp', 'celular', 'fone', 'phone', 'numero', 'clientwhatsapp', 'clientphone']);
+
+      let nameIndex = firstRowNormalized.findIndex((key) => nameCandidates.has(key));
+      let phoneIndex = firstRowNormalized.findIndex((key) => phoneCandidates.has(key));
+      let startRow = 1;
+
+      if (nameIndex < 0 || phoneIndex < 0) {
+        nameIndex = 0;
+        phoneIndex = 1;
+        startRow = 0;
+      }
+
+      const validByWhatsapp = new Map<string, { establishment_id: string; name: string; whatsapp: string }>();
+      let skippedRows = 0;
+
+      for (let i = startRow; i < matrix.length; i += 1) {
+        const row = Array.isArray(matrix[i]) ? matrix[i] : [];
+        const rawName = String(row[nameIndex] ?? '').trim();
+        const rawPhone = String(row[phoneIndex] ?? '').trim();
+
+        if (!rawName && !rawPhone) continue;
+        if (!rawName || !rawPhone) {
+          skippedRows += 1;
+          continue;
+        }
+
+        const normalizedWhatsapp = normalizeWhatsappForImport(rawPhone);
+        const legacyWhatsapp = normalizedWhatsapp.startsWith('55') ? normalizedWhatsapp.slice(2) : normalizedWhatsapp;
+        if (legacyWhatsapp.length < 10) {
+          skippedRows += 1;
+          continue;
+        }
+
+        validByWhatsapp.set(normalizedWhatsapp, {
+          establishment_id: establishment.id,
+          name: rawName.slice(0, 120),
+          whatsapp: normalizedWhatsapp,
+        });
+      }
+
+      const payload = Array.from(validByWhatsapp.values());
+      if (payload.length === 0) {
+        toast('Nenhuma linha válida encontrada. Use colunas de nome e telefone.', 'error');
+        return;
+      }
+
+      const chunkSize = 200;
+      for (let i = 0; i < payload.length; i += chunkSize) {
+        const chunk = payload.slice(i, i + chunkSize);
+        const { error } = await supabase
+          .from('manual_clients')
+          .upsert(chunk as any, { onConflict: 'establishment_id,whatsapp' });
+        if (error) throw error;
+      }
+
+      const storageKey = `manual_clients_${establishment.id}`;
+      const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      payload.forEach((item) => {
+        manualClients[item.whatsapp] = {
+          ...(manualClients[item.whatsapp] || {}),
+          name: item.name,
+          whatsapp: item.whatsapp,
+          addedAt: manualClients[item.whatsapp]?.addedAt || new Date().toISOString(),
+          appointmentCount: Number(manualClients[item.whatsapp]?.appointmentCount || 0),
+        };
+      });
+      localStorage.setItem(storageKey, JSON.stringify(manualClients));
+
+      await fetchClients();
+      const skippedText = skippedRows > 0 ? ` (${skippedRows} linha(s) ignorada(s))` : '';
+      toast(`Importação concluída: ${payload.length} cliente(s)${skippedText}.`, 'success');
+    } catch (error: any) {
+      console.error('❌ Erro ao importar clientes:', error);
+      toast(formatSupabaseError(error, 'Erro ao importar clientes.'), 'error');
+    } finally {
+      setIsImportingClients(false);
     }
   };
 
@@ -24286,6 +24423,25 @@ Estamos te aguardando! 😎✂️`;
                       >
                         ➕ Adicionar Cliente
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => importClientsInputRef.current?.click()}
+                        disabled={isImportingClients}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isImportingClients
+                          ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                          : 'bg-black text-white hover:bg-gray-800'
+                          }`}
+                        title="Importa CSV/Excel com colunas de nome e telefone"
+                      >
+                        {isImportingClients ? 'Importando...' : '📤 Importar clientes'}
+                      </button>
+                      <input
+                        ref={importClientsInputRef}
+                        type="file"
+                        accept=".csv,.xlsx,.xls"
+                        onChange={handleImportClientsFile}
+                        className="hidden"
+                      />
                       <button
                         onClick={handleExportClients}
                         disabled={isExportingClients}

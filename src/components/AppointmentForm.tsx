@@ -556,12 +556,17 @@ export function AppointmentForm({
         return;
       }
 
-      // ✅ Ocultar apenas no booking público
+      // ✅ Ocultar no booking público, mas manter visível no fluxo interno do estabelecimento
       // Suporta os dois campos possíveis no banco: hidden_from_booking e oculto_da_reserva
       const isHiddenInBooking = (o: any) => Boolean(o?.hidden_from_booking ?? o?.oculto_da_reserva);
+      const shouldRespectBookingHidden = !isEstablishmentOwner;
 
-      const visibleCategories = (categories || []).filter((c: any) => !isHiddenInBooking(c));
-      const visibleSubcategories = (subcategories || []).filter((s: any) => !isHiddenInBooking(s));
+      const visibleCategories = shouldRespectBookingHidden
+        ? (categories || []).filter((c: any) => !isHiddenInBooking(c))
+        : (categories || []);
+      const visibleSubcategories = shouldRespectBookingHidden
+        ? (subcategories || []).filter((s: any) => !isHiddenInBooking(s))
+        : (subcategories || []);
 
       // Combinar categorias com suas subcategorias (já filtradas)
       const categoriesWithSubcategories = visibleCategories.map((category: any) => ({
@@ -1207,7 +1212,9 @@ export function AppointmentForm({
   }
 
   // ✅ MODIFICADO: Verificar se há serviços gerais OU serviços específicos do PROFISSIONAL SELECIONADO
-  const visibleLegacyServicesForSelectedProfessional = establishment.services_with_prices || [];
+  // Se o estabelecimento já usa categorias ativas, não cair no layout legado.
+  const hasConfiguredCategories = serviceCategories.length > 0;
+  const visibleLegacyServicesForSelectedProfessional = hasConfiguredCategories ? [] : (establishment.services_with_prices || []);
   const visibleServiceCategories = serviceCategories
     .map((category: any) => ({
       ...category,
