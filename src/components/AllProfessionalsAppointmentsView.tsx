@@ -270,6 +270,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [selectedAppointmentForSplitPayment, setSelectedAppointmentForSplitPayment] = useState<Appointment | null>(null);
     const [splitPaymentRows, setSplitPaymentRows] = useState<Array<{ method: string; amount: string; card_brand?: string }>>([]);
     const [isSavingSplitPayment, setIsSavingSplitPayment] = useState(false);
+    const [subscriberFinancialByProfessional, setSubscriberFinancialByProfessional] = useState<
+      Record<string, {
+        accumulated: number;
+        paid: number;
+        pending: number;
+        attendanceCount: number;
+        uniqueClientsCount: number;
+        saleCommissionCount: number;
+      }>
+    >({});
     const selectedDateIso = format(selectedDate, 'yyyy-MM-dd');
 
     useEffect(() => {
@@ -310,6 +320,140 @@ export const AllProfessionalsAppointmentsView: React.FC<
       })();
       return () => { cancelled = true; };
     }, [establishment?.id]);
+
+    useEffect(() => {
+      if (!establishment?.id) {
+        setSubscriberFinancialByProfessional({});
+        return;
+      }
+
+      let cancelled = false;
+
+      const loadSubscriberProfessionalFinancial = async () => {
+        try {
+          const start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+          const end = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0, 23, 59, 59);
+
+          const [attendancesResult, saleCommissionsResult, paymentsResult] = await Promise.all([
+            supabase
+              .from('subscriber_attendances')
+              .select('professional_name, repass_value, client_subscription_id')
+              .eq('establishment_id', establishment.id)
+              .gte('attendance_date', format(start, 'yyyy-MM-dd'))
+              .lte('attendance_date', format(end, 'yyyy-MM-dd')),
+            supabase
+              .from('subscription_sale_commissions')
+              .select('professional_name, commission_amount')
+              .eq('establishment_id', establishment.id)
+              .gte('created_at', start.toISOString())
+              .lte('created_at', end.toISOString()),
+            supabase
+              .from('professional_payments')
+              .select('professional_id, professional_name, amount, payment_source, payment_date')
+              .eq('establishment_id', establishment.id)
+              .in('payment_source', ['subscription', 'assinatura'])
+              .gte('payment_date', start.toISOString())
+              .lte('payment_date', end.toISOString()),
+          ]);
+
+          if (attendancesResult.error) throw attendancesResult.error;
+          if (saleCommissionsResult.error) throw saleCommissionsResult.error;
+          if (paymentsResult.error) throw paymentsResult.error;
+
+          const normalizeKey = (value: string) => String(value || '').trim().toLowerCase();
+          const totalsByName: Record<
+            string,
+            {
+              accumulated: number;
+              paid: number;
+              attendanceCount: number;
+              uniqueClientIds: Set<string>;
+              saleCommissionCount: number;
+            }
+          > = {};
+
+          const ensure = (professionalNameRaw: string) => {
+            const name = String(professionalNameRaw || '').trim();
+            if (!name) return null;
+            const key = normalizeKey(name);
+            if (!totalsByName[key]) {
+              totalsByName[key] = {
+                accumulated: 0,
+                paid: 0,
+                attendanceCount: 0,
+                uniqueClientIds: new Set<string>(),
+                saleCommissionCount: 0,
+              };
+            }
+            return key;
+          };
+
+          ((attendancesResult.data as any[]) || []).forEach((row: any) => {
+            const key = ensure(String(row?.professional_name || ''));
+            if (!key) return;
+            totalsByName[key].accumulated += Number(row?.repass_value || 0);
+            totalsByName[key].attendanceCount += 1;
+            const subId = String(row?.client_subscription_id || '').trim();
+            if (subId) totalsByName[key].uniqueClientIds.add(subId);
+          });
+
+          ((saleCommissionsResult.data as any[]) || []).forEach((row: any) => {
+            const key = ensure(String(row?.professional_name || ''));
+            if (!key) return;
+            totalsByName[key].accumulated += Number(row?.commission_amount || 0);
+            totalsByName[key].saleCommissionCount += 1;
+          });
+
+          const professionalIdToName: Record<string, string> = {};
+          (professionals || []).forEach((p) => {
+            const id = String(p?.id || '').trim();
+            const name = String(p?.name || '').trim();
+            if (id && name) professionalIdToName[id] = name;
+          });
+
+          ((paymentsResult.data as any[]) || []).forEach((row: any) => {
+            const professionalName =
+              String(row?.professional_name || '').trim() ||
+              professionalIdToName[String(row?.professional_id || '').trim()] ||
+              '';
+            const key = ensure(professionalName);
+            if (!key) return;
+            const amount = Number(row?.amount || 0);
+            if (amount > 0) totalsByName[key].paid += amount;
+          });
+
+          const byProfessionalName = Object.entries(totalsByName).reduce((acc, [key, row]) => {
+            acc[key] = {
+              accumulated: Math.max(0, Number(row.accumulated || 0)),
+              paid: Math.max(0, Number(row.paid || 0)),
+              pending: Math.max(0, Number(row.accumulated || 0) - Number(row.paid || 0)),
+              attendanceCount: Number(row.attendanceCount || 0),
+              uniqueClientsCount: row.uniqueClientIds.size,
+              saleCommissionCount: Number(row.saleCommissionCount || 0),
+            };
+            return acc;
+          }, {} as Record<string, {
+            accumulated: number;
+            paid: number;
+            pending: number;
+            attendanceCount: number;
+            uniqueClientsCount: number;
+            saleCommissionCount: number;
+          }>);
+
+          if (!cancelled) setSubscriberFinancialByProfessional(byProfessionalName);
+        } catch (error) {
+          console.error('Erro ao carregar financeiro de assinaturas por profissional (modal):', error);
+          if (!cancelled) setSubscriberFinancialByProfessional({});
+        }
+      };
+
+      void loadSubscriberProfessionalFinancial();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [establishment?.id, selectedDate, professionals]);
 
     const getSupabaseErrorMessage = (error: any, fallback: string): string => {
       if (!error) return fallback;
@@ -2376,6 +2520,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
       const professional = professionals.find((p) => p.id === professionalId);
       const percentage = professional?.percentage || 100;
+      const professionalNameKey = String(professional?.name || '').trim().toLowerCase();
+      const subscriberFinancial = subscriberFinancialByProfessional[professionalNameKey] || {
+        accumulated: 0,
+        paid: 0,
+        pending: 0,
+        attendanceCount: 0,
+        uniqueClientsCount: 0,
+        saleCommissionCount: 0,
+      };
 
       // Calcular líquido diário: verificar se taxa é descontada do estabelecimento ou do profissional
       const dailyNet = dailyAppointments.reduce((total, apt) => {
@@ -2396,10 +2549,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return {
         dailyGross,
         dailyNet,
-        monthlyGross,
-        monthlyNet,
+        monthlyGross: monthlyGross + subscriberFinancial.pending,
+        monthlyNet: monthlyNet + subscriberFinancial.pending,
         appointmentsToday: dailyAppointments.length, // Apenas concluídos (igual ao contador verde da agenda)
         appointmentsMonth: monthlyAppointmentsForCount.length, // Contagem: todos não cancelados
+        subscriberMonthlyAccumulated: subscriberFinancial.accumulated,
+        subscriberMonthlyPaid: subscriberFinancial.paid,
+        subscriberMonthlyPending: subscriberFinancial.pending,
+        subscriberAttendanceCount: subscriberFinancial.attendanceCount,
+        subscriberClientsCount: subscriberFinancial.uniqueClientsCount,
+        subscriberSalesCount: subscriberFinancial.saleCommissionCount,
       };
     };
 

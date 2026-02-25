@@ -1226,6 +1226,9 @@ export default function BookingPage() {
       const mercadopagoAccessToken = String((establishment as any)?.mercadopago_access_token || '').trim();
       const isSubscriber = appointmentData?.is_subscriber === true;
       const valorAgendamento = Number(appointmentData?.price || 0);
+      const phoneCandidates = buildPhoneCandidates(
+        String(appointmentData?.client_whatsapp || guestClientData?.phone || '')
+      );
 
       // Verificar se tem Pagar.me ou Mercado Pago configurado
       const hasPagarMe = !!pagarmeRecipientId;
@@ -1241,8 +1244,41 @@ export default function BookingPage() {
       // ✅ CORRIGIDO: Remover dependência de pagamento_adiantado_liberado_admin
       // Se algum gateway está configurado para exigir pagamento, funciona independente
       const pagamentoAdiantadoAtivo = (usarPagarMe || usarMercadoPago) && !isSubscriber && valorAgendamento > 0;
-      const precisaPagamento = pagamentoAdiantadoAtivo && !(usarPagarMe ? pagamentoAdiantadoOpcional : pagamentoAdiantadoOpcionalMercadoPago);
-      const permitePagamentoOpcional = pagamentoAdiantadoAtivo && (usarPagarMe ? pagamentoAdiantadoOpcional : pagamentoAdiantadoOpcionalMercadoPago);
+
+      // Cobrança obrigatória por cliente (discreta): se o gateway for MP com modo opcional,
+      // clientes marcados no dashboard passam a ser tratados como pagamento obrigatório.
+      let forceAdvancePaymentForClient = false;
+      if (pagamentoAdiantadoAtivo && usarMercadoPago && pagamentoAdiantadoOpcionalMercadoPago && phoneCandidates.length > 0) {
+        const { data: forcedPaymentClient, error: forcedPaymentError } = await supabase
+          .from('manual_clients')
+          .select('id')
+          .eq('establishment_id', establishment.id)
+          .in('whatsapp', phoneCandidates as any)
+          .eq('force_advance_payment', true)
+          .limit(1)
+          .maybeSingle();
+
+        if (!forcedPaymentError) {
+          forceAdvancePaymentForClient = Boolean(forcedPaymentClient?.id);
+        } else {
+          const forcedErrorMsg = String(forcedPaymentError?.message || '').toLowerCase();
+          const isMissingColumn =
+            forcedErrorMsg.includes('force_advance_payment') ||
+            forcedErrorMsg.includes('schema cache') ||
+            forcedErrorMsg.includes('column');
+          if (!isMissingColumn) {
+            console.warn('⚠️ Falha ao validar cobrança obrigatória por cliente:', forcedPaymentError);
+          }
+        }
+      }
+
+      const pagamentoOpcionalNoGatewayAtual = usarPagarMe ? pagamentoAdiantadoOpcional : pagamentoAdiantadoOpcionalMercadoPago;
+      const forceMandatoryInOptionalMode = pagamentoAdiantadoAtivo && pagamentoOpcionalNoGatewayAtual && forceAdvancePaymentForClient;
+      const precisaPagamento = (pagamentoAdiantadoAtivo && !pagamentoOpcionalNoGatewayAtual) || forceMandatoryInOptionalMode;
+      const permitePagamentoOpcional =
+        pagamentoAdiantadoAtivo &&
+        pagamentoOpcionalNoGatewayAtual &&
+        !forceMandatoryInOptionalMode;
 
       console.log('💳 DEBUG - BookingPage/handleSubmit pagamento:', {
         exigirPagamentoAntecipado,
@@ -1253,6 +1289,7 @@ export default function BookingPage() {
         isSubscriber,
         valorAgendamento,
         precisaPagamento,
+        forceAdvancePaymentForClient,
         usarPagarMe,
         usarMercadoPago,
         hasPagarmeRecipientId: Boolean(pagarmeRecipientId),

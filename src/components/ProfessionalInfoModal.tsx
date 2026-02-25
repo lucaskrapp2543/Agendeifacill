@@ -15,6 +15,12 @@ interface ProfessionalInfoModalProps {
   monthlyNet: number;
   appointmentsToday: number;
   appointmentsMonth: number;
+  subscriberMonthlyAccumulated?: number;
+  subscriberMonthlyPaid?: number;
+  subscriberMonthlyPending?: number;
+  subscriberAttendanceCount?: number;
+  subscriberClientsCount?: number;
+  subscriberSalesCount?: number;
   onClose: () => void;
 }
 
@@ -27,6 +33,12 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   monthlyNet,
   appointmentsToday,
   appointmentsMonth,
+  subscriberMonthlyAccumulated = 0,
+  subscriberMonthlyPaid = 0,
+  subscriberMonthlyPending = 0,
+  subscriberAttendanceCount = 0,
+  subscriberClientsCount = 0,
+  subscriberSalesCount = 0,
   onClose,
 }) => {
   const [pinInput, setPinInput] = useState('');
@@ -56,6 +68,8 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
       currency: 'BRL',
     }).format(value);
   };
+  const hasSubscriberFinancial =
+    subscriberMonthlyAccumulated > 0 || subscriberMonthlyPaid > 0 || subscriberMonthlyPending > 0;
 
   if (!isAuthenticated) {
     return (
@@ -264,6 +278,21 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                 <span className="font-bold text-gray-800">{appointmentsMonth}</span>
               </p>
             </div>
+            {hasSubscriberFinancial && (
+              <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-3">
+                <p className="text-sm font-semibold text-purple-800 mb-1">Assinaturas do mês</p>
+                <p className="text-xs text-purple-700">
+                  Acumulado: <strong>{showValues ? formatCurrency(subscriberMonthlyAccumulated) : '••••••'}</strong>
+                  {' '}• Pago: <strong>{showValues ? formatCurrency(subscriberMonthlyPaid) : '••••••'}</strong>
+                  {' '}• Pendente: <strong>{showValues ? formatCurrency(subscriberMonthlyPending) : '••••••'}</strong>
+                </p>
+                <p className="text-xs text-purple-700 mt-1">
+                  Atendimentos: <strong>{subscriberAttendanceCount}</strong>
+                  {' '}• Assinantes atendidos: <strong>{subscriberClientsCount}</strong>
+                  {subscriberSalesCount > 0 ? <> • Vendas (bonus): <strong>{subscriberSalesCount}</strong></> : null}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Explicação dos valores */}
@@ -274,6 +303,9 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
               <li>• <strong>Valor Líquido:</strong> Após descontar taxas e percentual do estabelecimento</li>
               {professional.percentage !== undefined && (
                 <li>• <strong>Percentual:</strong> {professional.percentage}% do valor bruto vai para o profissional</li>
+              )}
+              {hasSubscriberFinancial && (
+                <li>• <strong>Assinaturas:</strong> o pendente de assinaturas do mês já está somado no valor mensal</li>
               )}
               <li className="pt-2 text-yellow-700">⚠️ <strong>Importante:</strong> Valores pendentes não são contabilizados</li>
             </ul>

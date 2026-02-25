@@ -8,6 +8,7 @@ import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriber
 import { checkWhatsAppSubscriber, getClientDataFromAuth, getClientProfileData, isNewClient, supabase, testMigration } from '../lib/supabase';
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
+import { validatePendingClientBookingLimit } from '../utils/pendingClientBookingValidation';
 import { validateSubscriberBooking } from '../utils/subscriberBookingValidation';
 import { DatePicker } from './DatePicker';
 import { MultiServiceSelector } from './MultiServiceSelector';
@@ -73,6 +74,7 @@ interface Establishment {
   services_with_prices: Service[];
   professionals: Professional[];
   limit_subscribers_one_week?: boolean;
+  limit_client_pending_booking?: boolean;
   punish_client_on_cancel?: boolean; // Adicionado
   payment_methods_enabled?: string[]; // Formas de pagamento habilitadas
   require_cpf?: boolean; // Solicitar CPF no agendamento
@@ -837,6 +839,7 @@ export function AppointmentForm({
 
   // Estados para validação de 1 agendamento por semana
   const [oneWeekLimitError, setOneWeekLimitError] = useState<string | null>(null);
+  const [pendingClientBookingError, setPendingClientBookingError] = useState<string | null>(null);
 
   // Estados para validação de limite mensal
   const [monthlyLimitValidationDisabled, setMonthlyLimitValidationDisabled] = useState(false);
@@ -871,6 +874,7 @@ export function AppointmentForm({
   } | null>(null);
   const isServiceSpecificLimitError = /limite do servi[cç]o/i.test(String(monthlyLimitError || ''));
   const [isValidatingOneWeek, setIsValidatingOneWeek] = useState(false);
+  const [isValidatingPendingClientBooking, setIsValidatingPendingClientBooking] = useState(false);
 
   const getResolvedSubscriberDuration = (): number => {
     const raw = (subscriberService as any)?.service_duration ?? (subscriberService as any)?.duration;
@@ -1040,6 +1044,35 @@ export function AppointmentForm({
     }
   };
 
+  const validatePendingClientBookingDate = async () => {
+    if (!clientWhatsapp || !establishment?.id) {
+      setPendingClientBookingError(null);
+      return;
+    }
+
+    setIsValidatingPendingClientBooking(true);
+    setPendingClientBookingError(null);
+
+    try {
+      const validation = await validatePendingClientBookingLimit(
+        clientWhatsapp,
+        establishment.id,
+        Boolean(establishment?.limit_client_pending_booking)
+      );
+
+      if (!validation.canBook) {
+        setPendingClientBookingError(validation.message || 'Voce ainda tem servico pendente nesta barbearia.');
+      } else {
+        setPendingClientBookingError(null);
+      }
+    } catch (error) {
+      console.error('Erro ao validar bloqueio de cliente por pendencia:', error);
+      setPendingClientBookingError(null);
+    } finally {
+      setIsValidatingPendingClientBooking(false);
+    }
+  };
+
 
   // Removido useEffect que definia automaticamente o método de pagamento
 
@@ -1056,11 +1089,12 @@ export function AppointmentForm({
       console.log('🔄 DEBUG - Executando validações...');
       validateSubscriberBookingDate(selectedDate);
       validateOneWeekLimitDate(selectedDate);
+      validatePendingClientBookingDate();
       validateMonthlyLimit(); // Nova validação de limite mensal
     } else {
       console.log('🔄 DEBUG - Condições não atendidas para executar validações');
     }
-  }, [selectedDate, clientWhatsapp, establishment?.id, isSubscriberBooking]);
+  }, [selectedDate, clientWhatsapp, establishment?.id, isSubscriberBooking, establishment?.limit_client_pending_booking]);
 
   // Detectar automaticamente se o WhatsApp é de um assinante usando o novo sistema
   useEffect(() => {
@@ -1517,6 +1551,22 @@ export function AppointmentForm({
         if (errorElement) {
           errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
           // Destacar a mensagem com uma animação
+          errorElement.classList.add('animate-bounce');
+          setTimeout(() => {
+            errorElement.classList.remove('animate-bounce');
+          }, 1000);
+        }
+      }, 100);
+
+      return;
+    }
+
+    if (pendingClientBookingError) {
+      console.log('❌ Agendamento bloqueado por pendencia de atendimento:', pendingClientBookingError);
+      setTimeout(() => {
+        const errorElement = document.querySelector('[data-pending-client-booking-error]');
+        if (errorElement) {
+          errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
           errorElement.classList.add('animate-bounce');
           setTimeout(() => {
             errorElement.classList.remove('animate-bounce');
@@ -2497,11 +2547,46 @@ export function AppointmentForm({
             </div>
           )}
 
+          {pendingClientBookingError && (
+            <div
+              data-pending-client-booking-error
+              className="mt-4 p-4 bg-gradient-to-r from-red-50 to-orange-50 border-l-4 border-red-500 rounded-lg shadow-lg animate-pulse"
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                    <span className="text-red-600 text-xl">🚫</span>
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-base font-bold text-red-800 mb-1">
+                    Cliente com servico pendente
+                  </h3>
+                  <p className="text-sm text-red-700 leading-relaxed mb-2">
+                    {pendingClientBookingError}
+                  </p>
+                  <div className="bg-red-100 rounded-md p-2">
+                    <p className="text-xs text-red-600 font-medium">
+                      Assim que o profissional marcar o atendimento como concluido, o cliente consegue agendar novamente.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Loading de validação de 1 agendamento por semana */}
           {isValidatingOneWeek && (
             <div className="mt-3 flex items-center gap-2 text-red-600">
               <div className="animate-spin h-4 w-4 border-2 border-red-600 border-t-transparent rounded-full"></div>
               <span className="text-sm">Verificando agendamentos da semana...</span>
+            </div>
+          )}
+
+          {isValidatingPendingClientBooking && (
+            <div className="mt-3 flex items-center gap-2 text-red-600">
+              <div className="animate-spin h-4 w-4 border-2 border-red-600 border-t-transparent rounded-full"></div>
+              <span className="text-sm">Verificando pendencia de atendimento no telefone...</span>
             </div>
           )}
 

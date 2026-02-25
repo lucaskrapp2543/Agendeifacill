@@ -144,6 +144,7 @@ interface Establishment {
   use_20_minute_schedule?: boolean;
   use_60_minute_schedule?: boolean;
   booking_min_advance_hours?: number;
+  limit_client_pending_booking?: boolean;
   closed_time_enabled?: boolean;
   show_best_of_brazil_image?: boolean;
   payment_methods_enabled?: string[];
@@ -306,6 +307,7 @@ interface Client {
   isSubscriber: boolean; // Nova propriedade
   birthday: string | null; // Campo de aniversário
   alert?: string | null; // Campo de alerta/anotação (máximo 100 caracteres)
+  forceAdvancePayment?: boolean; // Se true, este cliente precisa pagar antes de agendar
 }
 
 interface Subscription {
@@ -989,6 +991,13 @@ const EstablishmentDashboard = () => {
   const [filaQueuePositionSupported, setFilaQueuePositionSupported] = useState<boolean | null>(null);
 
   const normalizePhoneDigits = (phone: string) => String(phone || '').replace(/\D/g, '');
+  const normalizeWhatsappForStorage = (input: string) => {
+    const digits = String(input || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) return digits;
+    if (digits.length >= 10 && digits.length <= 11) return `55${digits}`;
+    return digits;
+  };
 
   const parseValorBR = (raw: string): number => {
     const s = String(raw || '').trim();
@@ -2602,6 +2611,7 @@ const EstablishmentDashboard = () => {
 
   // Prazo mínimo (em horas) para clientes agendarem no booking público
   const [bookingMinAdvanceHours, setBookingMinAdvanceHours] = useState<number>(0);
+  const [limitClientPendingBooking, setLimitClientPendingBooking] = useState<boolean>(false);
   // Tempo fechado: mantém horários presos ao grid de exibição
   const [closedTimeEnabled, setClosedTimeEnabled] = useState<boolean>(false);
 
@@ -3731,6 +3741,19 @@ const EstablishmentDashboard = () => {
     assinantesNaoPagos: 0,
     saldoAssinantes: 0,
   });
+  const [subscriberFinancialByProfessional, setSubscriberFinancialByProfessional] = useState<
+    Record<
+      string,
+      {
+        totalAccumulated: number;
+        totalPaid: number;
+        pending: number;
+        attendanceCount: number;
+        uniqueClientsCount: number;
+        saleCommissionCount: number;
+      }
+    >
+  >({});
 
   // % por colaborador (comissão por produto)
   const [selectedProductForCommission, setSelectedProductForCommission] = useState<string | null>(null);
@@ -4517,6 +4540,131 @@ const EstablishmentDashboard = () => {
       }));
     }
   }, [establishment?.id, selectedMonth, fetchSubscribersFinancialSummaryByMonth]);
+
+  const loadSubscriberProfessionalFinancial = useCallback(async () => {
+    if (!establishment?.id) {
+      setSubscriberFinancialByProfessional({});
+      return;
+    }
+
+    try {
+      const start = startOfMonth(selectedMonth);
+      const end = endOfMonth(selectedMonth);
+
+      const [
+        attendancesResult,
+        saleCommissionsResult,
+        paymentsResult
+      ] = await Promise.all([
+        supabase
+          .from('subscriber_attendances')
+          .select('professional_name, repass_value, client_subscription_id')
+          .eq('establishment_id', establishment.id)
+          .gte('attendance_date', format(start, 'yyyy-MM-dd'))
+          .lte('attendance_date', format(end, 'yyyy-MM-dd')),
+        supabase
+          .from('subscription_sale_commissions')
+          .select('professional_name, commission_amount')
+          .eq('establishment_id', establishment.id)
+          .gte('created_at', start.toISOString())
+          .lte('created_at', end.toISOString()),
+        supabase
+          .from('professional_payments')
+          .select('professional_id, professional_name, amount, payment_source, payment_date')
+          .eq('establishment_id', establishment.id)
+          .in('payment_source', ['subscription', 'assinatura'])
+          .gte('payment_date', start.toISOString())
+          .lte('payment_date', end.toISOString()),
+      ]);
+
+      if (attendancesResult.error) throw attendancesResult.error;
+      if (saleCommissionsResult.error) throw saleCommissionsResult.error;
+      if (paymentsResult.error) throw paymentsResult.error;
+
+      const acc: Record<
+        string,
+        {
+          totalAccumulated: number;
+          attendanceCount: number;
+          uniqueClientIds: Set<string>;
+          saleCommissionCount: number;
+          totalPaid: number;
+        }
+      > = {};
+
+      const ensureProfessional = (professionalNameRaw: string) => {
+        const professionalName = String(professionalNameRaw || '').trim();
+        if (!professionalName) return null;
+        if (!acc[professionalName]) {
+          acc[professionalName] = {
+            totalAccumulated: 0,
+            attendanceCount: 0,
+            uniqueClientIds: new Set<string>(),
+            saleCommissionCount: 0,
+            totalPaid: 0,
+          };
+        }
+        return professionalName;
+      };
+
+      ((attendancesResult.data as any[]) || []).forEach((row: any) => {
+        const professionalName = ensureProfessional(String(row?.professional_name || ''));
+        if (!professionalName) return;
+        acc[professionalName].totalAccumulated += Number(row?.repass_value || 0);
+        acc[professionalName].attendanceCount += 1;
+        const clientSubscriptionId = String(row?.client_subscription_id || '').trim();
+        if (clientSubscriptionId) acc[professionalName].uniqueClientIds.add(clientSubscriptionId);
+      });
+
+      ((saleCommissionsResult.data as any[]) || []).forEach((row: any) => {
+        const professionalName = ensureProfessional(String(row?.professional_name || ''));
+        if (!professionalName) return;
+        acc[professionalName].totalAccumulated += Number(row?.commission_amount || 0);
+        acc[professionalName].saleCommissionCount += 1;
+      });
+
+      const professionalIdToName: Record<string, string> = {};
+      (establishment.professionals || []).forEach((p: any) => {
+        const id = String(p?.id || '').trim();
+        const name = String(p?.name || '').trim();
+        if (id && name) professionalIdToName[id] = name;
+      });
+
+      ((paymentsResult.data as any[]) || []).forEach((row: any) => {
+        const professionalName = String(row?.professional_name || '').trim()
+          || professionalIdToName[String(row?.professional_id || '').trim()]
+          || '';
+        const resolved = ensureProfessional(professionalName);
+        if (!resolved) return;
+        const amount = Number(row?.amount || 0);
+        if (amount > 0) acc[resolved].totalPaid += amount;
+      });
+
+      const normalized = Object.entries(acc).reduce((result, [professionalName, row]) => {
+        result[professionalName] = {
+          totalAccumulated: Math.max(0, Number(row.totalAccumulated || 0)),
+          totalPaid: Math.max(0, Number(row.totalPaid || 0)),
+          pending: Math.max(0, Number(row.totalAccumulated || 0) - Number(row.totalPaid || 0)),
+          attendanceCount: Number(row.attendanceCount || 0),
+          uniqueClientsCount: row.uniqueClientIds.size,
+          saleCommissionCount: Number(row.saleCommissionCount || 0),
+        };
+        return result;
+      }, {} as Record<string, {
+        totalAccumulated: number;
+        totalPaid: number;
+        pending: number;
+        attendanceCount: number;
+        uniqueClientsCount: number;
+        saleCommissionCount: number;
+      }>);
+
+      setSubscriberFinancialByProfessional(normalized);
+    } catch (error) {
+      console.error('Erro ao carregar financeiro de assinaturas por profissional:', error);
+      setSubscriberFinancialByProfessional({});
+    }
+  }, [establishment?.id, establishment?.professionals, selectedMonth]);
 
   // Função para buscar vendas de produtos por funcionário no período selecionado
   const fetchProductSalesByProfessional = async (productId: string) => {
@@ -8344,6 +8492,7 @@ Estamos te aguardando! 😎✂️`;
 
         // Carrega prazo mínimo de antecedência para agendamento no booking público
         setBookingMinAdvanceHours(Number((establishmentData as any).booking_min_advance_hours ?? 0));
+        setLimitClientPendingBooking(Boolean((establishmentData as any).limit_client_pending_booking ?? false));
         // Carrega configuração de tempo fechado (fallback: desativado)
         setClosedTimeEnabled(Boolean((establishmentData as any).closed_time_enabled ?? false));
 
@@ -9336,8 +9485,9 @@ Estamos te aguardando! 😎✂️`;
     if (!establishment?.id) return;
     if (activeTab !== 'financial-dashboard') return;
     loadSubscribersFinancialSummary();
+    loadSubscriberProfessionalFinancial();
     fetchProductSalesByPeriod(selectedMonth, 'dashboard');
-  }, [activeTab, establishment?.id, selectedMonth, monthlyAppointments, loadSubscribersFinancialSummary]);
+  }, [activeTab, establishment?.id, selectedMonth, monthlyAppointments, loadSubscribersFinancialSummary, loadSubscriberProfessionalFinancial]);
 
   // Removido useEffect que causava loop infinito
 
@@ -9878,6 +10028,7 @@ Estamos te aguardando! 😎✂️`;
               whatsapp: cleanNewWhatsapp,
               birthday: existingManualClient.birthday,
               alert: existingManualClient.alert,
+              force_advance_payment: existingManualClient.force_advance_payment === true,
               updated_at: new Date().toISOString()
             }, {
               onConflict: 'establishment_id,whatsapp'
@@ -9907,6 +10058,7 @@ Estamos te aguardando! 😎✂️`;
             name: editClientName.trim(),
             whatsapp: cleanNewWhatsapp,
             birthday: manualClients[cleanOldWhatsapp]?.birthday,
+            forceAdvancePayment: manualClients[cleanOldWhatsapp]?.forceAdvancePayment === true,
             addedAt: manualClients[cleanOldWhatsapp]?.addedAt
           };
         } else {
@@ -10584,6 +10736,7 @@ Estamos te aguardando! 😎✂️`;
             whatsapp: cleanWhatsapp,
             birthday: client.birthday,
             alert: client.alert,
+            forceAdvancePayment: client.force_advance_payment === true,
             addedAt: client.created_at,
             appointmentCount: 0
           };
@@ -10846,6 +10999,7 @@ Estamos te aguardando! 😎✂️`;
             name: newClientName.trim(),
             whatsapp: normalizedWhatsapp, // garantir padrão único (55 + DDD)
             birthday: newClientBirthday || null,
+            force_advance_payment: existingClient.force_advance_payment === true,
             updated_at: new Date().toISOString()
           })
           .eq('id', existingClient.id)
@@ -10866,7 +11020,8 @@ Estamos te aguardando! 😎✂️`;
             establishment_id: establishment.id,
             name: newClientName.trim(),
             whatsapp: normalizedWhatsapp,
-            birthday: newClientBirthday || null
+            birthday: newClientBirthday || null,
+            force_advance_payment: false
           })
           .select()
           .single();
@@ -10891,6 +11046,7 @@ Estamos te aguardando! 😎✂️`;
         name: newClientName.trim(),
         whatsapp: normalizedWhatsapp,
         birthday: newClientBirthday || null,
+        forceAdvancePayment: manualClients[normalizedWhatsapp]?.forceAdvancePayment === true,
         addedAt: new Date().toISOString(),
         appointmentCount: 0
       };
@@ -10943,6 +11099,7 @@ Estamos te aguardando! 😎✂️`;
           name: newClientName.trim(),
           whatsapp: normalizedWhatsapp,
           birthday: newClientBirthday || null,
+          forceAdvancePayment: manualClients[normalizedWhatsapp]?.forceAdvancePayment === true,
           addedAt: new Date().toISOString(),
           appointmentCount: 0
         };
@@ -10966,6 +11123,92 @@ Estamos te aguardando! 😎✂️`;
         (code ? ` (código ${code})` : '') +
         (details ? ` • ${details}` : '') +
         (hint ? ` • ${hint}` : ''),
+        'error'
+      );
+    }
+  };
+
+  const canUseClientMandatoryCharge =
+    !!String((establishment as any)?.mercadopago_access_token || '').trim() &&
+    (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true &&
+    (establishment as any)?.pagamento_adiantado_opcional_mercadopago === true;
+
+  const toggleClientMandatoryCharge = async (client: Client) => {
+    if (!establishment?.id) return;
+    if (!canUseClientMandatoryCharge) {
+      toast(
+        'Para ativar cobrança obrigatória por cliente, conecte o Mercado Pago e mantenha o pagamento adiantado como opcional.',
+        'warning'
+      );
+      return;
+    }
+
+    const normalizedWhatsapp = normalizeWhatsappForStorage(client.whatsapp);
+    if (!normalizedWhatsapp) {
+      toast('WhatsApp do cliente inválido.', 'error');
+      return;
+    }
+
+    const nextValue = !(client.forceAdvancePayment === true);
+
+    try {
+      const { error } = await supabase
+        .from('manual_clients')
+        .upsert(
+          {
+            establishment_id: establishment.id,
+            whatsapp: normalizedWhatsapp,
+            name: client.name || 'Cliente',
+            force_advance_payment: nextValue,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'establishment_id,whatsapp' }
+        );
+
+      if (error) {
+        const msg = String(error?.message || '').toLowerCase();
+        if (
+          msg.includes('force_advance_payment') ||
+          msg.includes('schema cache') ||
+          msg.includes('column')
+        ) {
+          toast(
+            'Falta a coluna de cobrança obrigatória no banco. Rode a nova migration e tente novamente.',
+            'error'
+          );
+          return;
+        }
+        throw error;
+      }
+
+      try {
+        const storageKey = `manual_clients_${establishment.id}`;
+        const cached = JSON.parse(localStorage.getItem(storageKey) || '{}');
+        const previous = cached[normalizedWhatsapp] || {};
+        cached[normalizedWhatsapp] = {
+          ...previous,
+          name: client.name || previous.name || 'Cliente',
+          whatsapp: normalizedWhatsapp,
+          forceAdvancePayment: nextValue,
+        };
+        localStorage.setItem(storageKey, JSON.stringify(cached));
+      } catch {
+        // ignore cache fallback errors
+      }
+
+      toast(
+        nextValue
+          ? 'Cobrança obrigatória ativada para este cliente.'
+          : 'Cobrança obrigatória desativada para este cliente.',
+        'success'
+      );
+      await fetchClients();
+    } catch (error: any) {
+      console.error('❌ Erro ao atualizar cobrança obrigatória do cliente:', error);
+      toast(
+        [error?.message || 'Erro ao atualizar cobrança obrigatória', error?.code ? `(código: ${error.code})` : null, error?.details || error?.hint || null]
+          .filter(Boolean)
+          .join(' '),
         'error'
       );
     }
@@ -11730,7 +11973,8 @@ Estamos te aguardando! 😎✂️`;
           name: manualClient.name,
           appointmentCount: 0,
           isSubscriber: false,
-          birthday: manualClient.birthday
+          birthday: manualClient.birthday,
+          forceAdvancePayment: manualClient.forceAdvancePayment === true
         }));
 
         console.log('✅ Clientes finais (apenas manuais):', uniqueClients);
@@ -11753,7 +11997,8 @@ Estamos te aguardando! 😎✂️`;
           name: manualClient.name,
           appointmentCount: 0,
           isSubscriber: false,
-          birthday: manualClient.birthday
+          birthday: manualClient.birthday,
+          forceAdvancePayment: manualClient.forceAdvancePayment === true
         }));
         setClients(uniqueClients);
         return;
@@ -11910,7 +12155,8 @@ Estamos te aguardando! 😎✂️`;
         completedCount: completed,
         totalSpent: spent,
         isSubscriber: isSubscriber,
-        birthday: birthday
+        birthday: birthday,
+        forceAdvancePayment: false
       }));
 
       // Carregar clientes manuais do Supabase
@@ -11934,7 +12180,8 @@ Estamos te aguardando! 😎✂️`;
             name: manualClient.name,
             appointmentCount: 0,
             isSubscriber: false,
-            birthday: manualClient.birthday
+            birthday: manualClient.birthday,
+            forceAdvancePayment: manualClient.forceAdvancePayment === true
           });
           console.log(`➕ Cliente manual adicionado: ${manualClient.name} (${cleanManualWhatsapp})`);
         } else {
@@ -11945,6 +12192,7 @@ Estamos te aguardando! 😎✂️`;
           if (manualClient.birthday) {
             existingClient.birthday = manualClient.birthday;
           }
+          existingClient.forceAdvancePayment = manualClient.forceAdvancePayment === true;
           console.log(`🔄 Cliente manual atualizado: ${manualClient.name} (${cleanManualWhatsapp})`);
         }
       });
@@ -13670,7 +13918,7 @@ Estamos te aguardando! 😎✂️`;
   ]);
 
   // ✅ Auto-save para Configuração de Horários
-  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceHours?: number; closedTimeEnabled?: boolean; showBestOfBrazilImage?: boolean }) => {
+  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceHours?: number; limitClientPendingBooking?: boolean; closedTimeEnabled?: boolean; showBestOfBrazilImage?: boolean }) => {
     if (!establishment?.id) return;
 
     const configToSave = {
@@ -13678,6 +13926,7 @@ Estamos te aguardando! 😎✂️`;
       use20MinuteSchedule: config?.use20MinuteSchedule ?? use20MinuteSchedule,
       use60MinuteSchedule: config?.use60MinuteSchedule ?? use60MinuteSchedule,
       bookingMinAdvanceHours: config?.bookingMinAdvanceHours ?? bookingMinAdvanceHours,
+      limitClientPendingBooking: config?.limitClientPendingBooking ?? limitClientPendingBooking,
       closedTimeEnabled: config?.closedTimeEnabled ?? closedTimeEnabled,
       showBestOfBrazilImage: config?.showBestOfBrazilImage ?? showBestOfBrazilImage
     };
@@ -13690,6 +13939,7 @@ Estamos te aguardando! 😎✂️`;
           use_20_minute_schedule: configToSave.use20MinuteSchedule,
           use_60_minute_schedule: configToSave.use60MinuteSchedule,
           booking_min_advance_hours: configToSave.bookingMinAdvanceHours,
+          limit_client_pending_booking: configToSave.limitClientPendingBooking,
           closed_time_enabled: configToSave.closedTimeEnabled,
           show_best_of_brazil_image: configToSave.showBestOfBrazilImage
         })
@@ -13700,6 +13950,7 @@ Estamos te aguardando! 😎✂️`;
         error &&
         (error.code === '42703' ||
           String(error.message || '').includes('booking_min_advance_hours') ||
+          String(error.message || '').includes('limit_client_pending_booking') ||
           String(error.message || '').includes('closed_time_enabled'))
       ) {
         console.warn('⚠️ Coluna nova de configuração de horários não encontrada. Salvando sem colunas novas.');
@@ -13728,13 +13979,14 @@ Estamos te aguardando! 😎✂️`;
         use_20_minute_schedule: configToSave.use20MinuteSchedule,
         use_60_minute_schedule: configToSave.use60MinuteSchedule,
         booking_min_advance_hours: configToSave.bookingMinAdvanceHours,
+        limit_client_pending_booking: configToSave.limitClientPendingBooking,
         closed_time_enabled: configToSave.closedTimeEnabled,
         show_best_of_brazil_image: configToSave.showBestOfBrazilImage
       });
     } catch (error) {
       console.error('❌ Erro ao salvar configuração de horários automaticamente:', error);
     }
-  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceHours, closedTimeEnabled, showBestOfBrazilImage]);
+  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceHours, limitClientPendingBooking, closedTimeEnabled, showBestOfBrazilImage]);
 
   const notifySettingsNeedManualSave = useCallback((showToastMessage = true) => {
     setShowSettingsSaveReminder(true);
@@ -21728,6 +21980,43 @@ Estamos te aguardando! 😎✂️`;
                         <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
                           <input
                             type="checkbox"
+                            id="limitClientPendingBooking"
+                            checked={limitClientPendingBooking}
+                            onChange={(e) => {
+                              const newValue = e.target.checked;
+                              setLimitClientPendingBooking(newValue);
+                              notifySettingsNeedManualSave(true);
+                              if (scheduleConfigAutoSaveTimeoutRef.current) {
+                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                              }
+                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveScheduleConfig({
+                                  limitClientPendingBooking: newValue
+                                });
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
+                          />
+                          <div className="flex-1">
+                            <label htmlFor="limitClientPendingBooking" className="block text-white font-medium mb-2">
+                              Limitar cliente por servico pendente
+                            </label>
+                            <p className="text-sm text-gray-400 leading-relaxed">
+                              Quando ativado, o cliente so consegue abrir um novo agendamento depois que o atendimento atual for marcado como concluido.
+                            </p>
+                            <p className="text-sm text-gray-400 leading-relaxed mt-2">
+                              A verificacao e feita pelo numero de telefone. Se houver atendimento em aberto, o booking mostra a mensagem:
+                              "Voce ainda tem servico pendente nesta barbearia."
+                            </p>
+                            <p className="text-xs text-gray-500 mt-2">
+                              Desativado: o cliente pode agendar normalmente, sem limite por pendencia.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
+                          <input
+                            type="checkbox"
                             id="closedTimeEnabled"
                             checked={closedTimeEnabled}
                             onChange={(e) => {
@@ -23831,6 +24120,17 @@ Estamos te aguardando! 😎✂️`;
                         }, []);
 
                         const paymentValidation = buildValidatedProfessionalPaymentData(professional, monthlyAppointments);
+                        const subscriberProfessionalFinancial = subscriberFinancialByProfessional[professional.name] || {
+                          totalAccumulated: 0,
+                          totalPaid: 0,
+                          pending: 0,
+                          attendanceCount: 0,
+                          uniqueClientsCount: 0,
+                          saleCommissionCount: 0,
+                        };
+                        const totalProfessionalLiquidWithSubscribers =
+                          calculateProfessionalNetValue(professional.name, monthlyAppointments) +
+                          subscriberProfessionalFinancial.pending;
 
                         console.log(`✅ ${professional.name}: R$ ${professionalRevenue} - ${extraProductsSold} produtos extras`);
 
@@ -23853,6 +24153,13 @@ Estamos te aguardando! 😎✂️`;
                                       <span className="text-blue-600 font-medium bg-blue-50 px-2 py-0.5 rounded-md">{professional.percentage || 100}%</span>
                                     )}
                                   </p>
+                                  {(subscriberProfessionalFinancial.totalAccumulated > 0 || subscriberProfessionalFinancial.totalPaid > 0) && (
+                                    <p className="mt-2 text-xs text-purple-700">
+                                      Assinaturas no mês: <span className="font-semibold">{formatCurrency(subscriberProfessionalFinancial.totalAccumulated)}</span>
+                                      {' '}• Pago: <span className="font-semibold">{formatCurrency(subscriberProfessionalFinancial.totalPaid)}</span>
+                                      {' '}• Pendente: <span className="font-semibold">{formatCurrency(subscriberProfessionalFinancial.pending)}</span>
+                                    </p>
+                                  )}
                                   {extraProductsSold > 0 && (
                                     <div className="relative mt-2">
                                       <button
@@ -23921,6 +24228,17 @@ Estamos te aguardando! 😎✂️`;
                                     <span>Líquido: <span className="font-bold">{formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span></span>
                                   )}
                                 </div>
+                                {(subscriberProfessionalFinancial.totalAccumulated > 0 || subscriberProfessionalFinancial.totalPaid > 0) && (
+                                  <div className="mt-2 text-xs text-purple-700 font-medium">
+                                    Assinaturas (pendente): <span className="font-bold">{formatCurrency(subscriberProfessionalFinancial.pending)}</span>
+                                  </div>
+                                )}
+                                {(subscriberProfessionalFinancial.totalAccumulated > 0 || subscriberProfessionalFinancial.totalPaid > 0) && (
+                                  <div className="mt-1 text-xs text-gray-600">
+                                    Total no financeiro do profissional (serviços + assinaturas pendentes):{' '}
+                                    <span className="font-bold text-gray-800">{formatCurrency(totalProfessionalLiquidWithSubscribers)}</span>
+                                  </div>
+                                )}
                               </div>
                             </div>
 
@@ -24682,6 +25000,41 @@ Estamos te aguardando! 😎✂️`;
                                     ✏️
                                   </button>
                                 </div>
+                              )}
+                            </div>
+
+                            <div className="mb-4 rounded-lg border border-gray-300 bg-gray-50 p-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-semibold text-gray-900">Cobrança obrigatória</p>
+                                  <p className="text-xs text-gray-600">
+                                    Se ativado, este cliente só agenda mediante pagamento.
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleClientMandatoryCharge(client)}
+                                  disabled={!canUseClientMandatoryCharge}
+                                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
+                                    !canUseClientMandatoryCharge
+                                      ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                                      : client.forceAdvancePayment
+                                        ? 'bg-red-600 text-white hover:bg-red-700'
+                                        : 'bg-gray-900 text-white hover:bg-black'
+                                  }`}
+                                  title={
+                                    canUseClientMandatoryCharge
+                                      ? 'Ativar/desativar cobrança obrigatória para este cliente'
+                                      : 'Conecte Mercado Pago e deixe pagamento adiantado como opcional para liberar'
+                                  }
+                                >
+                                  {client.forceAdvancePayment ? 'ATIVADO' : 'DESATIVADO'}
+                                </button>
+                              </div>
+                              {!canUseClientMandatoryCharge && (
+                                <p className="mt-2 text-[11px] text-amber-700">
+                                  Disponível somente com Mercado Pago conectado e opção global de pagamento adiantado opcional ativa.
+                                </p>
                               )}
                             </div>
 
