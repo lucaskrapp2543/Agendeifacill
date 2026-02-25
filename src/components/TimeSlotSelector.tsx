@@ -13,6 +13,7 @@ interface Appointment {
   duration: number;
   status?: string;
   professional?: string;
+  additional_products?: Array<{ duration?: number }>;
 }
 
 interface TimeSlot {
@@ -197,6 +198,14 @@ export function TimeSlotSelector({
       return aptDate === selectedDateString && apt.status !== 'cancelled';
     });
 
+    const getAppointmentDurationMinutes = (apt: Appointment): number => {
+      const base = Number(apt?.duration || 0);
+      const extra = Array.isArray(apt?.additional_products)
+        ? apt.additional_products.reduce((sum, item) => sum + (Number(item?.duration || 0) || 0), 0)
+        : 0;
+      return Math.max(1, base + extra);
+    };
+
     console.log('🕒 TimeSlotSelector - Gerando horários:');
     console.log('  - effectiveBusinessHours:', effectiveBusinessHours);
     console.log('  - relevantAppointments:', relevantAppointments);
@@ -238,7 +247,7 @@ export function TimeSlotSelector({
     const offGridEndMinutes = new Set<number>();
     if (!closedTimeEnabled) {
       for (const apt of relevantAppointments) {
-        const aptEnd = timeToMinutes(apt.appointment_time) + (apt.duration || 30);
+        const aptEnd = timeToMinutes(apt.appointment_time) + getAppointmentDurationMinutes(apt);
         if (aptEnd % interval !== 0) offGridEndMinutes.add(aptEnd);
       }
     }
@@ -373,8 +382,8 @@ export function TimeSlotSelector({
           }
         }
 
-        // No booking, não faz sentido exibir o intervalo como slot (evita confusão).
-        if (!isAvailable && conflictReason === 'Horário de Intervalo' && hideIntervalSlots) {
+        // No booking, não faz sentido exibir horários indisponíveis (evita confusão).
+        if (!isAvailable && hideIntervalSlots) {
           continue;
         }
 
@@ -382,7 +391,7 @@ export function TimeSlotSelector({
         if (isAvailable) {
           for (const appointment of relevantAppointments) {
             const aptStartMinutes = timeToMinutes(appointment.appointment_time);
-            const aptEndMinutes = aptStartMinutes + appointment.duration;
+            const aptEndMinutes = aptStartMinutes + getAppointmentDurationMinutes(appointment);
 
             // Verificar sobreposição - CORRIGIDO: não adicionar bloqueio extra
             if (!(slotEndMinutes <= aptStartMinutes || minutes >= aptEndMinutes)) {
@@ -540,8 +549,8 @@ export function TimeSlotSelector({
           }
         }
 
-        // No booking, não faz sentido exibir o intervalo como slot (evita confusão).
-        if (!isAvailable && conflictReason === 'Horário de Intervalo' && hideIntervalSlots) {
+        // No booking, não faz sentido exibir horários indisponíveis (evita confusão).
+        if (!isAvailable && hideIntervalSlots) {
           continue;
         }
 
@@ -549,7 +558,7 @@ export function TimeSlotSelector({
         if (isAvailable) {
           for (const appointment of relevantAppointments) {
             const aptStartMinutes = timeToMinutes(appointment.appointment_time);
-            const aptEndMinutes = aptStartMinutes + appointment.duration;
+            const aptEndMinutes = aptStartMinutes + getAppointmentDurationMinutes(appointment);
 
             // Verificar sobreposição - CORRIGIDO: não adicionar bloqueio extra
             if (!(slotEndMinutes <= aptStartMinutes || minutes >= aptEndMinutes)) {
@@ -588,8 +597,11 @@ export function TimeSlotSelector({
   };
 
   const timeSlots = generateTimeSlots();
+  const visibleTimeSlots = hideIntervalSlots
+    ? timeSlots.filter((slot) => slot.isAvailable)
+    : timeSlots;
 
-  if (timeSlots.length === 0) {
+  if (visibleTimeSlots.length === 0) {
     return (
       <div className="text-center py-8">
         <p className="text-gray-500">Nenhum horário disponível para este dia</p>
@@ -599,27 +611,29 @@ export function TimeSlotSelector({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-white/70">
-        <div className="inline-flex items-center gap-2">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500" />
-          DISPONÍVEL
+      {!hideIntervalSlots && (
+        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-white/70">
+          <div className="inline-flex items-center gap-2">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500" />
+            DISPONÍVEL
+          </div>
+          <div className="inline-flex items-center gap-2">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-red-600" />
+            BLOQUEADO
+          </div>
+          <div className="inline-flex items-center gap-2">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-amber-400" />
+            RESERVADO
+          </div>
+          <div className="inline-flex items-center gap-2">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-orange-500" />
+            RESERVA
+          </div>
         </div>
-        <div className="inline-flex items-center gap-2">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-red-600" />
-          BLOQUEADO
-        </div>
-        <div className="inline-flex items-center gap-2">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-amber-400" />
-          RESERVADO
-        </div>
-        <div className="inline-flex items-center gap-2">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-orange-500" />
-          RESERVA
-        </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-4 gap-2">
-        {timeSlots.map(({ time, isAvailable, reason }) => {
+        {visibleTimeSlots.map(({ time, isAvailable, reason }) => {
           const isSelected = selectedTime === time;
           const isReserved = reason === 'Horário Reservado';
           const isAvulso = reason === 'RESERVA AVULSA';

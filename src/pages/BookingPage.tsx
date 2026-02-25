@@ -894,7 +894,7 @@ export default function BookingPage() {
       const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
 
       const preferredSelect =
-        'id,appointment_date,appointment_time,duration,status,is_avulso,professional,payment_status,pix_payment_status';
+        'id,appointment_date,appointment_time,duration,additional_products,status,is_avulso,professional,payment_status,pix_payment_status';
       const legacySafeSelect =
         'id,appointment_date,appointment_time,duration,status,is_avulso,professional';
 

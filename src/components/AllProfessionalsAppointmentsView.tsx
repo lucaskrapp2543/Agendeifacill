@@ -1647,7 +1647,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
         (sum, p) => sum + (Number(p?.duration) || 0),
         0
       );
-      return Math.max(interval, base + extra);
+      // Importante: respeitar duração real (ex.: "Terminei Antes" com 5min),
+      // sem forçar arredondamento para o intervalo da grade.
+      return Math.max(1, base + extra);
     };
 
     const appointmentBelongsToProfessionalColumn = (apt: Appointment, professional: Professional): boolean => {
@@ -3756,22 +3758,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 </div>
                               );
                             } else if (slot.isOccupied && slot.parentAppointment) {
-                              // Slot ocupado pela duração de um agendamento
-                              return (
-                                <div
-                                  key={`${slot.time}-${slotIndex}`}
-                                  className={`${slotColor} border-2 rounded-lg p-3 opacity-75`}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-white font-bold text-sm">
-                                      {slot.time}
-                                    </span>
-                                    <span className="text-white text-xs font-semibold">
-                                      🔒 OCUPADO
-                                    </span>
-                                  </div>
-                                </div>
-                              );
+                              // Não renderizar slots intermediários ocupados por duração.
+                              // Ex.: 16:40 ocupado por 30min -> não mostrar 16:45/17:00 no grid.
+                              return null;
                             } else if (slot.appointment) {
                               // Agendamento real
                               const apt = slot.appointment;
