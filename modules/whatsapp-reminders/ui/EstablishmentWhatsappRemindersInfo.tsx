@@ -61,6 +61,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
   const [logsLoading, setLogsLoading] = useState(false);
   const [instance, setInstance] = useState<InstanceRow | null>(null);
   const [settings, setSettings] = useState<SettingsRow | null>(null);
+  const [mercadoPagoConnected, setMercadoPagoConnected] = useState(false);
   const [logFilter, setLogFilter] = useState<'sent' | 'failed' | 'delivered'>('sent');
   const [logRows, setLogRows] = useState<ReminderLogView[]>([]);
   const [logCounters, setLogCounters] = useState({ sent: 0, failed: 0, delivered: 0 });
@@ -79,7 +80,40 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
     return String(instance.status);
   }, [settings?.enabled, instance]);
 
+  const canRequestReminderActivation = !ativo;
+  const canRequestPaymentActivation = !mercadoPagoConnected;
+  const canRequestBothActivation = canRequestReminderActivation || canRequestPaymentActivation;
+
   const abrirWhatsApp = (tipo: 'lembrete' | 'pagamentos' | 'ambos') => {
+    if (tipo === 'lembrete' && !canRequestReminderActivation) {
+      toast.success('Lembrete automático já está ativo.');
+      return;
+    }
+    if (tipo === 'pagamentos' && !canRequestPaymentActivation) {
+      toast.success('Mercado Pago já está conectado.');
+      return;
+    }
+    if (tipo === 'ambos' && !canRequestBothActivation) {
+      toast.success('Lembrete e pagamentos adiantados já estão ativos.');
+      return;
+    }
+
+    // Se clicar em "os dois", monta mensagem só com o que realmente falta ativar.
+    if (tipo === 'ambos') {
+      if (canRequestReminderActivation && !canRequestPaymentActivation) {
+        const msg = encodeURIComponent(
+          `Quero ativar o lembrete automático para clientes (WhatsApp)\n\nEstablishmentId: ${establishmentId}`
+        );
+        window.open(`https://wa.me/${suporteWhatsapp}?text=${msg}`, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      if (!canRequestReminderActivation && canRequestPaymentActivation) {
+        const msg = encodeURIComponent(`Quero ativar pagamentos adiantados\n\nEstablishmentId: ${establishmentId}`);
+        window.open(`https://wa.me/${suporteWhatsapp}?text=${msg}`, '_blank', 'noopener,noreferrer');
+        return;
+      }
+    }
+
     const textoBase =
       tipo === 'lembrete'
         ? 'Quero ativar o lembrete automático para clientes (WhatsApp)'
@@ -276,6 +310,23 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
           .eq('establishment_id', establishmentId)
           .maybeSingle();
         if (instErr) throw instErr;
+
+        // Compatível com bancos que ainda não tenham alguma coluna nova.
+        try {
+          const { data: estPaymentCfg, error: estPaymentErr } = await supabase
+            .from('establishments')
+            .select('mercadopago_access_token')
+            .eq('id', establishmentId)
+            .maybeSingle();
+          if (!estPaymentErr) {
+            const token = String((estPaymentCfg as any)?.mercadopago_access_token || '').trim();
+            setMercadoPagoConnected(Boolean(token));
+          } else {
+            setMercadoPagoConnected(false);
+          }
+        } catch {
+          setMercadoPagoConnected(false);
+        }
 
         setSettings((cfg as any) || null);
         setInstance((inst as any) || null);
@@ -487,32 +538,47 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
           <button
             type="button"
             onClick={() => abrirWhatsApp('lembrete')}
-            className="flex-1 rounded-xl border border-amber-500/30 bg-black/40 px-4 py-3 text-sm font-bold text-white hover:bg-black/60 transition-colors"
+            disabled={!canRequestReminderActivation}
+            className={`flex-1 rounded-xl border px-4 py-3 text-sm font-bold transition-colors ${
+              canRequestReminderActivation
+                ? 'border-amber-500/30 bg-black/40 text-white hover:bg-black/60'
+                : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200 cursor-not-allowed'
+            }`}
           >
-            Quero ativar lembrete automático
+            {canRequestReminderActivation ? 'Quero ativar lembrete automático' : 'Lembrete automático ativo'}
           </button>
 
           <button
             type="button"
             onClick={() => abrirWhatsApp('pagamentos')}
-            className="flex-1 rounded-xl border border-emerald-500/30 bg-black/40 px-4 py-3 text-sm font-bold text-white hover:bg-black/60 transition-colors"
+            disabled={!canRequestPaymentActivation}
+            className={`flex-1 rounded-xl border px-4 py-3 text-sm font-bold transition-colors ${
+              canRequestPaymentActivation
+                ? 'border-emerald-500/30 bg-black/40 text-white hover:bg-black/60'
+                : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200 cursor-not-allowed'
+            }`}
           >
-            Quero ativar pagamentos adiantado
+            {canRequestPaymentActivation ? 'Quero ativar pagamentos adiantados' : 'Mercado Pago conectado'}
           </button>
 
           <button
             type="button"
             onClick={() => abrirWhatsApp('ambos')}
-            className="flex-1 rounded-xl bg-amber-400 px-4 py-3 text-sm font-extrabold text-black hover:bg-amber-300 transition-colors"
+            disabled={!canRequestBothActivation}
+            className={`flex-1 rounded-xl px-4 py-3 text-sm font-extrabold transition-colors ${
+              canRequestBothActivation
+                ? 'bg-amber-400 text-black hover:bg-amber-300'
+                : 'bg-emerald-500/20 text-emerald-200 cursor-not-allowed border border-emerald-500/30'
+            }`}
           >
-            Quero ativar os dois
+            {canRequestBothActivation ? 'Quero ativar os dois' : 'Lembrete e pagamentos já ativos'}
           </button>
         </div>
 
         <div className="mt-3 text-xs text-gray-400">
-          {ativo
-            ? '✅ Este recurso já está ativo para seu estabelecimento.'
-            : 'Para ativar, clique em um botão acima e solicite ao suporte/ADMIN a liberação.'}
+          {canRequestBothActivation
+            ? 'Para ativar, clique em um botão acima e solicite ao suporte/ADMIN a liberação.'
+            : '✅ Lembrete automático ativo e Mercado Pago conectado. Não é necessário solicitar ativação.'}
         </div>
       </div>
     </div>
