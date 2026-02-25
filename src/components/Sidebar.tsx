@@ -45,6 +45,7 @@ type TabType =
   | 'passo-a-passo'
   | 'fila-espera'
   | 'placa-barbearia'
+  | 'reviews'
   | 'client-page'
   | 'indication'
   | 'whatsapp-reminders'
@@ -69,6 +70,7 @@ interface SidebarProps {
   onReceberAdiantadoClick?: () => void; // Atalho para Mercado Pago
   isReceberAdiantadoOpen?: boolean; // destaca o botão quando modal estiver aberto
   isAppointmentsTutorialRunning?: boolean; // controla destaques e evita auto-open no PWA durante tutorial
+  pendingReviewsCount?: number; // quantidade de avaliações pendentes para badge em Avaliações
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -89,7 +91,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onToggleLayoutTheme,
   onReceberAdiantadoClick,
   isReceberAdiantadoOpen = false,
-  isAppointmentsTutorialRunning = false
+  isAppointmentsTutorialRunning = false,
+  pendingReviewsCount = 0
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false);
@@ -492,6 +495,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     taxes: 'Configure taxas e veja relatórios por bandeira.',
     'client-page': 'Veja o link da sua página e revise as configurações antes de divulgar.',
     'placa-barbearia': 'Divulgue seus links em um QR Code bonito para expor no balcão.',
+    reviews: 'Modere avaliações dos clientes e publique somente as aprovadas no booking.',
     support: 'Fale com o suporte para ajuda rápida.',
     config: 'Configurações do sistema e do seu estabelecimento.',
     logout: 'Sair da sua conta neste dispositivo.',
@@ -1199,6 +1203,67 @@ const Sidebar: React.FC<SidebarProps> = ({
                       {!isExpanded && (
                         <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
                           Placa Barbearia
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ✅ Botão "AVALIAÇÕES" abaixo de "PLACA BARBEARIA" */}
+                    <div className="relative mt-2">
+                      <button
+                        onClick={() => {
+                          if (isItemLocked('reviews')) {
+                            onBlockedItemClick?.();
+                            return;
+                          }
+                          handleItemClick(() => onTabChange('reviews'));
+                        }}
+                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${
+                          activeTab === 'reviews'
+                            ? 'bg-white text-black shadow-md'
+                            : isItemLocked('reviews')
+                              ? 'bg-white/5 text-gray-400 opacity-60 cursor-not-allowed'
+                              : 'bg-gradient-to-r from-gray-700 to-gray-900 text-white hover:from-gray-800 hover:to-black shadow-md'
+                        }`}
+                        title={isExpanded ? '' : 'Avaliações'}
+                        aria-label="Avaliações"
+                      >
+                        <div className="relative">
+                          <Bell
+                            className={`h-5 w-5 flex-shrink-0 ${
+                              activeTab === 'reviews'
+                                ? 'text-black'
+                                : isItemLocked('reviews')
+                                  ? 'text-gray-500'
+                                  : 'text-white'
+                            }`}
+                          />
+                          {pendingReviewsCount > 0 && (
+                            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center font-bold leading-none">
+                              {pendingReviewsCount > 99 ? '99+' : pendingReviewsCount}
+                            </span>
+                          )}
+                        </div>
+                        {isExpanded && (
+                          <>
+                            <span
+                              className={`text-sm font-extrabold whitespace-nowrap ${
+                                activeTab === 'reviews' ? 'text-black' : 'text-white'
+                              }`}
+                            >
+                              AVALIAÇÕES
+                            </span>
+                            <ChevronRight
+                              className={`h-4 w-4 flex-shrink-0 opacity-60 ml-auto ${
+                                activeTab === 'reviews' ? 'text-black' : 'text-white'
+                              }`}
+                            />
+                          </>
+                        )}
+                      </button>
+
+                      {!isExpanded && (
+                        <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
+                          Avaliações
                         </div>
                       )}
                     </div>

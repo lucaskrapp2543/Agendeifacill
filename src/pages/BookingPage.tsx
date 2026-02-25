@@ -14,6 +14,13 @@ import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
 import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
 
+type PublicBookingReview = {
+  id: string;
+  client_name: string;
+  review_text: string;
+  created_at: string;
+};
+
 export default function BookingPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -49,6 +56,15 @@ export default function BookingPage() {
   const [installGuideTitle, setInstallGuideTitle] = useState('Instalar o app');
   const [installGuideSteps, setInstallGuideSteps] = useState<string[]>([]);
   const [secondUnitName, setSecondUnitName] = useState<string | null>(null);
+  const [approvedReviews, setApprovedReviews] = useState<PublicBookingReview[]>([]);
+  const [isLoadingApprovedReviews, setIsLoadingApprovedReviews] = useState(false);
+  const [showApprovedReviewsModal, setShowApprovedReviewsModal] = useState(false);
+  const [showCreateReviewModal, setShowCreateReviewModal] = useState(false);
+  const [reviewClientName, setReviewClientName] = useState('');
+  const [reviewClientPhone, setReviewClientPhone] = useState('');
+  const [reviewText, setReviewText] = useState('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [showReviewSubmittedModal, setShowReviewSubmittedModal] = useState(false);
 
   // Funções para o carrossel duplicado - Filtrar apenas fotos selecionadas
   const duplicatePhotos = [
@@ -128,6 +144,7 @@ export default function BookingPage() {
   const bookingFormRef = useRef<HTMLDivElement>(null);
   const retryFetchEstablishmentRef = useRef(0);
   const isReloadingRef = useRef(false); // ✅ Proteção contra reload loops
+  const isFetchingApprovedReviewsRef = useRef(false);
   const activeSubscriberPlanId = String(
     convertedSubscriberData?.subscription_id || convertedSubscriberData?.subscriptions?.id || ''
   ).trim();
@@ -510,6 +527,16 @@ export default function BookingPage() {
       fetchSubscriptions();
     }
   }, [establishment, selectedDate]);
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    if (establishment?.hide_booking_reviews) {
+      setApprovedReviews([]);
+      return;
+    }
+    fetchApprovedReviews();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [establishment?.id, establishment?.hide_booking_reviews]);
 
   // Atualizar último acesso do cliente quando logado
   useEffect(() => {
@@ -940,6 +967,112 @@ export default function BookingPage() {
       setExistingAppointments(data || []);
     } catch (error: any) {
       console.error('Error fetching existing appointments:', error);
+    }
+  };
+
+  const fetchApprovedReviews = async () => {
+    if (!establishment?.id) return;
+    if (isFetchingApprovedReviewsRef.current) return;
+    isFetchingApprovedReviewsRef.current = true;
+    setIsLoadingApprovedReviews(true);
+    try {
+      const { data, error } = await supabase
+        .from('establishment_reviews')
+        .select('id,client_name,review_text,created_at')
+        .eq('establishment_id', establishment.id)
+        .eq('is_approved', true)
+        .eq('moderation_status', 'approved')
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (error) {
+        const msg = String(error?.message || '').toLowerCase();
+        const tableMissing =
+          error?.code === '42P01' ||
+          (msg.includes('establishment_reviews') &&
+            (msg.includes('does not exist') || msg.includes('relation') || msg.includes('schema cache')));
+        if (tableMissing) {
+          setApprovedReviews([]);
+          return;
+        }
+        throw error;
+      }
+
+      setApprovedReviews((data as PublicBookingReview[]) || []);
+    } catch (error) {
+      console.error('Erro ao buscar avaliações aprovadas:', error);
+      setApprovedReviews([]);
+    } finally {
+      isFetchingApprovedReviewsRef.current = false;
+      setIsLoadingApprovedReviews(false);
+    }
+  };
+
+  const handleSubmitBookingReview = async () => {
+    if (!establishment?.id) return;
+
+    const cleanedName = String(reviewClientName || '').trim();
+    const cleanedPhone = String(reviewClientPhone || '').replace(/\D/g, '');
+    const cleanedText = String(reviewText || '').trim();
+
+    if (!cleanedName) {
+      toast.error('Informe seu nome para enviar a avaliação.');
+      return;
+    }
+    if (cleanedPhone.length < 10) {
+      toast.error('Informe um telefone válido com DDD.');
+      return;
+    }
+    if (!cleanedText) {
+      toast.error('Escreva sua avaliação.');
+      return;
+    }
+    if (cleanedText.length > 200) {
+      toast.error('A avaliação deve ter no máximo 200 caracteres.');
+      return;
+    }
+
+    setIsSubmittingReview(true);
+    try {
+      const { error } = await supabase
+        .from('establishment_reviews')
+        .insert({
+          establishment_id: establishment.id,
+          client_name: cleanedName,
+          client_phone: cleanedPhone,
+          review_text: cleanedText,
+          moderation_status: 'pending',
+          is_approved: false,
+        });
+
+      if (error) throw error;
+
+      setShowCreateReviewModal(false);
+      setShowReviewSubmittedModal(true);
+      setReviewClientName('');
+      setReviewClientPhone('');
+      setReviewText('');
+      toast.success('Avaliação enviada! Ela ficará visível após aprovação.');
+    } catch (error: any) {
+      const msg = String(error?.message || '').toLowerCase();
+      const tableMissing =
+        error?.code === '42P01' ||
+        (msg.includes('establishment_reviews') &&
+          (msg.includes('does not exist') || msg.includes('relation') || msg.includes('schema cache')));
+
+      if (tableMissing) {
+        toast.error('Avaliações ainda estão sendo ativadas neste estabelecimento. Tente novamente em instantes.');
+        return;
+      }
+
+      console.error('Erro ao enviar avaliação:', error);
+      toast.error(
+        [error?.message || 'Erro ao enviar avaliação', error?.code ? `(código: ${error.code})` : null, error?.details || error?.hint || null]
+          .filter(Boolean)
+          .join(' ')
+      );
+    } finally {
+      setIsSubmittingReview(false);
     }
   };
 
@@ -2317,6 +2450,29 @@ export default function BookingPage() {
                   className="text-white/70"
                 />
               </p>
+            )}
+
+            {!establishment?.hide_booking_reviews && (
+              <div className="flex items-center justify-center">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/5">
+                  <span className="text-[#E6C78B] tracking-wide">⭐⭐⭐⭐⭐</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowApprovedReviewsModal(true)}
+                    className="text-sm text-white/85 hover:text-white transition-colors"
+                  >
+                    Ver avaliações ({isLoadingApprovedReviews ? '...' : approvedReviews.length})
+                  </button>
+                  <span className="text-white/30">•</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateReviewModal(true)}
+                    className="text-sm text-[#E6C78B] hover:text-[#f3e7c7] transition-colors font-semibold"
+                  >
+                    Avaliar
+                  </button>
+                </div>
+              </div>
             )}
 
             {/* Botões de Ação Principal */}
@@ -3870,6 +4026,149 @@ export default function BookingPage() {
         </div>
       )}
 
+
+      {showApprovedReviewsModal && (
+        <div className="fixed inset-0 z-[120] bg-black/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-xl bg-[#161718] border border-white/10 rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white text-xl font-extrabold">Avaliações da barbearia</h3>
+              <button
+                type="button"
+                onClick={() => setShowApprovedReviewsModal(false)}
+                className="text-white/70 hover:text-white text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            {isLoadingApprovedReviews ? (
+              <div className="text-white/70">Carregando avaliações...</div>
+            ) : approvedReviews.length === 0 ? (
+              <div className="text-white/70">Ainda não há avaliações aprovadas.</div>
+            ) : (
+              <div className="max-h-[60vh] overflow-y-auto space-y-3 pr-1">
+                {approvedReviews.map((review) => (
+                  <div key={review.id} className="rounded-xl border border-white/10 bg-black/30 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-white">{review.client_name}</span>
+                      <span className="text-xs text-white/60">{new Date(review.created_at).toLocaleDateString('pt-BR')}</span>
+                    </div>
+                    <div className="text-[#E6C78B] text-sm mt-1">⭐⭐⭐⭐⭐</div>
+                    <p className="text-white/85 text-sm mt-2 whitespace-pre-wrap break-words">{review.review_text}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showCreateReviewModal && (
+        <div className="fixed inset-0 z-[120] bg-black/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#161718] border border-white/10 rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white text-xl font-extrabold">Avaliar barbearia</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isSubmittingReview) return;
+                  setShowCreateReviewModal(false);
+                }}
+                className="text-white/70 hover:text-white text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm text-white/80 mb-1">Nome do cliente</label>
+                <input
+                  type="text"
+                  value={reviewClientName}
+                  onChange={(e) => setReviewClientName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25"
+                  placeholder="Seu nome"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-white/80 mb-1">Telefone</label>
+                <input
+                  type="tel"
+                  value={reviewClientPhone}
+                  onChange={(e) => setReviewClientPhone(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25"
+                  placeholder="(DD) 9xxxx-xxxx"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-white/80 mb-1">Avaliação</label>
+                <textarea
+                  value={reviewText}
+                  onChange={(e) => setReviewText(e.target.value.slice(0, 200))}
+                  className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25 resize-none"
+                  rows={4}
+                  placeholder="Escreva sua avaliação (máx. 200 caracteres)"
+                />
+                <div className="text-right text-xs text-white/50 mt-1">{reviewText.length}/200</div>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCreateReviewModal(false)}
+                disabled={isSubmittingReview}
+                className="px-3 py-2 rounded-lg bg-white/10 text-white hover:bg-white/15 transition-colors disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitBookingReview}
+                disabled={isSubmittingReview}
+                className="px-3 py-2 rounded-lg bg-[#E6C78B] text-black font-extrabold hover:bg-[#f3e7c7] transition-colors disabled:opacity-60"
+              >
+                {isSubmittingReview ? 'Enviando...' : 'Enviar avaliação'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showReviewSubmittedModal && (
+        <div className="fixed inset-0 z-[120] bg-black/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#161718] border border-white/10 rounded-2xl p-5">
+            <h3 className="text-white text-xl font-extrabold mb-2">Avaliação enviada! ✅</h3>
+            <p className="text-white/75 text-sm">
+              Obrigado pelo feedback. Sua avaliação será exibida no booking após aprovação do estabelecimento.
+            </p>
+
+            {String(establishment?.review_link || '').trim() && (
+              <a
+                href={
+                  String(establishment?.review_link || '').startsWith('http')
+                    ? String(establishment?.review_link || '')
+                    : `https://${String(establishment?.review_link || '')}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 block w-full text-center rounded-lg bg-white text-black font-bold px-3 py-2 hover:bg-gray-100 transition-colors"
+              >
+                Avalie também no Google e ajude ainda mais esta barbearia
+              </a>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowReviewSubmittedModal(false)}
+              className="mt-3 w-full rounded-lg bg-[#E6C78B] text-black font-extrabold px-3 py-2 hover:bg-[#f3e7c7] transition-colors"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Agendamento Rápido */}
       <QuickBookingModal

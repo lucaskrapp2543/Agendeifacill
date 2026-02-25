@@ -90,14 +90,6 @@ export const TopMonthlyWinnerCard: React.FC<TopMonthlyWinnerCardProps> = ({ winn
     </div>
   );
 
-  if (!winner.instagramUrl) {
-    return content;
-  }
-
-  return (
-    <a href={winner.instagramUrl} target="_blank" rel="noopener noreferrer" className="block">
-      {content}
-    </a>
-  );
+  return content;
 };
 

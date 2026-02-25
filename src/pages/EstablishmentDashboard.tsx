@@ -150,6 +150,7 @@ interface Establishment {
   payment_methods_enabled?: string[];
   plan_prata_active?: boolean; // ✅ ativado via botão PRATA no Admin (limites de recursos)
   hide_from_top10_ranking?: boolean; // Se true, estabelecimento não participa do TOP 10 global
+  hide_booking_reviews?: boolean; // Se true, avaliações ficam ocultas no booking público
 }
 
 type TabType =
@@ -171,10 +172,24 @@ type TabType =
   | 'passo-a-passo'
   | 'fila-espera'
   | 'placa-barbearia'
+  | 'reviews'
   | 'client-page'
   | 'indication'
   | 'whatsapp-reminders'
   | 'support';
+
+interface EstablishmentReview {
+  id: string;
+  establishment_id: string;
+  client_name: string;
+  client_phone: string;
+  review_text: string;
+  moderation_status: 'pending' | 'approved' | 'rejected';
+  is_approved: boolean;
+  created_at: string;
+  approved_at?: string | null;
+  rejected_at?: string | null;
+}
 
 interface AdditionalProduct {
   name: string;
@@ -432,6 +447,11 @@ const EstablishmentDashboard = () => {
   const onboardingCompletedRef = useRef(false); // Evita múltiplas chamadas ao completar onboarding
   const onboardingWelcomeShownThisLoadRef = useRef(false); // Evita reabrir após fechar (só volta no reload)
   const [clients, setClients] = useState<Client[]>([]);
+  const [establishmentReviews, setEstablishmentReviews] = useState<EstablishmentReview[]>([]);
+  const [pendingReviewsCount, setPendingReviewsCount] = useState(0);
+  const [isLoadingEstablishmentReviews, setIsLoadingEstablishmentReviews] = useState(false);
+  const [reviewsStatusFilter, setReviewsStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+  const isLoadingEstablishmentReviewsRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showBirthdayFilter, setShowBirthdayFilter] = useState(false);
   const [editingClientBirthday, setEditingClientBirthday] = useState<string | null>(null);
@@ -6101,17 +6121,15 @@ const EstablishmentDashboard = () => {
         .from('establishments')
         .select('code')
         .eq('code', code)
-        .single();
+        .maybeSingle();
 
-      if (error && error.code === 'PGRST116') {
-        // Código não encontrado (único)
-        isUnique = true;
-        setEstablishmentCode(code);
+      if (error) {
+        throw error;
       } else if (existingEstablishment) {
         // Código já existe, tentar novamente
         attempts++;
       } else {
-        // Outro erro, mas assumir que é único
+        // Código não encontrado (único)
         isUnique = true;
         setEstablishmentCode(code);
       }
@@ -9797,14 +9815,9 @@ Estamos te aguardando! 😎✂️`;
     const dayKey = dayMapping[dayName] || dayName as keyof typeof businessHours;
     const hoursForDay = businessHours[dayKey];
 
-    console.log('🕐 Gerando slots com lacunas para o profissional:', selectedProfessional);
-    console.log('🕐 Data selecionada:', selectedDate);
-    console.log('🕐 Nome do dia (PT):', dayName);
-    console.log('🕐 Day key (EN):', dayKey);
-    console.log('🕐 Horário de funcionamento para', dayKey, ':', hoursForDay);
+    
 
     if (!hoursForDay?.enabled) {
-      console.log('🕐 Dia não habilitado, retornando apenas agendamentos');
       return filteredAppointments;
     }
 
@@ -9921,8 +9934,7 @@ Estamos te aguardando! 😎✂️`;
       addPeriodSlots(hoursForDay.open2, hoursForDay.close2);
     }
 
-    console.log('🕐 Total de slots gerados:', slots.length);
-    console.log('🕐 Slots:', slots);
+    
 
     return slots;
   }, [filteredAppointments, selectedProfessional, selectedDate, businessHours, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, showTimeSlotsWithGaps]);
@@ -11213,6 +11225,187 @@ Estamos te aguardando! 😎✂️`;
       );
     }
   };
+
+  const loadEstablishmentReviews = async (silent = false) => {
+    if (!establishment?.id) return;
+    if (isLoadingEstablishmentReviewsRef.current) return;
+
+    isLoadingEstablishmentReviewsRef.current = true;
+    setIsLoadingEstablishmentReviews(true);
+    try {
+      const { data, error } = await supabase
+        .from('establishment_reviews')
+        .select('id,establishment_id,client_name,client_phone,review_text,moderation_status,is_approved,created_at,approved_at,rejected_at')
+        .eq('establishment_id', establishment.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        const msg = String(error?.message || '').toLowerCase();
+        const tableMissing =
+          error?.code === '42P01' ||
+          (msg.includes('establishment_reviews') &&
+            (msg.includes('does not exist') || msg.includes('relation') || msg.includes('schema cache')));
+
+        if (tableMissing) {
+          setEstablishmentReviews([]);
+          return;
+        }
+        throw error;
+      }
+
+      const reviews = (data as EstablishmentReview[]) || [];
+      setEstablishmentReviews(reviews);
+      setPendingReviewsCount(reviews.filter((review) => review.moderation_status === 'pending').length);
+    } catch (error: any) {
+      console.error('❌ Erro ao carregar avaliações:', error);
+      if (!silent) {
+        toast(
+          [error?.message || 'Erro ao carregar avaliações', error?.code ? `(código: ${error.code})` : null, error?.details || error?.hint || null]
+            .filter(Boolean)
+            .join(' '),
+          'error'
+        );
+      }
+    } finally {
+      isLoadingEstablishmentReviewsRef.current = false;
+      setIsLoadingEstablishmentReviews(false);
+    }
+  };
+
+  const loadPendingReviewsCount = async () => {
+    if (!establishment?.id) return;
+    try {
+      const { count, error } = await supabase
+        .from('establishment_reviews')
+        .select('id', { count: 'exact', head: true })
+        .eq('establishment_id', establishment.id)
+        .eq('moderation_status', 'pending');
+
+      if (error) {
+        const msg = String(error?.message || '').toLowerCase();
+        const tableMissing =
+          error?.code === '42P01' ||
+          (msg.includes('establishment_reviews') &&
+            (msg.includes('does not exist') || msg.includes('relation') || msg.includes('schema cache')));
+        if (tableMissing) {
+          setPendingReviewsCount(0);
+          return;
+        }
+        throw error;
+      }
+
+      setPendingReviewsCount(Number(count || 0));
+    } catch (error) {
+      console.error('❌ Erro ao carregar quantidade de avaliações pendentes:', error);
+    }
+  };
+
+  const moderateEstablishmentReview = async (reviewId: string, action: 'approved' | 'rejected') => {
+    if (!establishment?.id) return;
+    try {
+      const nowIso = new Date().toISOString();
+      const payload: any =
+        action === 'approved'
+          ? {
+              moderation_status: 'approved',
+              is_approved: true,
+              approved_at: nowIso,
+              approved_by: user?.id || null,
+              rejected_at: null,
+              rejected_by: null,
+              updated_at: nowIso,
+            }
+          : {
+              moderation_status: 'rejected',
+              is_approved: false,
+              rejected_at: nowIso,
+              rejected_by: user?.id || null,
+              approved_at: null,
+              approved_by: null,
+              updated_at: nowIso,
+            };
+
+      const { error } = await supabase
+        .from('establishment_reviews')
+        .update(payload)
+        .eq('id', reviewId)
+        .eq('establishment_id', establishment.id);
+
+      if (error) throw error;
+
+      toast(action === 'approved' ? 'Avaliação aprovada com sucesso!' : 'Avaliação reprovada.', 'success');
+      await loadEstablishmentReviews();
+    } catch (error: any) {
+      console.error('❌ Erro ao moderar avaliação:', error);
+      toast(
+        [error?.message || 'Erro ao moderar avaliação', error?.code ? `(código: ${error.code})` : null, error?.details || error?.hint || null]
+          .filter(Boolean)
+          .join(' '),
+        'error'
+      );
+    }
+  };
+
+  const toggleHideBookingReviews = async () => {
+    if (!establishment?.id) return;
+
+    const nextHidden = !(establishment.hide_booking_reviews ?? false);
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ hide_booking_reviews: nextHidden } as any)
+        .eq('id', establishment.id);
+
+      if (error) {
+        const msg = String(error?.message || '').toLowerCase();
+        const missingColumn =
+          error?.code === '42703' ||
+          msg.includes('hide_booking_reviews') ||
+          (msg.includes('schema cache') && msg.includes('column'));
+        if (missingColumn) {
+          toast(
+            'Falta a coluna para ocultar avaliações no banco. Rode a nova migration e tente novamente.',
+            'error'
+          );
+          return;
+        }
+        throw error;
+      }
+
+      setEstablishment((prev: any) => (prev ? { ...prev, hide_booking_reviews: nextHidden } : prev));
+      toast(
+        nextHidden
+          ? 'Avaliações ocultadas no booking.'
+          : 'Avaliações exibidas novamente no booking.',
+        'success'
+      );
+    } catch (error: any) {
+      console.error('❌ Erro ao atualizar visibilidade das avaliações no booking:', error);
+      toast(
+        [error?.message || 'Erro ao atualizar visibilidade das avaliações', error?.code ? `(código: ${error.code})` : null, error?.details || error?.hint || null]
+          .filter(Boolean)
+          .join(' '),
+        'error'
+      );
+    }
+  };
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    if (activeTab !== 'reviews') return;
+    loadEstablishmentReviews(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, establishment?.id]);
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    loadPendingReviewsCount();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [establishment?.id, activeTab]);
+
+  const filteredEstablishmentReviews = establishmentReviews.filter((review) =>
+    reviewsStatusFilter === 'all' ? true : review.moderation_status === reviewsStatusFilter
+  );
 
   // Filtrar clientes baseado na busca e filtro de aniversário
   const filteredClients = clients.filter(client => {
@@ -17229,6 +17422,7 @@ Estamos te aguardando! 😎✂️`;
           onReceberAdiantadoClick={() => setShowMercadoPagoModal(true)}
           isReceberAdiantadoOpen={showMercadoPagoModal}
           isAppointmentsTutorialRunning={showAppointmentsTutorial}
+          pendingReviewsCount={pendingReviewsCount}
         />
 
         {/* Conteúdo principal */}
@@ -19592,6 +19786,123 @@ Estamos te aguardando! 😎✂️`;
                         Conversar com Suporte
                       </button>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'reviews' && (
+                <div className="space-y-6 w-full">
+                  <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full p-4 sm:p-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                      <div>
+                        <h2 className="text-2xl font-bold text-gray-900">Avaliações</h2>
+                        <p className="text-sm text-gray-600">
+                          As avaliações só aparecem no booking depois de aprovadas.
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Ao clicar em ocultar, não irá aparecer avaliações para seus clientes.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={toggleHideBookingReviews}
+                          className={`px-4 py-2 rounded-lg transition-colors text-sm font-semibold ${
+                            establishment?.hide_booking_reviews
+                              ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                              : 'bg-amber-600 text-white hover:bg-amber-700'
+                          }`}
+                        >
+                          {establishment?.hide_booking_reviews ? 'Mostrar avaliações' : 'Ocultar avaliações'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => loadEstablishmentReviews()}
+                          className="px-4 py-2 rounded-lg bg-black text-white hover:bg-gray-800 transition-colors text-sm font-semibold"
+                        >
+                          Atualizar
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {[
+                        { id: 'pending', label: 'Pendentes' },
+                        { id: 'approved', label: 'Aprovadas' },
+                        { id: 'rejected', label: 'Reprovadas' },
+                        { id: 'all', label: 'Todas' },
+                      ].map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setReviewsStatusFilter(opt.id as any)}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+                            reviewsStatusFilter === opt.id
+                              ? 'bg-black text-white'
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {isLoadingEstablishmentReviews ? (
+                      <div className="text-gray-600 py-6">Carregando avaliações...</div>
+                    ) : filteredEstablishmentReviews.length === 0 ? (
+                      <div className="text-gray-500 py-8 text-center bg-gray-50 border border-gray-200 rounded-lg">
+                        Nenhuma avaliação neste filtro.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {filteredEstablishmentReviews.map((review) => {
+                          const statusLabel =
+                            review.moderation_status === 'approved'
+                              ? 'Aprovada'
+                              : review.moderation_status === 'rejected'
+                                ? 'Reprovada'
+                                : 'Pendente';
+                          return (
+                            <div key={review.id} className="border border-gray-200 rounded-xl p-4">
+                              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-bold text-gray-900">{review.client_name}</span>
+                                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                                      {statusLabel}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-gray-600 mt-1">
+                                    Telefone: <strong>{review.client_phone}</strong> • Enviado em{' '}
+                                    <strong>{new Date(review.created_at).toLocaleString('pt-BR')}</strong>
+                                  </div>
+                                  <p className="text-gray-800 mt-3 whitespace-pre-wrap break-words">
+                                    {review.review_text}
+                                  </p>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => moderateEstablishmentReview(review.id, 'approved')}
+                                    className="px-3 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors text-sm font-bold"
+                                  >
+                                    Aprovar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => moderateEstablishmentReview(review.id, 'rejected')}
+                                    className="px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors text-sm font-bold"
+                                  >
+                                    Reprovar
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

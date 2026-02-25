@@ -1710,12 +1710,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
       // Determinar o intervalo baseado nas configurações do estabelecimento
       const interval = intervaloAgendaMinutos;
 
-      console.log('🔥 AllProfessionalsAppointmentsView - Intervalo calculado:', interval, 'min', {
-        use_15_minute_interval: use15MinuteInterval ?? establishment?.use_15_minute_interval,
-        use_20_minute_schedule: use20MinuteSchedule ?? establishment?.use_20_minute_schedule,
-        use_60_minute_schedule: use60MinuteSchedule ?? (establishment as any)?.use_60_minute_schedule
-      });
-
       let current = start;
       while (current < end) {
         const isInBreak =
@@ -3439,16 +3433,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 const hiddenOpen =
                   hiddenAppointments.length > 0 &&
                   (hiddenAppointmentsOpenByProfessional[professional.id] ?? true);
-
-                // Debug para comparar
-                if (professional.id === professionals[0]?.id) {
-                  console.log('🔍 DEBUG Card Count:');
-                  console.log('  - Professional:', professional.name);
-                  console.log('  - Selected Date:', selectedDateStr);
-                  console.log('  - Total slots com appointment:', timeSlots.filter(s => s.appointment).length);
-                  console.log('  - Slots confirmados/completos na data:', professionalAppointmentsCount);
-                  console.log('  - Hidden appointments:', hiddenAppointments.length);
-                }
 
                 return (
                   <div
