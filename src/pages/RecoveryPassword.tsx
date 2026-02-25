@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { ArrowLeft, Mail } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const RecoveryPassword = () => {
   const [email, setEmail] = useState('');
+  const [establishmentName, setEstablishmentName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleRecovery = async (e: React.FormEvent) => {
@@ -13,33 +13,20 @@ const RecoveryPassword = () => {
     setIsLoading(true);
 
     try {
-      console.log('🔄 Enviando email de recuperação para:', email);
-      console.log('📍 URL de redirecionamento:', `${window.location.origin}/reset-password`);
-      
-      // Garantir que a URL seja absoluta e correta
-      const redirectUrl = window.location.hostname === 'localhost' 
-        ? 'http://localhost:5173/reset-password'
-        : 'https://agendeifacil.com/reset-password';
-        
-      console.log('🔗 URL de redirecionamento final:', redirectUrl);
-      console.log('🌐 Hostname atual:', window.location.hostname);
-      console.log('🔗 Origin atual:', window.location.origin);
-      
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: redirectUrl
-      });
+      const supportPhone = '5548991265320';
+      const message =
+        'Quero trocar a senha.\n' +
+        `Nome do estabelecimento: ${establishmentName.trim()}\n` +
+        `Email: ${email.trim()}`;
 
-      if (error) {
-        console.error('❌ Erro do Supabase:', error);
-        throw error;
-      }
-
-      console.log('✅ Email enviado com sucesso!');
-      toast.success('Email de recuperação enviado! Verifique sua caixa de entrada.');
+      const whatsappUrl = `https://wa.me/${supportPhone}?text=${encodeURIComponent(message)}`;
+      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+      toast.success('Abrindo WhatsApp para solicitar troca de senha.');
       setEmail('');
+      setEstablishmentName('');
     } catch (error: any) {
       console.error('❌ Erro geral:', error);
-      toast.error(error.message || 'Erro ao enviar email de recuperação');
+      toast.error(error.message || 'Erro ao abrir WhatsApp');
     } finally {
       setIsLoading(false);
     }
@@ -54,11 +41,25 @@ const RecoveryPassword = () => {
           </div>
           <h1 className="text-2xl font-bold">Esqueci minha senha</h1>
           <p className="text-gray-400 mt-2">
-            Digite seu email e enviaremos um link para redefinir sua senha
+            Informe os dados abaixo para abrir uma solicitação no WhatsApp do suporte
           </p>
         </div>
         
         <form onSubmit={handleRecovery}>
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2 text-gray-300">
+              Nome do estabelecimento
+            </label>
+            <input
+              type="text"
+              value={establishmentName}
+              onChange={(e) => setEstablishmentName(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500 text-white placeholder-gray-400"
+              placeholder="Nome da barbearia"
+              required
+            />
+          </div>
+
           <div className="mb-6">
             <label className="block text-sm font-medium mb-2 text-gray-300">
               Email da sua conta
@@ -78,7 +79,7 @@ const RecoveryPassword = () => {
             disabled={isLoading}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? 'Enviando...' : 'Enviar Email de Recuperação'}
+            {isLoading ? 'Abrindo...' : 'Solicitar troca de senha no WhatsApp'}
           </button>
         </form>
         

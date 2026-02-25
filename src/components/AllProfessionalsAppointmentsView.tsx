@@ -217,6 +217,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [showMonthPendingModal, setShowMonthPendingModal] = useState(false);
     const [monthPendingAppointments, setMonthPendingAppointments] = useState<Appointment[]>([]);
     const [isLoadingMonthPending, setIsLoadingMonthPending] = useState(false);
+    const [monthPendingFilterDate, setMonthPendingFilterDate] = useState('');
     const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
     const [editingValue, setEditingValue] = useState<string>('');
     const [editingAvulsoNameId, setEditingAvulsoNameId] = useState<string | null>(null);
@@ -981,10 +982,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
 
       const start = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1), 'yyyy-MM-dd');
-      const end = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0), 'yyyy-MM-dd');
-
       setIsLoadingMonthPending(true);
       setShowMonthPendingModal(true);
+      setMonthPendingFilterDate('');
       try {
         const baseSelect = `
             id,
@@ -1019,8 +1019,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
           .select(baseSelect)
           .eq('establishment_id', establishment.id)
           .gte('appointment_date', start)
-          .lte('appointment_date', end)
-          .in('status', ['pending', 'confirmed'])
+          .lt('appointment_date', selectedDateIso)
+          .eq('status', 'pending')
           .order('appointment_date', { ascending: true })
           .order('appointment_time', { ascending: true });
 
@@ -1062,8 +1062,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
             .select(legacySelect)
             .eq('establishment_id', establishment.id)
             .gte('appointment_date', start)
-            .lte('appointment_date', end)
-            .in('status', ['pending', 'confirmed'])
+            .lt('appointment_date', selectedDateIso)
+            .eq('status', 'pending')
             .order('appointment_date', { ascending: true })
             .order('appointment_time', { ascending: true });
           data = retry.data as any;
@@ -1082,8 +1082,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const monthPendingTotal = monthPendingAppointments.length;
-    const monthPendingOnlyCount = monthPendingAppointments.filter((apt) => apt.status === 'pending').length;
-    const monthPendingConfirmedCount = monthPendingAppointments.filter((apt) => apt.status === 'confirmed').length;
+    const monthPendingVisibleAppointments = monthPendingFilterDate
+      ? monthPendingAppointments.filter((apt) => String(apt.appointment_date || '') === monthPendingFilterDate)
+      : monthPendingAppointments;
+    const monthPendingVisibleTotal = monthPendingVisibleAppointments.length;
 
     const normalizeServiceKey = (value: string): string => {
       return String(value || '')
@@ -1374,7 +1376,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const dailyCashSalesTotal = appointments
       .filter((apt) =>
         apt.appointment_date === selectedDateIso &&
-        apt.status !== 'cancelled'
+        apt.status === 'completed'
       )
       .reduce((sum, apt) => sum + getCashAmountForAppointment(apt), 0);
 
@@ -2922,6 +2924,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   <p>Abertura registrada: <span className="font-semibold text-white">{formatCurrency(barbershopCashOpeningValue)}</span></p>
                   <p>Vendas em dinheiro no dia: <span className="font-semibold text-white">{formatCurrency(dailyCashSalesTotal)}</span></p>
                   <p>Total em caixa no dia: <span className="font-semibold text-emerald-300">{formatCurrency(barbershopCashTotal)}</span></p>
+                  <p className="text-white/60">* Considera apenas agendamentos concluidos no dia.</p>
                 </div>
                 <div className="mt-2 border border-white/10 rounded-xl p-3 bg-white/[0.03]">
                   <p className="text-xs font-semibold text-white/80 mb-2">Historico de abertura (diario)</p>
@@ -3119,24 +3122,68 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
               <div className="p-4 max-h-[70vh] overflow-y-auto">
                 {!isLoadingMonthPending && (
+                  <div className="mb-3 rounded-lg border border-gray-200 bg-white p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">
+                          Filtrar por dia (opcional)
+                        </label>
+                        <input
+                          type="date"
+                          value={monthPendingFilterDate}
+                          onChange={(e) => setMonthPendingFilterDate(e.target.value)}
+                          className="px-2 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setMonthPendingFilterDate(selectedDateIso)}
+                          className="px-2 py-1.5 text-xs font-semibold rounded-md border border-yellow-300 bg-yellow-50 text-yellow-800 hover:bg-yellow-100 transition-colors"
+                        >
+                          Usar dia da agenda
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMonthPendingFilterDate('')}
+                          className="px-2 py-1.5 text-xs font-semibold rounded-md border border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors"
+                        >
+                          Ver mês todo
+                        </button>
+                      </div>
+                    </div>
+                    {monthPendingFilterDate ? (
+                      <p className="mt-2 text-[11px] text-gray-600">
+                        Mostrando apenas: <strong>{monthPendingFilterDate.split('-').reverse().join('/')}</strong>
+                      </p>
+                    ) : (
+                      <p className="mt-2 text-[11px] text-gray-600">
+                        Mostrando todos os pendentes acumulados (dias anteriores ao dia selecionado).
+                      </p>
+                    )}
+                  </div>
+                )}
+                {!isLoadingMonthPending && (
                   <div className="mb-3 rounded-lg border border-yellow-200 bg-yellow-50 p-2">
                     <div className="text-xs text-yellow-900 font-semibold">
-                      Não concluídos do mês: <strong>{monthPendingTotal}</strong>
+                      Pendentes acumulados até a data atual: <strong>{monthPendingTotal}</strong>
                     </div>
-                    <div className="mt-1 text-[11px] text-yellow-800">
-                      Pendentes: <strong>{monthPendingOnlyCount}</strong> • Confirmados: <strong>{monthPendingConfirmedCount}</strong>
+                    <div className="mt-1 text-[11px] text-yellow-700">
+                      Visíveis agora: <strong>{monthPendingVisibleTotal}</strong>
                     </div>
                   </div>
                 )}
                 {isLoadingMonthPending ? (
                   <div className="py-8 text-center text-gray-600">Carregando pendentes...</div>
-                ) : monthPendingAppointments.length === 0 ? (
+                ) : monthPendingVisibleAppointments.length === 0 ? (
                   <div className="py-8 text-center text-gray-600">
-                    Nenhum agendamento pendente neste mês.
+                    {monthPendingFilterDate
+                      ? 'Nenhum agendamento pendente nesse dia.'
+                      : 'Nenhum agendamento pendente acumulado nos dias anteriores.'}
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {monthPendingAppointments.map((apt) => (
+                    {monthPendingVisibleAppointments.map((apt) => (
                       <div key={`month-pending-${apt.id}`} className="rounded-lg border border-gray-200 p-3 bg-gray-50">
                         <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0">
