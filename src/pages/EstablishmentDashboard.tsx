@@ -478,6 +478,68 @@ const EstablishmentDashboard = () => {
   const [editClientWhatsapp, setEditClientWhatsapp] = useState('');
   const [newClientBirthday, setNewClientBirthday] = useState('');
 
+  const formatBirthdayMask = (value: string) => {
+    const digits = String(value || '').replace(/\D/g, '').slice(0, 8);
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+  };
+
+  const isoBirthdayToDisplay = (value: string) => {
+    const raw = String(value || '').trim();
+    const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!isoMatch) return raw;
+    return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+  };
+
+  const parseBirthdayToIso = (value: string): { iso: string; error?: string } => {
+    const raw = String(value || '').trim();
+    if (!raw) return { iso: '' };
+
+    const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      const year = Number(isoMatch[1]);
+      const month = Number(isoMatch[2]);
+      const day = Number(isoMatch[3]);
+      const currentYear = new Date().getFullYear();
+      if (year < 1900 || year > currentYear) {
+        return { iso: '', error: `Ano inválido. Informe um ano entre 1900 e ${currentYear}.` };
+      }
+      const candidate = new Date(year, month - 1, day);
+      const valid =
+        candidate.getFullYear() === year &&
+        candidate.getMonth() === month - 1 &&
+        candidate.getDate() === day;
+      if (!valid) return { iso: '', error: 'Data de aniversário inválida.' };
+      return { iso: raw };
+    }
+
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length !== 8) {
+      return { iso: '', error: 'Informe a data no formato DD/MM/AAAA.' };
+    }
+
+    const day = Number(digits.slice(0, 2));
+    const month = Number(digits.slice(2, 4));
+    const year = Number(digits.slice(4, 8));
+    const currentYear = new Date().getFullYear();
+
+    if (year < 1900 || year > currentYear) {
+      return { iso: '', error: `Ano inválido. Informe um ano entre 1900 e ${currentYear}.` };
+    }
+
+    const candidate = new Date(year, month - 1, day);
+    const valid =
+      candidate.getFullYear() === year &&
+      candidate.getMonth() === month - 1 &&
+      candidate.getDate() === day;
+
+    if (!valid) return { iso: '', error: 'Data de aniversário inválida.' };
+
+    const iso = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return { iso };
+  };
+
   // Estados para ranking de clientes
   const [showRankingModal, setShowRankingModal] = useState(false);
 
@@ -10509,12 +10571,20 @@ Estamos te aguardando! 😎✂️`;
         return;
       }
 
+      const parsedBirthday = parseBirthdayToIso(birthday);
+      if (parsedBirthday.error) {
+        toast(parsedBirthday.error, 'error');
+        return;
+      }
+      if (!parsedBirthday.iso) {
+        toast('Por favor, selecione uma data.', 'error');
+        return;
+      }
+
+      const formattedBirthday = parsedBirthday.iso; // Formato YYYY-MM-DD
+
       // 1. Tentar salvar no Supabase
       try {
-        // Corrigir timezone: garantir que a data seja salva corretamente sem ajuste de fuso horário
-        const birthdayDate = new Date(birthday + 'T12:00:00'); // Adicionar horário do meio-dia para evitar problema de timezone
-        const formattedBirthday = birthdayDate.toISOString().split('T')[0]; // Formato YYYY-MM-DD
-
         console.log('📅 Data original:', birthday);
         console.log('📅 Data formatada para salvar:', formattedBirthday);
 
@@ -10543,7 +10613,7 @@ Estamos te aguardando! 😎✂️`;
 
         savedBirthdays[client.whatsapp] = {
           name: client.name,
-          birthday: birthday,
+          birthday: formattedBirthday,
           savedAt: new Date().toISOString()
         };
 
@@ -10989,6 +11059,13 @@ Estamos te aguardando! 😎✂️`;
       return;
     }
 
+    const parsedNewClientBirthday = parseBirthdayToIso(newClientBirthday);
+    if (parsedNewClientBirthday.error) {
+      toast(parsedNewClientBirthday.error, 'error');
+      return;
+    }
+    const normalizedBirthday = parsedNewClientBirthday.iso || null;
+
     try {
       // Atualizar sessão do Supabase antes de inserir (resolve problemas no iPhone)
       await supabase.auth.refreshSession();
@@ -11010,7 +11087,7 @@ Estamos te aguardando! 😎✂️`;
           .update({
             name: newClientName.trim(),
             whatsapp: normalizedWhatsapp, // garantir padrão único (55 + DDD)
-            birthday: newClientBirthday || null,
+            birthday: normalizedBirthday,
             force_advance_payment: existingClient.force_advance_payment === true,
             updated_at: new Date().toISOString()
           })
@@ -11032,7 +11109,7 @@ Estamos te aguardando! 😎✂️`;
             establishment_id: establishment.id,
             name: newClientName.trim(),
             whatsapp: normalizedWhatsapp,
-            birthday: newClientBirthday || null,
+            birthday: normalizedBirthday,
             force_advance_payment: false
           })
           .select()
@@ -11057,7 +11134,7 @@ Estamos te aguardando! 😎✂️`;
       manualClients[normalizedWhatsapp] = {
         name: newClientName.trim(),
         whatsapp: normalizedWhatsapp,
-        birthday: newClientBirthday || null,
+        birthday: normalizedBirthday,
         forceAdvancePayment: manualClients[normalizedWhatsapp]?.forceAdvancePayment === true,
         addedAt: new Date().toISOString(),
         appointmentCount: 0
@@ -11065,7 +11142,7 @@ Estamos te aguardando! 😎✂️`;
       localStorage.setItem(storageKey, JSON.stringify(manualClients));
 
       // Se tem aniversário, salvar também no storage de aniversários
-      if (newClientBirthday) {
+      if (normalizedBirthday) {
         const birthdayStorageKey = `client_birthdays_${establishment.id}`;
         const savedBirthdays = JSON.parse(localStorage.getItem(birthdayStorageKey) || '{}');
         if (legacyWhatsapp && legacyWhatsapp !== normalizedWhatsapp && savedBirthdays[legacyWhatsapp]) {
@@ -11073,7 +11150,7 @@ Estamos te aguardando! 😎✂️`;
         }
         savedBirthdays[normalizedWhatsapp] = {
           name: newClientName.trim(),
-          birthday: newClientBirthday,
+          birthday: normalizedBirthday,
           savedAt: new Date().toISOString()
         };
         localStorage.setItem(birthdayStorageKey, JSON.stringify(savedBirthdays));
@@ -11110,7 +11187,7 @@ Estamos te aguardando! 😎✂️`;
         manualClients[normalizedWhatsapp] = {
           name: newClientName.trim(),
           whatsapp: normalizedWhatsapp,
-          birthday: newClientBirthday || null,
+          birthday: normalizedBirthday,
           forceAdvancePayment: manualClients[normalizedWhatsapp]?.forceAdvancePayment === true,
           addedAt: new Date().toISOString(),
           appointmentCount: 0
@@ -25205,9 +25282,12 @@ Estamos te aguardando! 😎✂️`;
                               {editingClientBirthday === client.whatsapp ? (
                                 <div className="flex items-center gap-2">
                                   <input
-                                    type="date"
+                                    type="text"
+                                    inputMode="numeric"
                                     value={newBirthday}
-                                    onChange={(e) => setNewBirthday(e.target.value)}
+                                    onChange={(e) => setNewBirthday(formatBirthdayMask(e.target.value))}
+                                    placeholder="DD/MM/AAAA"
+                                    maxLength={10}
                                     className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary"
                                   />
                                   <button
@@ -25244,7 +25324,7 @@ Estamos te aguardando! 😎✂️`;
                                         currentBirthday: client.birthday
                                       });
                                       setEditingClientBirthday(client.whatsapp);
-                                      setNewBirthday(client.birthday || '');
+                                      setNewBirthday(isoBirthdayToDisplay(client.birthday || ''));
                                     }}
                                     className="text-gray-600 hover:text-black text-xs"
                                     title="Editar aniversário"
@@ -26321,9 +26401,12 @@ Estamos te aguardando! 😎✂️`;
                       Data de Aniversário (opcional)
                     </label>
                     <input
-                      type="date"
+                      type="text"
+                      inputMode="numeric"
                       value={newClientBirthday}
-                      onChange={(e) => setNewClientBirthday(e.target.value)}
+                      onChange={(e) => setNewClientBirthday(formatBirthdayMask(e.target.value))}
+                      placeholder="DD/MM/AAAA"
+                      maxLength={10}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
                     />
                   </div>
