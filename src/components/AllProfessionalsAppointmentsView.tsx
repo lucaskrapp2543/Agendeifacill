@@ -1408,6 +1408,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     // Modal: Horários disponíveis (somente visualização, para print)
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
+    const [availabilityProfessionalId, setAvailabilityProfessionalId] = useState<string | null>(null);
     const [availabilityProfessionalName, setAvailabilityProfessionalName] = useState<string>('');
     const [availabilitySlots, setAvailabilitySlots] = useState<TimeSlot[]>([]);
 
@@ -1727,12 +1728,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const normalAppointments = appointments.filter((apt) =>
         appointmentBelongsToProfessionalColumn(apt, professional) &&
         apt.appointment_date === selectedDateStr &&
+        String(apt.status || '').toLowerCase() !== 'cancelled' &&
         !apt.is_squeeze
       );
 
       const squeezeAppointments = appointments.filter((apt) =>
         appointmentBelongsToProfessionalColumn(apt, professional) &&
         apt.appointment_date === selectedDateStr &&
+        String(apt.status || '').toLowerCase() !== 'cancelled' &&
         apt.is_squeeze
       );
 
@@ -1959,6 +1962,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
       return result;
     };
+
+    useEffect(() => {
+      if (!showAvailabilityModal || !availabilityProfessionalId) return;
+      const professional = professionals.find((p) => String(p.id) === String(availabilityProfessionalId));
+      if (!professional) return;
+      setAvailabilityProfessionalName(professional.name);
+      setAvailabilitySlots(generateTimeSlotsWithAppointments(professional));
+      // Atualiza automaticamente o modal quando agendamentos/data mudarem,
+      // mantendo a mesma lógica visual do Booking.
+    }, [showAvailabilityModal, availabilityProfessionalId, appointments, selectedDate, professionals]);
 
     const toggleAppointmentExpansion = (appointmentId: string) => {
       setExpandedAppointments(prev => {
@@ -3569,6 +3582,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
                           <button
                             onClick={() => {
+                              setAvailabilityProfessionalId(professional.id);
                               setAvailabilityProfessionalName(professional.name);
                               setAvailabilitySlots(timeSlots);
                               setShowAvailabilityModal(true);
@@ -4531,14 +4545,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
               <div className="p-4 max-h-[70vh] overflow-y-auto">
                 {/* Grade no estilo do Booking (TimeSlotSelector) */}
                 <div className="grid grid-cols-4 gap-2">
-                  {availabilitySlots.map((slot, idx) => {
+                  {availabilitySlots
+                    .filter((slot) => !Boolean((slot as any).isPast))
+                    .map((slot, idx) => {
                     const appointment = slot.appointment || slot.parentAppointment;
                     const isPast = Boolean((slot as any).isPast);
                     const isAvailable = slot.isEmpty && !slot.isBlocked && !isPast;
                     const isBlocked = slot.isBlocked;
                     const isAvulso = Boolean((appointment as any)?.is_avulso);
                     const isSqueeze = Boolean((appointment as any)?.is_squeeze);
-                    const isReserved = Boolean(appointment) && !isAvulso && !isSqueeze;
+                    const isCancelled = String((appointment as any)?.status || '').toLowerCase() === 'cancelled';
+                    const isReserved = Boolean(appointment) && !isCancelled && !isAvulso && !isSqueeze;
 
                     const isDisabled = !isAvailable || isReserved || isAvulso || isBlocked || isSqueeze || isPast;
 
