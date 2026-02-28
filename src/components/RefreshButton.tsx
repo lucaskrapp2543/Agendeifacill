@@ -5,8 +5,12 @@ import { clearAllCaches, unregisterServiceWorker } from '../utils/serviceWorker'
 export const RefreshButton = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Oculta o botão de recarregar especificamente na página /planos
-  if (window.location.pathname === '/planos') return null;
+  // Exibir apenas nos dashboards internos (estabelecimento/admin).
+  // Não mostrar no booking, view-appointments e demais páginas.
+  const currentPath = window.location.pathname;
+  const isEstablishmentDashboard = currentPath.startsWith('/dashboard/establishment');
+  const isAdminDashboard = currentPath.startsWith('/dashboard/admin');
+  if (!isEstablishmentDashboard && !isAdminDashboard) return null;
 
   const hardRefresh = async () => {
     try {

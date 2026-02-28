@@ -133,6 +133,23 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
     return 'sent';
   };
 
+  const isMetaReminderLog = (row: ReminderLogRaw): boolean => {
+    const metaStatus = String(row.meta_status || '').toLowerCase().trim();
+    if (metaStatus) return true;
+
+    const providerResponse = String(row.provider_response || '').toLowerCase();
+    if (!providerResponse) return false;
+
+    // Heurísticas para identificar resposta da Meta Cloud API
+    return (
+      providerResponse.includes('"messaging_product":"whatsapp"') ||
+      providerResponse.includes('"messaging_product": "whatsapp"') ||
+      providerResponse.includes('"contacts"') ||
+      providerResponse.includes('"messages"') ||
+      providerResponse.includes('whatsapp_business_api_data')
+    );
+  };
+
   const formatCreatedAt = (iso: string | null | undefined): string => {
     if (!iso) return '-';
     const date = new Date(iso);
@@ -199,8 +216,10 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
         lastLogsError = error;
       }
       if (!logsLoaded) throw lastLogsError || new Error('Falha ao carregar logs de WhatsApp.');
+      const metaRows = rows.filter(isMetaReminderLog);
+
       const appointmentIds = Array.from(
-        new Set(rows.map(r => String(r.appointment_id || '').trim()).filter(Boolean))
+        new Set(metaRows.map(r => String(r.appointment_id || '').trim()).filter(Boolean))
       );
 
       const professionalsById = new Map<string, string>();
@@ -247,7 +266,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
       }
 
       const counters = { sent: 0, failed: 0, delivered: 0 };
-      const mapped: ReminderLogView[] = rows.map((row, idx) => {
+      const mapped: ReminderLogView[] = metaRows.map((row, idx) => {
         const kind = classifyReminderLog(row);
         counters[kind] += 1;
 
@@ -365,7 +384,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
           {ativo && (
             <div className="lg:col-span-2 rounded-2xl border border-cyan-500/20 bg-black/40 p-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm font-bold text-cyan-200">Histórico de envios (mês atual)</div>
+                <div className="text-sm font-bold text-cyan-200">Histórico de envios Meta (mês atual)</div>
                 <button
                   type="button"
                   onClick={() => void loadReminderLogs()}
@@ -418,7 +437,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
                   <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{logLoadError}</div>
                 ) : filteredLogRows.length === 0 ? (
                   <div className="rounded-xl border border-gray-700 bg-black/30 p-3 text-sm text-gray-400">
-                    Nenhum registro nesse filtro no mês atual.
+                    Nenhum registro Meta nesse filtro no mês atual.
                   </div>
                 ) : (
                   filteredLogRows.map(row => (

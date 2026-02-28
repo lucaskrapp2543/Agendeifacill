@@ -57,6 +57,7 @@ interface Professional {
   whatsapp?: string; // Campo para WhatsApp do profissional
   offers_child_service?: boolean; // Campo para indicar se oferece serviço infantil
   hidden_from_booking?: boolean; // Campo para ocultar profissional do booking público
+  hide_gross_in_financial?: boolean; // Oculta bruto no financeiro (Meus Agendamentos)
   work_hours?: {
     [key: string]: {
       enabled: boolean;
@@ -219,6 +220,14 @@ interface AppointmentProduct {
   quantity: number;
   unit_price: number;
   created_at: string;
+}
+
+interface OccupancyMonthSummary {
+  monthKey: string;
+  monthLabel: string;
+  totalSlots: number;
+  occupiedSlots: number;
+  occupancyRate: number;
 }
 
 interface ServiceCategory {
@@ -435,6 +444,8 @@ const EstablishmentDashboard = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [monthlyAppointments, setMonthlyAppointments] = useState<Appointment[]>([]);
+  const [occupancyHistory, setOccupancyHistory] = useState<OccupancyMonthSummary[]>([]);
+  const [isLoadingOccupancyHistory, setIsLoadingOccupancyHistory] = useState(false);
   const [highlightedProfessionalId, setHighlightedProfessionalId] = useState<string | null>(null);
   const [highlightReserveButton, setHighlightReserveButton] = useState(false);
   const [secondUnitName, setSecondUnitName] = useState<string | null>(null);
@@ -3745,7 +3756,7 @@ const EstablishmentDashboard = () => {
   const [showConfigPasswordModal, setShowConfigPasswordModal] = useState(false);
   const [configPasswordVerified, setConfigPasswordVerified] = useState(false);
   const [pendingAction, setPendingAction] = useState<{
-    type: 'percentage' | 'password' | 'goal' | 'barbershop_cash';
+    type: 'percentage' | 'password' | 'goal' | 'barbershop_cash' | 'hide_gross';
     professionalId: string;
     data?: any;
   } | null>(null);
@@ -6880,6 +6891,45 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  const handleToggleHideGrossInFinancial = async (professionalId: string, hideGrossInFinancial: boolean) => {
+    if (!establishment) return;
+
+    try {
+      const updatedProfessionals = professionals.map(p =>
+        p.id === professionalId ? { ...p, hide_gross_in_financial: hideGrossInFinancial } : p
+      );
+
+      setProfessionals(updatedProfessionals);
+
+      const { error } = await supabase
+        .from('establishments')
+        .update({ professionals: updatedProfessionals })
+        .eq('id', establishment.id);
+
+      if (error) {
+        toast('Erro ao salvar configuração de ocultar bruto', 'error');
+        setProfessionals(prev => prev.map(p =>
+          p.id === professionalId ? { ...p, hide_gross_in_financial: !hideGrossInFinancial } : p
+        ));
+        return;
+      }
+
+      setEstablishment({
+        ...establishment,
+        professionals: updatedProfessionals
+      });
+
+      toast.success(
+        hideGrossInFinancial
+          ? 'Bruto ocultado no financeiro desse profissional'
+          : 'Bruto visível novamente no financeiro desse profissional'
+      );
+    } catch (error) {
+      console.error('❌ Erro ao alternar ocultar bruto do profissional:', error);
+      toast('Erro ao atualizar configuração', 'error');
+    }
+  };
+
   // Função para salvar profissionais no banco de dados
   const saveProfessionalsToDatabase = async () => {
     if (!establishment) return;
@@ -9548,6 +9598,206 @@ Estamos te aguardando! 😎✂️`;
     }
   }, [establishment?.id, selectedMonth]);
 
+  const loadOccupancyHistory = useCallback(async () => {
+    if (!establishment?.id) {
+      setOccupancyHistory([]);
+      return;
+    }
+
+    const scheduleIntervalMinutes = use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15;
+    const monthAnchors: Date[] = [];
+    for (let i = 5; i >= 0; i -= 1) {
+      monthAnchors.push(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - i, 1));
+    }
+
+    const firstMonthStart = startOfMonth(monthAnchors[0]);
+    const lastMonthEnd = endOfMonth(monthAnchors[monthAnchors.length - 1]);
+    const dayKeys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+    const toMinutes = (value: string | undefined | null): number | null => {
+      const str = String(value || '').trim();
+      if (!str || !str.includes(':')) return null;
+      const [hh, mm] = str.split(':').map((v) => Number(v));
+      if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+      return hh * 60 + mm;
+    };
+    const toTimeLabel = (minutes: number): string =>
+      `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+    const isProfessionalEnabled = (professional: Professional): boolean => {
+      const anyProfessional = professional as any;
+      if (anyProfessional?.deleted_at) return false;
+      if (anyProfessional?.disabled === true) return false;
+      if (anyProfessional?.active === false) return false;
+      if (anyProfessional?.is_active === false) return false;
+      return true;
+    };
+
+    const computeSlotsSummaryForMonth = (
+      monthDate: Date,
+      appointmentRangesByDateProfessional: Map<string, Array<{ start: number; end: number }>>
+    ): { totalSlots: number; occupiedSlots: number } => {
+      const monthStart = startOfMonth(monthDate);
+      const monthEnd = endOfMonth(monthDate);
+      const now = new Date();
+      const isCurrentMonth =
+        monthDate.getFullYear() === now.getFullYear() &&
+        monthDate.getMonth() === now.getMonth();
+      const consideredEnd = isCurrentMonth ? now : monthEnd;
+
+      if (consideredEnd < monthStart) return { totalSlots: 0, occupiedSlots: 0 };
+
+      let totalSlots = 0;
+      let occupiedSlots = 0;
+      const cursor = new Date(monthStart);
+      while (cursor <= consideredEnd) {
+        const dateKey = format(cursor, 'yyyy-MM-dd');
+        const dayKey = dayKeys[cursor.getDay()];
+        const isCurrentDay = isCurrentMonth && dateKey === format(now, 'yyyy-MM-dd');
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+        for (const professional of professionals) {
+          if (!isProfessionalEnabled(professional)) continue;
+          const absencesFromMap = professionalAbsences[professional.id] || [];
+          const absencesFromProfessional = Array.isArray((professional as any).absences)
+            ? ((professional as any).absences as string[])
+            : [];
+          const allAbsences = [...absencesFromMap, ...absencesFromProfessional];
+          if (allAbsences.includes(dateKey)) continue;
+
+          const profDay = (professional as any)?.work_hours?.[dayKey];
+          // Modo estrito: só conta agenda própria do profissional.
+          if (!profDay || profDay.enabled !== true) continue;
+
+          const startMinutes = toMinutes(profDay.entry_time);
+          const endMinutes = toMinutes(profDay.exit_time);
+          if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) continue;
+
+          const breakStart = toMinutes(profDay.break_start);
+          const breakEnd = toMinutes(profDay.break_end);
+
+          const blockedByDate = ((professional as any)?.blocked_hours || {})[dateKey] || [];
+          const blockedSet = new Set(
+            (Array.isArray(blockedByDate) ? blockedByDate : [])
+              .map((time) => String(time || '').trim())
+              .filter(Boolean)
+          );
+          const rangeKey = `${dateKey}|${String(professional.id)}`;
+          const ranges = appointmentRangesByDateProfessional.get(rangeKey) || [];
+
+          for (let minute = startMinutes; minute < endMinutes; minute += scheduleIntervalMinutes) {
+            if (isCurrentDay && minute > currentMinutes) continue;
+            const inBreak =
+              breakStart != null &&
+              breakEnd != null &&
+              minute >= breakStart &&
+              minute < breakEnd;
+            if (inBreak) continue;
+
+            const slotLabel = toTimeLabel(minute);
+            if (blockedSet.has(slotLabel)) continue;
+            totalSlots += 1;
+            const isOccupied = ranges.some((range) => minute >= range.start && minute < range.end);
+            if (isOccupied) occupiedSlots += 1;
+          }
+        }
+
+        cursor.setDate(cursor.getDate() + 1);
+      }
+
+      return { totalSlots, occupiedSlots };
+    };
+
+    setIsLoadingOccupancyHistory(true);
+    try {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('appointment_date,appointment_time,duration,additional_products,status,professional,is_squeeze')
+        .eq('establishment_id', establishment.id)
+        .gte('appointment_date', format(firstMonthStart, 'yyyy-MM-dd'))
+        .lte('appointment_date', format(lastMonthEnd, 'yyyy-MM-dd'))
+        .neq('status', 'cancelled');
+
+      if (error) throw error;
+
+      const rows = (data || []) as Array<{
+        appointment_date?: string | null;
+        appointment_time?: string | null;
+        duration?: number | null;
+        additional_products?: Array<{ duration?: number | null }> | null;
+        status?: string | null;
+        professional?: string | null;
+        is_squeeze?: boolean | null;
+      }>;
+
+      const resolveProfessionalId = (value: string | null | undefined): string | null => {
+        const raw = String(value || '').trim();
+        if (!raw) return null;
+        const byId = professionals.find((p) => String(p.id || '').trim() === raw);
+        if (byId) return String(byId.id);
+        const byName = professionals.find((p) => String(p.name || '').trim().toLowerCase() === raw.toLowerCase());
+        if (byName) return String(byName.id);
+        return null;
+      };
+
+      const getAppointmentOccupiedSlots = (row: (typeof rows)[number]) => {
+        const baseDuration = Number(row.duration || 0);
+        const extraDuration = Array.isArray(row.additional_products)
+          ? row.additional_products.reduce((sum, item) => sum + Number(item?.duration || 0), 0)
+          : 0;
+        const totalMinutes = Math.max(1, baseDuration + extraDuration || scheduleIntervalMinutes);
+        return Math.max(1, Math.ceil(totalMinutes / scheduleIntervalMinutes));
+      };
+
+      const appointmentRangesByDateProfessional = new Map<string, Array<{ start: number; end: number }>>();
+      for (const apt of rows) {
+        const dateKey = String(apt.appointment_date || '').trim();
+        if (!dateKey) continue;
+        const professionalId = resolveProfessionalId(apt.professional);
+        if (!professionalId) continue;
+        const professional = professionals.find((p) => String(p.id) === professionalId);
+        if (!professional || !isProfessionalEnabled(professional)) continue;
+        const startMinutes = toMinutes(String(apt.appointment_time || '').trim());
+        if (startMinutes == null) continue;
+        const occupiedSlots = getAppointmentOccupiedSlots(apt);
+        const endMinutes = startMinutes + occupiedSlots * scheduleIntervalMinutes;
+        const key = `${dateKey}|${professionalId}`;
+        const current = appointmentRangesByDateProfessional.get(key) || [];
+        current.push({ start: startMinutes, end: endMinutes });
+        appointmentRangesByDateProfessional.set(key, current);
+      }
+
+      const summary = monthAnchors.map((monthDate) => {
+        const monthKey = format(monthDate, 'yyyy-MM');
+
+        const { totalSlots, occupiedSlots } = computeSlotsSummaryForMonth(monthDate, appointmentRangesByDateProfessional);
+        const occupancyRateRaw = totalSlots > 0 ? Math.min(100, (occupiedSlots / totalSlots) * 100) : 0;
+        const occupancyRate = Math.round(occupancyRateRaw * 10) / 10;
+
+        return {
+          monthKey,
+          monthLabel: monthDate.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }),
+          totalSlots,
+          occupiedSlots,
+          occupancyRate,
+        } as OccupancyMonthSummary;
+      });
+
+      setOccupancyHistory(summary);
+    } catch (error) {
+      console.error('Erro ao carregar histórico de taxa de ocupação:', error);
+      setOccupancyHistory([]);
+    } finally {
+      setIsLoadingOccupancyHistory(false);
+    }
+  }, [
+    establishment?.id,
+    selectedMonth,
+    professionals,
+    professionalAbsences,
+    use15MinuteInterval,
+    use20MinuteSchedule,
+    use60MinuteSchedule,
+  ]);
+
   // Carregar assinantes pagos e despesas quando trocar de aba ou estabelecimento mudar
   useEffect(() => {
     if (establishment?.id && establishment.professionals && establishment.professionals.length > 0) {
@@ -9558,6 +9808,12 @@ Estamos te aguardando! 😎✂️`;
       loadGrossValueHistory();
     }
   }, [establishment?.id, activeTab, establishment?.professionals, selectedMonth, loadExpenses, loadProfessionalPayments, loadInitialValuesForMonth, loadGrossValueHistory]);
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    if (activeTab !== 'financial-dashboard') return;
+    loadOccupancyHistory();
+  }, [activeTab, establishment?.id, loadOccupancyHistory]);
 
   // Sincronizar cards consolidados do topo sempre que o mês OU os agendamentos concluídos mudarem
   // (evita ficar desatualizado após concluir serviço/produto sem trocar de aba).
@@ -11736,7 +11992,7 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
-  const handleProtectedAction = (type: 'percentage' | 'password' | 'goal' | 'barbershop_cash', professionalId: string, data?: any) => {
+  const handleProtectedAction = (type: 'percentage' | 'password' | 'goal' | 'barbershop_cash' | 'hide_gross', professionalId: string, data?: any) => {
     // Verificar se há senha configurada
     const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
 
@@ -11764,7 +12020,7 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
-  const executeProtectedAction = (type: 'percentage' | 'password' | 'goal' | 'barbershop_cash', professionalId: string, data?: any) => {
+  const executeProtectedAction = (type: 'percentage' | 'password' | 'goal' | 'barbershop_cash' | 'hide_gross', professionalId: string, data?: any) => {
     switch (type) {
       case 'percentage':
         if (data?.percentage !== undefined) {
@@ -11784,7 +12040,24 @@ Estamos te aguardando! 😎✂️`;
       case 'barbershop_cash':
         setPendingOpenBarbershopCashAfterPin(true);
         break;
+      case 'hide_gross':
+        if (data?.hideGrossInFinancial !== undefined) {
+          handleToggleHideGrossInFinancial(professionalId, Boolean(data.hideGrossInFinancial));
+        }
+        break;
     }
+  };
+
+  const handleRequestHideGrossToggle = (professionalId: string, hideGrossInFinancial: boolean) => {
+    const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
+
+    if (!hasPassword || configPasswordVerified) {
+      void handleToggleHideGrossInFinancial(professionalId, hideGrossInFinancial);
+      return;
+    }
+
+    setPendingAction({ type: 'hide_gross', professionalId, data: { hideGrossInFinancial } });
+    setShowConfigPasswordModal(true);
   };
 
   const handleConfigPasswordSuccess = () => {
@@ -24071,6 +24344,49 @@ Estamos te aguardando! 😎✂️`;
 
                   {/* Dashboard Financeiro com Despesas */}
                   <div className="rounded-2xl shadow-lg border border-gray-200 bg-gradient-to-br from-white via-gray-50 to-gray-100 p-6">
+                    {(() => {
+                      const selectedKey = format(selectedMonth, 'yyyy-MM');
+                      const currentSummary = occupancyHistory.find((item) => item.monthKey === selectedKey);
+                      return (
+                        <div className="mb-5 rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50 via-white to-violet-50 p-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-indigo-600">Taxa de ocupação</div>
+                          {isLoadingOccupancyHistory ? (
+                            <div className="mt-2 text-sm text-gray-600">Calculando taxa de ocupação...</div>
+                          ) : currentSummary ? (
+                            <>
+                              <div className="mt-2 flex flex-wrap items-end gap-3">
+                                <div className="text-3xl font-extrabold text-gray-900">
+                                  {currentSummary.occupancyRate.toFixed(1)}%
+                                </div>
+                                <div className="text-sm text-gray-700 pb-1">
+                                  {currentSummary.occupiedSlots} horários ocupados de {currentSummary.totalSlots} vagas no mês selecionado
+                                </div>
+                              </div>
+                              <div className="mt-3 h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all"
+                                  style={{ width: `${Math.min(100, currentSummary.occupancyRate)}%` }}
+                                />
+                              </div>
+                              <div className="mt-4 grid grid-cols-2 md:grid-cols-6 gap-2">
+                                {occupancyHistory.map((item) => (
+                                  <div key={item.monthKey} className="rounded-lg border border-gray-200 bg-white p-2">
+                                    <div className="text-[11px] text-gray-500">{item.monthLabel}</div>
+                                    <div className="text-sm font-bold text-gray-900">{item.occupancyRate.toFixed(0)}%</div>
+                                    <div className="text-[10px] text-gray-500">
+                                      {item.occupiedSlots}/{item.totalSlots}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="mt-2 text-sm text-gray-600">Sem dados suficientes para calcular ocupação.</div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     <div className="flex items-center justify-between mb-6">
                       <h2 className="text-2xl font-bold text-gray-900">Dashboard Financeiro</h2>
                       <div className="flex gap-2">
@@ -28762,7 +29078,7 @@ Estamos te aguardando! 😎✂️`;
                 <div className="mt-4 rounded-xl border border-amber-400/25 bg-amber-500/10 p-4">
                   <div className="text-sm text-amber-100 font-extrabold mb-2">💡 Importante</div>
                   <div className="space-y-1 text-xs text-amber-100/90">
-                    <div>• Cada profissional pode visualizar o total <strong>bruto</strong> e <strong>líquido</strong> do dia</div>
+                    <div>• Você pode escolher por profissional se ele verá o <strong>bruto</strong> no financeiro</div>
                     <div>• As alterações só terão efeito após clicar em <strong>Salvar Profissionais</strong></div>
                     <div>• <strong>Horários de trabalho:</strong> agora é obrigatório marcar <strong>Aberto/Fechado</strong> em todos os dias</div>
                   </div>
@@ -29000,6 +29316,30 @@ Estamos te aguardando! 😎✂️`;
                         />
                       </div>
                       <p className="text-xs text-gray-500">Exemplo: 99 9 9999-9999 (DDD + 9 + número). O 55 já está incluído.</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Ocultar bruto</label>
+                      <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span>🙈</span>
+                          <div>
+                            <span className="text-white">Ocultar bruto no financeiro</span>
+                            <p className="text-xs text-gray-500">
+                              Em Meus Agendamentos, esse profissional verá só o líquido.
+                            </p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={professional.hide_gross_in_financial || false}
+                            onChange={(e) => handleRequestHideGrossToggle(professional.id, e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
+                        </label>
+                      </div>
                     </div>
 
                     {/* ✅ Saldo por produtos (repasse do mês) */}
@@ -30660,6 +31000,8 @@ Estamos te aguardando! 😎✂️`;
             ? "Digite a senha de 4 dígitos para visualizar a senha do profissional"
             : pendingAction?.type === 'percentage'
               ? "Digite a senha de 4 dígitos para alterar o percentual do profissional"
+              : pendingAction?.type === 'hide_gross'
+                ? "Digite a senha de 4 dígitos para alterar a opção de ocultar bruto do profissional"
               : pendingAction?.type === 'barbershop_cash'
                 ? "Digite a senha de 4 dígitos para acessar o caixa da barbearia"
                 : "Digite a senha de 4 dígitos para alterar configurações sensíveis"

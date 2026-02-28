@@ -7,6 +7,7 @@ interface ProfessionalInfoModalProps {
     name: string;
     photo_url?: string;
     percentage?: number;
+    hide_gross_in_financial?: boolean;
   };
   professionalPin?: string;
   dailyGross: number;
@@ -70,6 +71,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   };
   const hasSubscriberFinancial =
     subscriberMonthlyAccumulated > 0 || subscriberMonthlyPaid > 0 || subscriberMonthlyPending > 0;
+  const hideGrossInFinancial = professional.hide_gross_in_financial === true;
 
   if (!isAuthenticated) {
     return (
@@ -231,13 +233,15 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
               <DollarSign className="w-5 h-5" />
               Valores do Dia
             </h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-white p-4 rounded-lg">
-                <p className="text-sm text-gray-600 mb-1">Valor Bruto</p>
-                <p className="text-2xl font-bold text-green-600">
-                  {showValues ? formatCurrency(dailyGross) : '••••••'}
-                </p>
-              </div>
+            <div className={`grid ${hideGrossInFinancial ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>
+              {!hideGrossInFinancial && (
+                <div className="bg-white p-4 rounded-lg">
+                  <p className="text-sm text-gray-600 mb-1">Valor Bruto</p>
+                  <p className="text-2xl font-bold text-green-600">
+                    {showValues ? formatCurrency(dailyGross) : '••••••'}
+                  </p>
+                </div>
+              )}
               <div className="bg-white p-4 rounded-lg">
                 <p className="text-sm text-gray-600 mb-1">Valor Líquido</p>
                 <p className="text-2xl font-bold text-green-700">
@@ -258,13 +262,15 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
               <TrendingUp className="w-5 h-5" />
               Valores do Mês
             </h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-white p-4 rounded-lg">
-                <p className="text-sm text-gray-600 mb-1">Valor Bruto</p>
-                <p className="text-2xl font-bold text-gray-800">
-                  {showValues ? formatCurrency(monthlyGross) : '••••••'}
-                </p>
-              </div>
+            <div className={`grid ${hideGrossInFinancial ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>
+              {!hideGrossInFinancial && (
+                <div className="bg-white p-4 rounded-lg">
+                  <p className="text-sm text-gray-600 mb-1">Valor Bruto</p>
+                  <p className="text-2xl font-bold text-gray-800">
+                    {showValues ? formatCurrency(monthlyGross) : '••••••'}
+                  </p>
+                </div>
+              )}
               <div className="bg-white p-4 rounded-lg">
                 <p className="text-sm text-gray-600 mb-1">Valor Líquido</p>
                 <p className="text-2xl font-bold text-gray-900">
@@ -299,7 +305,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
           <div className="bg-gray-50 p-4 rounded-lg">
             <h4 className="font-semibold text-gray-800 mb-2">💡 Sobre os Valores</h4>
             <ul className="text-sm text-gray-600 space-y-1">
-              <li>• <strong>Valor Bruto:</strong> Total sem descontos</li>
+              {!hideGrossInFinancial && <li>• <strong>Valor Bruto:</strong> Total sem descontos</li>}
               <li>• <strong>Valor Líquido:</strong> Após descontar taxas e percentual do estabelecimento</li>
               {professional.percentage !== undefined && (
                 <li>• <strong>Percentual:</strong> {professional.percentage}% do valor bruto vai para o profissional</li>

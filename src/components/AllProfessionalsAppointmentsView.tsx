@@ -14,6 +14,7 @@ interface Professional {
   photo_url?: string;
   percentage?: number;
   goal?: number;
+  hide_gross_in_financial?: boolean;
 }
 
 interface ProfessionalPin {
