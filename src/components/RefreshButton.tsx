@@ -1,13 +1,46 @@
 import { RefreshCw } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { clearAllCaches, unregisterServiceWorker } from '../utils/serviceWorker';
 
 export const RefreshButton = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [currentPath, setCurrentPath] = useState(() => window.location.pathname);
+
+  useEffect(() => {
+    const updatePath = () => setCurrentPath(window.location.pathname);
+
+    // Eventos nativos de navegação
+    window.addEventListener('popstate', updatePath);
+    window.addEventListener('hashchange', updatePath);
+    window.addEventListener('locationchange', updatePath as EventListener);
+
+    // Intercepta navegação SPA para disparar atualização de rota
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+
+    window.history.pushState = function (...args) {
+      const result = originalPushState.apply(this, args as any);
+      window.dispatchEvent(new Event('locationchange'));
+      return result;
+    };
+
+    window.history.replaceState = function (...args) {
+      const result = originalReplaceState.apply(this, args as any);
+      window.dispatchEvent(new Event('locationchange'));
+      return result;
+    };
+
+    return () => {
+      window.removeEventListener('popstate', updatePath);
+      window.removeEventListener('hashchange', updatePath);
+      window.removeEventListener('locationchange', updatePath as EventListener);
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
+    };
+  }, []);
 
   // Exibir apenas nos dashboards internos (estabelecimento/admin).
   // Não mostrar no booking, view-appointments e demais páginas.
-  const currentPath = window.location.pathname;
   const isEstablishmentDashboard = currentPath.startsWith('/dashboard/establishment');
   const isAdminDashboard = currentPath.startsWith('/dashboard/admin');
   if (!isEstablishmentDashboard && !isAdminDashboard) return null;
