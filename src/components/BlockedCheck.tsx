@@ -20,6 +20,16 @@ const BlockedCheck: React.FC<BlockedCheckProps> = ({ children }) => {
         return;
       }
 
+      // Em localhost não bloqueamos dashboard por cobrança.
+      // Isso evita travas durante suporte/teste e não afeta produção.
+      const isLocalEnv =
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1';
+      if (isLocalEnv) {
+        setIsChecking(false);
+        return;
+      }
+
       try {
         // ✅ Fail-open com timeout: evita travar infinito em mobile/PWA ou quando há outra aba aberta
         // Se a checagem demorar demais, liberamos o app e registramos no console.
@@ -30,12 +40,14 @@ const BlockedCheck: React.FC<BlockedCheckProps> = ({ children }) => {
           setIsChecking(false);
         }, 8000);
 
-        // Verificar se o usuário é um estabelecimento
-        const { data: establishmentData, error } = await supabase
+        // Verificar bloqueio apenas em estabelecimentos ativos do proprietário.
+        // Evita falso bloqueio quando existem registros antigos/deletados.
+        const { data: establishmentsData, error } = await supabase
           .from('establishments')
-          .select('is_blocked')
+          .select('id,is_blocked,is_deleted,created_at')
           .eq('owner_id', user.id)
-          .single();
+          .or('is_deleted.is.null,is_deleted.eq.false')
+          .order('created_at', { ascending: false });
 
         window.clearTimeout(timeoutId);
         if (timeoutFired) return; // já liberamos o app; não sobrescrever estado
@@ -46,7 +58,15 @@ const BlockedCheck: React.FC<BlockedCheckProps> = ({ children }) => {
           return;
         }
 
-        if (establishmentData && establishmentData.is_blocked) {
+        const activeEstablishments = Array.isArray(establishmentsData) ? establishmentsData : [];
+        if (activeEstablishments.length === 0) {
+          setIsChecking(false);
+          return;
+        }
+
+        // Regra defensiva: só bloqueia se TODOS os estabelecimentos ativos estiverem bloqueados.
+        const shouldBlock = activeEstablishments.every((est) => Boolean((est as any)?.is_blocked));
+        if (shouldBlock) {
           setIsBlocked(true);
           navigate('/blocked');
           return;

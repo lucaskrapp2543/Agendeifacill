@@ -1281,6 +1281,34 @@ export default function BookingPage() {
       return;
     }
 
+    // Página aberta por muito tempo pode deixar token inválido em memória.
+    // Antes de inserir no banco, validar a sessão real do Supabase.
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      const authUser = authData?.user || null;
+
+      if (authError || !authUser) {
+        if (guestClientData) {
+          const relogin = await createGuestClientAndLogin(
+            guestClientData.name,
+            guestClientData.phone
+          );
+          if (relogin.error || !relogin.user) {
+            toast.error('Sua sessão expirou. Reabra o agendamento e tente novamente.');
+            return;
+          }
+          currentUser = relogin.user;
+        } else {
+          toast.error('Sua sessão expirou. Faça login novamente para agendar.');
+          return;
+        }
+      } else {
+        currentUser = authUser;
+      }
+    } catch (sessionError) {
+      console.error('Erro ao validar sessão antes do agendamento:', sessionError);
+    }
+
     // Helper: evita ficar preso para sempre em chamadas do Supabase
     const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
       return await Promise.race([
@@ -1673,6 +1701,10 @@ export default function BookingPage() {
       const code = error?.code || error?.status || undefined;
       const details = error?.details || error?.hint || undefined;
       console.error('Error creating appointment:', error);
+      if (String(code) === '42501') {
+        toast.error('Permissão negada para agendar (sessão expirada). Atualize a página e faça login novamente.');
+        return;
+      }
       toast.error(
         [error?.message || 'Erro ao criar agendamento', code ? `(código: ${code})` : null, details ? `- ${details}` : null]
           .filter(Boolean)

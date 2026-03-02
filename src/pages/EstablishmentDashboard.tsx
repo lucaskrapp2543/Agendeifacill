@@ -225,9 +225,24 @@ interface AppointmentProduct {
 interface OccupancyMonthSummary {
   monthKey: string;
   monthLabel: string;
-  totalSlots: number;
-  occupiedSlots: number;
+  totalCapacityMinutes: number;
+  occupiedMinutes: number;
   occupancyRate: number;
+}
+
+interface MonthlyAppointmentStatusSummary {
+  completed: number;
+  cancelled: number;
+  pending: number;
+}
+
+interface PendingAppointmentSummaryItem {
+  id: string;
+  appointment_date: string;
+  appointment_time: string;
+  client_name: string;
+  professional: string;
+  status: string;
 }
 
 interface ServiceCategory {
@@ -444,6 +459,13 @@ const EstablishmentDashboard = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [monthlyAppointments, setMonthlyAppointments] = useState<Appointment[]>([]);
+  const [monthlyStatusSummary, setMonthlyStatusSummary] = useState<MonthlyAppointmentStatusSummary>({
+    completed: 0,
+    cancelled: 0,
+    pending: 0,
+  });
+  const [monthlyPendingAppointments, setMonthlyPendingAppointments] = useState<PendingAppointmentSummaryItem[]>([]);
+  const [showPendingAppointmentsSummary, setShowPendingAppointmentsSummary] = useState(false);
   const [occupancyHistory, setOccupancyHistory] = useState<OccupancyMonthSummary[]>([]);
   const [isLoadingOccupancyHistory, setIsLoadingOccupancyHistory] = useState(false);
   const [highlightedProfessionalId, setHighlightedProfessionalId] = useState<string | null>(null);
@@ -8369,15 +8391,73 @@ Estamos te aguardando! 😎✂️`;
 
       console.log('🔍 DEBUG - Vou atualizar monthlyAppointments com:', appointments?.length || 0, 'agendamentos');
       setMonthlyAppointments(appointments || []);
+
+      // Resumo mensal por status (independente da query financeira que usa apenas completed)
+      const { data: monthStatusRows, error: monthStatusError } = await supabase
+        .from('appointments')
+        .select('id,status,appointment_date,appointment_time,client_name,professional')
+        .eq('establishment_id', establishment.id)
+        .gte('appointment_date', startDateStr)
+        .lte('appointment_date', endDateStr);
+
+      if (monthStatusError) {
+        console.error('Erro ao buscar resumo mensal de status:', monthStatusError);
+        setMonthlyStatusSummary({ completed: 0, cancelled: 0, pending: 0 });
+        setMonthlyPendingAppointments([]);
+      } else {
+        const rows = (monthStatusRows || []) as Array<{
+          id?: string | null;
+          status?: string | null;
+          appointment_date?: string | null;
+          appointment_time?: string | null;
+          client_name?: string | null;
+          professional?: string | null;
+        }>;
+        const summary = rows.reduce(
+          (acc, row: any) => {
+            const status = String(row?.status || '').toLowerCase().trim();
+            if (status === 'completed') {
+              acc.completed += 1;
+            } else if (status === 'cancelled') {
+              acc.cancelled += 1;
+            } else if (status === 'pending' || status === 'pending_payment' || status === 'confirmed') {
+              acc.pending += 1;
+            }
+            return acc;
+          },
+          { completed: 0, cancelled: 0, pending: 0 } as MonthlyAppointmentStatusSummary
+        );
+        setMonthlyStatusSummary(summary);
+
+        const pendingStatuses = new Set(['pending', 'pending_payment', 'confirmed']);
+        const pendingItems = rows
+          .filter((row) => pendingStatuses.has(String(row?.status || '').toLowerCase().trim()))
+          .map((row) => ({
+            id: String(row?.id || ''),
+            appointment_date: String(row?.appointment_date || ''),
+            appointment_time: String(row?.appointment_time || ''),
+            client_name: String(row?.client_name || 'Cliente'),
+            professional: String(row?.professional || ''),
+            status: String(row?.status || ''),
+          }))
+          .sort((a, b) => {
+            const aKey = `${a.appointment_date} ${a.appointment_time}`;
+            const bKey = `${b.appointment_date} ${b.appointment_time}`;
+            return aKey.localeCompare(bKey);
+          });
+        setMonthlyPendingAppointments(pendingItems);
+      }
     } catch (error) {
       console.error('Erro ao buscar agendamentos:', error);
+      setMonthlyStatusSummary({ completed: 0, cancelled: 0, pending: 0 });
+      setMonthlyPendingAppointments([]);
     }
   };
 
   const fetchEstablishment = async () => {
     try {
       setIsEstablishmentLoading(true);
-      const { data: establishmentData, error } = await supabase
+      const { data: establishmentsData, error } = await supabase
         .from('establishments')
         .select(`
           *,
@@ -8385,12 +8465,31 @@ Estamos te aguardando! 😎✂️`;
           services_with_prices:services_with_prices
         `)
         .eq('owner_id', user?.id)
-        .single();
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
 
-      // Verificar se o estabelecimento está bloqueado
-      if (establishmentData && establishmentData.is_blocked) {
+      const ownerEstablishments = Array.isArray(establishmentsData) ? establishmentsData : [];
+      if (ownerEstablishments.length === 0) {
+        setIsEstablishmentLoading(false);
+        return;
+      }
+
+      const activeEstablishments = ownerEstablishments.filter(
+        (est) => !Boolean((est as any)?.is_deleted)
+      );
+      const establishmentsPool = activeEstablishments.length > 0 ? activeEstablishments : ownerEstablishments;
+
+      // Prioriza estabelecimento não bloqueado para evitar falso positivo.
+      const establishmentData =
+        establishmentsPool.find((est) => !Boolean((est as any)?.is_blocked)) || establishmentsPool[0];
+
+      // Só bloqueia se TODOS os estabelecimentos ativos estiverem bloqueados.
+      const shouldBlock = establishmentsPool.every((est) => Boolean((est as any)?.is_blocked));
+      const isLocalEnv =
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1';
+      if (shouldBlock && !isLocalEnv) {
         navigate('/blocked');
         return;
       }
@@ -9604,7 +9703,6 @@ Estamos te aguardando! 😎✂️`;
       return;
     }
 
-    const scheduleIntervalMinutes = use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15;
     const monthAnchors: Date[] = [];
     for (let i = 5; i >= 0; i -= 1) {
       monthAnchors.push(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() - i, 1));
@@ -9620,8 +9718,6 @@ Estamos te aguardando! 😎✂️`;
       if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
       return hh * 60 + mm;
     };
-    const toTimeLabel = (minutes: number): string =>
-      `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
     const isProfessionalEnabled = (professional: Professional): boolean => {
       const anyProfessional = professional as any;
       if (anyProfessional?.deleted_at) return false;
@@ -9630,29 +9726,97 @@ Estamos te aguardando! 😎✂️`;
       if (anyProfessional?.is_active === false) return false;
       return true;
     };
+    type MinuteRange = { start: number; end: number };
+    const normalizeRanges = (ranges: MinuteRange[]): MinuteRange[] => {
+      const sorted = [...ranges]
+        .filter((r) => Number.isFinite(r.start) && Number.isFinite(r.end) && r.end > r.start)
+        .sort((a, b) => a.start - b.start);
+      if (sorted.length === 0) return [];
+      const merged: MinuteRange[] = [sorted[0]];
+      for (let i = 1; i < sorted.length; i += 1) {
+        const prev = merged[merged.length - 1];
+        const cur = sorted[i];
+        if (cur.start <= prev.end) {
+          prev.end = Math.max(prev.end, cur.end);
+        } else {
+          merged.push({ ...cur });
+        }
+      }
+      return merged;
+    };
+    const subtractRanges = (base: MinuteRange[], toRemove: MinuteRange[]): MinuteRange[] => {
+      if (!base.length || !toRemove.length) return normalizeRanges(base);
+      let result = normalizeRanges(base);
+      const removed = normalizeRanges(toRemove);
+      for (const rem of removed) {
+        const next: MinuteRange[] = [];
+        for (const current of result) {
+          if (rem.end <= current.start || rem.start >= current.end) {
+            next.push(current);
+            continue;
+          }
+          if (rem.start > current.start) next.push({ start: current.start, end: rem.start });
+          if (rem.end < current.end) next.push({ start: rem.end, end: current.end });
+        }
+        result = next;
+      }
+      return normalizeRanges(result);
+    };
+    const rangesLength = (ranges: MinuteRange[]) =>
+      normalizeRanges(ranges).reduce((sum, range) => sum + Math.max(0, range.end - range.start), 0);
+    const overlapLength = (a: MinuteRange[], b: MinuteRange[]) => {
+      const left = normalizeRanges(a);
+      const right = normalizeRanges(b);
+      let i = 0;
+      let j = 0;
+      let total = 0;
+      while (i < left.length && j < right.length) {
+        const start = Math.max(left[i].start, right[j].start);
+        const end = Math.min(left[i].end, right[j].end);
+        if (end > start) total += end - start;
+        if (left[i].end < right[j].end) i += 1;
+        else j += 1;
+      }
+      return total;
+    };
+    const buildBlockedRanges = (blockedValues: string[], dayStart: number, dayEnd: number): MinuteRange[] => {
+      const blockedMinutes = Array.from(new Set(
+        blockedValues
+          .map((time) => toMinutes(String(time || '').trim()))
+          .filter((minute): minute is number => minute != null && minute >= dayStart && minute < dayEnd)
+      )).sort((a, b) => a - b);
+      if (!blockedMinutes.length) return [];
+      const diffs: number[] = [];
+      for (let i = 1; i < blockedMinutes.length; i += 1) {
+        const diff = blockedMinutes[i] - blockedMinutes[i - 1];
+        if (diff > 0) diffs.push(diff);
+      }
+      const inferredStep = diffs.length ? Math.min(...diffs) : 30;
+      const blockedStep = Math.max(5, Math.min(120, inferredStep));
+      return normalizeRanges(
+        blockedMinutes.map((minute) => ({
+          start: minute,
+          end: Math.min(dayEnd, minute + blockedStep),
+        }))
+      );
+    };
 
-    const computeSlotsSummaryForMonth = (
+    const computeMinutesSummaryForMonth = (
       monthDate: Date,
       appointmentRangesByDateProfessional: Map<string, Array<{ start: number; end: number }>>
-    ): { totalSlots: number; occupiedSlots: number } => {
+    ): { totalCapacityMinutes: number; occupiedMinutes: number } => {
       const monthStart = startOfMonth(monthDate);
       const monthEnd = endOfMonth(monthDate);
-      const now = new Date();
-      const isCurrentMonth =
-        monthDate.getFullYear() === now.getFullYear() &&
-        monthDate.getMonth() === now.getMonth();
-      const consideredEnd = isCurrentMonth ? now : monthEnd;
+      const consideredEnd = monthEnd;
 
-      if (consideredEnd < monthStart) return { totalSlots: 0, occupiedSlots: 0 };
+      if (consideredEnd < monthStart) return { totalCapacityMinutes: 0, occupiedMinutes: 0 };
 
-      let totalSlots = 0;
-      let occupiedSlots = 0;
+      let totalCapacityMinutes = 0;
+      let occupiedMinutes = 0;
       const cursor = new Date(monthStart);
       while (cursor <= consideredEnd) {
         const dateKey = format(cursor, 'yyyy-MM-dd');
         const dayKey = dayKeys[cursor.getDay()];
-        const isCurrentDay = isCurrentMonth && dateKey === format(now, 'yyyy-MM-dd');
-        const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
         for (const professional of professionals) {
           if (!isProfessionalEnabled(professional)) continue;
@@ -9670,40 +9834,43 @@ Estamos te aguardando! 😎✂️`;
           const startMinutes = toMinutes(profDay.entry_time);
           const endMinutes = toMinutes(profDay.exit_time);
           if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) continue;
+          const effectiveEnd = endMinutes;
+          if (effectiveEnd <= startMinutes) continue;
 
           const breakStart = toMinutes(profDay.break_start);
           const breakEnd = toMinutes(profDay.break_end);
 
           const blockedByDate = ((professional as any)?.blocked_hours || {})[dateKey] || [];
-          const blockedSet = new Set(
-            (Array.isArray(blockedByDate) ? blockedByDate : [])
-              .map((time) => String(time || '').trim())
-              .filter(Boolean)
+          const blockedRanges = buildBlockedRanges(
+            (Array.isArray(blockedByDate) ? blockedByDate : []).map((v) => String(v || '').trim()).filter(Boolean),
+            startMinutes,
+            effectiveEnd
           );
+          const breakRanges =
+            breakStart != null && breakEnd != null && breakEnd > breakStart
+              ? [{ start: breakStart, end: breakEnd }]
+              : [];
+          const availableRanges = subtractRanges(
+            [{ start: startMinutes, end: effectiveEnd }],
+            [...breakRanges, ...blockedRanges]
+          );
+          if (!availableRanges.length) continue;
+
+          totalCapacityMinutes += rangesLength(availableRanges);
           const rangeKey = `${dateKey}|${String(professional.id)}`;
-          const ranges = appointmentRangesByDateProfessional.get(rangeKey) || [];
-
-          for (let minute = startMinutes; minute < endMinutes; minute += scheduleIntervalMinutes) {
-            if (isCurrentDay && minute > currentMinutes) continue;
-            const inBreak =
-              breakStart != null &&
-              breakEnd != null &&
-              minute >= breakStart &&
-              minute < breakEnd;
-            if (inBreak) continue;
-
-            const slotLabel = toTimeLabel(minute);
-            if (blockedSet.has(slotLabel)) continue;
-            totalSlots += 1;
-            const isOccupied = ranges.some((range) => minute >= range.start && minute < range.end);
-            if (isOccupied) occupiedSlots += 1;
-          }
+          const appointmentRanges = normalizeRanges(
+            (appointmentRangesByDateProfessional.get(rangeKey) || []).map((range) => ({
+              start: Math.max(startMinutes, range.start),
+              end: Math.min(effectiveEnd, range.end),
+            }))
+          );
+          occupiedMinutes += overlapLength(availableRanges, appointmentRanges);
         }
 
         cursor.setDate(cursor.getDate() + 1);
       }
 
-      return { totalSlots, occupiedSlots };
+      return { totalCapacityMinutes, occupiedMinutes };
     };
 
     setIsLoadingOccupancyHistory(true);
@@ -9738,13 +9905,12 @@ Estamos te aguardando! 😎✂️`;
         return null;
       };
 
-      const getAppointmentOccupiedSlots = (row: (typeof rows)[number]) => {
+      const getAppointmentDurationMinutes = (row: (typeof rows)[number]) => {
         const baseDuration = Number(row.duration || 0);
         const extraDuration = Array.isArray(row.additional_products)
           ? row.additional_products.reduce((sum, item) => sum + Number(item?.duration || 0), 0)
           : 0;
-        const totalMinutes = Math.max(1, baseDuration + extraDuration || scheduleIntervalMinutes);
-        return Math.max(1, Math.ceil(totalMinutes / scheduleIntervalMinutes));
+        return Math.max(1, baseDuration + extraDuration || 30);
       };
 
       const appointmentRangesByDateProfessional = new Map<string, Array<{ start: number; end: number }>>();
@@ -9757,8 +9923,8 @@ Estamos te aguardando! 😎✂️`;
         if (!professional || !isProfessionalEnabled(professional)) continue;
         const startMinutes = toMinutes(String(apt.appointment_time || '').trim());
         if (startMinutes == null) continue;
-        const occupiedSlots = getAppointmentOccupiedSlots(apt);
-        const endMinutes = startMinutes + occupiedSlots * scheduleIntervalMinutes;
+        const durationMinutes = getAppointmentDurationMinutes(apt);
+        const endMinutes = startMinutes + durationMinutes;
         const key = `${dateKey}|${professionalId}`;
         const current = appointmentRangesByDateProfessional.get(key) || [];
         current.push({ start: startMinutes, end: endMinutes });
@@ -9768,15 +9934,15 @@ Estamos te aguardando! 😎✂️`;
       const summary = monthAnchors.map((monthDate) => {
         const monthKey = format(monthDate, 'yyyy-MM');
 
-        const { totalSlots, occupiedSlots } = computeSlotsSummaryForMonth(monthDate, appointmentRangesByDateProfessional);
-        const occupancyRateRaw = totalSlots > 0 ? Math.min(100, (occupiedSlots / totalSlots) * 100) : 0;
+        const { totalCapacityMinutes, occupiedMinutes } = computeMinutesSummaryForMonth(monthDate, appointmentRangesByDateProfessional);
+        const occupancyRateRaw = totalCapacityMinutes > 0 ? Math.min(100, (occupiedMinutes / totalCapacityMinutes) * 100) : 0;
         const occupancyRate = Math.round(occupancyRateRaw * 10) / 10;
 
         return {
           monthKey,
           monthLabel: monthDate.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }),
-          totalSlots,
-          occupiedSlots,
+          totalCapacityMinutes,
+          occupiedMinutes,
           occupancyRate,
         } as OccupancyMonthSummary;
       });
@@ -9793,9 +9959,6 @@ Estamos te aguardando! 😎✂️`;
     selectedMonth,
     professionals,
     professionalAbsences,
-    use15MinuteInterval,
-    use20MinuteSchedule,
-    use60MinuteSchedule,
   ]);
 
   // Carregar assinantes pagos e despesas quando trocar de aba ou estabelecimento mudar
@@ -24356,11 +24519,14 @@ Estamos te aguardando! 😎✂️`;
                             <>
                               <div className="mt-2 flex flex-wrap items-end gap-3">
                                 <div className="text-3xl font-extrabold text-gray-900">
-                                  {currentSummary.occupancyRate.toFixed(1)}%
+                                  {currentSummary.occupancyRate.toFixed(2)}%
                                 </div>
                                 <div className="text-sm text-gray-700 pb-1">
-                                  {currentSummary.occupiedSlots} horários ocupados de {currentSummary.totalSlots} vagas no mês selecionado
+                                  {currentSummary.occupiedMinutes} min ocupados de {currentSummary.totalCapacityMinutes} min disponíveis no mês selecionado
                                 </div>
+                              </div>
+                              <div className="mt-1 text-[11px] text-gray-600">
+                                Fórmula: ({currentSummary.occupiedMinutes} / {currentSummary.totalCapacityMinutes}) x 100 = {currentSummary.occupancyRate.toFixed(2)}%
                               </div>
                               <div className="mt-3 h-2 w-full rounded-full bg-gray-200 overflow-hidden">
                                 <div
@@ -24368,13 +24534,65 @@ Estamos te aguardando! 😎✂️`;
                                   style={{ width: `${Math.min(100, currentSummary.occupancyRate)}%` }}
                                 />
                               </div>
+                              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Concluídos</div>
+                                  <div className="text-base font-extrabold text-emerald-800">{monthlyStatusSummary.completed}</div>
+                                </div>
+                                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-rose-700">Cancelados</div>
+                                  <div className="text-base font-extrabold text-rose-800">{monthlyStatusSummary.cancelled}</div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowPendingAppointmentsSummary((prev) => !prev)}
+                                  className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-left hover:bg-amber-100 transition-colors"
+                                >
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Pendentes</div>
+                                  <div className="text-base font-extrabold text-amber-800">{monthlyStatusSummary.pending}</div>
+                                  <div className="text-[10px] text-amber-700 mt-0.5">
+                                    {monthlyStatusSummary.pending > 0 ? 'Clique para ver horários' : 'Sem horários pendentes'}
+                                  </div>
+                                </button>
+                              </div>
+                              {showPendingAppointmentsSummary && (
+                                <div className="mt-3 rounded-lg border border-amber-200 bg-white p-3">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">
+                                    Horários pendentes do mês
+                                  </div>
+                                  {monthlyPendingAppointments.length === 0 ? (
+                                    <div className="text-sm text-gray-600">Nenhum horário pendente no mês selecionado.</div>
+                                  ) : (
+                                    <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+                                      {monthlyPendingAppointments.map((apt) => {
+                                        const professionalName = professionals.find((p) => String(p.id) === String(apt.professional))?.name || apt.professional || 'Profissional';
+                                        const statusLabel = String(apt.status || '').toLowerCase() === 'pending_payment'
+                                          ? 'Pendente pagamento'
+                                          : String(apt.status || '').toLowerCase() === 'confirmed'
+                                            ? 'Confirmado'
+                                            : 'Pendente';
+                                        return (
+                                          <div key={apt.id} className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                                            <div className="text-sm font-semibold text-gray-900">
+                                              {apt.appointment_date} às {apt.appointment_time}
+                                            </div>
+                                            <div className="text-xs text-gray-700">
+                                              {apt.client_name} - {professionalName} - {statusLabel}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                               <div className="mt-4 grid grid-cols-2 md:grid-cols-6 gap-2">
                                 {occupancyHistory.map((item) => (
                                   <div key={item.monthKey} className="rounded-lg border border-gray-200 bg-white p-2">
                                     <div className="text-[11px] text-gray-500">{item.monthLabel}</div>
-                                    <div className="text-sm font-bold text-gray-900">{item.occupancyRate.toFixed(0)}%</div>
+                                    <div className="text-sm font-bold text-gray-900">{item.occupancyRate.toFixed(2)}%</div>
                                     <div className="text-[10px] text-gray-500">
-                                      {item.occupiedSlots}/{item.totalSlots}
+                                      {item.occupiedMinutes}/{item.totalCapacityMinutes} min
                                     </div>
                                   </div>
                                 ))}
@@ -24976,11 +25194,18 @@ Estamos te aguardando! 😎✂️`;
                             {/* Mostrar detalhamento dos serviços */}
                             {professionalAppointments.length > 0 && (
                               <div className="mt-2 text-xs">
-                                <details className="cursor-pointer">
-                                  <summary className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer flex items-center gap-2 transition-colors">
-                                    <span>📋</span>
-                                    Ver serviços individuais
-                                    <span className="text-xs">▼</span>
+                                <details className="group cursor-pointer">
+                                  <summary className="list-none cursor-pointer">
+                                    <div className="w-full rounded-lg border border-blue-700 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 flex items-center justify-between transition-colors">
+                                      <div className="flex items-center gap-2">
+                                        <span>📋</span>
+                                        <span className="font-semibold text-sm">Clique aqui para ver serviços feitos</span>
+                                        <span className="text-[11px] bg-white/20 px-2 py-0.5 rounded">
+                                          {professionalAppointments.length}
+                                        </span>
+                                      </div>
+                                      <span className="text-xs font-bold group-open:rotate-180 transition-transform">▼</span>
+                                    </div>
                                   </summary>
                                   <div className="mt-3 space-y-4 bg-gray-100 p-4 rounded-lg">
                                     {/* Filtros de pagamento */}

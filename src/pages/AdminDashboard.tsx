@@ -212,36 +212,61 @@ const AdminDashboard = () => {
   const fetchEstablishmentInfo = async (establishment: Establishment) => {
     setIsLoadingEstablishmentInfo(true);
     try {
-      // Buscar na tabela registration_forms pelo nome do estabelecimento
-      const { data: registrationData, error: regError } = await supabase
+      // Em frontend não podemos usar auth.admin/getUserById com segurança (403).
+      // Aqui usamos somente registration_forms com prioridade por combinação forte.
+      const normalizeDigits = (value: string | null | undefined) => String(value || '').replace(/\D/g, '');
+      const establishmentWhatsapp = normalizeDigits(establishment.whatsapp);
+      const establishmentName = String(establishment.name || '').trim().toLowerCase();
+      const establishmentCode = String(establishment.code || '').trim();
+
+      const { data: rows, error: regError } = await supabase
         .from('registration_forms')
-        .select('email, password, client_whatsapp')
-        .eq('establishment_name', establishment.name)
+        .select('email,password,client_whatsapp,establishment_name,notes,created_at')
         .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+        .limit(300);
 
-      if (regError && regError.code !== 'PGRST116') { // PGRST116 = nenhum resultado
-        console.error('Erro ao buscar dados do registration_forms:', regError);
+      if (regError) {
+        console.error('Erro ao buscar registration_forms:', regError);
+        setEstablishmentInfo({
+          email: 'Não encontrado',
+          password: 'Não encontrado',
+          whatsapp: establishment.whatsapp || 'Não encontrado'
+        });
+        return;
       }
 
-      // Se não encontrar no registration_forms, buscar email do owner_id
-      let ownerEmail = '';
-      if (establishment.owner_id) {
-        try {
-          const { data: userData, error: userError } = await supabase.auth.admin.getUserById(establishment.owner_id);
-          if (!userError && userData?.user) {
-            ownerEmail = userData.user.email || '';
-          }
-        } catch (err) {
-          console.error('Erro ao buscar email do owner:', err);
-        }
-      }
+      const candidates = (rows || []) as Array<{
+        email?: string;
+        password?: string;
+        client_whatsapp?: string;
+        establishment_name?: string;
+        notes?: string;
+        created_at?: string;
+      }>;
 
+      const scored = candidates
+        .map((item) => {
+          let score = 0;
+          const rowWhatsapp = normalizeDigits(item.client_whatsapp);
+          const rowName = String(item.establishment_name || '').trim().toLowerCase();
+          const notes = String(item.notes || '').toLowerCase();
+
+          if (establishmentWhatsapp && rowWhatsapp && establishmentWhatsapp === rowWhatsapp) score += 120;
+          if (establishmentName && rowName && establishmentName === rowName) score += 70;
+          if (establishmentCode && notes.includes(establishmentCode.toLowerCase())) score += 90;
+          if (establishmentCode && notes.includes(`código: ${establishmentCode.toLowerCase()}`)) score += 120;
+          if (item.email && item.password) score += 10;
+
+          return { item, score };
+        })
+        .filter((x) => x.score > 0)
+        .sort((a, b) => b.score - a.score);
+
+      const best = scored[0]?.item || null;
       setEstablishmentInfo({
-        email: registrationData?.email || ownerEmail || establishment.owner_email || 'Não encontrado',
-        password: registrationData?.password || 'Não encontrado',
-        whatsapp: registrationData?.client_whatsapp || establishment.whatsapp || 'Não encontrado'
+        email: best?.email || 'Não encontrado',
+        password: best?.password || 'Não encontrado',
+        whatsapp: best?.client_whatsapp || establishment.whatsapp || 'Não encontrado'
       });
     } catch (error) {
       console.error('Erro ao buscar informações:', error);
