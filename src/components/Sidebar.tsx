@@ -71,6 +71,7 @@ interface SidebarProps {
   isReceberAdiantadoOpen?: boolean; // destaca o botão quando modal estiver aberto
   isAppointmentsTutorialRunning?: boolean; // controla destaques e evita auto-open no PWA durante tutorial
   pendingReviewsCount?: number; // quantidade de avaliações pendentes para badge em Avaliações
+  pendingSubscribersCount?: number; // quantidade de assinantes não pagos para badge em Meus Assinantes
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -92,7 +93,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onReceberAdiantadoClick,
   isReceberAdiantadoOpen = false,
   isAppointmentsTutorialRunning = false,
-  pendingReviewsCount = 0
+  pendingReviewsCount = 0,
+  pendingSubscribersCount = 0
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false);
@@ -271,6 +273,27 @@ const Sidebar: React.FC<SidebarProps> = ({
       disabled: isItemLocked('client-page')
     },
     {
+      id: 'subscribers',
+      label: 'Meus Assinantes',
+      icon: Crown,
+      onClick: () => {
+        if (isPlanLockedItem('subscribers')) {
+          openUpgradeModalMobileSafe();
+          return;
+        }
+        if (isItemLocked('subscribers')) {
+          onBlockedItemClick?.();
+        } else {
+          handleItemClick(() => onTabChange('subscribers'));
+        }
+      },
+      isActive: activeTab === 'subscribers',
+      disabled: !isPlanLockedItem('subscribers') && isItemLocked('subscribers'),
+      lockedByPlan: isPlanLockedItem('subscribers'),
+      showBadge: pendingSubscribersCount > 0,
+      badgeCount: pendingSubscribersCount > 99 ? '99+' : pendingSubscribersCount,
+    },
+    {
       id: 'whatsapp-reminders',
       label: 'Lembretes para Clientes',
       icon: MessageCircle,
@@ -311,25 +334,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       },
       isActive: activeTab === 'clients',
       disabled: isItemLocked('clients')
-    },
-    {
-      id: 'subscribers',
-      label: 'Meus Assinantes',
-      icon: Crown,
-      onClick: () => {
-        if (isPlanLockedItem('subscribers')) {
-          openUpgradeModalMobileSafe();
-          return;
-        }
-        if (isItemLocked('subscribers')) {
-          onBlockedItemClick?.();
-        } else {
-          handleItemClick(() => onTabChange('subscribers'));
-        }
-      },
-      isActive: activeTab === 'subscribers',
-      disabled: !isPlanLockedItem('subscribers') && isItemLocked('subscribers'),
-      lockedByPlan: isPlanLockedItem('subscribers'),
     },
     {
       id: 'service-categories',
@@ -883,6 +887,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             const Icon = item.icon;
             const isIndicationItem = item.id === 'indication';
             const isWhatsappPremiumItem = item.id === 'whatsapp-reminders';
+            const isSubscribersItem = item.id === 'subscribers';
             const isLastItem = index === menuItems.length - 1;
             const isPlanLocked = Boolean((item as any).lockedByPlan);
             const isOnboardingLocked = !isPlanLocked && isItemLockedByOnboarding(item.id);
@@ -903,6 +908,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                       ? item.isActive
                         ? 'bg-white text-black shadow-md'
                         : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-md'
+                      : isSubscribersItem && !isPlanLocked && !item.disabled
+                        ? item.isActive
+                          ? 'bg-gradient-to-r from-fuchsia-500 to-violet-600 text-white shadow-md border border-fuchsia-300/40'
+                          : 'bg-gradient-to-r from-fuchsia-500/95 to-violet-600/95 text-white hover:from-fuchsia-600 hover:to-violet-700 shadow-md border border-fuchsia-300/30'
                       : isWhatsappPremiumItem
                         ? item.disabled
                           ? isLight
@@ -942,6 +951,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                           ? item.isActive
                             ? 'text-black'
                             : 'text-white'
+                          : isSubscribersItem && !isPlanLocked && !item.disabled
+                            ? 'text-white'
                           : isWhatsappPremiumItem
                             ? item.disabled
                               ? 'text-gray-500'
@@ -985,6 +996,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                             ? item.isActive
                               ? 'text-black'
                               : 'text-white'
+                            : isSubscribersItem && !isPlanLocked && !item.disabled
+                              ? 'text-white font-extrabold tracking-wide'
                             : isWhatsappPremiumItem
                               ? item.disabled
                                 ? 'text-gray-400'
@@ -1017,6 +1030,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                               ? item.isActive
                                 ? 'text-black'
                                 : 'text-white'
+                              : isSubscribersItem && !isPlanLocked && !item.disabled
+                                ? 'text-white'
                               : isWhatsappPremiumItem
                                 ? item.disabled
                                   ? 'text-gray-400'

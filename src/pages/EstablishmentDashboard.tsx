@@ -482,6 +482,7 @@ const EstablishmentDashboard = () => {
   const [clients, setClients] = useState<Client[]>([]);
   const [establishmentReviews, setEstablishmentReviews] = useState<EstablishmentReview[]>([]);
   const [pendingReviewsCount, setPendingReviewsCount] = useState(0);
+  const [pendingSubscribersCount, setPendingSubscribersCount] = useState(0);
   const [isLoadingEstablishmentReviews, setIsLoadingEstablishmentReviews] = useState(false);
   const [reviewsStatusFilter, setReviewsStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const isLoadingEstablishmentReviewsRef = useRef(false);
@@ -11861,6 +11862,34 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
+  const loadPendingSubscribersCount = async () => {
+    if (!establishment?.id) return;
+    try {
+      const { count, error } = await supabase
+        .from('client_subscriptions')
+        .select('id', { count: 'exact', head: true })
+        .eq('establishment_id', establishment.id)
+        .eq('payment_status', 'unpaid');
+
+      if (error) {
+        const msg = String(error?.message || '').toLowerCase();
+        const paymentStatusMissing =
+          error?.code === '42703' ||
+          msg.includes('payment_status') ||
+          (msg.includes('schema cache') && msg.includes('column'));
+        if (paymentStatusMissing) {
+          setPendingSubscribersCount(0);
+          return;
+        }
+        throw error;
+      }
+
+      setPendingSubscribersCount(Number(count || 0));
+    } catch (error) {
+      console.error('❌ Erro ao carregar quantidade de assinantes não pagos:', error);
+    }
+  };
+
   const moderateEstablishmentReview = async (reviewId: string, action: 'approved' | 'rejected') => {
     if (!establishment?.id) return;
     try {
@@ -11961,6 +11990,12 @@ Estamos te aguardando! 😎✂️`;
   useEffect(() => {
     if (!establishment?.id) return;
     loadPendingReviewsCount();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [establishment?.id, activeTab]);
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    loadPendingSubscribersCount();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [establishment?.id, activeTab]);
 
@@ -18030,6 +18065,7 @@ Estamos te aguardando! 😎✂️`;
           isReceberAdiantadoOpen={showMercadoPagoModal}
           isAppointmentsTutorialRunning={showAppointmentsTutorial}
           pendingReviewsCount={pendingReviewsCount}
+          pendingSubscribersCount={pendingSubscribersCount}
         />
 
         {/* Conteúdo principal */}
