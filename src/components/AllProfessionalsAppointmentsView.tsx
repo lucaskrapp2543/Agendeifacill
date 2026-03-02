@@ -1464,14 +1464,33 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const getPaymentMethodTax = (method: string, cardBrand?: string | null) => {
+      // Compatível com botão "Taxas do cliente" do dashboard:
+      // quando ativo, não desconta taxa nos cálculos.
+      let clientPaysCardFees = false;
+      try {
+        const key = establishment?.id ? `taxas_cliente_${establishment.id}` : '';
+        if (key) {
+          clientPaysCardFees = localStorage.getItem(key) === 'true';
+        }
+      } catch {
+        clientPaysCardFees = false;
+      }
+      if (clientPaysCardFees) return 0;
+
+      const creditBaseRate = Number(establishment?.credit_card_tax_percentage);
+      const debitBaseRate = Number(establishment?.debit_card_tax_percentage);
+      if (method === 'credito' && Number.isFinite(creditBaseRate) && creditBaseRate <= 0) return 0;
+      if (method === 'debito' && Number.isFinite(debitBaseRate) && debitBaseRate <= 0) return 0;
+
       if ((method === 'credito' || method === 'debito') && cardBrand && cardBrand !== 'bandeira') {
-        return establishment?.card_brand_taxes?.[cardBrand] || 3.5;
+        const brandRate = Number(establishment?.card_brand_taxes?.[cardBrand]);
+        return Number.isFinite(brandRate) ? brandRate : 3.5;
       }
       switch (method) {
         case 'credito':
-          return establishment?.credit_card_tax_percentage || 3.5;
+          return Number.isFinite(creditBaseRate) ? creditBaseRate : 3.5;
         case 'debito':
-          return establishment?.debit_card_tax_percentage || 2.5;
+          return Number.isFinite(debitBaseRate) ? debitBaseRate : 2.5;
         default:
           return 0;
       }

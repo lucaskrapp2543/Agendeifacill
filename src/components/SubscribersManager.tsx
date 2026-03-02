@@ -1,4 +1,4 @@
-import { format, isPast, parse, parseISO } from 'date-fns';
+import { addMonths, endOfMonth, format, isPast, parse, parseISO, startOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ChevronDown, ChevronUp, Edit, Eye, EyeOff, Plus, Trash2, Users, X } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -96,6 +96,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
+  const [showEmContaBreakdown, setShowEmContaBreakdown] = useState(false);
+  const [showLiquidoAtivoBreakdown, setShowLiquidoAtivoBreakdown] = useState(false);
+  const [showTotalAtivosBreakdown, setShowTotalAtivosBreakdown] = useState(false);
+  const [showNaoPagosBreakdown, setShowNaoPagosBreakdown] = useState(false);
 
   const normalizeNameKey = (value: string): string =>
     String(value || '')
@@ -355,6 +359,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   const fmtBRL = (v: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v || 0));
+  const toCents = (v: number) => Math.round((Number(v) || 0) * 100);
+  const fromCents = (cents: number) => cents / 100;
 
   // Estado para controlar limitação de 1 agendamento por semana
   const [limitSubscribersOneWeek, setLimitSubscribersOneWeek] = useState(
@@ -383,6 +389,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Estado para controlar o mês/ano selecionado (padrão: mês atual)
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const getPaymentDateForSelectedMonth = () => {
+    const now = new Date();
+    const isCurrentSelectedMonth =
+      selectedYear === now.getFullYear() &&
+      selectedMonth === now.getMonth();
+    if (isCurrentSelectedMonth) {
+      return format(now, 'yyyy-MM-dd');
+    }
+    // Para meses passados/futuros, registra no fechamento do mês selecionado.
+    return format(new Date(selectedYear, selectedMonth + 1, 0), 'yyyy-MM-dd');
+  };
 
   // Comissão por venda de assinatura (não é atendimento) - auto-save
   const [saleCommissionProfessional, setSaleCommissionProfessional] = useState('');
@@ -398,6 +415,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   ];
   const monthAbbr = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   const [professionalPaymentHistory, setProfessionalPaymentHistory] = useState<any[]>([]);
+  const [reassigningPaymentId, setReassigningPaymentId] = useState<string | null>(null);
 
   // Estados para modal de visualizar atendimentos
   const [showViewAttendancesModal, setShowViewAttendancesModal] = useState(false);
@@ -1113,8 +1131,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       // Usar mês/ano selecionado ou mês atual como padrão
       const targetMonth = month !== undefined ? month : selectedMonth;
       const targetYear = year !== undefined ? year : selectedYear;
-      const firstDayOfMonth = new Date(targetYear, targetMonth, 1);
-      const lastDayOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
+      const periodStart = new Date(targetYear, targetMonth, 1);
+      const periodEnd = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59, 999);
+      const targetForMonth = format(periodStart, 'yyyy-MM');
 
       // IMPORTANTE: Buscar apenas pagamentos via assinatura (payment_source = 'subscription')
       // Pagamentos do dashboard financeiro (payment_source = 'normal' ou NULL) NÃO devem entrar aqui
@@ -1123,8 +1142,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         .select('*')
         .eq('establishment_id', establishmentId)
         .eq('payment_source', 'subscription') // Só pagamentos via assinatura
-        .gte('payment_date', firstDayOfMonth.toISOString().split('T')[0])
-        .lte('payment_date', lastDayOfMonth.toISOString().split('T')[0])
         .order('payment_date', { ascending: false });
 
       if (error) {
@@ -1132,8 +1149,24 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         return;
       }
 
-      console.log('💰 Pagamentos encontrados (mês atual):', data);
-      setProfessionalPayments(data || []);
+      const paymentsInSelectedMonth = ((data || []) as any[]).filter((payment) => {
+        const rawAmount = Number((payment as any)?.amount || 0);
+        if (!Number.isFinite(rawAmount) || rawAmount <= 0) return false;
+
+        const forMonth = String((payment as any)?.for_month || '').trim();
+        if (forMonth) {
+          return forMonth === targetForMonth;
+        }
+
+        const rawPaymentDate = String((payment as any)?.payment_date || '').trim();
+        if (!rawPaymentDate) return false;
+        const paymentDate = new Date(rawPaymentDate);
+        if (Number.isNaN(paymentDate.getTime())) return false;
+        return paymentDate >= periodStart && paymentDate <= periodEnd;
+      });
+
+      console.log('💰 Pagamentos encontrados (mês selecionado):', paymentsInSelectedMonth);
+      setProfessionalPayments(paymentsInSelectedMonth);
     } catch (error) {
       console.error('Erro ao buscar pagamentos:', error);
     }
@@ -1149,18 +1182,45 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       // Buscar ID do profissional no array de profissionais
       const professional = professionals.find(p => p.full_name === professionalName);
       const professionalId = professional?.id || professionalName;
+      const selectedForMonth = format(new Date(selectedYear, selectedMonth, 1), 'yyyy-MM');
+      const now = new Date();
+      const isCurrentSelectedMonth =
+        selectedYear === now.getFullYear() &&
+        selectedMonth === now.getMonth();
+      const paymentDateForRecord = isCurrentSelectedMonth
+        ? now
+        : new Date(selectedYear, selectedMonth + 1, 0, 12, 0, 0, 0);
 
       // Registrar pagamento (marcar como "via assinatura" pois vem do sistema de assinantes)
-      const { error: paymentError } = await supabase
+      const insertPayload: any = {
+        establishment_id: establishmentId,
+        professional_id: professionalId,
+        professional_name: professionalName,
+        amount: amount,
+        payment_date: now.toISOString(),
+        payment_source: 'subscription', // Marcar como pagamento via assinatura
+        for_month: selectedForMonth,
+      };
+
+      let { error: paymentError } = await supabase
         .from('professional_payments')
-        .insert({
+        .insert(insertPayload);
+
+      // Compatibilidade com bancos onde a coluna for_month ainda não existe.
+      if (paymentError && String((paymentError as any)?.message || '').toLowerCase().includes('for_month')) {
+        const legacyPayload = {
           establishment_id: establishmentId,
           professional_id: professionalId,
           professional_name: professionalName,
           amount: amount,
-          payment_date: new Date().toISOString(),
-          payment_source: 'subscription' // Marcar como pagamento via assinatura
-        });
+          payment_date: paymentDateForRecord.toISOString(),
+          payment_source: 'subscription' as const,
+        };
+        const retry = await supabase
+          .from('professional_payments')
+          .insert(legacyPayload);
+        paymentError = retry.error;
+      }
 
       if (paymentError) {
         console.error('Erro ao registrar pagamento:', paymentError);
@@ -1198,10 +1258,177 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         return [];
       }
 
-      return data || [];
+      return ((data || []) as any[]).filter((payment) => {
+        const rawAmount = Number((payment as any)?.amount || 0);
+        return Number.isFinite(rawAmount) && rawAmount > 0;
+      });
     } catch (error) {
       console.error('Erro ao buscar histórico de pagamentos:', error);
       return [];
+    }
+  };
+
+  const refreshAfterPaymentChange = async (professionalName?: string) => {
+    await fetchProfessionalPayments(selectedMonth, selectedYear);
+    await fetchSubscriberAttendances(selectedMonth, selectedYear);
+    await fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
+    if (professionalName) {
+      const history = await fetchProfessionalPaymentHistory(professionalName);
+      setProfessionalPaymentHistory(history);
+    }
+  };
+
+  const deletePaymentRecord = async (payment: any) => {
+    const paymentId = String(payment?.id || '').trim();
+    if (!paymentId) return;
+
+    if (!window.confirm('Tem certeza que deseja apagar este lançamento? Esta ação não pode ser desfeita.')) {
+      return;
+    }
+
+    try {
+      setReassigningPaymentId(paymentId);
+      const { error } = await supabase
+        .from('professional_payments')
+        .delete()
+        .eq('id', paymentId);
+
+      if (error) throw error;
+
+      toast.success('Lançamento apagado com sucesso.');
+      await refreshAfterPaymentChange(selectedProfessionalForHistory);
+    } catch (err: any) {
+      console.error('Erro ao apagar lançamento:', err);
+      toast.error(err?.message || 'Não foi possível apagar este lançamento.');
+    } finally {
+      setReassigningPaymentId(null);
+    }
+  };
+
+  const returnPaymentToBarberCash = async (payment: any) => {
+    const paymentId = String(payment?.id || '').trim();
+    if (!paymentId) return;
+
+    const professionalName = String(payment?.professional_name || selectedProfessionalForHistory || '').trim();
+    const currentAmount = Math.abs(Number(payment?.amount || 0));
+    if (!window.confirm(`Voltar ${fmtBRL(currentAmount)} para o caixa de ${professionalName}? Isso removerá este lançamento do histórico.`)) {
+      return;
+    }
+
+    try {
+      setReassigningPaymentId(paymentId);
+      const { error } = await supabase
+        .from('professional_payments')
+        .delete()
+        .eq('id', paymentId);
+      if (error) throw error;
+
+      toast.success('Valor voltou para o caixa e o lançamento foi removido.');
+      await refreshAfterPaymentChange(selectedProfessionalForHistory);
+    } catch (err: any) {
+      console.error('Erro ao estornar pagamento:', err);
+      toast.error(err?.message || 'Não foi possível voltar este valor para o caixa.');
+    } finally {
+      setReassigningPaymentId(null);
+    }
+  };
+
+  const movePaymentByMonthDelta = async (payment: any, deltaMonths: number) => {
+    const paymentId = String(payment?.id || '').trim();
+    if (!paymentId) return;
+
+    try {
+      setReassigningPaymentId(paymentId);
+
+      const currentForMonth = String(payment?.for_month || '').trim();
+      let baseDate: Date | null = null;
+
+      if (/^\d{4}-\d{2}$/.test(currentForMonth)) {
+        baseDate = parse(`${currentForMonth}-01`, 'yyyy-MM-dd', new Date());
+      } else {
+        const rawPaymentDate = String(payment?.payment_date || '').trim();
+        const parsedDate = rawPaymentDate ? new Date(rawPaymentDate) : null;
+        if (parsedDate && !Number.isNaN(parsedDate.getTime())) {
+          baseDate = parsedDate;
+        }
+      }
+
+      if (!baseDate || Number.isNaN(baseDate.getTime())) {
+        toast.error('Não foi possível identificar o mês atual deste lançamento.');
+        return;
+      }
+
+      const targetDate = addMonths(new Date(baseDate.getFullYear(), baseDate.getMonth(), 1), deltaMonths);
+      const targetForMonth = format(targetDate, 'yyyy-MM');
+      const fallbackDate = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 12, 0, 0, 0).toISOString();
+
+      let { error } = await supabase
+        .from('professional_payments')
+        .update({ for_month: targetForMonth } as any)
+        .eq('id', paymentId);
+
+      if (error && String((error as any)?.message || '').toLowerCase().includes('for_month')) {
+        const retry = await supabase
+          .from('professional_payments')
+          .update({ payment_date: fallbackDate } as any)
+          .eq('id', paymentId);
+        error = retry.error as any;
+      }
+
+      if (error) throw error;
+
+      toast.success(`Lançamento movido para ${targetForMonth}.`);
+      await refreshAfterPaymentChange(selectedProfessionalForHistory);
+    } catch (err: any) {
+      console.error('Erro ao mover pagamento de mês:', err);
+      toast.error(err?.message || 'Não foi possível mover este lançamento.');
+    } finally {
+      setReassigningPaymentId(null);
+    }
+  };
+
+  const movePaymentToSelectedMonth = async (payment: any) => {
+    const paymentId = String(payment?.id || '').trim();
+    if (!paymentId) return;
+
+    const selectedForMonth = format(new Date(selectedYear, selectedMonth, 1), 'yyyy-MM');
+    const fallbackDate = new Date(selectedYear, selectedMonth + 1, 0, 12, 0, 0, 0).toISOString();
+
+    try {
+      setReassigningPaymentId(paymentId);
+
+      let { error } = await supabase
+        .from('professional_payments')
+        .update({ for_month: selectedForMonth } as any)
+        .eq('id', paymentId);
+
+      // Compatibilidade com banco antigo sem coluna for_month:
+      // reposiciona a payment_date para o mês selecionado.
+      if (error && String((error as any)?.message || '').toLowerCase().includes('for_month')) {
+        const retry = await supabase
+          .from('professional_payments')
+          .update({ payment_date: fallbackDate } as any)
+          .eq('id', paymentId);
+        error = retry.error as any;
+      }
+
+      if (error) {
+        throw error;
+      }
+
+      toast.success(`Pagamento movido para competência ${selectedForMonth}.`);
+      await fetchProfessionalPayments(selectedMonth, selectedYear);
+      if (selectedProfessionalForHistory) {
+        const history = await fetchProfessionalPaymentHistory(selectedProfessionalForHistory);
+        setProfessionalPaymentHistory(history);
+      }
+      await fetchSubscriberAttendances(selectedMonth, selectedYear);
+      await fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
+    } catch (err: any) {
+      console.error('Erro ao mover pagamento de competência:', err);
+      toast.error(err?.message || 'Não foi possível mover este pagamento para o mês selecionado.');
+    } finally {
+      setReassigningPaymentId(null);
     }
   };
 
@@ -1647,14 +1874,30 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         currentStatus: clientSubscription.payment_status
       });
 
+      const updatePayload: any = {
+        payment_status: newStatus,
+        updated_at: new Date().toISOString()
+      };
+      if (newStatus === 'paid') {
+        updatePayload.last_payment_date = getPaymentDateForSelectedMonth();
+      }
+
       // FORÇAR atualização direta no banco - SEM lógica automática
-      const { error } = await supabase
+      let { error } = await supabase
         .from('client_subscriptions')
-        .update({
-          payment_status: newStatus,
-          updated_at: new Date().toISOString()
-        })
+        .update(updatePayload)
         .eq('id', clientSubscription.id);
+
+      // Compatibilidade com bancos antigos sem coluna last_payment_date.
+      if (error && String(error.message || '').toLowerCase().includes('last_payment_date')) {
+        ({ error } = await supabase
+          .from('client_subscriptions')
+          .update({
+            payment_status: newStatus,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', clientSubscription.id));
+      }
 
       if (error) {
         throw error;
@@ -2006,6 +2249,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       // Determinar novo status baseado na data
       const newStatus = endDate < today ? 'unpaid' : 'paid';
+      const shouldStampPaymentDate =
+        newStatus === 'paid' && String(selectedClientForEdit.payment_status || '').toLowerCase() !== 'paid';
+      const paymentDateForMonth = getPaymentDateForSelectedMonth();
 
       // Log da alteração para auditoria
       const logData = {
@@ -2021,20 +2267,25 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       };
 
       // Atualizar no banco de dados
+      const updatePayload: any = {
+        subscription_id: nextSubscriptionId,
+        start_date: newStartDate,
+        end_date: newEndDate,
+        subscriber_name: nextName,
+        subscriber_whatsapp: nextPhone,
+        subscriber_email: String(editSubscriberEmail || '').trim() || null,
+        payment_status: newStatus,
+        subscriber_payment_method: editSubscriberPaymentMethod || null,
+        subscriber_observation: editSubscriberObservation.trim().slice(0, 150) || null,
+        updated_at: new Date().toISOString()
+      };
+      if (shouldStampPaymentDate) {
+        updatePayload.last_payment_date = paymentDateForMonth;
+      }
+
       let { error } = await supabase
         .from('client_subscriptions')
-        .update({
-          subscription_id: nextSubscriptionId,
-          start_date: newStartDate,
-          end_date: newEndDate,
-          subscriber_name: nextName,
-          subscriber_whatsapp: nextPhone,
-          subscriber_email: String(editSubscriberEmail || '').trim() || null,
-          payment_status: newStatus,
-          subscriber_payment_method: editSubscriberPaymentMethod || null,
-          subscriber_observation: editSubscriberObservation.trim().slice(0, 150) || null,
-          updated_at: new Date().toISOString()
-        })
+        .update(updatePayload)
         .eq('id', selectedClientForEdit.id);
 
       const errMsg = String(error?.message || '').toLowerCase();
@@ -2045,19 +2296,39 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           errMsg.includes('subscriber_whatsapp') ||
           errMsg.includes('subscriber_email') ||
           errMsg.includes('subscriber_payment_method') ||
-          errMsg.includes('subscriber_observation')
+          errMsg.includes('subscriber_observation') ||
+          errMsg.includes('last_payment_date')
         )
       ) {
+        const fallbackPayload: any = {
+          subscription_id: nextSubscriptionId,
+          start_date: newStartDate,
+          end_date: newEndDate,
+          payment_status: newStatus,
+          updated_at: new Date().toISOString()
+        };
+        if (shouldStampPaymentDate) {
+          fallbackPayload.last_payment_date = paymentDateForMonth;
+        }
+
         ({ error } = await supabase
           .from('client_subscriptions')
-          .update({
-            subscription_id: nextSubscriptionId,
-            start_date: newStartDate,
-            end_date: newEndDate,
-            payment_status: newStatus,
-            updated_at: new Date().toISOString()
-          })
+          .update(fallbackPayload)
           .eq('id', selectedClientForEdit.id));
+
+        // Se o banco realmente não tiver last_payment_date, tenta uma última vez sem o campo.
+        if (error && String(error.message || '').toLowerCase().includes('last_payment_date')) {
+          ({ error } = await supabase
+            .from('client_subscriptions')
+            .update({
+              subscription_id: nextSubscriptionId,
+              start_date: newStartDate,
+              end_date: newEndDate,
+              payment_status: newStatus,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', selectedClientForEdit.id));
+        }
       }
 
       if (error) {
@@ -2300,23 +2571,68 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return () => clearTimeout(timeoutId);
   }, [establishmentId, clientSubscriptions.length]); // Incluir clientSubscriptions.length para reagir a mudanças
 
-  // Resumo Financeiro
-  const totalArrecadado = clientSubscriptions.reduce((sum, cs) => {
-    // Apenas assinaturas ativas e pagas
-    const endDate = parseISO(cs.end_date);
-    if (!isPast(endDate) && cs.payment_status === 'paid') {
-      // Compatível com novo e antigo sistema
-      const value = cs.subscriptions?.value || cs.subscription_value || 0;
-      console.log('💰 Calculando valor:', {
-        name: cs.profiles?.full_name,
-        value: value,
-        subscriptionData: cs.subscriptions,
-        paymentStatus: cs.payment_status,
-        endDate: cs.end_date
-      });
-      return sum + value;
+  const selectedReferenceDate = useMemo(() => new Date(selectedYear, selectedMonth, 1), [selectedMonth, selectedYear]);
+  const monthStart = useMemo(() => startOfMonth(selectedReferenceDate), [selectedReferenceDate]);
+  const monthEnd = useMemo(() => endOfMonth(selectedReferenceDate), [selectedReferenceDate]);
+
+  const getSubscriptionValue = (cs: ClientSubscription): number => {
+    const value = Number(cs.subscriptions?.value || cs.subscription_value || 0);
+    return Number.isFinite(value) ? value : 0;
+  };
+
+  const getNetFromSubscription = (grossValue: number, providerRaw?: string | null): number => {
+    if (!Number.isFinite(grossValue) || grossValue <= 0) return 0;
+
+    const provider = String(providerRaw || '').toLowerCase().trim();
+    const taxaPlataforma = 0.5;
+    let taxaPercentual = 1.19 / 100; // padrão PIX Pagar.me
+
+    if (provider.includes('mercadopago')) {
+      if (provider.includes('credit') || provider.includes('card')) {
+        taxaPercentual = 4.99 / 100;
+      } else if (provider.includes('debit')) {
+        taxaPercentual = 1.99 / 100;
+      } else {
+        taxaPercentual = 0.99 / 100; // PIX Mercado Pago
+      }
+    } else if (provider.includes('credit') || provider.includes('card')) {
+      taxaPercentual = 4.99 / 100;
+    } else if (provider.includes('debit')) {
+      taxaPercentual = 1.99 / 100;
+    } else if (provider.includes('pix')) {
+      taxaPercentual = 1.19 / 100;
     }
-    return sum;
+
+    const netValue = grossValue - taxaPlataforma - (grossValue * taxaPercentual);
+    return Math.max(0, Math.round(netValue * 100) / 100);
+  };
+
+  const isActivePaidSubscriber = (cs: ClientSubscription): boolean => {
+    if (String(cs.payment_status || '').toLowerCase() !== 'paid') return false;
+
+    const rawEndDate = String(cs.end_date || '').trim();
+    if (!rawEndDate) return true;
+
+    const endDate = parseISO(rawEndDate);
+    if (Number.isNaN(endDate.getTime())) return true;
+
+    return !isPast(endDate);
+  };
+
+  const isSubscriptionActiveByEndDate = (cs: ClientSubscription): boolean => {
+    const rawEndDate = String(cs.end_date || '').trim();
+    if (!rawEndDate) return true;
+
+    const endDate = parseISO(rawEndDate);
+    if (Number.isNaN(endDate.getTime())) return true;
+
+    return !isPast(endDate);
+  };
+
+  // Bruto = MRR atual (somente assinaturas ativas e pagas)
+  const brutoAtivo = clientSubscriptions.reduce((sum, cs) => {
+    if (!isActivePaidSubscriber(cs)) return sum;
+    return sum + getSubscriptionValue(cs);
   }, 0);
 
   // Calcular total de repasses (Lucro Líquido = Lucro Bruto - Repasses)
@@ -2333,8 +2649,137 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return attendancesSum + saleCommissionsSum;
   }, [subscriberAttendances, subscriptionSaleCommissions]);
 
-  const lucroBruto = totalArrecadado;
-  const lucroLiquido = lucroBruto - totalRepasses;
+  // Líquido = Bruto - taxas de gateway/plataforma (assinaturas ativas)
+  const liquidoAtivo = clientSubscriptions.reduce((sum, cs) => {
+    if (!isActivePaidSubscriber(cs)) return sum;
+    const grossValue = getSubscriptionValue(cs);
+    return sum + getNetFromSubscription(grossValue, (cs as any)?.subscription_payment_provider);
+  }, 0);
+
+  // Entradas do mês: somente pagamentos de assinatura que aconteceram no mês selecionado
+  // (renovação e/ou entrada de novo assinante), sem herdar mês anterior.
+  const emContaEntradasCents = clientSubscriptions.reduce((sum, cs) => {
+    if (String(cs.payment_status || '').toLowerCase() !== 'paid') return sum;
+
+    const rawPaymentDate = String((cs as any)?.last_payment_date || '').trim();
+    const rawFallbackDate = String(cs.start_date || '').trim();
+    const dateToCheckRaw = rawPaymentDate || rawFallbackDate;
+    if (!dateToCheckRaw) return sum;
+
+    const paymentDate = parseISO(dateToCheckRaw);
+    if (Number.isNaN(paymentDate.getTime())) return sum;
+    if (paymentDate < monthStart || paymentDate > monthEnd) return sum;
+
+    return sum + toCents(getSubscriptionValue(cs));
+  }, 0);
+
+  // Saídas do mês: pagamentos realizados para profissionais no módulo de assinantes
+  // (já filtrados por competência/mês em fetchProfessionalPayments).
+  // Mantém sinal para suportar estorno (valor negativo volta para o caixa).
+  const emContaSaidasCents = professionalPayments.reduce((sum, payment) => {
+    const amount = Number((payment as any)?.amount || 0);
+    if (!Number.isFinite(amount) || amount === 0) return sum;
+    return sum + toCents(amount);
+  }, 0);
+
+  // Em conta atual do mês = entradas - saídas (nunca negativo na UI)
+  const emContaEntradasMes = fromCents(emContaEntradasCents);
+  const emContaSaidasMes = fromCents(emContaSaidasCents);
+  const emContaMes = fromCents(Math.max(0, emContaEntradasCents - emContaSaidasCents));
+
+  const emContaBreakdown = useMemo(() => {
+    return clientSubscriptions
+      .map((cs) => {
+        if (String(cs.payment_status || '').toLowerCase() !== 'paid') return null;
+
+        const rawPaymentDate = String((cs as any)?.last_payment_date || '').trim();
+        const rawFallbackDate = String(cs.start_date || '').trim();
+        const dateToCheckRaw = rawPaymentDate || rawFallbackDate;
+        if (!dateToCheckRaw) return null;
+
+        const paymentDate = parseISO(dateToCheckRaw);
+        if (Number.isNaN(paymentDate.getTime())) return null;
+        if (paymentDate < monthStart || paymentDate > monthEnd) return null;
+
+        const value = getSubscriptionValue(cs);
+        if (!Number.isFinite(value) || value <= 0) return null;
+
+        const startDateRaw = String(cs.start_date || '').trim();
+        const startDate = startDateRaw ? parseISO(startDateRaw) : null;
+        const isNewSubscriber =
+          Boolean(startDate) &&
+          startDate != null &&
+          !Number.isNaN(startDate.getTime()) &&
+          format(startDate, 'yyyy-MM-dd') === format(paymentDate, 'yyyy-MM-dd');
+
+        return {
+          id: String(cs.id || ''),
+          clientName: String(cs.profiles?.full_name || 'Cliente').trim() || 'Cliente',
+          planName: String(cs.subscriptions?.name || 'Plano').trim() || 'Plano',
+          paymentDate,
+          value,
+          typeLabel: isNewSubscriber ? 'Novo assinante' : 'Renovação',
+        };
+      })
+      .filter((row): row is {
+        id: string;
+        clientName: string;
+        planName: string;
+        paymentDate: Date;
+        value: number;
+        typeLabel: string;
+      } => Boolean(row))
+      .sort((a, b) => b.paymentDate.getTime() - a.paymentDate.getTime());
+  }, [clientSubscriptions, monthEnd, monthStart]);
+
+  const liquidoAtivoBreakdown = useMemo(() => {
+    return clientSubscriptions
+      .filter((cs) => isActivePaidSubscriber(cs))
+      .map((cs) => {
+        const bruto = getSubscriptionValue(cs);
+        const liquido = getNetFromSubscription(bruto, (cs as any)?.subscription_payment_provider);
+        const rawEndDate = String(cs.end_date || '').trim();
+        const endDate = rawEndDate ? parseISO(rawEndDate) : null;
+        return {
+          id: String(cs.id || ''),
+          clientName: String(cs.profiles?.full_name || 'Cliente').trim() || 'Cliente',
+          planName: String(cs.subscriptions?.name || 'Plano').trim() || 'Plano',
+          endDate,
+          bruto,
+          liquido,
+        };
+      })
+      .sort((a, b) => b.liquido - a.liquido);
+  }, [clientSubscriptions]);
+
+  const totalAtivosBreakdown = useMemo(() => {
+    return clientSubscriptions
+      .filter((cs) => isSubscriptionActiveByEndDate(cs))
+      .map((cs) => ({
+        id: String(cs.id || ''),
+        clientName: String(cs.profiles?.full_name || 'Cliente').trim() || 'Cliente',
+        planName: String(cs.subscriptions?.name || 'Plano').trim() || 'Plano',
+        paymentStatus: String(cs.payment_status || '').toLowerCase(),
+        value: getSubscriptionValue(cs),
+      }))
+      .sort((a, b) => a.clientName.localeCompare(b.clientName, 'pt-BR'));
+  }, [clientSubscriptions]);
+
+  const naoPagosBreakdown = useMemo(() => {
+    return clientSubscriptions
+      .filter((cs) => String(cs.payment_status || '').toLowerCase() === 'unpaid')
+      .map((cs) => {
+        const active = isSubscriptionActiveByEndDate(cs);
+        return {
+          id: String(cs.id || ''),
+          clientName: String(cs.profiles?.full_name || 'Cliente').trim() || 'Cliente',
+          planName: String(cs.subscriptions?.name || 'Plano').trim() || 'Plano',
+          value: getSubscriptionValue(cs),
+          bucket: active ? 'Ativo sem pagamento' : 'Vencido sem pagamento',
+        };
+      })
+      .sort((a, b) => a.clientName.localeCompare(b.clientName, 'pt-BR'));
+  }, [clientSubscriptions]);
 
   // Saldo (assinantes) - SOMENTE assinantes pagos via PIX da Pagar.me (assinatura)
   // Regra: soma apenas registros com subscription_payment_provider='pagarme_pix' (e pago/ativo),
@@ -2378,7 +2823,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   };
 
   console.log('📊 Resumo calculado:', {
-    totalArrecadado,
+    brutoAtivo,
+    liquidoAtivo,
+    emContaMes,
+    totalRepasses,
     totalAssinantes: clientSubscriptions.length,
     clientSubscriptions: clientSubscriptions.map(cs => ({
       name: cs.profiles?.full_name,
@@ -2388,10 +2836,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }))
   });
 
-  const totalAssinantes = clientSubscriptions.filter(cs => {
-    const endDate = parseISO(cs.end_date);
-    return !isPast(endDate); // Apenas assinaturas ativas
-  }).length;
+  const totalAssinantes = clientSubscriptions.filter(cs => isSubscriptionActiveByEndDate(cs)).length;
 
   // Contar assinantes não pagos (ativos e vencidos)
   const assinantesNaoPagos = clientSubscriptions.filter(cs => {
@@ -2449,6 +2894,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   };
 
   const isCurrentMonth = selectedMonth === new Date().getMonth() && selectedYear === new Date().getFullYear();
+
+  useEffect(() => {
+    setShowEmContaBreakdown(false);
+    setShowLiquidoAtivoBreakdown(false);
+    setShowTotalAtivosBreakdown(false);
+    setShowNaoPagosBreakdown(false);
+  }, [selectedMonth, selectedYear]);
 
   return (
     <div className="space-y-6">
@@ -2509,24 +2961,262 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             )}
           </div>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          <div className="text-center sm:text-left">
-            <p className="text-xs sm:text-sm text-gray-400">Lucro Bruto:</p>
-            <p className="text-lg sm:text-2xl font-bold text-green-400">{fmtBRL(lucroBruto)}</p>
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
+          <div className="text-center sm:text-left rounded-lg border border-green-500/20 bg-green-500/5 px-2 py-2">
+            <p className="text-xs sm:text-sm text-gray-300">Bruto (ativos pagos):</p>
+            <p className="text-lg sm:text-2xl font-bold text-green-400">{fmtBRL(brutoAtivo)}</p>
           </div>
-          <div className="text-center sm:text-left">
-            <p className="text-xs sm:text-sm text-gray-400">Lucro Líquido:</p>
-            <p className="text-lg sm:text-2xl font-bold text-blue-400">{fmtBRL(lucroLiquido)}</p>
+          <button
+            type="button"
+            onClick={() => setShowLiquidoAtivoBreakdown((prev) => !prev)}
+            className="text-center sm:text-left rounded-lg border border-blue-500/30 bg-blue-500/5 px-2 py-2 transition-colors hover:bg-blue-500/10"
+            title="Clique para ver quem compõe o Líquido (ativos pagos)"
+          >
+            <p className="text-xs sm:text-sm text-gray-300">Líquido (ativos pagos):</p>
+            <p className="text-lg sm:text-2xl font-bold text-blue-400">{fmtBRL(liquidoAtivo)}</p>
+            <p className="text-[11px] text-blue-200/80 mt-1">
+              {showLiquidoAtivoBreakdown ? 'Ocultar lista' : 'Clique para ver lista'}
+            </p>
+          </button>
+          <div className="text-center sm:text-left rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-2 py-2">
+            <p className="text-xs sm:text-sm text-emerald-200 font-semibold">Entradas do mês:</p>
+            <p className="text-lg sm:text-2xl font-bold text-emerald-300">{fmtBRL(emContaEntradasMes)}</p>
+            <p className="text-[11px] text-emerald-200/80 mt-1">Pagamentos de assinatura no período</p>
           </div>
-          <div className="text-center sm:text-left">
-            <p className="text-xs sm:text-sm text-gray-400">Total de Assinantes:</p>
+          <div className="text-center sm:text-left rounded-lg border border-rose-500/30 bg-rose-500/5 px-2 py-2">
+            <p className="text-xs sm:text-sm text-rose-200 font-semibold">Pagamentos abatidos:</p>
+            <p className={`text-lg sm:text-2xl font-bold ${emContaSaidasMes >= 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
+              {emContaSaidasMes >= 0 ? '- ' : '+ '}{fmtBRL(Math.abs(emContaSaidasMes))}
+            </p>
+            <p className="text-[11px] text-rose-200/80 mt-1">Saídas líquidas (pagamentos - estornos)</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowEmContaBreakdown((prev) => !prev)}
+            className="text-center sm:text-left rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-2 py-2 transition-colors hover:bg-emerald-500/10"
+            title="Clique para ver quem compõe o Em conta"
+          >
+            <p className="text-xs sm:text-sm text-emerald-300 font-semibold">Em conta (mês, após pagamentos):</p>
+            <p className="text-lg sm:text-2xl font-bold text-emerald-300">{fmtBRL(emContaMes)}</p>
+            <p className="text-[11px] text-emerald-200/80 mt-1">
+              {showEmContaBreakdown ? 'Ocultar lista' : 'Clique para ver lista'}
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowTotalAtivosBreakdown((prev) => !prev)}
+            className="text-center sm:text-left rounded-lg border border-indigo-500/30 bg-indigo-500/5 px-2 py-2 transition-colors hover:bg-indigo-500/10"
+            title="Clique para ver a lista de assinantes ativos"
+          >
+            <p className="text-xs sm:text-sm text-gray-300">Total de assinantes ativos:</p>
             <p className="text-lg sm:text-2xl font-bold text-primary">{totalAssinantes}</p>
-          </div>
-          <div className="text-center sm:text-left">
-            <p className="text-xs sm:text-sm text-gray-400">Não Pagos:</p>
+            <p className="text-[11px] text-indigo-200/80 mt-1">
+              {showTotalAtivosBreakdown ? 'Ocultar lista' : 'Clique para ver lista'}
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowNaoPagosBreakdown((prev) => !prev)}
+            className="text-center sm:text-left rounded-lg border border-rose-500/30 bg-rose-500/5 px-2 py-2 transition-colors hover:bg-rose-500/10"
+            title="Clique para ver a lista de não pagos"
+          >
+            <p className="text-xs sm:text-sm text-gray-300">Não pagos (ativos + vencidos):</p>
             <p className="text-lg sm:text-2xl font-bold text-red-400">{assinantesNaoPagos}</p>
-          </div>
+            <p className="text-[11px] text-rose-200/80 mt-1">
+              {showNaoPagosBreakdown ? 'Ocultar lista' : 'Clique para ver lista'}
+            </p>
+          </button>
         </div>
+        <p className="mt-2 text-[11px] text-gray-400">
+          Fórmula do Em conta: <span className="text-emerald-300 font-semibold">{fmtBRL(emContaEntradasMes)}</span> - <span className="text-rose-300 font-semibold">{fmtBRL(emContaSaidasMes)}</span> = <span className="text-cyan-300 font-semibold">{fmtBRL(emContaMes)}</span>
+        </p>
+
+        {showLiquidoAtivoBreakdown && (
+          <div className="mt-4 rounded-lg border border-blue-500/30 bg-blue-950/20 p-3 sm:p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 className="text-sm sm:text-base font-bold text-blue-200">
+                Composição do Líquido (ativos pagos)
+              </h3>
+              <span className="text-xs text-blue-200/80">
+                Total: {fmtBRL(liquidoAtivo)}
+              </span>
+            </div>
+            {liquidoAtivoBreakdown.length === 0 ? (
+              <p className="text-xs sm:text-sm text-gray-300">
+                Nenhum assinante ativo e pago encontrado.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-auto pr-1">
+                {liquidoAtivoBreakdown.map((item) => (
+                  <div key={item.id} className="rounded-md border border-blue-500/20 bg-black/20 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-white truncate">{item.clientName}</p>
+                        <p className="text-xs text-gray-300 truncate">
+                          {item.planName}
+                          {item.endDate && !Number.isNaN(item.endDate.getTime()) ? ` • Vence em ${format(item.endDate, 'dd/MM/yyyy')}` : ''}
+                        </p>
+                      </div>
+                      <p className="text-sm font-extrabold text-blue-300 whitespace-nowrap">{fmtBRL(item.liquido)}</p>
+                    </div>
+                    <p className="text-[11px] text-blue-200/70 mt-1">Bruto: {fmtBRL(item.bruto)} • Líquido: {fmtBRL(item.liquido)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {showEmContaBreakdown && (
+          <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-950/20 p-3 sm:p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 className="text-sm sm:text-base font-bold text-emerald-200">
+                Composição do Em conta ({monthNames[selectedMonth]} {selectedYear})
+              </h3>
+              <span className="text-xs text-emerald-200/80">
+                Total: {fmtBRL(emContaMes)}
+              </span>
+            </div>
+
+            <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+              <div className="rounded border border-emerald-500/20 bg-black/20 px-2 py-1.5">
+                <span className="text-gray-300">Entradas</span>
+                <p className="text-emerald-300 font-bold">{fmtBRL(emContaEntradasMes)}</p>
+              </div>
+              <div className="rounded border border-rose-500/20 bg-black/20 px-2 py-1.5">
+                <span className="text-gray-300">Pagamentos aos profissionais</span>
+                <p className={`font-bold ${emContaSaidasMes >= 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
+                  {emContaSaidasMes >= 0 ? '- ' : '+ '}{fmtBRL(Math.abs(emContaSaidasMes))}
+                </p>
+              </div>
+              <div className="rounded border border-cyan-500/20 bg-black/20 px-2 py-1.5">
+                <span className="text-gray-300">Em conta final</span>
+                <p className="text-cyan-300 font-bold">{fmtBRL(emContaMes)}</p>
+              </div>
+            </div>
+
+            {emContaBreakdown.length === 0 ? (
+              <p className="text-xs sm:text-sm text-gray-300">
+                Nenhum pagamento de assinatura encontrado neste mês.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-auto pr-1">
+                {emContaBreakdown.map((item) => (
+                  <div
+                    key={item.id}
+                    className="rounded-md border border-emerald-500/20 bg-black/20 px-3 py-2 flex items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white truncate">{item.clientName}</p>
+                      <p className="text-xs text-gray-300 truncate">
+                        {item.planName} • {item.typeLabel} • {format(item.paymentDate, 'dd/MM/yyyy')}
+                      </p>
+                    </div>
+                    <p className="text-sm font-extrabold text-emerald-300 whitespace-nowrap">
+                      {fmtBRL(item.value)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {professionalPayments.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-rose-500/20">
+                <p className="text-xs sm:text-sm text-rose-200 font-semibold mb-2">
+                  Pagamentos que foram abatidos deste mês
+                </p>
+                <div className="space-y-2 max-h-40 overflow-auto pr-1">
+                  {professionalPayments.map((payment: any, index: number) => (
+                    <div
+                      key={String(payment.id || `${payment.professional_name || 'payment'}-${index}`)}
+                      className="rounded-md border border-rose-500/20 bg-black/20 px-3 py-2 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-white truncate">
+                          {String(payment.professional_name || 'Profissional')}
+                        </p>
+                        <p className="text-xs text-gray-300 truncate">
+                          {(() => {
+                            const dt = new Date(String(payment.payment_date || ''));
+                            if (Number.isNaN(dt.getTime())) return 'Data inválida';
+                            return format(dt, 'dd/MM/yyyy HH:mm');
+                          })()}
+                        </p>
+                      </div>
+                    <p className={`text-sm font-extrabold whitespace-nowrap ${Number(payment.amount || 0) >= 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
+                      {Number(payment.amount || 0) >= 0 ? '- ' : '+ '}{fmtBRL(Math.abs(Number(payment.amount || 0)))}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {showTotalAtivosBreakdown && (
+          <div className="mt-4 rounded-lg border border-indigo-500/30 bg-indigo-950/20 p-3 sm:p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 className="text-sm sm:text-base font-bold text-indigo-200">
+                Lista de assinantes ativos
+              </h3>
+              <span className="text-xs text-indigo-200/80">
+                Total: {totalAssinantes}
+              </span>
+            </div>
+            {totalAtivosBreakdown.length === 0 ? (
+              <p className="text-xs sm:text-sm text-gray-300">
+                Nenhum assinante ativo encontrado.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-auto pr-1">
+                {totalAtivosBreakdown.map((item) => (
+                  <div key={item.id} className="rounded-md border border-indigo-500/20 bg-black/20 px-3 py-2 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white truncate">{item.clientName}</p>
+                      <p className="text-xs text-gray-300 truncate">
+                        {item.planName} • {item.paymentStatus === 'paid' ? 'Pago' : 'Não pago'}
+                      </p>
+                    </div>
+                    <p className="text-sm font-extrabold text-indigo-300 whitespace-nowrap">{fmtBRL(item.value)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {showNaoPagosBreakdown && (
+          <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-950/20 p-3 sm:p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 className="text-sm sm:text-base font-bold text-rose-200">
+                Lista de não pagos (ativos + vencidos)
+              </h3>
+              <span className="text-xs text-rose-200/80">
+                Total: {assinantesNaoPagos}
+              </span>
+            </div>
+            {naoPagosBreakdown.length === 0 ? (
+              <p className="text-xs sm:text-sm text-gray-300">
+                Nenhum assinante não pago encontrado.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-auto pr-1">
+                {naoPagosBreakdown.map((item) => (
+                  <div key={item.id} className="rounded-md border border-rose-500/20 bg-black/20 px-3 py-2 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white truncate">{item.clientName}</p>
+                      <p className="text-xs text-gray-300 truncate">
+                        {item.planName} • {item.bucket}
+                      </p>
+                    </div>
+                    <p className="text-sm font-extrabold text-rose-300 whitespace-nowrap">{fmtBRL(item.value)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Saldo + Sacar (assinantes) */}
         <div className="mt-4 rounded-lg border border-green-500/20 bg-black/20 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -5133,7 +5823,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       <p className="text-sm text-gray-400 mt-1">
                         Total pago: <span className="font-bold text-green-400">
                           {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
-                            professionalPaymentHistory.reduce((sum, p) => sum + (p.amount || 0), 0)
+                            professionalPaymentHistory.reduce((sum, p) => sum + (Number(p?.amount || 0) || 0), 0)
                           )}
                         </span>
                       </p>
@@ -5144,13 +5834,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
                             <p className="text-sm font-medium text-white">
-                              {new Date(payment.payment_date).toLocaleDateString('pt-BR', {
-                                day: '2-digit',
-                                month: '2-digit',
-                                year: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
+                              {(() => {
+                                const dt = new Date(String(payment.payment_date || ''));
+                                if (Number.isNaN(dt.getTime())) return 'Data inválida';
+                                return dt.toLocaleDateString('pt-BR', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  year: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                });
+                              })()}
                             </p>
                             {(payment.payment_source === 'subscription' || payment.payment_source === 'assinatura') ? (
                               <span className="px-2 py-0.5 text-xs font-medium bg-purple-600/30 text-purple-300 rounded border border-purple-500/50">
@@ -5162,12 +5856,57 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-gray-400">Data do pagamento</p>
+                          <p className="text-xs text-gray-400">
+                            Data do pagamento
+                            {String(payment?.for_month || '').trim()
+                              ? ` • Competência: ${String(payment.for_month)}`
+                              : ''}
+                          </p>
                         </div>
                         <div className="text-right">
                           <p className={`text-lg font-bold ${payment.amount < 0 ? 'text-red-400' : 'text-green-400'}`}>
                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(payment.amount || 0)}
                           </p>
+                          <div className="mt-1 flex flex-wrap justify-end gap-1">
+                            <button
+                              type="button"
+                              disabled={reassigningPaymentId === String(payment.id || '')}
+                              onClick={() => movePaymentByMonthDelta(payment, -1)}
+                              className="px-2 py-1 text-[11px] rounded border border-amber-500/40 text-amber-200 hover:bg-amber-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Mover este lançamento para o mês anterior"
+                            >
+                              {reassigningPaymentId === String(payment.id || '') ? 'Movendo...' : 'Mês -1'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={reassigningPaymentId === String(payment.id || '')}
+                              onClick={() => movePaymentByMonthDelta(payment, 1)}
+                              className="px-2 py-1 text-[11px] rounded border border-amber-500/40 text-amber-200 hover:bg-amber-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Mover este lançamento para o próximo mês"
+                            >
+                              {reassigningPaymentId === String(payment.id || '') ? 'Movendo...' : 'Mês +1'}
+                            </button>
+                            {Number(payment.amount || 0) >= 0 && (
+                              <button
+                                type="button"
+                                disabled={reassigningPaymentId === String(payment.id || '')}
+                                onClick={() => returnPaymentToBarberCash(payment)}
+                                className="px-2 py-1 text-[11px] rounded border border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Voltar este valor para o caixa do barbeiro"
+                              >
+                                Voltar pro caixa
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={reassigningPaymentId === String(payment.id || '')}
+                              onClick={() => deletePaymentRecord(payment)}
+                              className="px-2 py-1 text-[11px] rounded border border-rose-500/40 text-rose-200 hover:bg-rose-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Apagar este lançamento"
+                            >
+                              Apagar
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}

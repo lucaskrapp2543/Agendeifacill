@@ -15,6 +15,7 @@ import {
   LogOut,
   RefreshCw,
   Search,
+  Trophy,
   Trash2,
   Unlock,
   Users,
@@ -56,6 +57,14 @@ interface Establishment {
   pagamento_adiantado_liberado_admin?: boolean; // Liberação pelo admin para mostrar "Pagamento adiantado" ao barbeiro
 }
 
+interface AdminTopRankingRow {
+  establishmentId: string;
+  establishmentName: string;
+  establishmentCode: string;
+  completedAppointments: number;
+  hiddenFromPublicTop5: boolean;
+}
+
 // (removido) AdminCostRow
 
 const AdminDashboard = () => {
@@ -73,6 +82,10 @@ const AdminDashboard = () => {
   const [showPayoutHistoryModal, setShowPayoutHistoryModal] = useState(false);
   const [showClientesPagosHistoryModal, setShowClientesPagosHistoryModal] = useState(false);
   const [showClientesNovosHistoryModal, setShowClientesNovosHistoryModal] = useState(false);
+  const [showTop5DetailsModal, setShowTop5DetailsModal] = useState(false);
+  const [isLoadingTop5Details, setIsLoadingTop5Details] = useState(false);
+  const [top5DetailsMonth, setTop5DetailsMonth] = useState<Date>(new Date());
+  const [top5DetailsRows, setTop5DetailsRows] = useState<AdminTopRankingRow[]>([]);
   const [isAdjustingRenewalByEstablishment, setIsAdjustingRenewalByEstablishment] = useState<Record<string, boolean>>({});
   const [payoutHistoryEstablishment, setPayoutHistoryEstablishment] = useState<Establishment | null>(null);
   const [payoutHistoryRows, setPayoutHistoryRows] = useState<any[]>([]);
@@ -111,6 +124,7 @@ const AdminDashboard = () => {
   const [showSupportNamePicker, setShowSupportNamePicker] = useState(false);
   const [supportNameForPin, setSupportNameForPin] = useState<string | null>(null);
   const [supportPinInput, setSupportPinInput] = useState('');
+  const [isSubmittingSupportPin, setIsSubmittingSupportPin] = useState(false);
   const supportSessionErrorShownRef = useRef(false);
   const supportSessionAvailableRef = useRef(true);
 
@@ -166,6 +180,70 @@ const AdminDashboard = () => {
     }
   };
 
+  const loadTop5Details = async (targetMonth: Date) => {
+    try {
+      setIsLoadingTop5Details(true);
+      const monthStart = format(startOfMonth(targetMonth), 'yyyy-MM-dd');
+      const monthEnd = format(endOfMonth(targetMonth), 'yyyy-MM-dd');
+      const pageSize = 1000;
+      let from = 0;
+      let keepFetching = true;
+      const completedByEstablishment = new Map<string, number>();
+
+      while (keepFetching) {
+        const { data, error } = await supabase
+          .from('appointments')
+          .select('establishment_id')
+          .eq('status', 'completed')
+          .gte('appointment_date', monthStart)
+          .lte('appointment_date', monthEnd)
+          .range(from, from + pageSize - 1);
+
+        if (error) throw error;
+
+        const rows = data || [];
+        rows.forEach((row: any) => {
+          const establishmentId = String(row?.establishment_id || '');
+          if (!establishmentId) return;
+          completedByEstablishment.set(establishmentId, (completedByEstablishment.get(establishmentId) || 0) + 1);
+        });
+
+        if (rows.length < pageSize) {
+          keepFetching = false;
+        } else {
+          from += pageSize;
+        }
+      }
+
+      const rows: AdminTopRankingRow[] = Array.from(completedByEstablishment.entries())
+        .map(([establishmentId, completedAppointments]) => {
+          const establishment = establishments.find((item) => String(item.id) === String(establishmentId));
+          return {
+            establishmentId,
+            establishmentName: establishment?.name || 'Estabelecimento removido/indisponível',
+            establishmentCode: establishment?.code || '—',
+            completedAppointments,
+            hiddenFromPublicTop5: Boolean((establishment as any)?.hide_from_top10_ranking)
+          };
+        })
+        .sort((a, b) => {
+          if (b.completedAppointments !== a.completedAppointments) {
+            return b.completedAppointments - a.completedAppointments;
+          }
+          return a.establishmentName.localeCompare(b.establishmentName, 'pt-BR');
+        })
+        .slice(0, 20);
+
+      setTop5DetailsRows(rows);
+    } catch (error: any) {
+      console.error('Erro ao carregar detalhamento do Top5 no admin:', error);
+      toast.error(error?.message || 'Erro ao carregar ranking detalhado');
+      setTop5DetailsRows([]);
+    } finally {
+      setIsLoadingTop5Details(false);
+    }
+  };
+
   // Função para inicializar data/mês para um estabelecimento (se ainda não tiver)
   const getSelectedDateForEstablishment = (establishmentId: string): Date => {
     if (!selectedDateForAppointments[establishmentId]) {
@@ -206,6 +284,11 @@ const AdminDashboard = () => {
     const date = getSelectedDateForEstablishment(establishment.id);
     const month = getSelectedMonthForEstablishment(establishment.id);
     await fetchAppointmentCounts(establishment, date, month);
+  };
+
+  const openTop5DetailsModal = () => {
+    setShowTop5DetailsModal(true);
+    void loadTop5Details(top5DetailsMonth);
   };
 
   // Função para buscar informações do estabelecimento (email, senha, whatsapp)
@@ -872,6 +955,35 @@ const AdminDashboard = () => {
     }
     if (res?.ok === false) return false;
     return true;
+  };
+
+  const submitSupportPin = async () => {
+    const pin = String(supportPinInput || '').trim();
+    const selectedName = supportNameForPin;
+    if (!selectedName) {
+      toast.error('Selecione um usuário antes de entrar.');
+      return;
+    }
+    if (pin.length !== 4) {
+      toast.error('Senha deve ter 4 dígitos.');
+      return;
+    }
+
+    try {
+      setIsSubmittingSupportPin(true);
+      const ok = await registerSupportByName(selectedName, pin);
+      if (!ok) return;
+
+      sessionStorage.setItem(SUPPORT_SESSION_NAME_KEY, selectedName);
+      rememberSupport(selectedName, pin);
+      setSupportNameForPin(null);
+      setSupportPinInput('');
+      setShowSupportNamePicker(false);
+      toast.success('Login realizado com sucesso!');
+      fetchSupportSessions();
+    } finally {
+      setIsSubmittingSupportPin(false);
+    }
   };
 
   // Ao abrir o admin: tenta restaurar suporte salvo no dispositivo
@@ -2866,13 +2978,21 @@ const AdminDashboard = () => {
               <>
                 <p className="text-sm text-gray-600 mb-3">Digite a senha de 4 dígitos para este usuário.</p>
                 <input
-                  type="password"
+                  type="text"
                   inputMode="numeric"
                   maxLength={4}
                   value={supportPinInput}
                   onChange={(e) => setSupportPinInput(e.target.value.replace(/\D/g, ''))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (!isSubmittingSupportPin) {
+                        void submitSupportPin();
+                      }
+                    }
+                  }}
                   placeholder="****"
-                  className="w-full px-4 py-3 rounded-lg border border-gray-300 text-center text-lg tracking-widest mb-4"
+                  className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white text-gray-900 placeholder-gray-400 text-center text-lg tracking-widest mb-4"
                   autoFocus
                 />
                 <div className="flex gap-2">
@@ -2885,25 +3005,11 @@ const AdminDashboard = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={async () => {
-                      if (supportPinInput.length !== 4) {
-                        toast.error('Senha deve ter 4 dígitos.');
-                        return;
-                      }
-                      const ok = await registerSupportByName(supportNameForPin, supportPinInput);
-                      if (ok) {
-                        sessionStorage.setItem(SUPPORT_SESSION_NAME_KEY, supportNameForPin);
-                        rememberSupport(supportNameForPin, supportPinInput);
-                        setSupportNameForPin(null);
-                        setSupportPinInput('');
-                        setShowSupportNamePicker(false);
-                        toast.success('Login realizado com sucesso!');
-                        fetchSupportSessions();
-                      }
-                    }}
-                    className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-medium"
+                    onClick={() => void submitSupportPin()}
+                    disabled={isSubmittingSupportPin}
+                    className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-medium disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    Entrar
+                    {isSubmittingSupportPin ? 'Entrando...' : 'Entrar'}
                   </button>
                 </div>
               </>
@@ -2941,6 +3047,16 @@ const AdminDashboard = () => {
                 {isAutoRefreshing && (
                   <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-400 rounded-full animate-ping"></div>
                 )}
+              </button>
+
+              <button
+                type="button"
+                onClick={openTop5DetailsModal}
+                className="flex items-center space-x-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
+                title="Abre detalhamento do Top 5 com até 20 posições"
+              >
+                <Trophy className="h-4 w-4" />
+                <span>Top5</span>
               </button>
 
               <button
@@ -4612,6 +4728,103 @@ const AdminDashboard = () => {
           )}
         </div>
       </div>
+
+      {showTop5DetailsModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-3xl rounded-xl shadow-2xl border border-gray-200 max-h-[90vh] overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Top 5 (detalhado no Admin)</h3>
+                <p className="text-xs text-gray-600">Mesmo critério do dashboard estabelecimento (somente concluídos), com visão até 20 posições.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTop5DetailsModal(false)}
+                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                title="Fechar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="px-4 sm:px-6 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = new Date(top5DetailsMonth.getFullYear(), top5DetailsMonth.getMonth() - 1, 1);
+                    setTop5DetailsMonth(next);
+                    void loadTop5Details(next);
+                  }}
+                  className="p-1.5 rounded-md border border-gray-300 hover:bg-gray-100"
+                  title="Mês anterior"
+                >
+                  <ChevronLeft className="h-4 w-4 text-gray-700" />
+                </button>
+                <span className="text-sm font-semibold text-gray-800 min-w-[150px] text-center capitalize">
+                  {top5DetailsMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = new Date(top5DetailsMonth.getFullYear(), top5DetailsMonth.getMonth() + 1, 1);
+                    setTop5DetailsMonth(next);
+                    void loadTop5Details(next);
+                  }}
+                  className="p-1.5 rounded-md border border-gray-300 hover:bg-gray-100"
+                  title="Próximo mês"
+                >
+                  <ChevronRight className="h-4 w-4 text-gray-700" />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => void loadTop5Details(top5DetailsMonth)}
+                className="px-3 py-1.5 rounded-lg text-sm border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+              >
+                Recarregar
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 overflow-auto max-h-[62vh]">
+              {isLoadingTop5Details ? (
+                <div className="py-10 text-center">
+                  <RefreshCw className="h-7 w-7 text-blue-600 animate-spin mx-auto mb-3" />
+                  <p className="text-sm text-gray-600">Carregando ranking detalhado...</p>
+                </div>
+              ) : top5DetailsRows.length === 0 ? (
+                <div className="py-10 text-center">
+                  <p className="text-sm text-gray-600">Sem dados de concluídos para este mês.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {top5DetailsRows.map((row, index) => (
+                    <div
+                      key={`${row.establishmentId}-${index}`}
+                      className="rounded-lg border border-gray-200 px-3 py-2 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 truncate">
+                          #{index + 1} • {row.establishmentName}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Código: {row.establishmentCode}
+                          {row.hiddenFromPublicTop5 ? ' • Oculto no TOP 5 público' : ''}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-bold text-emerald-700">{row.completedAppointments}</p>
+                        <p className="text-[11px] text-gray-500">concluídos no mês</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Informações do Estabelecimento */}
       {showEstablishmentInfoModal && selectedEstablishmentForInfo && (

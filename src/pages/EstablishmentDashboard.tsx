@@ -704,6 +704,7 @@ const EstablishmentDashboard = () => {
     outros: 3.5
   }); // Taxas por bandeira de cartão
   const [taxDeductedByEstablishment, setTaxDeductedByEstablishment] = useState(false); // Se true, taxa é descontada do estabelecimento; se false, do profissional
+  const [clientPaysCardFees, setClientPaysCardFees] = useState(false); // Se true, taxa não é descontada nos cálculos internos
 
   // Efeito para preencher automaticamente o pixPaymentLink
   useEffect(() => {
@@ -718,6 +719,18 @@ const EstablishmentDashboard = () => {
       setPixPaymentLink(''); // Limpa se não tiver PIX ou for placeholder
     }
   }, [pixKey]);
+
+  // Carrega/salva flag local "Taxas do cliente" por estabelecimento (sem depender de migration)
+  useEffect(() => {
+    if (!establishment?.id) return;
+    try {
+      const key = `taxas_cliente_${establishment.id}`;
+      const saved = localStorage.getItem(key);
+      setClientPaysCardFees(saved === 'true');
+    } catch {
+      setClientPaysCardFees(false);
+    }
+  }, [establishment?.id]);
 
   type PagarmeDraft = {
     updatedAt: number;
@@ -3843,6 +3856,9 @@ const EstablishmentDashboard = () => {
     totalArrecadado: number;
     totalRepasses: number;
     lucroLiquido: number;
+    brutoAtivo: number;
+    liquidoAtivo: number;
+    emContaMes: number;
     totalAssinantes: number;
     assinantesNaoPagos: number;
     saldoAssinantes: number;
@@ -3852,6 +3868,9 @@ const EstablishmentDashboard = () => {
     totalArrecadado: 0,
     totalRepasses: 0,
     lucroLiquido: 0,
+    brutoAtivo: 0,
+    liquidoAtivo: 0,
+    emContaMes: 0,
     totalAssinantes: 0,
     assinantesNaoPagos: 0,
     saldoAssinantes: 0,
@@ -4484,6 +4503,9 @@ const EstablishmentDashboard = () => {
         totalArrecadado: 0,
         totalRepasses: 0,
         lucroLiquido: 0,
+        brutoAtivo: 0,
+        liquidoAtivo: 0,
+        emContaMes: 0,
         totalAssinantes: 0,
         assinantesNaoPagos: 0,
         saldoAssinantes: 0,
@@ -4560,7 +4582,45 @@ const EstablishmentDashboard = () => {
     );
     const totalRepasses = totalRepassesAtendimentos + totalRepassesComissaoVenda;
 
-    const currentMonthIsSelected = now >= start && now <= end;
+    const getSubscriptionValue = (cs: any) => {
+      const rawSubscription = cs?.subscriptions;
+      const subscriptionValueFromRelation = Array.isArray(rawSubscription)
+        ? Number(rawSubscription[0]?.value || 0)
+        : Number(rawSubscription?.value || 0);
+      const fallbackSubscriptionValue = hasSubscriptionValueColumn ? Number(cs?.subscription_value || 0) : 0;
+      const subscriptionValue =
+        Number.isFinite(subscriptionValueFromRelation) && subscriptionValueFromRelation > 0
+          ? subscriptionValueFromRelation
+          : fallbackSubscriptionValue;
+      return Number.isFinite(subscriptionValue) ? subscriptionValue : 0;
+    };
+
+    const getSubscriptionNetValue = (bruto: number, providerRaw: unknown) => {
+      if (!Number.isFinite(bruto) || bruto <= 0) return 0;
+
+      const provider = String(providerRaw || '').toLowerCase().trim();
+      const taxaPlataforma = 0.5;
+      let taxaPercentual = 1.19 / 100; // padrão: PIX Pagar.me
+
+      if (provider.includes('mercadopago')) {
+        if (provider.includes('credit') || provider.includes('card')) {
+          taxaPercentual = 4.99 / 100;
+        } else if (provider.includes('debit')) {
+          taxaPercentual = 1.99 / 100;
+        } else {
+          taxaPercentual = 0.99 / 100; // PIX Mercado Pago
+        }
+      } else if (provider.includes('credit') || provider.includes('card')) {
+        taxaPercentual = 4.99 / 100;
+      } else if (provider.includes('debit')) {
+        taxaPercentual = 1.99 / 100;
+      } else if (provider.includes('pix')) {
+        taxaPercentual = 1.19 / 100;
+      }
+
+      return Math.max(0, Math.round((bruto - taxaPlataforma - (bruto * taxaPercentual)) * 100) / 100);
+    };
+
     const wasPaidInReferenceMonth = (cs: any) => {
       const paymentStatus = String(cs?.payment_status || '').toLowerCase();
       if (paymentStatus !== 'paid') return false;
@@ -4572,33 +4632,35 @@ const EstablishmentDashboard = () => {
           return paymentDate >= start && paymentDate <= end;
         }
       }
-
-      if (!currentMonthIsSelected) return false;
-      const endDate = cs?.end_date ? parseISO(String(cs.end_date)) : null;
-      const expired = endDate ? endDate < now : false;
-      return !expired;
+      return false;
     };
 
     const totalArrecadado = subscriptionsRows.reduce((sum, cs: any) => {
       if (!wasPaidInReferenceMonth(cs)) return sum;
-
-      const rawSubscription = cs?.subscriptions;
-      const subscriptionValueFromRelation = Array.isArray(rawSubscription)
-        ? Number(rawSubscription[0]?.value || 0)
-        : Number(rawSubscription?.value || 0);
-      const fallbackSubscriptionValue = hasSubscriptionValueColumn ? Number(cs?.subscription_value || 0) : 0;
-      const subscriptionValue =
-        Number.isFinite(subscriptionValueFromRelation) && subscriptionValueFromRelation > 0
-          ? subscriptionValueFromRelation
-          : fallbackSubscriptionValue;
-      return sum + (Number.isFinite(subscriptionValue) ? subscriptionValue : 0);
+      return sum + getSubscriptionValue(cs);
     }, 0);
 
-    const totalAssinantes = subscriptionsRows.filter((cs: any) => {
-      const endDate = cs?.end_date ? parseISO(String(cs.end_date)) : null;
-      if (!endDate) return true;
-      return !(endDate < now);
-    }).length;
+    const isSubscriberActiveNow = (cs: any) => {
+      const paymentStatus = String(cs?.payment_status || '').toLowerCase();
+      if (paymentStatus !== 'paid') return false;
+
+      const rawEndDate = String(cs?.end_date || '').trim();
+      if (!rawEndDate) return true;
+
+      const endDate = parseISO(rawEndDate);
+      if (Number.isNaN(endDate.getTime())) return true;
+
+      return endDate >= now;
+    };
+
+    const activeSubscribers = subscriptionsRows.filter((cs: any) => isSubscriberActiveNow(cs));
+    const brutoAtivo = activeSubscribers.reduce((sum, cs: any) => sum + getSubscriptionValue(cs), 0);
+    const liquidoAtivo = activeSubscribers.reduce((sum, cs: any) => {
+      const bruto = getSubscriptionValue(cs);
+      return sum + getSubscriptionNetValue(bruto, cs?.subscription_payment_provider);
+    }, 0);
+
+    const totalAssinantes = activeSubscribers.length;
 
     const assinantesNaoPagos = subscriptionsRows.filter((cs: any) => cs?.payment_status === 'unpaid').length;
 
@@ -4628,6 +4690,9 @@ const EstablishmentDashboard = () => {
       totalArrecadado,
       totalRepasses,
       lucroLiquido: totalArrecadado - totalRepasses,
+      brutoAtivo,
+      liquidoAtivo,
+      emContaMes: totalArrecadado,
       totalAssinantes,
       assinantesNaoPagos,
       saldoAssinantes,
@@ -8697,8 +8762,8 @@ Estamos te aguardando! 😎✂️`;
         setRequireCancelPassword(requireCancelPasswordValue); // Exigir senha para cancelar agendamento
         console.log('🔍 Carregado require_cancel_password do banco:', requireCancelPasswordValue);
         console.log('🔍 establishmentData completo:', establishmentData);
-        setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage || 3.5); // Taxa do cartão de crédito
-        setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage || 2.5); // Taxa do cartão de débito
+        setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage ?? 3.5); // Taxa do cartão de crédito
+        setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage ?? 2.5); // Taxa do cartão de débito
         setPaymentMethodsEnabled(establishmentData.payment_methods_enabled || ['pix', 'credito', 'debito', 'dinheiro', 'pagar_local']); // Formas de pagamento ativas
         setCarouselPosition(establishmentData.carousel_position || 'behind'); // Posição do carrossel
 
@@ -16437,17 +16502,44 @@ Estamos te aguardando! 😎✂️`;
 
   // Função para obter a taxa do método de pagamento
   const getPaymentMethodTax = (method: string, cardBrand?: string) => {
+    // Modo explícito solicitado: se "Taxas do cliente" estiver ativo,
+    // não descontar taxa de cartão nos cálculos do sistema.
+    if (clientPaysCardFees) return 0;
+
+    // Sempre priorizar o valor atual da tela (state),
+    // depois usar banco como fallback de compatibilidade.
+    const creditBaseRate = Number(
+      creditCardTaxPercentage ?? establishment?.credit_card_tax_percentage
+    );
+    const debitBaseRate = Number(
+      debitCardTaxPercentage ?? establishment?.debit_card_tax_percentage
+    );
+
+    // Regra clara: se a taxa base do tipo de cartão está zerada,
+    // não aplicar taxa (nem por bandeira).
+    if (method === 'credito' && Number.isFinite(creditBaseRate) && creditBaseRate <= 0) {
+      return 0;
+    }
+    if (method === 'debito' && Number.isFinite(debitBaseRate) && debitBaseRate <= 0) {
+      return 0;
+    }
+
     // Se for cartão e tiver bandeira definida, usar taxa da bandeira
     if ((method === 'credito' || method === 'debito') && cardBrand && cardBrand !== 'bandeira') {
-      return establishment?.card_brand_taxes?.[cardBrand] || cardBrandTaxes[cardBrand] || 3.5;
+      const brandTax = establishment?.card_brand_taxes?.[cardBrand] ?? cardBrandTaxes[cardBrand];
+      return Number.isFinite(Number(brandTax)) ? Number(brandTax) : 3.5;
     }
 
     // Fallback para taxas antigas por tipo de cartão
     switch (method) {
       case 'credito':
-        return establishment?.credit_card_tax_percentage || 3.5;
+        return Number.isFinite(creditBaseRate)
+          ? creditBaseRate
+          : 3.5;
       case 'debito':
-        return establishment?.debit_card_tax_percentage || 2.5;
+        return Number.isFinite(debitBaseRate)
+          ? debitBaseRate
+          : 2.5;
       default:
         return 0;
     }
@@ -16714,6 +16806,7 @@ Estamos te aguardando! 😎✂️`;
           .select('establishment_id,appointment_date,appointment_time,created_at')
           .gte('appointment_date', format(monthStart, 'yyyy-MM-dd'))
           .lte('appointment_date', format(monthEnd, 'yyyy-MM-dd'))
+          .eq('status', 'completed')
       );
 
       const validAppointments = appointmentsRaw
@@ -16837,7 +16930,7 @@ Estamos te aguardando! 😎✂️`;
       const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
       const monthKey = format(monthStart, 'yyyy-MM');
       const snapshotStorageKey = `agendeifacil_top10_barbearias_${monthKey}`;
-      const snapshotWindowDays = 5;
+      const snapshotWindowDays = 1;
 
       const daysInMonth = monthEnd.getDate();
       const dayOfMonth = now.getDate();
@@ -16980,6 +17073,7 @@ Estamos te aguardando! 😎✂️`;
           .select('establishment_id,appointment_date')
           .gte('appointment_date', format(monthStart, 'yyyy-MM-dd'))
           .lte('appointment_date', format(bucketEndDate, 'yyyy-MM-dd'))
+          .eq('status', 'completed')
       );
 
       const countByEstablishment = new Map<string, number>();
@@ -19576,7 +19670,10 @@ Estamos te aguardando! 😎✂️`;
                       <div>
                         <h2 className="text-2xl sm:text-2xl font-extrabold text-cyan-100 leading-7">👑 TOP 5 barbearias do mês</h2>
                         <p className="text-[13px] sm:text-sm text-cyan-200/80 mt-1 leading-5">
-                          Ranking global com base em agendamentos do mês atual (competição atualizada a cada 5 dias).
+                          Ranking global com base em agendamentos concluídos do mês atual (competição atualizada diariamente).
+                        </p>
+                        <p className="text-[12px] sm:text-sm font-bold text-amber-200/95 mt-1 leading-5">
+                          Somente serviços concluídos entram no rank.
                         </p>
                         <div className="mt-2 rounded-xl border border-amber-300/50 bg-amber-400/10 px-3 py-2">
                           <span className="text-[13px] sm:text-sm font-extrabold text-amber-200 leading-5 block">
@@ -19634,7 +19731,7 @@ Estamos te aguardando! 😎✂️`;
                         </p>
                       </div>
                       <div className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 p-3">
-                        <p className="text-[11px] text-indigo-200 uppercase tracking-wide">Próxima atualização (janela 5 dias)</p>
+                        <p className="text-[11px] text-indigo-200 uppercase tracking-wide">Próxima atualização (diária)</p>
                         <p className="text-sm font-bold text-indigo-50">
                           {top10LeaderboardNextRefreshAt
                             ? new Date(top10LeaderboardNextRefreshAt).toLocaleString('pt-BR')
@@ -19675,7 +19772,7 @@ Estamos te aguardando! 😎✂️`;
                                   {isCurrentEstablishment ? ' • VOCÊ' : ''}
                                 </p>
                                 <p className="text-[11px] text-cyan-200/80 mt-1">
-                                  Salto da janela de 5 dias: <strong className={row.jumpInPeriod >= 0 ? 'text-emerald-300' : 'text-rose-300'}>{jumpLabel}</strong>
+                                  Salto do dia: <strong className={row.jumpInPeriod >= 0 ? 'text-emerald-300' : 'text-rose-300'}>{jumpLabel}</strong>
                                   {' '}| Antes: {row.previousCount}
                                 </p>
                               </div>
@@ -23947,6 +24044,44 @@ Estamos te aguardando! 😎✂️`;
                           </label>
                         </div>
 
+                        {/* Botão explícito: Taxas do cliente */}
+                        <div className="mt-4 p-4 bg-[#1a1b1c] rounded-lg border border-gray-700">
+                          <label className="flex items-center justify-between cursor-pointer">
+                            <div className="flex-1">
+                              <span className="block text-sm font-medium text-gray-300 mb-1">
+                                Taxas do cliente
+                              </span>
+                              <p className="text-xs text-gray-500">
+                                {clientPaysCardFees
+                                  ? 'ATIVO: o sistema NÃO desconta taxas da maquininha nos cálculos (cliente arca com a taxa).'
+                                  : 'INATIVO: o sistema aplica as taxas configuradas normalmente.'}
+                              </p>
+                            </div>
+                            <div className="ml-4">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = !clientPaysCardFees;
+                                  setClientPaysCardFees(next);
+                                  try {
+                                    if (establishment?.id) {
+                                      localStorage.setItem(`taxas_cliente_${establishment.id}`, String(next));
+                                    }
+                                  } catch { }
+                                  toast(next ? 'Taxas do cliente ativado: sem desconto de taxa nos cálculos.' : 'Taxas do cliente desativado.');
+                                }}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${clientPaysCardFees ? 'bg-emerald-600' : 'bg-gray-600'
+                                  }`}
+                              >
+                                <span
+                                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${clientPaysCardFees ? 'translate-x-6' : 'translate-x-1'
+                                    }`}
+                                />
+                              </button>
+                            </div>
+                          </label>
+                        </div>
+
                         <button
                           onClick={handleSaveCardTax}
                           className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -24702,7 +24837,7 @@ Estamos te aguardando! 😎✂️`;
                                     Espelhado da aba "Meus Assinantes" (repasses do mês selecionado no dashboard)
                                   </p>
                                   <p className="text-[11px] text-gray-500 mt-1">
-                                    Lucro bruto/líquido considera pagamentos com data no mês selecionado.
+                                    Bruto/Líquido mostra MRR ativo; Em conta mostra somente pagamentos no mês selecionado.
                                   </p>
                                 </div>
                                 <button
@@ -24718,12 +24853,16 @@ Estamos te aguardando! 😎✂️`;
                               ) : (
                                 <div className="grid grid-cols-2 gap-3">
                                   <div className="bg-white border border-gray-200 rounded-lg p-3">
-                                    <p className="text-xs text-gray-600">Lucro Bruto</p>
-                                    <p className="text-lg font-bold text-gray-900">{formatCurrency(subscribersFinancialSummary.totalArrecadado)}</p>
+                                    <p className="text-xs text-gray-600">Bruto (assinantes ativos)</p>
+                                    <p className="text-lg font-bold text-gray-900">{formatCurrency(subscribersFinancialSummary.brutoAtivo)}</p>
                                   </div>
                                   <div className="bg-white border border-gray-200 rounded-lg p-3">
-                                    <p className="text-xs text-gray-600">Lucro Líquido</p>
-                                    <p className="text-lg font-bold text-gray-900">{formatCurrency(subscribersFinancialSummary.lucroLiquido)}</p>
+                                    <p className="text-xs text-gray-600">Líquido (bruto - taxas)</p>
+                                    <p className="text-lg font-bold text-gray-900">{formatCurrency(subscribersFinancialSummary.liquidoAtivo)}</p>
+                                  </div>
+                                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 col-span-2">
+                                    <p className="text-xs text-emerald-700 font-semibold">Em conta (mês selecionado)</p>
+                                    <p className="text-xl font-extrabold text-emerald-800">{formatCurrency(subscribersFinancialSummary.emContaMes)}</p>
                                   </div>
                                   <div className="bg-white border border-gray-200 rounded-lg p-3">
                                     <p className="text-xs text-gray-600">Total de Assinantes</p>
