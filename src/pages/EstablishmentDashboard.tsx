@@ -4127,6 +4127,11 @@ const EstablishmentDashboard = () => {
   const [newCategoryExcludedProfessionalIds, setNewCategoryExcludedProfessionalIds] = useState<string[]>([]);
   const [editingCategory, setEditingCategory] = useState<ServiceCategory | null>(null);
   const [editCategoryExcludedProfessionalIds, setEditCategoryExcludedProfessionalIds] = useState<string[]>([]);
+  const [excludeProfessionalConfirm, setExcludeProfessionalConfirm] = useState<{
+    mode: 'new' | 'edit';
+    professionalId: string;
+    professionalName: string;
+  } | null>(null);
   const [editingSubcategory, setEditingSubcategory] = useState<ServiceSubcategory | null>(null);
   const [selectedSubcategoryForLabel, setSelectedSubcategoryForLabel] = useState<ServiceSubcategory | null>(null);
   const [subcategoryLabelDraft, setSubcategoryLabelDraft] = useState({ name: '', color: '#111827' });
@@ -5692,6 +5697,46 @@ const EstablishmentDashboard = () => {
       // Mostrar erro completo na tela
       toast(`Erro: ${errorCode} - ${errorMsg}`, 'error');
     }
+  };
+
+  const requestToggleExcludedProfessionalOnCategory = (
+    mode: 'new' | 'edit',
+    professionalId: string,
+    professionalName: string,
+    isChecked: boolean
+  ) => {
+    if (!professionalId) return;
+
+    if (!isChecked) {
+      if (mode === 'new') {
+        setNewCategoryExcludedProfessionalIds((prev) => prev.filter((id) => id !== professionalId));
+      } else {
+        setEditCategoryExcludedProfessionalIds((prev) => prev.filter((id) => id !== professionalId));
+      }
+      return;
+    }
+
+    setExcludeProfessionalConfirm({
+      mode,
+      professionalId,
+      professionalName: professionalName || 'Profissional'
+    });
+  };
+
+  const confirmToggleExcludedProfessionalOnCategory = () => {
+    if (!excludeProfessionalConfirm) return;
+
+    const { mode, professionalId } = excludeProfessionalConfirm;
+    if (mode === 'new') {
+      setNewCategoryExcludedProfessionalIds((prev) =>
+        prev.includes(professionalId) ? prev : [...prev, professionalId]
+      );
+    } else {
+      setEditCategoryExcludedProfessionalIds((prev) =>
+        prev.includes(professionalId) ? prev : [...prev, professionalId]
+      );
+    }
+    setExcludeProfessionalConfirm(null);
   };
 
   // ✅ Após criar uma categoria, rolar até ela e destacar por alguns segundos (evita "jogar pro topo")
@@ -30397,6 +30442,7 @@ Estamos te aguardando! 😎✂️`;
                   onClick={() => {
                     setShowAddCategoryModal(false);
                     setNewCategoryExcludedProfessionalIds([]);
+                    setExcludeProfessionalConfirm(null);
                   }}
                   className="text-gray-400 hover:text-gray-600"
                 >
@@ -30431,7 +30477,7 @@ Estamos te aguardando! 😎✂️`;
                       : 'Nenhum profissional ativo disponível.'}
                   </p>
                   <label className="block text-sm font-semibold text-gray-800 mb-2">
-                    Quais profissionais não refletem essa categoria?
+                    Profissionais que NÃO terão essa categoria no agendamento
                   </label>
                   <div className="max-h-36 overflow-y-auto space-y-2 border border-gray-200 rounded-lg p-2 bg-gray-50">
                     {activeProfessionalsForService.length === 0 && (
@@ -30446,11 +30492,12 @@ Estamos te aguardando! 😎✂️`;
                             type="checkbox"
                             checked={checked}
                             onChange={(e) => {
-                              const isChecked = e.target.checked;
-                              setNewCategoryExcludedProfessionalIds((prev) => {
-                                if (isChecked) return prev.includes(professionalId) ? prev : [...prev, professionalId];
-                                return prev.filter((id) => id !== professionalId);
-                              });
+                              requestToggleExcludedProfessionalOnCategory(
+                                'new',
+                                professionalId,
+                                String(professional?.name || 'Profissional'),
+                                e.target.checked
+                              );
                             }}
                           />
                           <span>{professional.name}</span>
@@ -30466,6 +30513,7 @@ Estamos te aguardando! 😎✂️`;
                     onClick={() => {
                       setShowAddCategoryModal(false);
                       setNewCategoryExcludedProfessionalIds([]);
+                      setExcludeProfessionalConfirm(null);
                     }}
                     className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                   >
@@ -30706,6 +30754,7 @@ Estamos te aguardando! 😎✂️`;
                     setShowEditCategoryModal(false);
                     setEditingCategory(null);
                     setEditCategoryExcludedProfessionalIds([]);
+                    setExcludeProfessionalConfirm(null);
                   }}
                   className="text-gray-400 hover:text-gray-600"
                 >
@@ -30740,7 +30789,7 @@ Estamos te aguardando! 😎✂️`;
                       : 'Nenhum profissional ativo disponível.'}
                   </p>
                   <label className="block text-sm font-semibold text-gray-800 mb-2">
-                    Quais profissionais não refletem essa categoria?
+                    Profissionais que NÃO terão essa categoria no agendamento
                   </label>
                   <div className="max-h-36 overflow-y-auto space-y-2 border border-gray-200 rounded-lg p-2 bg-gray-50">
                     {activeProfessionalsForService.length === 0 && (
@@ -30755,11 +30804,12 @@ Estamos te aguardando! 😎✂️`;
                             type="checkbox"
                             checked={checked}
                             onChange={(e) => {
-                              const isChecked = e.target.checked;
-                              setEditCategoryExcludedProfessionalIds((prev) => {
-                                if (isChecked) return prev.includes(professionalId) ? prev : [...prev, professionalId];
-                                return prev.filter((id) => id !== professionalId);
-                              });
+                              requestToggleExcludedProfessionalOnCategory(
+                                'edit',
+                                professionalId,
+                                String(professional?.name || 'Profissional'),
+                                e.target.checked
+                              );
                             }}
                           />
                           <span>{professional.name}</span>
@@ -30776,6 +30826,7 @@ Estamos te aguardando! 😎✂️`;
                       setShowEditCategoryModal(false);
                       setEditingCategory(null);
                       setEditCategoryExcludedProfessionalIds([]);
+                      setExcludeProfessionalConfirm(null);
                     }}
                     className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                   >
@@ -30788,6 +30839,39 @@ Estamos te aguardando! 😎✂️`;
                     Salvar
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* Modal para Editar Subcategoria */}
+      {
+        excludeProfessionalConfirm && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[70] p-4">
+            <div className="bg-white rounded-xl w-full max-w-md shadow-2xl border border-gray-200 p-5">
+              <h4 className="text-base font-bold text-gray-900 mb-2">
+                Confirmar ocultação da categoria
+              </h4>
+              <p className="text-sm text-gray-700 leading-relaxed">
+                Tem certeza que deseja ocultar esta categoria para <strong>{excludeProfessionalConfirm.professionalName}</strong>?
+                Se confirmar, essa categoria não aparecerá quando um cliente tentar agendar com esse profissional.
+              </p>
+              <div className="mt-4 flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setExcludeProfessionalConfirm(null)}
+                  className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Não
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmToggleExcludedProfessionalOnCategory}
+                  className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                >
+                  Sim
+                </button>
               </div>
             </div>
           </div>

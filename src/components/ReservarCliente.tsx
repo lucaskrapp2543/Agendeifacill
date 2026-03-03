@@ -1531,11 +1531,22 @@ export default function ReservarCliente({
     };
   }, [establishmentId, selectedClient]);
 
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    const prevOverscroll = document.body.style.overscrollBehavior;
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'contain';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.overscrollBehavior = prevOverscroll;
+    };
+  }, []);
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10020] p-2 sm:p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full h-[92vh] sm:h-auto max-h-[94vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="bg-black text-white p-6 rounded-t-lg">
+        <div className="bg-black text-white p-4 sm:p-6 rounded-t-lg">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <User className="h-6 w-6" />
@@ -1548,7 +1559,7 @@ export default function ReservarCliente({
         </div>
 
         {/* Content */}
-        <div className="p-6">
+        <div className="flex-1 min-h-0 p-4 sm:p-6 overflow-y-auto overscroll-contain pb-[max(1rem,env(safe-area-inset-bottom))]">
           {/* Step 0: Escolher tipo de reserva */}
           {step === 'initial' && (
             <div>
@@ -1649,7 +1660,7 @@ export default function ReservarCliente({
                   )}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[45vh] sm:max-h-[400px] overflow-y-auto">
                   {filteredClients.map((client, index) => (
                     <button
                       key={client.whatsapp || `${client.id}_${index}`}
@@ -2000,7 +2011,7 @@ export default function ReservarCliente({
                       <button
                         onClick={() => slot.available && handleTimeSelect(slot.time)}
                         disabled={!slot.available}
-                        className={`w-full p-3 text-sm rounded-lg transition-all relative ${slot.available
+                        className={`w-full p-2 sm:p-3 text-xs sm:text-sm rounded-lg transition-all relative ${slot.available
                           ? 'bg-green-100 hover:bg-green-200 text-green-900 border border-green-400 font-semibold'
                           : slot.reason === 'Intervalo' || slot.reason === 'Fim do expediente'
                             ? 'bg-amber-100 text-amber-900 border border-amber-400 cursor-not-allowed'
@@ -2166,8 +2177,8 @@ export default function ReservarCliente({
 
       {/* Modal: Selecionar dias da reserva mensal */}
       {showReservarMensalModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-xl rounded-lg bg-white shadow-xl">
+        <div className="fixed inset-0 z-[10020] flex items-end sm:items-center justify-center bg-black/60 p-2 sm:p-4">
+          <div className="w-full max-w-xl rounded-lg bg-white shadow-xl max-h-[94vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
               <div>
                 <h4 className="text-lg font-semibold text-gray-900">Selecionar dias</h4>
@@ -2187,7 +2198,7 @@ export default function ReservarCliente({
               </button>
             </div>
 
-            <div className="px-5 py-4">
+            <div className="px-5 py-4 overflow-y-auto pb-24">
               <div className="flex items-center justify-between gap-2">
                 <button
                   type="button"
@@ -2319,7 +2330,7 @@ export default function ReservarCliente({
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-gray-200 px-5 py-4">
+            <div className="sticky bottom-0 bg-white flex items-center justify-end gap-2 border-t border-gray-200 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
               <button
                 type="button"
                 onClick={() => {
