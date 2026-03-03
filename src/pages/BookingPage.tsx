@@ -113,6 +113,7 @@ export default function BookingPage() {
   const [showSubscriberBooking, setShowSubscriberBooking] = useState(false);
   const [selectedSubscriberService, setSelectedSubscriberService] = useState<any>(null);
   const [selectedDividedSubscriberService, setSelectedDividedSubscriberService] = useState<any>(null);
+  const [selectedSubscriberExtraServiceIds, setSelectedSubscriberExtraServiceIds] = useState<string[]>([]);
   const [convertedSubscriberData, setConvertedSubscriberData] = useState<any>(null); // Dados do assinante convertido
   const [showLoginModal, setShowLoginModal] = useState(false); // Estado para controlar o modal de login
   const [subscriberDetectionDisabled, setSubscriberDetectionDisabled] = useState(false); // Estado para desabilitar detecção de assinante
@@ -186,6 +187,63 @@ export default function BookingPage() {
     };
   })();
 
+  const subscriberExtraServiceCategories = (() => {
+    const allServices = Array.isArray((establishment as any)?.services_with_prices)
+      ? ((establishment as any)?.services_with_prices as any[])
+      : [];
+
+    const allowed = allServices.filter((service: any) => {
+      const serviceId = String(service?.id || '').trim();
+      const categoryFlag = Boolean(service?.show_for_subscriber_extra);
+      return serviceId && categoryFlag;
+    });
+
+    const grouped = new Map<string, { id: string; name: string; services: any[] }>();
+    allowed.forEach((service: any) => {
+      const categoryId = String(service?.category_id || 'legacy-subscriber-extra').trim();
+      const categoryName = String(service?.category_name || 'Serviços extras para assinante').trim() || 'Serviços extras para assinante';
+      const key = `${categoryId}::${categoryName}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          id: categoryId,
+          name: categoryName,
+          services: [],
+        });
+      }
+      grouped.get(key)!.services.push(service);
+    });
+
+    return Array.from(grouped.values())
+      .map((category) => ({
+        ...category,
+        services: category.services.sort((a: any, b: any) => String(a?.name || '').localeCompare(String(b?.name || ''))),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
+  const subscriberExtraServicesFlat = subscriberExtraServiceCategories.flatMap((category) => category.services);
+  const selectedSubscriberExtraServices = subscriberExtraServicesFlat.filter((service: any) =>
+    selectedSubscriberExtraServiceIds.includes(String(service?.id || ''))
+  );
+  const MAX_SUBSCRIBER_EXTRA_SERVICES = 4;
+  const subscriberExtraTotalPrice = selectedSubscriberExtraServices.reduce((sum: number, service: any) => sum + (Number(service?.price) || 0), 0);
+  const subscriberExtraTotalDuration = selectedSubscriberExtraServices.reduce((sum: number, service: any) => sum + (Number(service?.duration) || 0), 0);
+
+  const handleToggleSubscriberExtraService = (serviceIdRaw: string) => {
+    const serviceId = String(serviceIdRaw || '').trim();
+    if (!serviceId) return;
+    setSelectedSubscriberExtraServiceIds((prev) => {
+      if (prev.includes(serviceId)) {
+        return prev.filter((id) => id !== serviceId);
+      }
+      if (prev.length >= MAX_SUBSCRIBER_EXTRA_SERVICES) {
+        toast.error(`Você pode selecionar no máximo ${MAX_SUBSCRIBER_EXTRA_SERVICES} serviços extras.`);
+        return prev;
+      }
+      return [...prev, serviceId];
+    });
+  };
+
   const handleRequestChangeSubscriberService = () => {
     setSelectedDividedSubscriberService(null);
     // UX: voltar para o topo da seção de assinante para o usuário trocar o serviço.
@@ -195,6 +253,27 @@ export default function BookingPage() {
         subscriberSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
       } else {
         window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }, 80);
+  };
+
+  const scrollToSubscriberProfessionalStep = () => {
+    setTimeout(() => {
+      const container = document.querySelector('[data-subscriber-appointment-form]') as HTMLElement | null;
+      const professionalStep = container?.querySelector('[data-subscriber-professional-step]') as HTMLElement | null;
+      if (container) {
+        const containerRect = container.getBoundingClientRect();
+        const containerTop = window.scrollY + containerRect.top;
+        const professionalTop = professionalStep
+          ? window.scrollY + professionalStep.getBoundingClientRect().top
+          : containerTop + 220;
+        const gap = Math.max(0, professionalTop - containerTop);
+        // Meio-termo: desce um pouco dentro do form, sem pular demais.
+        const desiredAdvance = Math.min(150, Math.max(90, gap * 0.45));
+        const scrollTop = containerTop + desiredAdvance - 70;
+        window.scrollTo({ top: Math.max(scrollTop, 0), behavior: 'smooth' });
+      } else {
+        window.scrollBy({ top: 240, behavior: 'smooth' });
       }
     }, 80);
   };
@@ -235,6 +314,7 @@ export default function BookingPage() {
       setConvertedSubscriberData(null);
       setSelectedSubscriberService(null);
       setSelectedDividedSubscriberService(null);
+      setSelectedSubscriberExtraServiceIds([]);
       setSubscriberDetectionDisabled(true); // ✅ Desabilitar detecção de assinante
 
       // Fechar formulário de assinante e abrir formulário normal
@@ -272,6 +352,7 @@ export default function BookingPage() {
 
     setSelectedSubscriberService(subscriberService);
     setSelectedDividedSubscriberService(null);
+    setSelectedSubscriberExtraServiceIds([]);
 
     // Fechar formulário normal e abrir formulário de assinante
     setShowBookingForm(false);
@@ -762,6 +843,9 @@ export default function BookingPage() {
               name: s.name,
               price: Number(s.price || 0),
               duration: Number(s.duration || 30),
+              category_id: String((s as any)?.category_id || '').trim() || null,
+              category_name: String((s as any)?.service_categories?.name || '').trim() || null,
+              show_for_subscriber_extra: Boolean((s as any)?.service_categories?.show_for_subscriber_extra),
               excluded_professional_ids: parseExcludedProfessionalIds((s as any)?.excluded_professional_ids),
             }));
         }
@@ -1096,6 +1180,7 @@ export default function BookingPage() {
     if (String(selectedSubscriberService?.id || '').trim() === activeSubscriberPlanId) return;
     setSelectedSubscriberService(null);
     setSelectedDividedSubscriberService(null);
+    setSelectedSubscriberExtraServiceIds([]);
   }, [activeSubscriberPlanId, selectedSubscriberService, showSubscriberBooking]);
 
   const fetchSubscriptions = async () => {
@@ -2946,6 +3031,7 @@ export default function BookingPage() {
                         setShowSubscriberBooking(false);
                         setSelectedSubscriberService(null);
                         setSelectedDividedSubscriberService(null);
+                        setSelectedSubscriberExtraServiceIds([]);
                       }}
                       className="text-white/60 hover:text-white text-2xl"
                     >
@@ -3015,6 +3101,7 @@ export default function BookingPage() {
                           onClick={() => {
                             setSelectedSubscriberService(null);
                             setSelectedDividedSubscriberService(null);
+                            setSelectedSubscriberExtraServiceIds([]);
                           }}
                           className="text-gray-500 hover:text-gray-700"
                         >
@@ -3077,17 +3164,90 @@ export default function BookingPage() {
                             </div>
                           )}
 
-                          <AppointmentForm
-                            establishment={establishment}
-                            onSubmit={handleSubmit}
-                            selectedDate={selectedDate}
-                            onSelectDate={setSelectedDate}
-                            existingAppointments={existingAppointments}
-                            subscriberService={currentSubscriberServiceForBooking} // Passar o serviço para restringir dias
-                            isSubscriberBooking={true} // Indica que é agendamento de assinante
-                            guestClientData={guestClientData} // Passar dados do cliente para preenchimento automático
-                            onRequestChangeSubscriberService={handleRequestChangeSubscriberService}
-                          />
+                          {subscriberExtraServiceCategories.length > 0 && (
+                            <div className="mb-4 rounded-xl border border-violet-400/30 bg-violet-500/10 p-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                <h4 className="text-sm font-semibold text-violet-100">
+                                  Serviços extras para assinante
+                                </h4>
+                                <span className="text-xs text-violet-100/90">
+                                  {selectedSubscriberExtraServiceIds.length}/{MAX_SUBSCRIBER_EXTRA_SERVICES} selecionados
+                                </span>
+                              </div>
+                              <p className="text-xs text-violet-100/85 mb-3">
+                                Você pode marcar até {MAX_SUBSCRIBER_EXTRA_SERVICES} serviços extras.
+                              </p>
+
+                              <div className="space-y-3">
+                                {subscriberExtraServiceCategories.map((category: any) => (
+                                  <div key={`subscriber-extra-dark-${category.id}`}>
+                                    <div className="text-xs font-semibold text-violet-100/90 mb-1">
+                                      {category.name}
+                                    </div>
+                                    <div className="space-y-2">
+                                      {(category.services || []).map((service: any) => {
+                                        const serviceId = String(service?.id || '').trim();
+                                        const isSelected = selectedSubscriberExtraServiceIds.includes(serviceId);
+                                        const isDisabled = !isSelected && selectedSubscriberExtraServiceIds.length >= MAX_SUBSCRIBER_EXTRA_SERVICES;
+                                        return (
+                                          <div
+                                            key={`subscriber-extra-dark-${serviceId}`}
+                                            className={`rounded-lg border p-2 ${isSelected ? 'border-violet-300/70 bg-violet-500/20' : 'border-white/10 bg-black/20'} ${isDisabled ? 'opacity-60' : ''}`}
+                                          >
+                                            <div className="flex items-center justify-between gap-2">
+                                              <div>
+                                                <div className="text-sm font-medium text-white">{service.name}</div>
+                                                <div className="text-xs text-white/75">
+                                                  +{Number(service?.duration || 0)} min • R$ {Number(service?.price || 0).toFixed(2).replace('.', ',')}
+                                                </div>
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleToggleSubscriberExtraService(serviceId)}
+                                                disabled={isDisabled}
+                                                className={`px-3 py-1 text-xs rounded-lg border transition-colors ${isSelected ? 'bg-violet-600 text-white border-violet-500' : 'bg-white/10 text-white border-white/20 hover:bg-white/15'} ${isDisabled ? 'cursor-not-allowed opacity-60' : ''}`}
+                                              >
+                                                {isSelected ? 'Selecionado' : 'Selecionar'}
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div className="mt-3 text-xs text-violet-100/90">
+                                Total extra: <strong>R$ {subscriberExtraTotalPrice.toFixed(2).replace('.', ',')}</strong> • Tempo extra: <strong>{subscriberExtraTotalDuration} min</strong>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="mb-4">
+                            <button
+                              type="button"
+                              onClick={scrollToSubscriberProfessionalStep}
+                              className="w-full rounded-xl bg-indigo-600 text-white py-2.5 font-semibold hover:bg-indigo-700 transition-colors"
+                            >
+                              Próximo passo
+                            </button>
+                          </div>
+
+                          <div data-subscriber-appointment-form>
+                            <AppointmentForm
+                              establishment={establishment}
+                              onSubmit={handleSubmit}
+                              selectedDate={selectedDate}
+                              onSelectDate={setSelectedDate}
+                              existingAppointments={existingAppointments}
+                              subscriberService={currentSubscriberServiceForBooking} // Passar o serviço para restringir dias
+                              subscriberExtraServices={selectedSubscriberExtraServices}
+                              isSubscriberBooking={true} // Indica que é agendamento de assinante
+                              guestClientData={guestClientData} // Passar dados do cliente para preenchimento automático
+                              onRequestChangeSubscriberService={handleRequestChangeSubscriberService}
+                            />
+                          </div>
                         </>
                       )}
                     </div>
@@ -3574,6 +3734,7 @@ export default function BookingPage() {
                     setShowSubscriberBooking(false);
                     setSelectedSubscriberService(null);
                     setSelectedDividedSubscriberService(null);
+                    setSelectedSubscriberExtraServiceIds([]);
                   }}
                   className="text-gray-500 hover:text-gray-700 text-2xl"
                 >
@@ -3643,6 +3804,7 @@ export default function BookingPage() {
                       onClick={() => {
                         setSelectedSubscriberService(null);
                         setSelectedDividedSubscriberService(null);
+                        setSelectedSubscriberExtraServiceIds([]);
                       }}
                       className="text-gray-500 hover:text-gray-700"
                     >
@@ -3707,17 +3869,90 @@ export default function BookingPage() {
                         </div>
                       )}
 
-                      <AppointmentForm
-                        establishment={establishment}
-                        onSubmit={handleSubmit}
-                        selectedDate={selectedDate}
-                        onSelectDate={setSelectedDate}
-                        existingAppointments={existingAppointments}
-                        subscriberService={currentSubscriberServiceForBooking} // Passar o serviço para restringir dias
-                        isSubscriberBooking={true} // Indica que é agendamento de assinante
-                        guestClientData={guestClientData} // Passar dados do cliente para preenchimento automático
-                        onRequestChangeSubscriberService={handleRequestChangeSubscriberService}
-                      />
+                      {subscriberExtraServiceCategories.length > 0 && (
+                        <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                            <h4 className="text-sm font-semibold text-violet-900">
+                              Serviços extras para assinante
+                            </h4>
+                            <span className="text-xs text-violet-800">
+                              {selectedSubscriberExtraServiceIds.length}/{MAX_SUBSCRIBER_EXTRA_SERVICES} selecionados
+                            </span>
+                          </div>
+                          <p className="text-xs text-violet-700 mb-3">
+                            Você pode marcar até {MAX_SUBSCRIBER_EXTRA_SERVICES} serviços extras.
+                          </p>
+
+                          <div className="space-y-3">
+                            {subscriberExtraServiceCategories.map((category: any) => (
+                              <div key={`subscriber-extra-light-${category.id}`}>
+                                <div className="text-xs font-semibold text-violet-800 mb-1">
+                                  {category.name}
+                                </div>
+                                <div className="space-y-2">
+                                  {(category.services || []).map((service: any) => {
+                                    const serviceId = String(service?.id || '').trim();
+                                    const isSelected = selectedSubscriberExtraServiceIds.includes(serviceId);
+                                    const isDisabled = !isSelected && selectedSubscriberExtraServiceIds.length >= MAX_SUBSCRIBER_EXTRA_SERVICES;
+                                    return (
+                                      <div
+                                        key={`subscriber-extra-light-${serviceId}`}
+                                        className={`rounded-lg border p-2 ${isSelected ? 'border-violet-300 bg-violet-100' : 'border-violet-100 bg-white'} ${isDisabled ? 'opacity-60' : ''}`}
+                                      >
+                                        <div className="flex items-center justify-between gap-2">
+                                          <div>
+                                            <div className="text-sm font-medium text-gray-900">{service.name}</div>
+                                            <div className="text-xs text-gray-600">
+                                              +{Number(service?.duration || 0)} min • R$ {Number(service?.price || 0).toFixed(2).replace('.', ',')}
+                                            </div>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleToggleSubscriberExtraService(serviceId)}
+                                            disabled={isDisabled}
+                                            className={`px-3 py-1 text-xs rounded-md border transition-colors ${isSelected ? 'bg-violet-600 text-white border-violet-500' : 'bg-white text-violet-700 border-violet-300 hover:bg-violet-100'} ${isDisabled ? 'cursor-not-allowed opacity-60' : ''}`}
+                                          >
+                                            {isSelected ? 'Selecionado' : 'Selecionar'}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="mt-3 text-xs text-violet-900">
+                            Total extra: <strong>R$ {subscriberExtraTotalPrice.toFixed(2).replace('.', ',')}</strong> • Tempo extra: <strong>{subscriberExtraTotalDuration} min</strong>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mb-4">
+                        <button
+                          type="button"
+                          onClick={scrollToSubscriberProfessionalStep}
+                          className="w-full rounded-lg bg-indigo-600 text-white py-2.5 font-semibold hover:bg-indigo-700 transition-colors"
+                        >
+                          Próximo passo
+                        </button>
+                      </div>
+
+                      <div data-subscriber-appointment-form>
+                        <AppointmentForm
+                          establishment={establishment}
+                          onSubmit={handleSubmit}
+                          selectedDate={selectedDate}
+                          onSelectDate={setSelectedDate}
+                          existingAppointments={existingAppointments}
+                          subscriberService={currentSubscriberServiceForBooking} // Passar o serviço para restringir dias
+                          subscriberExtraServices={selectedSubscriberExtraServices}
+                          isSubscriberBooking={true} // Indica que é agendamento de assinante
+                          guestClientData={guestClientData} // Passar dados do cliente para preenchimento automático
+                          onRequestChangeSubscriberService={handleRequestChangeSubscriberService}
+                        />
+                      </div>
                     </>
                   )}
                 </div>

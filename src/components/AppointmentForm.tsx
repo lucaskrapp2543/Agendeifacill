@@ -96,6 +96,7 @@ interface AppointmentFormProps {
   pix_payment_status?: string;
   pix_proof_url?: string;
   subscriberService?: any; // Serviço de assinante para restringir dias
+  subscriberExtraServices?: any[]; // Serviços extras pagos no fluxo de assinante
   isSubscriberBooking?: boolean; // Indica se é agendamento de assinante
   requireAdvancePayment?: boolean; // Se true: não exigir forma de pagamento/PIX aqui (pagamento será no PaymentModal)
   onConvertToSubscriber?: (subscriberData: any) => void; // Callback para converter para assinante
@@ -113,6 +114,7 @@ export function AppointmentForm({
   onSelectDate,
   existingAppointments = [],
   subscriberService,
+  subscriberExtraServices = [],
   isSubscriberBooking = false,
   requireAdvancePayment = false,
   onConvertToSubscriber,
@@ -470,7 +472,7 @@ export function AppointmentForm({
   };
 
   const getSelectedDurationForValidation = (): number => {
-    if (isSubscriberBooking) return getResolvedSubscriberDuration();
+    if (isSubscriberBooking) return getResolvedSubscriberDuration() + getResolvedSubscriberExtraDuration();
     if (useMultiService) {
       return (selectedServices || []).reduce((sum, s) => sum + (Number((s as any)?.duration) || 0), 0);
     }
@@ -625,7 +627,7 @@ export function AppointmentForm({
 
   // Valor base atual (sem cupom), para recalcular UI e payload
   const getPrecoBaseAtual = () => {
-    if (isSubscriberBooking && subscriberService) return 0;
+    if (isSubscriberBooking && subscriberService) return getResolvedSubscriberExtraPrice();
     if (useMultiService) {
       return (selectedServices || []).reduce((sum, s) => sum + (Number((s as any)?.price) || 0), 0);
     }
@@ -876,11 +878,34 @@ export function AppointmentForm({
   const [isValidatingOneWeek, setIsValidatingOneWeek] = useState(false);
   const [isValidatingPendingClientBooking, setIsValidatingPendingClientBooking] = useState(false);
 
-  const getResolvedSubscriberDuration = (): number => {
+  function getResolvedSubscriberDuration(): number {
     const raw = (subscriberService as any)?.service_duration ?? (subscriberService as any)?.duration;
     const parsed = Number(raw);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
-  };
+  }
+
+  function getResolvedSubscriberExtraDuration(): number {
+    return (subscriberExtraServices || []).reduce(
+      (sum, service) => sum + (Number((service as any)?.duration) || 0),
+      0
+    );
+  }
+
+  function getResolvedSubscriberExtraPrice(): number {
+    return (subscriberExtraServices || []).reduce(
+      (sum, service) => sum + (Number((service as any)?.price) || 0),
+      0
+    );
+  }
+
+  function getSubscriberServiceLabelForPayload(): string {
+    const baseName = String((subscriberService as any)?.booking_service_name || (subscriberService as any)?.name || '').trim();
+    const extraNames = (subscriberExtraServices || [])
+      .map((service: any) => String(service?.name || '').trim())
+      .filter(Boolean);
+    if (extraNames.length === 0) return baseName;
+    return `${baseName} + Extra: ${extraNames.join(' + ')}`;
+  }
 
   // Função para validar limite mensal de assinantes
   const validateMonthlyLimit = async () => {
@@ -1660,7 +1685,11 @@ export function AppointmentForm({
       const formattedDate = format(selectedDate, 'yyyy-MM-dd');
       console.log('🔍 DEBUG - Data formatada:', formattedDate);
 
-      const basePrice = isSubscriberBooking && subscriberService ? 0 : Number(totalPrice || 0);
+      const subscriberExtraPrice = getResolvedSubscriberExtraPrice();
+      const subscriberBaseDuration = getResolvedSubscriberDuration();
+      const subscriberExtraDuration = getResolvedSubscriberExtraDuration();
+      const subscriberTotalDuration = subscriberBaseDuration + subscriberExtraDuration;
+      const basePrice = isSubscriberBooking && subscriberService ? subscriberExtraPrice : Number(totalPrice || 0);
       const appliedPercent = cupomAplicado ? Number(cupomAplicado.percent) || 0 : 0;
       const discountAmount = cupomAplicado ? round2((basePrice * appliedPercent) / 100) : 0;
       const finalPrice = cupomAplicado ? Math.max(0, round2(basePrice - discountAmount)) : basePrice;
@@ -1670,17 +1699,17 @@ export function AppointmentForm({
         client_whatsapp: whatsappNumbers,
         client_cpf: establishment?.require_cpf && clientCpf ? clientCpf.replace(/\D/g, '') : null, // Adicionar CPF se solicitado
         service: isSubscriberBooking && subscriberService
-          ? String((subscriberService as any)?.booking_service_name || (subscriberService as any)?.name || '').trim()
+          ? getSubscriberServiceLabelForPayload()
           : serviceNames,
         professional: selectedProfessional?.id || '',
         appointment_date: formattedDate,
         appointment_time: selectedTime,
-        duration: isSubscriberBooking && subscriberService ? getResolvedSubscriberDuration() : totalDuration, // Usar duração total
+        duration: isSubscriberBooking && subscriberService ? subscriberTotalDuration : totalDuration, // Duração assinatura + extras
         price_original: cupomAplicado ? basePrice : null,
         coupon_code: cupomAplicado ? cupomAplicado.code : null,
         coupon_discount_percent: cupomAplicado ? appliedPercent : null,
         coupon_discount_amount: cupomAplicado ? discountAmount : null,
-        price: isSubscriberBooking && subscriberService ? 0 : finalPrice, // Preço final (com cupom se houver)
+        price: isSubscriberBooking && subscriberService ? subscriberExtraPrice : finalPrice, // Assinatura grátis, cobra só extras
         payment_method: isSubscriberBooking ? 'assinante' : (requireAdvancePayment ? 'pendente' : selectedPaymentMethod),
         observation: observation.trim() || null, // Adicionar observação (null se vazia)
         is_child_service: isChildService === true, // Adicionar serviço infantil (garantir boolean)
@@ -1868,7 +1897,7 @@ export function AppointmentForm({
   };
 
   const getDuracaoTotalServicosSelecionados = (): number => {
-    if (isSubscriberBooking) return getResolvedSubscriberDuration();
+    if (isSubscriberBooking) return getResolvedSubscriberDuration() + getResolvedSubscriberExtraDuration();
     // multi-serviço (lista)
     if (useMultiService) {
       return (selectedServices || []).reduce((sum, s) => sum + (Number((s as any)?.duration) || 0), 0);
@@ -2597,7 +2626,7 @@ export function AppointmentForm({
 
         {/* STEP 1: PROFISSIONAL */}
         {currentStep === 1 && (
-          <div>
+          <div data-subscriber-professional-step>
             <label className="block text-sm font-semibold mb-2" style={{ color: '#A1A1A1' }}>
               1. Escolha o Profissional
             </label>
@@ -3872,6 +3901,11 @@ export function AppointmentForm({
                 </div>
                 <p className="text-blue-800 font-medium">Pagamento já incluído na sua assinatura</p>
               </div>
+              {getResolvedSubscriberExtraPrice() > 0 && (
+                <p className="text-xs text-blue-800 mt-2">
+                  Serviços extras selecionados: <strong>R$ {Number(getResolvedSubscriberExtraPrice() || 0).toFixed(2).replace('.', ',')}</strong>
+                </p>
+              )}
             </div>
 
             {/* OBSERVAÇÃO - Mostrada no step 5 antes do botão finalizar */}
@@ -3952,7 +3986,16 @@ export function AppointmentForm({
                     <div><strong>WhatsApp:</strong> {clientWhatsapp || 'Não informado'}</div>
                     <div><strong>Serviço:</strong> {
                       isSubscriberBooking && subscriberService
-                        ? `${subscriberService.name} - GRÁTIS (Incluído na assinatura)`
+                        ? (() => {
+                          const extrasNames = (subscriberExtraServices || [])
+                            .map((service: any) => String(service?.name || '').trim())
+                            .filter(Boolean);
+                          const extrasPrice = getResolvedSubscriberExtraPrice();
+                          if (extrasNames.length === 0) {
+                            return `${subscriberService.name} - GRÁTIS (Incluído na assinatura)`;
+                          }
+                          return `${subscriberService.name} + Extra: ${extrasNames.join(' + ')} - R$ ${Number(extrasPrice || 0).toFixed(2).replace('.', ',')}`;
+                        })()
                         : useMultiService && selectedServices.length > 0
                           ? `${selectedServices.map(s => s.name).join(' + ')} - R$ ${selectedServices.reduce((sum, s) => sum + s.price, 0).toFixed(2).replace('.', ',')}`
                           : useCategoryService
@@ -3970,7 +4013,9 @@ export function AppointmentForm({
                     <div><strong>Profissional:</strong> {selectedProfessional?.name || ''}</div>
                     <div><strong>Pagamento:</strong> {
                       isSubscriberBooking
-                        ? 'Já incluído na assinatura'
+                        ? (getResolvedSubscriberExtraPrice() > 0
+                          ? 'Assinatura (grátis) + extras'
+                          : 'Já incluído na assinatura')
                         : selectedPaymentMethod === 'pix' ? (pixPaymentMethod === 'pix_now' ? 'PIX (Pagar agora)' : 'PIX (Pagar no local)') :
                           selectedPaymentMethod === 'credito' ? 'Cartão de Crédito' :
                             selectedPaymentMethod === 'debito' ? 'Cartão de Débito' :
@@ -3980,7 +4025,7 @@ export function AppointmentForm({
                     <div><strong>Horário:</strong> {selectedTime}</div>
                     <div><strong>Duração:</strong> {
                       isSubscriberBooking && subscriberService
-                        ? `${getResolvedSubscriberDuration()} minutos` // Usar duração da assinatura
+                        ? `${getResolvedSubscriberDuration() + getResolvedSubscriberExtraDuration()} minutos` // Assinatura + extras
                         : useMultiService && selectedServices.length > 0
                           ? `${selectedServices.reduce((sum, s) => sum + (s.duration || 30), 0)} minutos`
                           : useCategoryService

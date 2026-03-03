@@ -251,6 +251,7 @@ interface ServiceCategory {
   name: string;
   display_order: number;
   is_active: boolean;
+  show_for_subscriber_extra?: boolean;
   hidden_from_booking?: boolean;
   oculto_da_reserva?: boolean;
   excluded_professional_ids?: string[] | null;
@@ -4124,6 +4125,7 @@ const EstablishmentDashboard = () => {
   const [showDiscountCouponsModal, setShowDiscountCouponsModal] = useState(false);
   const [selectedCategoryForSubcategory, setSelectedCategoryForSubcategory] = useState<string | null>(null);
   const [newCategory, setNewCategory] = useState({ name: '' });
+  const [newCategoryShowForSubscriberExtra, setNewCategoryShowForSubscriberExtra] = useState(false);
   const [newCategoryExcludedProfessionalIds, setNewCategoryExcludedProfessionalIds] = useState<string[]>([]);
   const [editingCategory, setEditingCategory] = useState<ServiceCategory | null>(null);
   const [editCategoryExcludedProfessionalIds, setEditCategoryExcludedProfessionalIds] = useState<string[]>([]);
@@ -5596,12 +5598,14 @@ const EstablishmentDashboard = () => {
           name: categoryName.toUpperCase(),
           is_active: true,
           display_order: 0,
+          show_for_subscriber_extra: newCategoryShowForSubscriberExtra,
           excluded_professional_ids: excludedProfessionalIdsForCategory.length > 0 ? excludedProfessionalIdsForCategory : null
         })
         .select('id')
         .single();
 
-      if (error && String((error as any)?.message || '').toLowerCase().includes('excluded_professional_ids')) {
+      const insertErrorMessage = String((error as any)?.message || '').toLowerCase();
+      if (error && (insertErrorMessage.includes('excluded_professional_ids') || insertErrorMessage.includes('show_for_subscriber_extra'))) {
         const fallbackInsert = await supabase
           .from('service_categories')
           .insert({
@@ -5648,6 +5652,7 @@ const EstablishmentDashboard = () => {
                 name: categoryName.toUpperCase(),
                 is_active: true,
                 display_order: 0,
+                show_for_subscriber_extra: newCategoryShowForSubscriberExtra,
                 excluded_professional_ids: excludedProfessionalIdsForCategory.length > 0 ? excludedProfessionalIdsForCategory : null
               })
               .select('id')
@@ -5677,6 +5682,7 @@ const EstablishmentDashboard = () => {
       }
 
       setNewCategory({ name: '' });
+      setNewCategoryShowForSubscriberExtra(false);
       setNewCategoryExcludedProfessionalIds([]);
       setShowAddCategoryModal(false);
       if (insertedCategory?.id) {
@@ -6082,11 +6088,13 @@ const EstablishmentDashboard = () => {
         .from('service_categories')
         .update({
           name: editingCategory.name.toUpperCase(),
+          show_for_subscriber_extra: Boolean((editingCategory as any)?.show_for_subscriber_extra),
           excluded_professional_ids: editCategoryExcludedProfessionalIds.length > 0 ? editCategoryExcludedProfessionalIds : null
         })
         .eq('id', editingCategory.id);
 
-      if (error && String((error as any)?.message || '').toLowerCase().includes('excluded_professional_ids')) {
+      const updateErrorMessage = String((error as any)?.message || '').toLowerCase();
+      if (error && (updateErrorMessage.includes('excluded_professional_ids') || updateErrorMessage.includes('show_for_subscriber_extra'))) {
         const fallback = await supabase
           .from('service_categories')
           .update({ name: editingCategory.name.toUpperCase() })
@@ -6107,6 +6115,7 @@ const EstablishmentDashboard = () => {
             ? {
               ...cat,
               name: editingCategory.name.toUpperCase(),
+              show_for_subscriber_extra: Boolean((editingCategory as any)?.show_for_subscriber_extra),
               excluded_professional_ids: editCategoryExcludedProfessionalIds.length > 0 ? editCategoryExcludedProfessionalIds : null
             }
             : cat
@@ -28285,7 +28294,10 @@ Estamos te aguardando! 😎✂️`;
               <div className="mb-6">
                 <div className="flex flex-col sm:flex-row gap-2">
                   <button
-                    onClick={() => setShowAddCategoryModal(true)}
+                    onClick={() => {
+                      setNewCategoryShowForSubscriberExtra(false);
+                      setShowAddCategoryModal(true);
+                    }}
                     className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
                   >
                     <Plus className="h-4 w-4" />
@@ -28473,7 +28485,10 @@ Estamos te aguardando! 😎✂️`;
                       : 'Nenhuma categoria de serviço cadastrada ainda'}
                   </p>
                   <button
-                    onClick={() => setShowAddCategoryModal(true)}
+                    onClick={() => {
+                      setNewCategoryShowForSubscriberExtra(false);
+                      setShowAddCategoryModal(true);
+                    }}
                     className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
                   >
                     {isServiceWizardOnboarding ? 'Adicionar primeira categoria' : 'Adicionar Primeira Categoria'}
@@ -30441,6 +30456,7 @@ Estamos te aguardando! 😎✂️`;
                 <button
                   onClick={() => {
                     setShowAddCategoryModal(false);
+                    setNewCategoryShowForSubscriberExtra(false);
                     setNewCategoryExcludedProfessionalIds([]);
                     setExcludeProfessionalConfirm(null);
                   }}
@@ -30507,11 +30523,31 @@ Estamos te aguardando! 😎✂️`;
                   </div>
                 </div>
 
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newCategoryShowForSubscriberExtra}
+                      onChange={(e) => setNewCategoryShowForSubscriberExtra(e.target.checked)}
+                      className="mt-1 h-4 w-4"
+                    />
+                    <div>
+                      <div className="text-sm font-semibold text-indigo-900">
+                        Mostrar categoria para meus assinantes para serviço extra
+                      </div>
+                      <p className="text-xs text-indigo-800 mt-1">
+                        Se ativado, essa categoria aparece no booking de assinante para seleção de extras.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
                     onClick={() => {
                       setShowAddCategoryModal(false);
+                      setNewCategoryShowForSubscriberExtra(false);
                       setNewCategoryExcludedProfessionalIds([]);
                       setExcludeProfessionalConfirm(null);
                     }}
@@ -30817,6 +30853,25 @@ Estamos te aguardando! 😎✂️`;
                       );
                     })}
                   </div>
+                </div>
+
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean((editingCategory as any)?.show_for_subscriber_extra)}
+                      onChange={(e) => setEditingCategory({ ...editingCategory, show_for_subscriber_extra: e.target.checked })}
+                      className="mt-1 h-4 w-4"
+                    />
+                    <div>
+                      <div className="text-sm font-semibold text-indigo-900">
+                        Mostrar categoria para meus assinantes para serviço extra
+                      </div>
+                      <p className="text-xs text-indigo-800 mt-1">
+                        Assinantes podem selecionar até 4 serviços extras dessa categoria no booking.
+                      </p>
+                    </div>
+                  </label>
                 </div>
 
                 <div className="flex gap-3 pt-4">

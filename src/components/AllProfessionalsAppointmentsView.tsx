@@ -283,6 +283,45 @@ export const AllProfessionalsAppointmentsView: React.FC<
     >({});
     const selectedDateIso = format(selectedDate, 'yyyy-MM-dd');
 
+    const writeAppointmentChangeLog = async (params: {
+      appointmentId: string;
+      eventType: string;
+      description: string;
+      oldValues?: Record<string, any> | null;
+      newValues?: Record<string, any> | null;
+      metadata?: Record<string, any> | null;
+    }) => {
+      const establishmentId = String(establishment?.id || '').trim();
+      const appointmentId = String(params.appointmentId || '').trim();
+      if (!establishmentId || !appointmentId) return;
+
+      try {
+        const payload = {
+          establishment_id: establishmentId,
+          appointment_id: appointmentId,
+          changed_by_user_id: String(user?.id || '').trim() || null,
+          changed_by_name: String(user?.email || '').trim() || null,
+          event_type: String(params.eventType || '').trim() || null,
+          description: String(params.description || '').trim() || null,
+          old_values: params.oldValues || null,
+          new_values: params.newValues || null,
+          metadata: params.metadata || null,
+        };
+
+        const { error } = await (supabase as any).from('appointment_change_logs').insert(payload);
+        if (error) {
+          const msg = String((error as any)?.message || '').toLowerCase();
+          const tableMissing =
+            msg.includes('appointment_change_logs') &&
+            (msg.includes('does not exist') || msg.includes('relation') || msg.includes('schema cache') || msg.includes('column'));
+          if (tableMissing) return;
+          console.warn('⚠️ Falha ao gravar histórico do agendamento:', error);
+        }
+      } catch (logError) {
+        console.warn('⚠️ Erro inesperado ao gravar histórico do agendamento:', logError);
+      }
+    };
+
     useEffect(() => {
       if (!establishment?.id) {
         setSubscriptionDurations([]);
@@ -594,6 +633,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
       if (key === 'finished_early') return 'Terminou antes';
       if (key === 'additional_service_added') return 'Extra adicionado';
       if (key === 'additional_service_removed') return 'Extra removido';
+      if (key === 'status_changed') return 'Status alterado';
+      if (key === 'subscriber_attendance_marked') return 'Atendimento assinatura registrado';
       return key || 'Evento';
     };
 
@@ -676,6 +717,32 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const oldTotal = formatCurrencyMaybe(oldV.total_price);
         const newTotal = formatCurrencyMaybe(newV.total_price);
         if (oldTotal || newTotal) lines.push(`Total para cobrar: ${oldTotal || '-'} -> ${newTotal || '-'}`);
+      } else if (key === 'status_changed') {
+        const oldStatus = String(oldV.status || '').trim().toUpperCase();
+        const newStatus = String(newV.status || '').trim().toUpperCase();
+        if (oldStatus || newStatus) lines.push(`Status: ${oldStatus || '-'} -> ${newStatus || '-'}`);
+
+        const action = String(meta.action || '').trim();
+        if (action) lines.push(`Ação: ${action}`);
+
+        const clickedAt = String(meta.clicked_at || '').trim();
+        if (clickedAt) lines.push(`Clique registrado em: ${clickedAt}`);
+      } else if (key === 'subscriber_attendance_marked') {
+        const oldStatus = String(oldV.status || '').trim().toUpperCase();
+        const newStatus = String(newV.status || '').trim().toUpperCase();
+        if (oldStatus || newStatus) lines.push(`Status: ${oldStatus || '-'} -> ${newStatus || '-'}`);
+
+        const subscriberName = String(meta.subscriber_name || '').trim();
+        if (subscriberName) lines.push(`Assinante: ${subscriberName}`);
+
+        const subscriberWhatsapp = String(meta.subscriber_whatsapp || '').trim();
+        if (subscriberWhatsapp) lines.push(`WhatsApp: ${subscriberWhatsapp}`);
+
+        const attendanceDate = String(meta.attendance_date || '').trim();
+        if (attendanceDate) lines.push(`Data do atendimento: ${attendanceDate}`);
+
+        const clickedAt = String(meta.clicked_at || '').trim();
+        if (clickedAt) lines.push(`Clique registrado em: ${clickedAt}`);
       }
 
       if (lines.length === 0 && row.description) lines.push(String(row.description));
@@ -986,6 +1053,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
       setIsSavingSubscriberAttendance(true);
       try {
+        const oldStatus = String(apt.status || '').trim().toLowerCase();
         // ✅ Verificar limite do assinante (não permitir 5/4)
         const selectedSub = subscriberOptions.find((s) => String(s.id) === String(selectedSubscriberOptionId));
         const limit = Number(selectedSub?.monthly_limit || 0);
@@ -1096,6 +1164,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
           .from('subscriber_attendances')
           .insert(payload);
         if (insErr) throw insErr;
+
+        const clickedAt = format(new Date(), 'dd/MM/yyyy HH:mm:ss');
+        await writeAppointmentChangeLog({
+          appointmentId: apt.id,
+          eventType: 'subscriber_attendance_marked',
+          description: 'Atendimento assinatura registrado e agendamento concluído pelo botão de assinatura.',
+          oldValues: { status: oldStatus || null },
+          newValues: { status: 'completed' },
+          metadata: {
+            action: 'Atendimento assinatura',
+            subscriber_id: String(selectedSubscriberOptionId),
+            subscriber_name: String(selectedSub?.display_name || ''),
+            subscriber_whatsapp: String(selectedSub?.whatsapp || ''),
+            attendance_date: attendanceDateStr,
+            clicked_at: clickedAt,
+            selected_date: format(selectedDate, 'dd/MM/yyyy'),
+            selected_time: String(apt.appointment_time || ''),
+          },
+        });
 
         toast('✅ Atendimento registrado e agendamento concluído!', 'success');
         handleCloseSubscriberAttendanceModal();
@@ -1636,6 +1723,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
       if (!isSubscriberAppointment) return fallback;
 
       const serviceStr = String(apt.service).trim();
+      const hasSubscriberExtraInService = /\bextra\s*:/i.test(serviceStr);
+      // Quando o agendamento tem extras no texto do serviço, a duração correta já está salva em apt.duration
+      // (assinatura + extras). Nesse caso, não sobrescrever com duração base do plano.
+      if (hasSubscriberExtraInService && Number.isFinite(apt.duration) && apt.duration > 0) {
+        return apt.duration;
+      }
       const normalizedService = normalizeName(serviceStr);
       const aptSubscriptionId = String((apt as any)?.subscription_id || '').trim();
 
@@ -2008,12 +2101,35 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     const handleUpdateAppointmentStatus = async (appointmentId: string, newStatus: 'pending' | 'confirmed' | 'cancelled' | 'completed') => {
       try {
+        const appointment = (appointments || []).find((apt) => String(apt.id) === String(appointmentId));
+        const previousStatus = String(appointment?.status || '').trim().toLowerCase();
         const { error } = await supabase
           .from('appointments')
           .update({ status: newStatus })
           .eq('id', appointmentId);
 
         if (error) throw error;
+
+        const actionLabelByStatus: Record<string, string> = {
+          pending: 'Botão Pendente',
+          confirmed: 'Botão Confirmado',
+          cancelled: 'Botão Cancelar',
+          completed: 'Botão Concluído',
+        };
+        const clickedAt = format(new Date(), 'dd/MM/yyyy HH:mm:ss');
+        await writeAppointmentChangeLog({
+          appointmentId,
+          eventType: 'status_changed',
+          description: `Status alterado para ${String(newStatus || '').toUpperCase()} pelo card de ações.`,
+          oldValues: { status: previousStatus || null },
+          newValues: { status: newStatus },
+          metadata: {
+            action: actionLabelByStatus[String(newStatus)] || 'Alteração de status',
+            clicked_at: clickedAt,
+            selected_date: format(selectedDate, 'dd/MM/yyyy'),
+            selected_time: String(appointment?.appointment_time || ''),
+          },
+        });
 
         const statusMessages = {
           'pending': 'Agendamento marcado como PENDENTE',
