@@ -3752,12 +3752,8 @@ const EstablishmentDashboard = () => {
   const [showBlockTimeModal, setShowBlockTimeModal] = useState(false);
   const [selectedProfessionalForBlock, setSelectedProfessionalForBlock] = useState<string | null>(null);
   const [blockTimeDate, setBlockTimeDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [blockRecurringWeekdays, setBlockRecurringWeekdays] = useState<number[]>([]); // 0=dom, 1=seg, ..., 6=sáb — dias que serão bloqueados nos meses (ao mudar a data com opção marcada, adiciona o dia)
-  const [blockRecurringWeekdayHours, setBlockRecurringWeekdayHours] = useState<Record<number, string[]>>({}); // horários bloqueados por dia da semana (sexta um conjunto, sábado outro) para "Bloquear meses"
   const [blockedHours, setBlockedHours] = useState<Record<string, Record<string, string[]>>>({});
   const [selectedBlockedHours, setSelectedBlockedHours] = useState<string[]>([]);
-  const [blockMonthsSameTime, setBlockMonthsSameTime] = useState(false);
-  const [selectedMonthsForBlock, setSelectedMonthsForBlock] = useState<number[]>([]);
   const [showResetBlockConfirm, setShowResetBlockConfirm] = useState(false);
 
   // Estados para gerenciar horários de trabalho dos profissionais
@@ -15156,39 +15152,17 @@ Estamos te aguardando! 😎✂️`;
     setSelectedProfessionalForBlock(professionalId);
 
     const professional = professionals.find(p => p.id === professionalId);
-    const lastOptions = (professional as any)?.block_modal_last_options;
-    const useRecurring = Boolean(lastOptions?.useRecurring);
-    const weekdays = Array.isArray(lastOptions?.weekdays) ? lastOptions.weekdays : [];
-    const rawWeekdayHours = lastOptions?.weekdayHours;
-    const weekdayHours: Record<number, string[]> = rawWeekdayHours && typeof rawWeekdayHours === 'object'
-      ? Object.entries(rawWeekdayHours).reduce((acc, [k, v]) => {
-        acc[Number(k)] = Array.isArray(v) ? v : [];
-        return acc;
-      }, {} as Record<number, string[]>)
-      : {};
-
-    setBlockMonthsSameTime(useRecurring);
-    setSelectedMonthsForBlock(Array.isArray(lastOptions?.months) ? lastOptions.months : []);
-    setBlockRecurringWeekdays(weekdays);
-    setBlockRecurringWeekdayHours(weekdayHours);
     setBlockTimeDate(new Date().toISOString().split('T')[0]);
 
     const today = new Date().toISOString().split('T')[0];
-    const todayWeekday = new Date(today + 'T12:00:00').getDay();
-    if (professional && (professional as any).blocked_hours) {
-      setBlockedHours(prev => ({
-        ...prev,
-        [professionalId]: (professional as any).blocked_hours
-      }));
-      if (useRecurring && weekdayHours[todayWeekday]?.length) {
-        setSelectedBlockedHours(weekdayHours[todayWeekday]);
-      } else {
-        setSelectedBlockedHours((professional as any).blocked_hours[today] || []);
-      }
-    } else {
-      setSelectedBlockedHours(useRecurring && weekdayHours[todayWeekday]?.length ? weekdayHours[todayWeekday] : []);
-    }
-
+    const professionalBlockedHours = professional && (professional as any).blocked_hours
+      ? (professional as any).blocked_hours
+      : {};
+    setBlockedHours(prev => ({
+      ...prev,
+      [professionalId]: professionalBlockedHours
+    }));
+    setSelectedBlockedHours(professionalBlockedHours[today] || []);
     setShowBlockTimeModal(true);
   };
 
@@ -15197,43 +15171,69 @@ Estamos te aguardando! 😎✂️`;
     setSelectedProfessionalForBlock(null);
     setSelectedBlockedHours([]);
     setBlockTimeDate(new Date().toISOString().split('T')[0]);
-    setBlockRecurringWeekdays([]);
-    setBlockRecurringWeekdayHours({});
-    setBlockMonthsSameTime(false);
-    setSelectedMonthsForBlock([]);
     setShowResetBlockConfirm(false);
   };
 
   const handleToggleBlockedHour = (hour: string) => {
     setSelectedBlockedHours(prev => {
       const isSelected = prev.includes(hour);
-      if (isSelected) {
-        return prev.filter(h => h !== hour);
-      } else {
-        return [...prev, hour].sort();
+      const nextHours = isSelected
+        ? prev.filter(h => h !== hour)
+        : [...prev, hour].sort();
+      if (selectedProfessionalForBlock && blockTimeDate) {
+        setBlockedHours(previous => {
+          const professionalDraft = { ...(previous[selectedProfessionalForBlock] || {}) };
+          professionalDraft[blockTimeDate] = [...nextHours];
+          return {
+            ...previous,
+            [selectedProfessionalForBlock]: professionalDraft
+          };
+        });
       }
+      return nextHours;
     });
   };
 
-  const handleToggleMonthForBlock = (month: number) => {
-    setSelectedMonthsForBlock(prev =>
-      prev.includes(month) ? prev.filter(m => m !== month) : [...prev, month].sort((a, b) => a - b)
-    );
-  };
+  const applyBlockForWholeMonthByWeekday = (sourceDate: string, sourceHours: string[]) => {
+    if (!selectedProfessionalForBlock) return;
+    const normalizedHours = Array.from(new Set((sourceHours || []).map(h => String(h || '').trim()).filter(Boolean))).sort();
+    if (normalizedHours.length === 0) {
+      toast.error('Esse dia não possui horários para replicar.');
+      return;
+    }
 
-  // Com "Bloquear meses" ativo, manter horários do dia atual sincronizados em blockRecurringWeekdayHours (cada dia da semana com seu próprio conjunto)
-  useEffect(() => {
-    if (!blockMonthsSameTime || !blockTimeDate) return;
-    const w = new Date(blockTimeDate + 'T12:00:00').getDay();
-    setBlockRecurringWeekdayHours(prev => ({ ...prev, [w]: selectedBlockedHours }));
-  }, [blockMonthsSameTime, blockTimeDate, selectedBlockedHours]);
+    const year = Number(sourceDate.slice(0, 4));
+    const month = Number(sourceDate.slice(5, 7));
+    const weekday = new Date(sourceDate + 'T12:00:00').getDay();
+    const daysInMonth = new Date(year, month, 0).getDate();
+
+    setBlockedHours(previous => {
+      const professionalDraft = { ...(previous[selectedProfessionalForBlock] || {}) };
+
+      for (let day = 1; day <= daysInMonth; day += 1) {
+        const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayWeekday = new Date(dateStr + 'T12:00:00').getDay();
+        if (dayWeekday !== weekday) continue;
+        professionalDraft[dateStr] = [...normalizedHours];
+      }
+
+      return {
+        ...previous,
+        [selectedProfessionalForBlock]: professionalDraft
+      };
+    });
+
+    const currentWeekday = new Date(blockTimeDate + 'T12:00:00').getDay();
+    const currentMonthPrefix = `${year}-${String(month).padStart(2, '0')}-`;
+    if (blockTimeDate.startsWith(currentMonthPrefix) && currentWeekday === weekday) {
+      setSelectedBlockedHours([...normalizedHours]);
+    }
+
+    toast.success('Bloqueio aplicado para todo o mês nesse dia da semana. Clique em "Salvar Horários Bloqueados" para confirmar.');
+  };
 
   const handleSaveBlockedHours = async () => {
     if (!selectedProfessionalForBlock || !establishment) return;
-    if (blockMonthsSameTime && selectedMonthsForBlock.length === 0) {
-      toast.error('Selecione pelo menos um mês para bloquear.');
-      return;
-    }
 
     try {
       // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS
@@ -15256,42 +15256,20 @@ Estamos te aguardando! 😎✂️`;
         if (dbProfessional.id === selectedProfessionalForBlock) {
           // Buscar dados locais do profissional
           const localProfessional = professionals.find(p => p.id === selectedProfessionalForBlock);
-          const currentBlockedHours = (localProfessional as any)?.blocked_hours || dbProfessional.blocked_hours || {};
+          const currentBlockedHours =
+            blockedHours[selectedProfessionalForBlock] ||
+            (localProfessional as any)?.blocked_hours ||
+            dbProfessional.blocked_hours ||
+            {};
           let updatedBlockedHours: Record<string, string[]> = { ...currentBlockedHours };
-
-          if (blockMonthsSameTime && selectedMonthsForBlock.length > 0) {
-            // Cada dia da semana com seu próprio conjunto de horários: sexta 11:00–13:20, sábado outro horário, etc.
-            const year = parseInt(blockTimeDate.slice(0, 4), 10);
-            const currentWeekday = new Date(blockTimeDate + 'T12:00:00').getDay();
-            const resolvedWeekdayHours: Record<number, string[]> = { ...blockRecurringWeekdayHours, [currentWeekday]: selectedBlockedHours };
-            const weekdaysToBlock = blockRecurringWeekdays.length > 0
-              ? new Set(blockRecurringWeekdays)
-              : new Set([currentWeekday]);
-            for (const month of selectedMonthsForBlock) {
-              const daysInMonth = new Date(year, month, 0).getDate();
-              for (let day = 1; day <= daysInMonth; day++) {
-                const w = new Date(year, month - 1, day).getDay();
-                if (!weekdaysToBlock.has(w)) continue;
-                const hours = resolvedWeekdayHours[w] || [];
-                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                updatedBlockedHours[dateStr] = [...hours];
-              }
-            }
-          } else {
-            updatedBlockedHours[blockTimeDate] = selectedBlockedHours;
-          }
+          updatedBlockedHours[blockTimeDate] = [...selectedBlockedHours];
 
           // Persistir últimas opções do modal (inclui horários por dia da semana para "Bloquear meses")
-          const currentW = new Date(blockTimeDate + 'T12:00:00').getDay();
-          const savedWeekdayHours = { ...blockRecurringWeekdayHours, [currentW]: selectedBlockedHours };
-          const weekdayHoursForStorage = Object.fromEntries(
-            Object.entries(savedWeekdayHours).map(([k, v]) => [String(k), v])
-          );
           const block_modal_last_options = {
-            useRecurring: blockMonthsSameTime,
-            months: blockMonthsSameTime ? selectedMonthsForBlock : [],
-            weekdays: blockRecurringWeekdays,
-            weekdayHours: weekdayHoursForStorage
+            useRecurring: false,
+            months: [],
+            weekdays: [],
+            weekdayHours: {}
           };
 
           return {
@@ -15374,9 +15352,6 @@ Estamos te aguardando! 😎✂️`;
       setProfessionals(updatedProfessionals);
       setEstablishment(prev => prev ? { ...prev, professionals: updatedProfessionals } : prev);
       setSelectedBlockedHours([]);
-      setBlockRecurringWeekdays([]);
-      setSelectedMonthsForBlock([]);
-      setBlockMonthsSameTime(false);
       toast.success('Todos os bloqueios deste profissional foram removidos.');
       handleCloseBlockTimeModal();
     } catch (error) {
@@ -26476,22 +26451,12 @@ Estamos te aguardando! 😎✂️`;
                         value={blockTimeDate}
                         onChange={(e) => {
                           const newDate = e.target.value;
-                          const newWeekday = new Date(newDate + 'T12:00:00').getDay();
-                          if (blockMonthsSameTime) {
-                            const currentWeekday = new Date(blockTimeDate + 'T12:00:00').getDay();
-                            const nextWeekdayHours = { ...blockRecurringWeekdayHours, [currentWeekday]: selectedBlockedHours };
-                            setBlockRecurringWeekdayHours(nextWeekdayHours);
-                            setBlockTimeDate(newDate);
-                            setBlockRecurringWeekdays(prev => prev.includes(newWeekday) ? prev : [...prev, newWeekday].sort((a, b) => a - b));
-                            setSelectedBlockedHours(nextWeekdayHours[newWeekday] || []);
+                          setBlockTimeDate(newDate);
+                          if (selectedProfessionalForBlock) {
+                            const professionalDraft = blockedHours[selectedProfessionalForBlock] || {};
+                            setSelectedBlockedHours(professionalDraft[newDate] || []);
                           } else {
-                            setBlockTimeDate(newDate);
-                            const professional = professionals.find(p => p.id === selectedProfessionalForBlock);
-                            if (professional && (professional as any).blocked_hours) {
-                              setSelectedBlockedHours((professional as any).blocked_hours[newDate] || []);
-                            } else {
-                              setSelectedBlockedHours([]);
-                            }
+                            setSelectedBlockedHours([]);
                           }
                         }}
                         min={new Date().toISOString().split('T')[0]}
@@ -26635,84 +26600,76 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   )}
 
-                  {/* Bloquear meses no mesmo horário e dia selecionado */}
-                  {selectedBlockedHours.length > 0 && (
-                    <div className="mb-6 p-4 bg-[#242628] rounded-lg border border-gray-600">
-                      <label className="flex items-center gap-2 cursor-pointer mb-3">
-                        <input
-                          type="checkbox"
-                          checked={blockMonthsSameTime}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setBlockMonthsSameTime(checked);
-                            if (checked) {
-                              const weekday = new Date(blockTimeDate + 'T12:00:00').getDay();
-                              setBlockRecurringWeekdays(prev => prev.includes(weekday) ? prev : [...prev, weekday].sort((a, b) => a - b));
-                              setBlockRecurringWeekdayHours(prev => ({ ...prev, [weekday]: selectedBlockedHours }));
-                            }
-                          }}
-                          className="w-4 h-4 rounded border-gray-500 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-gray-200 font-medium">Bloquear meses no mesmo horário e dia selecionado</span>
-                      </label>
-                      {blockMonthsSameTime && (
-                        <p className="text-gray-400 text-sm mb-3">
-                          Cada dia da semana pode ter horários diferentes: selecione sexta e bloqueie 11:00–13:20, mude a data para sábado e bloqueie outro horário. Nos meses escolhidos, todas as sextas usam o bloqueio da sexta e todos os sábados usam o bloqueio do sábado.
-                        </p>
-                      )}
-                      {blockMonthsSameTime && blockRecurringWeekdays.length > 0 && (
-                        <div className="mb-3">
-                          <span className="block text-sm font-medium text-gray-300 mb-2">Dias da semana que serão bloqueados nos meses:</span>
-                          <div className="flex flex-wrap gap-2">
-                            {([0, 1, 2, 3, 4, 5, 6] as const).filter(d => blockRecurringWeekdays.includes(d)).map((d) => {
-                              const labels: Record<number, string> = { 0: 'Dom', 1: 'Seg', 2: 'Ter', 3: 'Qua', 4: 'Qui', 5: 'Sex', 6: 'Sáb' };
-                              return (
-                                <div key={d} className="flex items-center gap-1.5 bg-gray-600 text-white px-3 py-1.5 rounded-lg text-sm">
-                                  <span>{labels[d]}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setBlockRecurringWeekdays(prev => prev.filter(w => w !== d))}
-                                    className="hover:text-red-200 transition-colors"
-                                  >
-                                    ×
-                                  </button>
+                  {selectedProfessionalForBlock && (
+                    <div className="mb-6 p-4 bg-[#242628] rounded-lg border border-gray-700">
+                      <h4 className="text-sm font-semibold text-gray-200 mb-2">
+                        Histórico do mês ({new Date(blockTimeDate + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })})
+                      </h4>
+                      {(() => {
+                        const monthPrefix = blockTimeDate.slice(0, 7);
+                        const draftByDate = blockedHours[selectedProfessionalForBlock] || {};
+                        const savedByDate = (professionals.find(p => p.id === selectedProfessionalForBlock) as any)?.blocked_hours || {};
+
+                        const draftRows = Object.entries(draftByDate)
+                          .filter(([date, hours]) => date.startsWith(monthPrefix) && Array.isArray(hours) && hours.length > 0)
+                          .sort(([a], [b]) => a.localeCompare(b));
+                        const savedRows = Object.entries(savedByDate)
+                          .filter(([date, hours]) => date.startsWith(monthPrefix) && Array.isArray(hours) && hours.length > 0)
+                          .sort(([a], [b]) => a.localeCompare(b));
+
+                        if (!draftRows.length && !savedRows.length) {
+                          return <p className="text-xs text-gray-400">Sem bloqueios neste mês ainda.</p>;
+                        }
+
+                        return (
+                          <div className="space-y-3">
+                            {draftRows.length > 0 && (
+                              <div>
+                                <p className="text-xs font-semibold text-blue-300 mb-1">Rascunho atual (antes de salvar)</p>
+                                <div className="space-y-1.5">
+                                  {draftRows.map(([date, hours]) => (
+                                    <div key={`draft-${date}`} className="text-xs text-gray-200 flex items-start justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <span className="font-semibold">{new Date(date + 'T12:00:00').toLocaleDateString('pt-BR')}:</span>{' '}
+                                        <span className="text-gray-300">{(hours as string[]).join(', ')}</span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => applyBlockForWholeMonthByWeekday(date, hours as string[])}
+                                        className="shrink-0 px-2 py-1 rounded-md border border-blue-400/40 text-blue-200 hover:bg-blue-500/10 transition-colors"
+                                      >
+                                        Bloquear mês todo nesse dia
+                                      </button>
+                                    </div>
+                                  ))}
                                 </div>
-                              );
-                            })}
+                              </div>
+                            )}
+                            {savedRows.length > 0 && (
+                              <div>
+                                <p className="text-xs font-semibold text-emerald-300 mb-1">Salvos no sistema</p>
+                                <div className="space-y-1.5">
+                                  {savedRows.map(([date, hours]) => (
+                                    <div key={`saved-${date}`} className="text-xs text-gray-200 flex items-start justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <span className="font-semibold">{new Date(date + 'T12:00:00').toLocaleDateString('pt-BR')}:</span>{' '}
+                                        <span className="text-gray-300">{(hours as string[]).join(', ')}</span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => applyBlockForWholeMonthByWeekday(date, hours as string[])}
+                                        className="shrink-0 px-2 py-1 rounded-md border border-emerald-400/40 text-emerald-200 hover:bg-emerald-500/10 transition-colors"
+                                      >
+                                        Bloquear mês todo nesse dia
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
-                          <p className="text-gray-500 text-xs mt-1">
-                            Mude a data no campo &quot;Data&quot; acima para outro dia (ex.: terça) para incluir esse dia na lista.
-                          </p>
-                        </div>
-                      )}
-                      {blockMonthsSameTime && (
-                        <div className="flex flex-wrap gap-2">
-                          {[
-                            { n: 1, label: 'Jan' },
-                            { n: 2, label: 'Fev' },
-                            { n: 3, label: 'Mar' },
-                            { n: 4, label: 'Abr' },
-                            { n: 5, label: 'Mai' },
-                            { n: 6, label: 'Jun' },
-                            { n: 7, label: 'Jul' },
-                            { n: 8, label: 'Ago' },
-                            { n: 9, label: 'Set' },
-                            { n: 10, label: 'Out' },
-                            { n: 11, label: 'Nov' },
-                            { n: 12, label: 'Dez' }
-                          ].map(({ n, label }) => (
-                            <label key={n} className="flex items-center gap-1.5 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={selectedMonthsForBlock.includes(n)}
-                                onChange={() => handleToggleMonthForBlock(n)}
-                                className="w-4 h-4 rounded border-gray-500 text-blue-600 focus:ring-blue-500"
-                              />
-                              <span className="text-sm text-gray-300">{label}</span>
-                            </label>
-                          ))}
-                        </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   )}
 
