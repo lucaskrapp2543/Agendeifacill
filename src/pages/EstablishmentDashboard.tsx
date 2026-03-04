@@ -137,7 +137,7 @@ interface Establishment {
   credit_card_tax_percentage?: number; // Taxa do cartão de crédito (%)
   carousel_position?: 'behind' | 'below'; // Posição do carrossel: atrás ou embaixo do perfil
   debit_card_tax_percentage?: number; // Taxa do cartão de débito (%)
-  card_brand_taxes?: Record<string, number>; // Taxas por bandeira de cartão
+  card_brand_taxes?: Record<string, number | { credito?: number; debito?: number }>; // Taxas por bandeira (compatível: legado number ou novo { credito, debito })
   tax_deducted_by_establishment?: boolean; // Se true, taxa é descontada do estabelecimento; se false, do profissional
   payment_alert_enabled?: boolean; // Indica se o alerta de pagamento está ativado
   promotion_enabled?: boolean; // Indica se a propaganda está ativada
@@ -145,6 +145,7 @@ interface Establishment {
   use_20_minute_schedule?: boolean;
   use_60_minute_schedule?: boolean;
   booking_min_advance_hours?: number;
+  booking_min_advance_minutes?: number;
   limit_client_pending_booking?: boolean;
   closed_time_enabled?: boolean;
   show_best_of_brazil_image?: boolean;
@@ -695,7 +696,8 @@ const EstablishmentDashboard = () => {
   const [showAddCustomPaymentMethod, setShowAddCustomPaymentMethod] = useState(false);
   const [customPaymentMethodName, setCustomPaymentMethodName] = useState('');
   const [carouselPosition, setCarouselPosition] = useState<'behind' | 'below'>('behind'); // Posição do carrossel
-  const [cardBrandTaxes, setCardBrandTaxes] = useState<Record<string, number>>({
+  const DEFAULT_CARD_BRAND_TAX_RATE = 3.5;
+  const DEFAULT_CARD_BRAND_TAXES: Record<string, number> = {
     visa: 3.5,
     mastercard: 3.5,
     elo: 3.0,
@@ -704,7 +706,45 @@ const EstablishmentDashboard = () => {
     discover: 3.5,
     jcb: 3.5,
     outros: 3.5
-  }); // Taxas por bandeira de cartão
+  };
+  const normalizeCardBrandTaxes = (
+    raw: unknown
+  ): Record<string, { credito: number; debito: number }> => {
+    const safe = (raw && typeof raw === 'object' ? (raw as Record<string, any>) : {}) || {};
+    const keys = Array.from(new Set([...Object.keys(DEFAULT_CARD_BRAND_TAXES), ...Object.keys(safe)]));
+
+    const parseRate = (value: unknown, fallback: number): number => {
+      const n = Number(value);
+      return Number.isFinite(n) && n >= 0 ? n : fallback;
+    };
+
+    return keys.reduce((acc, brand) => {
+      const defaultRate = DEFAULT_CARD_BRAND_TAXES[brand] ?? DEFAULT_CARD_BRAND_TAX_RATE;
+      const source = safe[brand];
+      if (typeof source === 'number') {
+        const rate = parseRate(source, defaultRate);
+        acc[brand] = { credito: rate, debito: rate };
+        return acc;
+      }
+      if (source && typeof source === 'object') {
+        const credito = parseRate(
+          (source as any)?.credito ?? (source as any)?.credit ?? (source as any)?.debit ?? (source as any)?.debito,
+          defaultRate
+        );
+        const debito = parseRate(
+          (source as any)?.debito ?? (source as any)?.debit ?? (source as any)?.credit ?? (source as any)?.credito,
+          defaultRate
+        );
+        acc[brand] = { credito, debito };
+        return acc;
+      }
+      acc[brand] = { credito: defaultRate, debito: defaultRate };
+      return acc;
+    }, {} as Record<string, { credito: number; debito: number }>);
+  };
+  const [cardBrandTaxes, setCardBrandTaxes] = useState<Record<string, { credito: number; debito: number }>>(
+    normalizeCardBrandTaxes(DEFAULT_CARD_BRAND_TAXES)
+  ); // Taxas por bandeira de cartão
   const [taxDeductedByEstablishment, setTaxDeductedByEstablishment] = useState(false); // Se true, taxa é descontada do estabelecimento; se false, do profissional
   const [clientPaysCardFees, setClientPaysCardFees] = useState(false); // Se true, taxa não é descontada nos cálculos internos
 
@@ -2739,8 +2779,8 @@ const EstablishmentDashboard = () => {
   // Estado para horários de 1 em 1 hora
   const [use60MinuteSchedule, setUse60MinuteSchedule] = useState(false);
 
-  // Prazo mínimo (em horas) para clientes agendarem no booking público
-  const [bookingMinAdvanceHours, setBookingMinAdvanceHours] = useState<number>(0);
+  // Prazo mínimo (em minutos) para clientes agendarem no booking público
+  const [bookingMinAdvanceMinutes, setBookingMinAdvanceMinutes] = useState<number>(0);
   const [limitClientPendingBooking, setLimitClientPendingBooking] = useState<boolean>(false);
   // Tempo fechado: mantém horários presos ao grid de exibição
   const [closedTimeEnabled, setClosedTimeEnabled] = useState<boolean>(false);
@@ -8820,7 +8860,9 @@ Estamos te aguardando! 😎✂️`;
 
         // Carrega as taxas por bandeira de cartão
         if (establishmentData.card_brand_taxes) {
-          setCardBrandTaxes(establishmentData.card_brand_taxes);
+          setCardBrandTaxes(normalizeCardBrandTaxes(establishmentData.card_brand_taxes));
+        } else {
+          setCardBrandTaxes(normalizeCardBrandTaxes(DEFAULT_CARD_BRAND_TAXES));
         }
 
         // Carrega a configuração de quem paga a taxa (estabelecimento ou profissional)
@@ -8835,8 +8877,16 @@ Estamos te aguardando! 😎✂️`;
         // Carrega a configuração de horários de 1 em 1 hora
         setUse60MinuteSchedule((establishmentData as any).use_60_minute_schedule ?? false);
 
-        // Carrega prazo mínimo de antecedência para agendamento no booking público
-        setBookingMinAdvanceHours(Number((establishmentData as any).booking_min_advance_hours ?? 0));
+        // Carrega prazo mínimo de antecedência (novo em minutos, fallback em horas)
+        const rawAdvanceMinutes = Number((establishmentData as any).booking_min_advance_minutes ?? 0);
+        const rawAdvanceHours = Number((establishmentData as any).booking_min_advance_hours ?? 0);
+        const nextAdvanceMinutes =
+          Number.isFinite(rawAdvanceMinutes) && rawAdvanceMinutes >= 0
+            ? rawAdvanceMinutes
+            : Number.isFinite(rawAdvanceHours) && rawAdvanceHours > 0
+              ? rawAdvanceHours * 60
+              : 0;
+        setBookingMinAdvanceMinutes(nextAdvanceMinutes);
         setLimitClientPendingBooking(Boolean((establishmentData as any).limit_client_pending_booking ?? false));
         // Carrega configuração de tempo fechado (fallback: desativado)
         setClosedTimeEnabled(Boolean((establishmentData as any).closed_time_enabled ?? false));
@@ -9312,7 +9362,7 @@ Estamos te aguardando! 😎✂️`;
         use15MinuteInterval: use15MinuteInterval,
         use20MinuteSchedule: use20MinuteSchedule,
         use60MinuteSchedule: use60MinuteSchedule,
-        bookingMinAdvanceHours: bookingMinAdvanceHours,
+        bookingMinAdvanceMinutes: bookingMinAdvanceMinutes,
         closedTimeEnabled: closedTimeEnabled,
         showBestOfBrazilImage: showBestOfBrazilImage
       });
@@ -14774,52 +14824,68 @@ Estamos te aguardando! 😎✂️`;
   ]);
 
   // ✅ Auto-save para Configuração de Horários
-  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceHours?: number; limitClientPendingBooking?: boolean; closedTimeEnabled?: boolean; showBestOfBrazilImage?: boolean }) => {
+  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceMinutes?: number; limitClientPendingBooking?: boolean; closedTimeEnabled?: boolean; showBestOfBrazilImage?: boolean }) => {
     if (!establishment?.id) return;
 
     const configToSave = {
       use15MinuteInterval: config?.use15MinuteInterval ?? use15MinuteInterval,
       use20MinuteSchedule: config?.use20MinuteSchedule ?? use20MinuteSchedule,
       use60MinuteSchedule: config?.use60MinuteSchedule ?? use60MinuteSchedule,
-      bookingMinAdvanceHours: config?.bookingMinAdvanceHours ?? bookingMinAdvanceHours,
+      bookingMinAdvanceMinutes: config?.bookingMinAdvanceMinutes ?? bookingMinAdvanceMinutes,
       limitClientPendingBooking: config?.limitClientPendingBooking ?? limitClientPendingBooking,
       closedTimeEnabled: config?.closedTimeEnabled ?? closedTimeEnabled,
       showBestOfBrazilImage: config?.showBestOfBrazilImage ?? showBestOfBrazilImage
     };
+    const bookingMinAdvanceHoursCompatibility =
+      configToSave.bookingMinAdvanceMinutes > 0
+        ? Math.ceil(configToSave.bookingMinAdvanceMinutes / 60)
+        : 0;
 
     try {
-      let { error } = await supabase
-        .from('establishments')
-        .update({
-          use_15_minute_interval: configToSave.use15MinuteInterval,
-          use_20_minute_schedule: configToSave.use20MinuteSchedule,
-          use_60_minute_schedule: configToSave.use60MinuteSchedule,
-          booking_min_advance_hours: configToSave.bookingMinAdvanceHours,
-          limit_client_pending_booking: configToSave.limitClientPendingBooking,
-          closed_time_enabled: configToSave.closedTimeEnabled,
-          show_best_of_brazil_image: configToSave.showBestOfBrazilImage
-        })
-        .eq('id', establishment.id);
+      const schedulePayload: Record<string, any> = {
+        use_15_minute_interval: configToSave.use15MinuteInterval,
+        use_20_minute_schedule: configToSave.use20MinuteSchedule,
+        use_60_minute_schedule: configToSave.use60MinuteSchedule,
+        booking_min_advance_hours: bookingMinAdvanceHoursCompatibility,
+        booking_min_advance_minutes: configToSave.bookingMinAdvanceMinutes,
+        limit_client_pending_booking: configToSave.limitClientPendingBooking,
+        closed_time_enabled: configToSave.closedTimeEnabled,
+        show_best_of_brazil_image: configToSave.showBestOfBrazilImage
+      };
 
-      // Compatibilidade: se a coluna nova ainda nao existir, salva o restante sem quebrar fluxo antigo
-      if (
-        error &&
-        (error.code === '42703' ||
-          String(error.message || '').includes('booking_min_advance_hours') ||
-          String(error.message || '').includes('limit_client_pending_booking') ||
-          String(error.message || '').includes('closed_time_enabled'))
-      ) {
-        console.warn('⚠️ Coluna nova de configuração de horários não encontrada. Salvando sem colunas novas.');
-        const fallback = await supabase
+      const runScheduleUpdate = async (payload: Record<string, any>) =>
+        await supabase
           .from('establishments')
-          .update({
-            use_15_minute_interval: configToSave.use15MinuteInterval,
-            use_20_minute_schedule: configToSave.use20MinuteSchedule,
-            use_60_minute_schedule: configToSave.use60MinuteSchedule,
-            show_best_of_brazil_image: configToSave.showBestOfBrazilImage
-          })
+          .update(payload)
           .eq('id', establishment.id);
-        error = fallback.error;
+
+      let payloadToSave: Record<string, any> = { ...schedulePayload };
+      let { error } = await runScheduleUpdate(payloadToSave);
+
+      // Compatibilidade: remove apenas a(s) coluna(s) inexistente(s), mantendo as demais.
+      for (let attempt = 0; attempt < 4 && error && String(error.code || '') === '42703'; attempt += 1) {
+        const message = String(error.message || '').toLowerCase();
+        const removableColumns = [
+          'booking_min_advance_minutes',
+          'booking_min_advance_hours',
+          'limit_client_pending_booking',
+          'closed_time_enabled',
+        ];
+        const missingColumns = removableColumns.filter((column) => message.includes(column));
+
+        if (missingColumns.length === 0) {
+          break;
+        }
+
+        missingColumns.forEach((column) => {
+          if (column in payloadToSave) {
+            delete payloadToSave[column];
+          }
+        });
+
+        console.warn('⚠️ Coluna(s) ausente(s) na configuração de horários, aplicando fallback seletivo:', missingColumns);
+        const retry = await runScheduleUpdate(payloadToSave);
+        error = retry.error;
       }
 
       if (error) {
@@ -14834,7 +14900,8 @@ Estamos te aguardando! 😎✂️`;
         use_15_minute_interval: configToSave.use15MinuteInterval,
         use_20_minute_schedule: configToSave.use20MinuteSchedule,
         use_60_minute_schedule: configToSave.use60MinuteSchedule,
-        booking_min_advance_hours: configToSave.bookingMinAdvanceHours,
+        booking_min_advance_hours: bookingMinAdvanceHoursCompatibility,
+        booking_min_advance_minutes: configToSave.bookingMinAdvanceMinutes,
         limit_client_pending_booking: configToSave.limitClientPendingBooking,
         closed_time_enabled: configToSave.closedTimeEnabled,
         show_best_of_brazil_image: configToSave.showBestOfBrazilImage
@@ -14842,7 +14909,7 @@ Estamos te aguardando! 😎✂️`;
     } catch (error) {
       console.error('❌ Erro ao salvar configuração de horários automaticamente:', error);
     }
-  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceHours, limitClientPendingBooking, closedTimeEnabled, showBestOfBrazilImage]);
+  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceMinutes, limitClientPendingBooking, closedTimeEnabled, showBestOfBrazilImage]);
 
   const notifySettingsNeedManualSave = useCallback((showToastMessage = true) => {
     setShowSettingsSaveReminder(true);
@@ -16588,10 +16655,46 @@ Estamos te aguardando! 😎✂️`;
       return 0;
     }
 
+    const resolveBrandTaxByMethod = (
+      rawBrandTax: unknown,
+      paymentMethod: 'credito' | 'debito',
+      fallbackRate: number
+    ): number => {
+      const parseRate = (value: unknown): number | null => {
+        const n = Number(value);
+        return Number.isFinite(n) && n >= 0 ? n : null;
+      };
+      if (typeof rawBrandTax === 'number') {
+        const parsed = parseRate(rawBrandTax);
+        return parsed !== null ? parsed : fallbackRate;
+      }
+      if (rawBrandTax && typeof rawBrandTax === 'object') {
+        const key = paymentMethod === 'credito' ? 'credito' : 'debito';
+        const alt = paymentMethod === 'credito' ? 'credit' : 'debit';
+        const direct = parseRate((rawBrandTax as any)?.[key] ?? (rawBrandTax as any)?.[alt]);
+        if (direct !== null) return direct;
+        const fallbackFromOtherSide = parseRate(
+          paymentMethod === 'credito'
+            ? (rawBrandTax as any)?.debito ?? (rawBrandTax as any)?.debit
+            : (rawBrandTax as any)?.credito ?? (rawBrandTax as any)?.credit
+        );
+        if (fallbackFromOtherSide !== null) return fallbackFromOtherSide;
+      }
+      return fallbackRate;
+    };
+
     // Se for cartão e tiver bandeira definida, usar taxa da bandeira
     if ((method === 'credito' || method === 'debito') && cardBrand && cardBrand !== 'bandeira') {
-      const brandTax = establishment?.card_brand_taxes?.[cardBrand] ?? cardBrandTaxes[cardBrand];
-      return Number.isFinite(Number(brandTax)) ? Number(brandTax) : 3.5;
+      const fallbackRate = method === 'credito'
+        ? (Number.isFinite(creditBaseRate) ? creditBaseRate : DEFAULT_CARD_BRAND_TAX_RATE)
+        : (Number.isFinite(debitBaseRate) ? debitBaseRate : DEFAULT_CARD_BRAND_TAX_RATE);
+      // Prioriza estado atual da tela e usa banco como fallback.
+      const brandTaxRaw = cardBrandTaxes[cardBrand] ?? (establishment as any)?.card_brand_taxes?.[cardBrand];
+      return resolveBrandTaxByMethod(
+        brandTaxRaw,
+        method as 'credito' | 'debito',
+        fallbackRate
+      );
     }
 
     // Fallback para taxas antigas por tipo de cartão
@@ -22925,38 +23028,43 @@ Estamos te aguardando! 😎✂️`;
                             Prazo para clientes agendarem
                           </label>
                           <p className="text-sm text-gray-400 leading-relaxed mb-3">
-                            Define quantas horas mínimas de antecedência o cliente precisa ter para agendar no booking público.
+                            Define quanto tempo mínimo de antecedência o cliente precisa ter para agendar no booking público.
                           </p>
                           <div className="flex flex-wrap gap-3">
-                            {[1, 2, 3].map((hours) => (
+                            {[
+                              { minutes: 30, label: '30 min' },
+                              { minutes: 60, label: '1 h' },
+                              { minutes: 120, label: '2 h' },
+                              { minutes: 180, label: '3 h' },
+                            ].map((option) => (
                               <button
-                                key={hours}
+                                key={option.minutes}
                                 type="button"
                                 onClick={() => {
-                                  const nextHours = bookingMinAdvanceHours === hours ? 0 : hours;
-                                  setBookingMinAdvanceHours(nextHours);
+                                  const nextMinutes = bookingMinAdvanceMinutes === option.minutes ? 0 : option.minutes;
+                                  setBookingMinAdvanceMinutes(nextMinutes);
                                   notifySettingsNeedManualSave(true);
                                   if (scheduleConfigAutoSaveTimeoutRef.current) {
                                     clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
                                   }
                                   scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
                                     autoSaveScheduleConfig({
-                                      bookingMinAdvanceHours: nextHours
+                                      bookingMinAdvanceMinutes: nextMinutes
                                     });
                                   }, 1000);
                                 }}
-                                className={`px-4 py-2 rounded-md border text-sm font-semibold transition-colors ${bookingMinAdvanceHours === hours
+                                className={`px-4 py-2 rounded-md border text-sm font-semibold transition-colors ${bookingMinAdvanceMinutes === option.minutes
                                     ? 'bg-blue-600 border-blue-500 text-white'
                                     : 'bg-[#1a1b1c] border-gray-600 text-gray-300 hover:border-gray-500'
                                   }`}
-                                aria-pressed={bookingMinAdvanceHours === hours}
+                                aria-pressed={bookingMinAdvanceMinutes === option.minutes}
                               >
-                                {hours} h
+                                {option.label}
                               </button>
                             ))}
                           </div>
                           <p className="text-xs text-gray-500 mt-3">
-                            Exemplo: se for 11:00 e estiver em 1 h, o cliente s&oacute; consegue agendar a partir de 12:00.
+                            Exemplo: se for 11:00 e estiver em 30 min, o cliente s&oacute; consegue agendar a partir de 11:30.
                           </p>
                           <p className="text-xs text-gray-400 mt-1">
                             Dica: clique novamente na op&ccedil;&atilde;o selecionada para desmarcar.
@@ -24043,29 +24151,68 @@ Estamos te aguardando! 😎✂️`;
                                   </div>
                                 </div>
 
-                                {/* Input da taxa */}
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <input
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    max="10"
-                                    value={tax}
-                                    onChange={(e) => {
-                                      const newTaxes = { ...cardBrandTaxes };
-                                      newTaxes[brand] = parseFloat(e.target.value) || 0;
-                                      setCardBrandTaxes(newTaxes);
-                                      if (paymentConfigAutoSaveTimeoutRef.current) {
-                                        clearTimeout(paymentConfigAutoSaveTimeoutRef.current);
-                                      }
-                                      paymentConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                        autoSavePaymentConfig();
-                                      }, 1000);
-                                    }}
-                                    className="w-20 sm:w-24 px-3 py-2 bg-[#242628] border border-gray-700 rounded text-white focus:outline-none focus:ring-1 focus:ring-primary text-sm"
-                                    placeholder="0.0"
-                                  />
-                                  <span className="text-white text-sm font-medium">%</span>
+                                {/* Input de taxas por método */}
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 min-w-0">
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[11px] text-gray-400 uppercase">Crédito</span>
+                                    <input
+                                      type="number"
+                                      step="0.1"
+                                      min="0"
+                                      max="20"
+                                      value={Number(tax?.credito ?? 0)}
+                                      onChange={(e) => {
+                                        const nextValue = Math.max(0, parseFloat(e.target.value) || 0);
+                                        const newTaxes = {
+                                          ...cardBrandTaxes,
+                                          [brand]: {
+                                            ...(cardBrandTaxes[brand] || { credito: 0, debito: 0 }),
+                                            credito: nextValue,
+                                          },
+                                        };
+                                        setCardBrandTaxes(newTaxes);
+                                        if (paymentConfigAutoSaveTimeoutRef.current) {
+                                          clearTimeout(paymentConfigAutoSaveTimeoutRef.current);
+                                        }
+                                        paymentConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                          autoSavePaymentConfig();
+                                        }, 1000);
+                                      }}
+                                      className="w-20 sm:w-24 px-3 py-2 bg-[#242628] border border-gray-700 rounded text-white focus:outline-none focus:ring-1 focus:ring-primary text-sm"
+                                      placeholder="0.0"
+                                    />
+                                    <span className="text-white text-sm font-medium">%</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[11px] text-gray-400 uppercase">Débito</span>
+                                    <input
+                                      type="number"
+                                      step="0.1"
+                                      min="0"
+                                      max="20"
+                                      value={Number(tax?.debito ?? 0)}
+                                      onChange={(e) => {
+                                        const nextValue = Math.max(0, parseFloat(e.target.value) || 0);
+                                        const newTaxes = {
+                                          ...cardBrandTaxes,
+                                          [brand]: {
+                                            ...(cardBrandTaxes[brand] || { credito: 0, debito: 0 }),
+                                            debito: nextValue,
+                                          },
+                                        };
+                                        setCardBrandTaxes(newTaxes);
+                                        if (paymentConfigAutoSaveTimeoutRef.current) {
+                                          clearTimeout(paymentConfigAutoSaveTimeoutRef.current);
+                                        }
+                                        paymentConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                          autoSavePaymentConfig();
+                                        }, 1000);
+                                      }}
+                                      className="w-20 sm:w-24 px-3 py-2 bg-[#242628] border border-gray-700 rounded text-white focus:outline-none focus:ring-1 focus:ring-primary text-sm"
+                                      placeholder="0.0"
+                                    />
+                                    <span className="text-white text-sm font-medium">%</span>
+                                  </div>
                                 </div>
                               </div>
                             ))}

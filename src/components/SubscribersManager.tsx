@@ -43,6 +43,16 @@ type DividedSubscriptionService = {
   limit: number;
 };
 
+type SubscriptionValueChangeHistoryEntry = {
+  id: string;
+  changed_at: string;
+  old_value: number;
+  new_value: number;
+  discount_amount: number;
+  changed_by?: string | null;
+  note?: string | null;
+};
+
 interface SubscribersManagerProps {
   establishmentId: string;
   clients: Client[]; // Usar Client ao invés de Profile
@@ -439,6 +449,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [selectedClientForLimit, setSelectedClientForLimit] = useState<ClientSubscription | null>(null);
   const [monthlyLimit, setMonthlyLimit] = useState<number | null>(null);
   const [isSavingLimit, setIsSavingLimit] = useState(false);
+  const [showAdjustValueModal, setShowAdjustValueModal] = useState(false);
+  const [selectedClientForValueAdjust, setSelectedClientForValueAdjust] = useState<ClientSubscription | null>(null);
+  const [adjustedSubscriptionValue, setAdjustedSubscriptionValue] = useState<string>('');
+  const [adjustValueNote, setAdjustValueNote] = useState('');
+  const [isSavingAdjustedValue, setIsSavingAdjustedValue] = useState(false);
 
   // Estado para barra de pesquisa
   const [searchTerm, setSearchTerm] = useState('');
@@ -999,11 +1014,40 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
-  const getSubscriptionValueForClient = (clientSub: any): number => {
+  const MAX_SUBSCRIPTION_VALUE_CHANGES = 10;
+
+  const parseSubscriptionValueChangeHistory = (raw: unknown): SubscriptionValueChangeHistoryEntry[] => {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((item: any) => ({
+        id: String(item?.id || '').trim(),
+        changed_at: String(item?.changed_at || '').trim(),
+        old_value: Number(item?.old_value || 0),
+        new_value: Number(item?.new_value || 0),
+        discount_amount: Number(item?.discount_amount || 0),
+        changed_by: item?.changed_by ? String(item.changed_by) : null,
+        note: item?.note ? String(item.note) : null,
+      }))
+      .filter((item) =>
+        item.id &&
+        item.changed_at &&
+        Number.isFinite(item.old_value) &&
+        Number.isFinite(item.new_value) &&
+        Number.isFinite(item.discount_amount)
+      );
+  };
+
+  const getBaseSubscriptionValueForClient = (clientSub: any): number => {
     const direct = Number(clientSub?.subscriptions?.value ?? clientSub?.subscription_value ?? 0);
     if (Number.isFinite(direct) && direct > 0) return direct;
     const fromList = subscriptions.find((s) => s.id === clientSub?.subscription_id)?.value;
     return Number(fromList || 0);
+  };
+
+  const getSubscriptionValueForClient = (clientSub: any): number => {
+    const customValue = Number((clientSub as any)?.custom_subscription_value ?? NaN);
+    if (Number.isFinite(customValue) && customValue > 0) return customValue;
+    return getBaseSubscriptionValueForClient(clientSub);
   };
 
   const computeSaleCommissionAmount = (subscriptionValue: number, percent: number): number => {
@@ -2388,6 +2432,104 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     setShowLimitModal(true);
   };
 
+  const openAdjustValueModal = (clientSubscription: ClientSubscription) => {
+    const currentValue = getSubscriptionValueForClient(clientSubscription);
+    setSelectedClientForValueAdjust(clientSubscription);
+    setAdjustedSubscriptionValue(
+      Number.isFinite(currentValue) && currentValue > 0
+        ? String(currentValue.toFixed(2).replace('.', ','))
+        : ''
+    );
+    setAdjustValueNote('');
+    setShowAdjustValueModal(true);
+  };
+
+  const handleSaveAdjustedValue = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedClientForValueAdjust) {
+      toast.error('Assinante não selecionado.');
+      return;
+    }
+
+    const nextValue = Number(String(adjustedSubscriptionValue || '').replace(',', '.'));
+    if (!Number.isFinite(nextValue) || nextValue <= 0) {
+      toast.error('Informe um valor válido maior que zero.');
+      return;
+    }
+
+    const currentValue = getSubscriptionValueForClient(selectedClientForValueAdjust);
+    const currentRounded = Math.round(currentValue * 100);
+    const nextRounded = Math.round(nextValue * 100);
+    if (currentRounded === nextRounded) {
+      toast.error('O novo valor é igual ao valor atual.');
+      return;
+    }
+
+    const oldHistory = parseSubscriptionValueChangeHistory(
+      (selectedClientForValueAdjust as any)?.subscription_value_change_history
+    );
+    if (oldHistory.length >= MAX_SUBSCRIPTION_VALUE_CHANGES) {
+      toast.error(`Este assinante já atingiu o limite de ${MAX_SUBSCRIPTION_VALUE_CHANGES} alterações de valor.`);
+      return;
+    }
+
+    const planValue = Number(getBaseSubscriptionValueForClient(selectedClientForValueAdjust));
+    const roundedNextValue = Math.round(nextValue * 100) / 100;
+    const roundedCurrentValue = Math.round(currentValue * 100) / 100;
+    const discountAmount = Number.isFinite(planValue)
+      ? Math.max(0, Math.round((planValue - roundedNextValue) * 100) / 100)
+      : 0;
+
+    const historyEntry: SubscriptionValueChangeHistoryEntry = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      changed_at: new Date().toISOString(),
+      old_value: roundedCurrentValue,
+      new_value: roundedNextValue,
+      discount_amount: discountAmount,
+      changed_by: user?.id || null,
+      note: adjustValueNote.trim().slice(0, 120) || null,
+    };
+
+    const nextHistory = [historyEntry, ...oldHistory].slice(0, MAX_SUBSCRIPTION_VALUE_CHANGES);
+
+    setIsSavingAdjustedValue(true);
+    try {
+      const { error } = await supabase
+        .from('client_subscriptions')
+        .update({
+          custom_subscription_value: roundedNextValue,
+          subscription_value_change_history: nextHistory,
+          updated_at: new Date().toISOString(),
+        } as any)
+        .eq('id', selectedClientForValueAdjust.id);
+
+      if (error) {
+        const errMsg = String(error.message || '').toLowerCase();
+        if (
+          error.code === '42703' ||
+          errMsg.includes('custom_subscription_value') ||
+          errMsg.includes('subscription_value_change_history')
+        ) {
+          toast.error('Falta migration para alteração de valor de assinante. Rode o SQL da migration e tente novamente.');
+          return;
+        }
+        throw error;
+      }
+
+      toast.success('Valor do assinante atualizado com sucesso.');
+      setShowAdjustValueModal(false);
+      setSelectedClientForValueAdjust(null);
+      setAdjustedSubscriptionValue('');
+      setAdjustValueNote('');
+      await fetchClientSubscriptions();
+    } catch (error: any) {
+      console.error('Erro ao salvar valor ajustado da assinatura:', error);
+      toast.error(error?.message || 'Erro ao salvar o novo valor da assinatura.');
+    } finally {
+      setIsSavingAdjustedValue(false);
+    }
+  };
+
   const handleSaveLimit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -2576,7 +2718,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const monthEnd = useMemo(() => endOfMonth(selectedReferenceDate), [selectedReferenceDate]);
 
   const getSubscriptionValue = (cs: ClientSubscription): number => {
-    const value = Number(cs.subscriptions?.value || cs.subscription_value || 0);
+    const value = Number(getSubscriptionValueForClient(cs));
     return Number.isFinite(value) ? value : 0;
   };
 
@@ -2792,7 +2934,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     const provider = String((cs as any)?.subscription_payment_provider || '').toLowerCase();
     if (provider !== 'pagarme_pix') return sum;
 
-    const bruto = Number(cs.subscriptions?.value || cs.subscription_value || 0);
+    const bruto = Number(getSubscriptionValue(cs));
     if (!Number.isFinite(bruto) || bruto <= 0) return sum;
 
     const taxaPixPercent = 1.19;
@@ -2830,7 +2972,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     totalAssinantes: clientSubscriptions.length,
     clientSubscriptions: clientSubscriptions.map(cs => ({
       name: cs.profiles?.full_name,
-      value: cs.subscriptions?.value || cs.subscription_value,
+      value: getSubscriptionValue(cs),
       paymentStatus: cs.payment_status,
       endDate: cs.end_date
     }))
@@ -4512,9 +4654,27 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   {/* Informações do plano - Layout otimizado para mobile */}
                   <div className="space-y-2 mb-3">
                     <div className={`text-xs sm:text-sm ${textColor}/90 leading-relaxed`}>
-                      <span className="font-medium">Plano:</span><br className="sm:hidden" />
-                      <span className="sm:inline">{cs.subscriptions?.name || 'Plano não identificado'}</span><br className="sm:hidden" />
-                      <span className="sm:inline sm:ml-1">- {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cs.subscriptions?.value || 0)}</span>
+                      {(() => {
+                        const planValue = Number(cs.subscriptions?.value || cs.subscription_value || 0);
+                        const paidValue = getSubscriptionValueForClient(cs);
+                        const hasCustomValue = Number((cs as any)?.custom_subscription_value || 0) > 0;
+                        const discountAmount = Math.max(0, planValue - paidValue);
+                        return (
+                          <>
+                            <span className="font-medium">Plano:</span><br className="sm:hidden" />
+                            <span className="sm:inline">{cs.subscriptions?.name || 'Plano não identificado'}</span><br className="sm:hidden" />
+                            <span className="sm:inline sm:ml-1">- {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(planValue || 0)}</span>
+                            <br />
+                            <span className="font-medium">Valor pago:</span>{' '}
+                            <span>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(paidValue || 0)}</span>
+                            {hasCustomValue && discountAmount > 0 && (
+                              <span className="ml-1 text-emerald-200">
+                                (desconto {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(discountAmount)})
+                              </span>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                     {String((cs as any)?.subscriber_payment_method || '').trim() && (
                       <div className={`text-xs sm:text-sm ${textColor}/90`}>
@@ -4633,7 +4793,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     </div>
 
                     {/* Botões de ação em grid para mobile */}
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 sm:gap-3">
                       <button
                         onClick={() => {
                           setSelectedClientForView(cs);
@@ -4680,6 +4840,15 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         <span className="text-xs sm:text-sm">🔢</span>
                         <span className="hidden sm:inline ml-1">Limitar Cliente</span>
                         <span className="sm:hidden ml-1">Limite</span>
+                      </button>
+                      <button
+                        onClick={() => openAdjustValueModal(cs)}
+                        className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700 shadow-md"
+                        title="Alterar valor pago da assinatura"
+                      >
+                        <span className="text-xs sm:text-sm">💸</span>
+                        <span className="hidden sm:inline ml-1">Alterar Valor</span>
+                        <span className="sm:hidden ml-1">Valor</span>
                       </button>
                       <button
                         onClick={() => handleSendBillingReminder(cs)}
@@ -5725,6 +5894,137 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 {(selectedSubscriptionForCreditCardLinkEdit as any).credit_card_link ? 'Atualizar' : 'Adicionar'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para alterar valor pago da assinatura */}
+      {showAdjustValueModal && selectedClientForValueAdjust && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-lg border border-gray-700 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Alterar valor pago</h3>
+              <button
+                onClick={() => {
+                  if (isSavingAdjustedValue) return;
+                  setShowAdjustValueModal(false);
+                  setSelectedClientForValueAdjust(null);
+                  setAdjustedSubscriptionValue('');
+                  setAdjustValueNote('');
+                }}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {(() => {
+              const planValue = Number(selectedClientForValueAdjust?.subscriptions?.value || selectedClientForValueAdjust?.subscription_value || 0);
+              const currentValue = Number(getSubscriptionValueForClient(selectedClientForValueAdjust));
+              const history = parseSubscriptionValueChangeHistory((selectedClientForValueAdjust as any)?.subscription_value_change_history);
+              return (
+                <>
+                  <div className="mb-4 rounded-lg border border-gray-700 bg-[#232425] p-3 text-sm text-gray-300">
+                    <div>
+                      Cliente: <strong className="text-white">{selectedClientForValueAdjust?.profiles?.full_name || 'Cliente'}</strong>
+                    </div>
+                    <div>
+                      Plano base: <strong className="text-white">{fmtBRL(planValue)}</strong>
+                    </div>
+                    <div>
+                      Valor atual cobrado: <strong className="text-white">{fmtBRL(currentValue)}</strong>
+                    </div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      Histórico: {history.length}/{MAX_SUBSCRIPTION_VALUE_CHANGES} alterações
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleSaveAdjustedValue}>
+                    <div className="mb-3">
+                      <label className="block text-sm font-medium text-gray-300 mb-1">
+                        Novo valor pago (R$)
+                      </label>
+                      <input
+                        type="text"
+                        value={adjustedSubscriptionValue}
+                        onChange={(e) => setAdjustedSubscriptionValue(e.target.value)}
+                        placeholder="Ex: 199,90"
+                        className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                      />
+                    </div>
+
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-300 mb-1">
+                        Motivo (opcional)
+                      </label>
+                      <input
+                        type="text"
+                        value={adjustValueNote}
+                        onChange={(e) => setAdjustValueNote(e.target.value)}
+                        placeholder="Ex: desconto fidelidade"
+                        maxLength={120}
+                        className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                      />
+                    </div>
+
+                    <div className="flex gap-3 mb-5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isSavingAdjustedValue) return;
+                          setShowAdjustValueModal(false);
+                          setSelectedClientForValueAdjust(null);
+                          setAdjustedSubscriptionValue('');
+                          setAdjustValueNote('');
+                        }}
+                        className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSavingAdjustedValue}
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60"
+                      >
+                        {isSavingAdjustedValue ? 'Salvando...' : 'Salvar valor'}
+                      </button>
+                    </div>
+                  </form>
+
+                  <div>
+                    <div className="text-sm font-semibold text-gray-200 mb-2">Histórico de alterações</div>
+                    {history.length === 0 ? (
+                      <div className="text-sm text-gray-400">Nenhuma alteração registrada.</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {history.map((entry) => (
+                          <div key={entry.id} className="rounded-lg border border-gray-700 bg-[#232425] p-3 text-xs sm:text-sm">
+                            <div className="text-gray-300">
+                              {(() => {
+                                const dt = parseISO(entry.changed_at);
+                                if (Number.isNaN(dt.getTime())) return 'Data inválida';
+                                return format(dt, 'dd/MM/yyyy HH:mm', { locale: ptBR });
+                              })()}
+                            </div>
+                            <div className="text-white mt-1">
+                              {fmtBRL(entry.old_value)} → <strong>{fmtBRL(entry.new_value)}</strong>
+                            </div>
+                            {entry.discount_amount > 0 && (
+                              <div className="text-emerald-300">
+                                Desconto aplicado: {fmtBRL(entry.discount_amount)}
+                              </div>
+                            )}
+                            {String(entry.note || '').trim() && (
+                              <div className="text-gray-300 mt-1">Motivo: {String(entry.note).trim()}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}

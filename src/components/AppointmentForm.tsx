@@ -440,15 +440,20 @@ export function AppointmentForm({
   const [observation, setObservation] = useState<string>('');
   const [isChildService, setIsChildService] = useState<boolean | null>(null);
 
-  const getMinimumAdvanceHours = () => {
-    const raw = Number((establishment as any)?.booking_min_advance_hours ?? 0);
-    if (!Number.isFinite(raw) || raw <= 0) return 0;
-    return Math.max(0, Math.floor(raw));
+  const getMinimumAdvanceMinutes = () => {
+    const rawMinutes = Number((establishment as any)?.booking_min_advance_minutes ?? 0);
+    if (Number.isFinite(rawMinutes) && rawMinutes > 0) {
+      return Math.max(0, Math.floor(rawMinutes));
+    }
+    // Fallback legado: configuração antiga em horas
+    const rawHours = Number((establishment as any)?.booking_min_advance_hours ?? 0);
+    if (!Number.isFinite(rawHours) || rawHours <= 0) return 0;
+    return Math.max(0, Math.floor(rawHours * 60));
   };
 
   const isTimeInsideAdvanceWindow = (time: string) => {
-    const minHours = getMinimumAdvanceHours();
-    if (!time || minHours <= 0) return false;
+    const minMinutes = getMinimumAdvanceMinutes();
+    if (!time || minMinutes <= 0) return false;
 
     const [hourStr, minuteStr] = String(time).split(':');
     const hour = Number(hourStr);
@@ -460,7 +465,7 @@ export function AppointmentForm({
     slotDateTime.setHours(hour, minute, 0, 0);
 
     const minAllowedDateTime = new Date();
-    minAllowedDateTime.setMinutes(minAllowedDateTime.getMinutes() + minHours * 60);
+    minAllowedDateTime.setMinutes(minAllowedDateTime.getMinutes() + minMinutes);
 
     return slotDateTime < minAllowedDateTime;
   };

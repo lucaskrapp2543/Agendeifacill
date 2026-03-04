@@ -80,6 +80,7 @@ export interface Database {
           show_subscriptions_fullpage?: boolean; // Mostrar assinaturas por completo no Booking
           use_60_minute_schedule?: boolean; // Mostrar horários de 1 em 1 hora no booking
           booking_min_advance_hours?: number; // Antecedencia minima (em horas) para agendamento no booking
+          booking_min_advance_minutes?: number; // Antecedencia minima (em minutos) para agendamento no booking
           limit_client_pending_booking?: boolean; // Bloqueia novo agendamento por telefone enquanto houver atendimento pendente
           hide_from_top10_ranking?: boolean; // Se true, estabelecimento não entra no ranking TOP 10
         }
@@ -206,6 +207,8 @@ export interface Database {
           last_payment_date: string | null;
           subscriber_payment_method?: string | null;
           subscriber_observation?: string | null;
+          custom_subscription_value?: number | null;
+          subscription_value_change_history?: any[] | null;
         };
         Insert: {
           client_id: string;
@@ -217,12 +220,16 @@ export interface Database {
           last_payment_date?: string;
           subscriber_payment_method?: string | null;
           subscriber_observation?: string | null;
+          custom_subscription_value?: number | null;
+          subscription_value_change_history?: any[] | null;
         };
         Update: {
           payment_status?: 'paid' | 'unpaid';
           last_payment_date?: string;
           subscriber_payment_method?: string | null;
           subscriber_observation?: string | null;
+          custom_subscription_value?: number | null;
+          subscription_value_change_history?: any[] | null;
         };
       };
       profiles: {

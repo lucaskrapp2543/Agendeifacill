@@ -112,7 +112,8 @@ export default function BookingPage() {
   // Estados para agendamento assinante
   const [showSubscriberBooking, setShowSubscriberBooking] = useState(false);
   const [selectedSubscriberService, setSelectedSubscriberService] = useState<any>(null);
-  const [selectedDividedSubscriberService, setSelectedDividedSubscriberService] = useState<any>(null);
+  const [selectedDividedSubscriberServices, setSelectedDividedSubscriberServices] = useState<any[]>([]);
+  const [hasConfirmedDividedSubscriberServices, setHasConfirmedDividedSubscriberServices] = useState(false);
   const [selectedSubscriberExtraServiceIds, setSelectedSubscriberExtraServiceIds] = useState<string[]>([]);
   const [convertedSubscriberData, setConvertedSubscriberData] = useState<any>(null); // Dados do assinante convertido
   const [showLoginModal, setShowLoginModal] = useState(false); // Estado para controlar o modal de login
@@ -169,21 +170,80 @@ export default function BookingPage() {
   const isDividedServicesEnabled = Boolean((selectedSubscriberService as any)?.divide_services_enabled);
   const dividedServicesForSelectedSubscription = getDividedServicesFromSubscription(selectedSubscriberService);
   const shouldSelectDividedServiceFirst = isDividedServicesEnabled && dividedServicesForSelectedSubscription.length > 0;
+  const shouldShowDividedServicesChooser =
+    shouldSelectDividedServiceFirst &&
+    (!hasConfirmedDividedSubscriberServices || selectedDividedSubscriberServices.length === 0);
+  const selectedDividedSubscriberTotalDuration = selectedDividedSubscriberServices.reduce(
+    (sum: number, service: any) => sum + (Number(service?.duration || 0) || 0),
+    0
+  );
+
+  const resetDividedSubscriberSelection = () => {
+    setSelectedDividedSubscriberServices([]);
+    setHasConfirmedDividedSubscriberServices(false);
+  };
+
+  const handleToggleDividedSubscriberService = (serviceRaw: any) => {
+    const service = {
+      id: String(serviceRaw?.id || '').trim(),
+      name: String(serviceRaw?.name || '').trim(),
+      duration: Number(serviceRaw?.duration || 0),
+      limit: Number(serviceRaw?.limit || 0),
+    };
+    if (!service.id || !service.name) return;
+    setSelectedDividedSubscriberServices((prev) => {
+      const exists = prev.some((item: any) => String(item?.id || '').trim() === service.id);
+      if (exists) {
+        return prev.filter((item: any) => String(item?.id || '').trim() !== service.id);
+      }
+      return [...prev, service];
+    });
+    setHasConfirmedDividedSubscriberServices(false);
+  };
 
   const currentSubscriberServiceForBooking = (() => {
     if (!selectedSubscriberService) return null;
     if (!shouldSelectDividedServiceFirst) return selectedSubscriberService;
-    if (!selectedDividedSubscriberService) return null;
+    if (!hasConfirmedDividedSubscriberServices || selectedDividedSubscriberServices.length === 0) return null;
+    const selectedServices = selectedDividedSubscriberServices.map((service: any) => ({
+      id: String(service?.id || '').trim(),
+      name: String(service?.name || '').trim(),
+      duration: Number(service?.duration || 0),
+      limit: Number(service?.limit || 0),
+    })).filter((service: any) => service.id && service.name);
+    if (selectedServices.length === 0) return null;
+    if (selectedServices.length === 1) {
+      const singleService = selectedServices[0];
+      return {
+        id: singleService.id,
+        name: singleService.name,
+        booking_service_name: singleService.name,
+        service_duration: Number(singleService.duration || 30),
+        duration: Number(singleService.duration || 30),
+        weekdays: selectedSubscriberService?.weekdays || [],
+        subscription_id: selectedSubscriberService?.id,
+        service_id: singleService.id,
+        service_limit: Number(singleService.limit || 0),
+        divided_services_selected: selectedServices,
+      };
+    }
+    const aggregateName = selectedServices.map((service: any) => service.name).join(' + ');
+    const totalDuration = selectedServices.reduce(
+      (sum: number, service: any) => sum + (Number(service?.duration || 0) || 0),
+      0
+    );
     return {
-      id: String(selectedDividedSubscriberService.id || '').trim(),
-      name: String(selectedDividedSubscriberService.name || '').trim(),
-      booking_service_name: String(selectedDividedSubscriberService.name || '').trim(),
-      service_duration: Number(selectedDividedSubscriberService.duration || 30),
-      duration: Number(selectedDividedSubscriberService.duration || 30),
+      id: String(selectedSubscriberService?.id || '').trim(),
+      name: aggregateName,
+      booking_service_name: aggregateName,
+      service_duration: Number(totalDuration || 30),
+      duration: Number(totalDuration || 30),
       weekdays: selectedSubscriberService?.weekdays || [],
       subscription_id: selectedSubscriberService?.id,
-      service_id: String(selectedDividedSubscriberService.id || '').trim(),
-      service_limit: Number(selectedDividedSubscriberService.limit || 0),
+      // Em seleção múltipla, mantemos por nome (compatível com bancos sem novas colunas).
+      service_id: '',
+      service_limit: null,
+      divided_services_selected: selectedServices,
     };
   })();
 
@@ -245,7 +305,7 @@ export default function BookingPage() {
   };
 
   const handleRequestChangeSubscriberService = () => {
-    setSelectedDividedSubscriberService(null);
+    resetDividedSubscriberSelection();
     // UX: voltar para o topo da seção de assinante para o usuário trocar o serviço.
     setTimeout(() => {
       const subscriberSection = document.querySelector('[data-subscriber-booking]');
@@ -313,7 +373,7 @@ export default function BookingPage() {
       // Limpar dados de assinante
       setConvertedSubscriberData(null);
       setSelectedSubscriberService(null);
-      setSelectedDividedSubscriberService(null);
+      resetDividedSubscriberSelection();
       setSelectedSubscriberExtraServiceIds([]);
       setSubscriberDetectionDisabled(true); // ✅ Desabilitar detecção de assinante
 
@@ -351,7 +411,7 @@ export default function BookingPage() {
     console.log('🔍 DEBUG - Nome do serviço:', subscriberService.name);
 
     setSelectedSubscriberService(subscriberService);
-    setSelectedDividedSubscriberService(null);
+    resetDividedSubscriberSelection();
     setSelectedSubscriberExtraServiceIds([]);
 
     // Fechar formulário normal e abrir formulário de assinante
@@ -1179,7 +1239,7 @@ export default function BookingPage() {
     if (!selectedSubscriberService) return;
     if (String(selectedSubscriberService?.id || '').trim() === activeSubscriberPlanId) return;
     setSelectedSubscriberService(null);
-    setSelectedDividedSubscriberService(null);
+    resetDividedSubscriberSelection();
     setSelectedSubscriberExtraServiceIds([]);
   }, [activeSubscriberPlanId, selectedSubscriberService, showSubscriberBooking]);
 
@@ -1442,22 +1502,51 @@ export default function BookingPage() {
           return;
         }
 
-        const monthlyLimitCheck = await checkMonthlyLimit(
-          String(appointmentData?.client_whatsapp || ''),
-          establishment.id,
-          new Date(appointmentData?.appointment_date || selectedDate),
-          {
-            id: String(appointmentData?.subscriber_service_id || '').trim() || null,
-            name: String(appointmentData?.subscriber_service_name || appointmentData?.service || '').trim() || null,
-            limit: Number(appointmentData?.subscriber_service_limit || 0) || null,
+        const dividedServicesToValidate = shouldSelectDividedServiceFirst
+          ? selectedDividedSubscriberServices
+            .map((service: any) => ({
+              id: String(service?.id || '').trim(),
+              name: String(service?.name || '').trim(),
+              limit: Number(service?.limit || 0) || null,
+            }))
+            .filter((service: any) => service.id && service.name)
+          : [];
+
+        if (dividedServicesToValidate.length > 0) {
+          for (const dividedService of dividedServicesToValidate) {
+            const monthlyLimitCheck = await checkMonthlyLimit(
+              String(appointmentData?.client_whatsapp || ''),
+              establishment.id,
+              new Date(appointmentData?.appointment_date || selectedDate),
+              dividedService
+            );
+
+            if (!monthlyLimitCheck.canBook) {
+              toast.error(
+                monthlyLimitCheck.errorMessage ||
+                `Voce ja atingiu o limite do servico "${dividedService.name}" nesta assinatura.`
+              );
+              return;
+            }
           }
-        );
-        if (!monthlyLimitCheck.canBook) {
-          toast.error(
-            monthlyLimitCheck.errorMessage ||
-            'Voce ja atingiu o limite do servico nesta assinatura. Selecione um servico com saldo disponivel.'
+        } else {
+          const monthlyLimitCheck = await checkMonthlyLimit(
+            String(appointmentData?.client_whatsapp || ''),
+            establishment.id,
+            new Date(appointmentData?.appointment_date || selectedDate),
+            {
+              id: String(appointmentData?.subscriber_service_id || '').trim() || null,
+              name: String(appointmentData?.subscriber_service_name || appointmentData?.service || '').trim() || null,
+              limit: Number(appointmentData?.subscriber_service_limit || 0) || null,
+            }
           );
-          return;
+          if (!monthlyLimitCheck.canBook) {
+            toast.error(
+              monthlyLimitCheck.errorMessage ||
+              'Voce ja atingiu o limite do servico nesta assinatura. Selecione um servico com saldo disponivel.'
+            );
+            return;
+          }
         }
       }
 
@@ -3030,7 +3119,7 @@ export default function BookingPage() {
                       onClick={() => {
                         setShowSubscriberBooking(false);
                         setSelectedSubscriberService(null);
-                        setSelectedDividedSubscriberService(null);
+                        resetDividedSubscriberSelection();
                         setSelectedSubscriberExtraServiceIds([]);
                       }}
                       className="text-white/60 hover:text-white text-2xl"
@@ -3072,7 +3161,7 @@ export default function BookingPage() {
                               <button
                                 onClick={() => {
                                   setSelectedSubscriberService(subscription);
-                                  setSelectedDividedSubscriberService(null);
+                                  resetDividedSubscriberSelection();
                                 }}
                                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
                               >
@@ -3100,7 +3189,7 @@ export default function BookingPage() {
                         <button
                           onClick={() => {
                             setSelectedSubscriberService(null);
-                            setSelectedDividedSubscriberService(null);
+                            resetDividedSubscriberSelection();
                             setSelectedSubscriberExtraServiceIds([]);
                           }}
                           className="text-gray-500 hover:text-gray-700"
@@ -3108,17 +3197,21 @@ export default function BookingPage() {
                           ← Voltar
                         </button>
                       </div>
-                      {shouldSelectDividedServiceFirst && !selectedDividedSubscriberService ? (
+                      {shouldShowDividedServicesChooser ? (
                         <div className="space-y-3">
                           <p className="text-sm text-white/75">
-                            Selecione um servico da assinatura antes de escolher o profissional.
+                            Selecione um ou mais servicos da assinatura antes de escolher o profissional.
                           </p>
                           {dividedServicesForSelectedSubscription.map((service: any) => (
                             <button
                               key={service.id}
                               type="button"
-                              onClick={() => setSelectedDividedSubscriberService(service)}
-                              className="w-full text-left border border-white/10 rounded-2xl p-4 bg-black/30 hover:bg-white/5 transition-colors"
+                              onClick={() => handleToggleDividedSubscriberService(service)}
+                              className={`w-full text-left border rounded-2xl p-4 transition-colors ${
+                                selectedDividedSubscriberServices.some((item: any) => String(item?.id || '').trim() === String(service.id || '').trim())
+                                  ? 'border-emerald-300/70 bg-emerald-500/20'
+                                  : 'border-white/10 bg-black/30 hover:bg-white/5'
+                              }`}
                             >
                               <div className="flex items-center justify-between gap-3">
                                 <div>
@@ -3128,11 +3221,23 @@ export default function BookingPage() {
                                   </p>
                                 </div>
                                 <span className="px-3 py-1 text-xs rounded-full bg-white/10 text-white/80">
-                                  Escolher
+                                  {selectedDividedSubscriberServices.some((item: any) => String(item?.id || '').trim() === String(service.id || '').trim()) ? 'Selecionado' : 'Selecionar'}
                                 </span>
                               </div>
                             </button>
                           ))}
+                          <button
+                            type="button"
+                            onClick={() => setHasConfirmedDividedSubscriberServices(true)}
+                            disabled={selectedDividedSubscriberServices.length === 0}
+                            className={`w-full rounded-lg py-2.5 font-semibold transition-colors ${
+                              selectedDividedSubscriberServices.length === 0
+                                ? 'bg-white/10 text-white/50 cursor-not-allowed'
+                                : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                            }`}
+                          >
+                            Continuar com {selectedDividedSubscriberServices.length} serviço(s)
+                          </button>
                         </div>
                       ) : (
                         <>
@@ -3151,15 +3256,15 @@ export default function BookingPage() {
                             }).join(', ') || 'Não configurado'}
                           </p>
 
-                          {shouldSelectDividedServiceFirst && selectedDividedSubscriberService && (
+                          {shouldSelectDividedServiceFirst && selectedDividedSubscriberServices.length > 0 && (
                             <div className="mb-4 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
-                              Servico selecionado: <strong>{selectedDividedSubscriberService.name}</strong> ({selectedDividedSubscriberService.duration} min, limite {selectedDividedSubscriberService.limit})
+                              Serviços selecionados: <strong>{selectedDividedSubscriberServices.map((service: any) => service.name).join(', ')}</strong> ({selectedDividedSubscriberTotalDuration} min no total)
                               <button
                                 type="button"
-                                onClick={() => setSelectedDividedSubscriberService(null)}
+                                onClick={() => setHasConfirmedDividedSubscriberServices(false)}
                                 className="ml-2 underline"
                               >
-                                trocar
+                                editar seleção
                               </button>
                             </div>
                           )}
@@ -3733,7 +3838,7 @@ export default function BookingPage() {
                   onClick={() => {
                     setShowSubscriberBooking(false);
                     setSelectedSubscriberService(null);
-                    setSelectedDividedSubscriberService(null);
+                    resetDividedSubscriberSelection();
                     setSelectedSubscriberExtraServiceIds([]);
                   }}
                   className="text-gray-500 hover:text-gray-700 text-2xl"
@@ -3775,7 +3880,7 @@ export default function BookingPage() {
                           <button
                             onClick={() => {
                               setSelectedSubscriberService(subscription);
-                              setSelectedDividedSubscriberService(null);
+                              resetDividedSubscriberSelection();
                             }}
                             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
                           >
@@ -3803,7 +3908,7 @@ export default function BookingPage() {
                     <button
                       onClick={() => {
                         setSelectedSubscriberService(null);
-                        setSelectedDividedSubscriberService(null);
+                        resetDividedSubscriberSelection();
                         setSelectedSubscriberExtraServiceIds([]);
                       }}
                       className="text-gray-500 hover:text-gray-700"
@@ -3811,17 +3916,21 @@ export default function BookingPage() {
                       ← Voltar
                     </button>
                   </div>
-                  {shouldSelectDividedServiceFirst && !selectedDividedSubscriberService ? (
+                  {shouldShowDividedServicesChooser ? (
                     <div className="space-y-3">
                       <p className="text-sm text-gray-700">
-                        Selecione um servico da assinatura antes de escolher o profissional.
+                        Selecione um ou mais servicos da assinatura antes de escolher o profissional.
                       </p>
                       {dividedServicesForSelectedSubscription.map((service: any) => (
                         <button
                           key={service.id}
                           type="button"
-                          onClick={() => setSelectedDividedSubscriberService(service)}
-                          className="w-full text-left border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                          onClick={() => handleToggleDividedSubscriberService(service)}
+                          className={`w-full text-left border rounded-lg p-4 transition-colors ${
+                            selectedDividedSubscriberServices.some((item: any) => String(item?.id || '').trim() === String(service.id || '').trim())
+                              ? 'border-emerald-300 bg-emerald-50'
+                              : 'border-gray-200 hover:bg-gray-50'
+                          }`}
                         >
                           <div className="flex items-center justify-between gap-3">
                             <div>
@@ -3831,11 +3940,23 @@ export default function BookingPage() {
                               </p>
                             </div>
                             <span className="px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-700">
-                              Escolher
+                              {selectedDividedSubscriberServices.some((item: any) => String(item?.id || '').trim() === String(service.id || '').trim()) ? 'Selecionado' : 'Selecionar'}
                             </span>
                           </div>
                         </button>
                       ))}
+                      <button
+                        type="button"
+                        onClick={() => setHasConfirmedDividedSubscriberServices(true)}
+                        disabled={selectedDividedSubscriberServices.length === 0}
+                        className={`w-full rounded-lg py-2.5 font-semibold transition-colors ${
+                          selectedDividedSubscriberServices.length === 0
+                            ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                            : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        }`}
+                      >
+                        Continuar com {selectedDividedSubscriberServices.length} serviço(s)
+                      </button>
                     </div>
                   ) : (
                     <>
@@ -3856,15 +3977,15 @@ export default function BookingPage() {
                         </p>
                       </div>
 
-                      {shouldSelectDividedServiceFirst && selectedDividedSubscriberService && (
+                      {shouldSelectDividedServiceFirst && selectedDividedSubscriberServices.length > 0 && (
                         <div className="mb-4 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800">
-                          Servico selecionado: <strong>{selectedDividedSubscriberService.name}</strong> ({selectedDividedSubscriberService.duration} min, limite {selectedDividedSubscriberService.limit})
+                          Serviços selecionados: <strong>{selectedDividedSubscriberServices.map((service: any) => service.name).join(', ')}</strong> ({selectedDividedSubscriberTotalDuration} min no total)
                           <button
                             type="button"
-                            onClick={() => setSelectedDividedSubscriberService(null)}
+                            onClick={() => setHasConfirmedDividedSubscriberServices(false)}
                             className="ml-2 underline"
                           >
-                            trocar
+                            editar seleção
                           </button>
                         </div>
                       )}

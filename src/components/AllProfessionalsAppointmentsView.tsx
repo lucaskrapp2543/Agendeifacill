@@ -1569,9 +1569,47 @@ export const AllProfessionalsAppointmentsView: React.FC<
       if (method === 'credito' && Number.isFinite(creditBaseRate) && creditBaseRate <= 0) return 0;
       if (method === 'debito' && Number.isFinite(debitBaseRate) && debitBaseRate <= 0) return 0;
 
+      const resolveBrandTaxByMethod = (
+        rawBrandTax: unknown,
+        paymentMethod: 'credito' | 'debito',
+        fallbackRate: number
+      ): number => {
+        const parseRate = (value: unknown): number | null => {
+          const n = Number(value);
+          return Number.isFinite(n) && n >= 0 ? n : null;
+        };
+
+        if (typeof rawBrandTax === 'number') {
+          const parsed = parseRate(rawBrandTax);
+          return parsed !== null ? parsed : fallbackRate;
+        }
+
+        if (rawBrandTax && typeof rawBrandTax === 'object') {
+          const key = paymentMethod === 'credito' ? 'credito' : 'debito';
+          const alt = paymentMethod === 'credito' ? 'credit' : 'debit';
+          const direct = parseRate((rawBrandTax as any)?.[key] ?? (rawBrandTax as any)?.[alt]);
+          if (direct !== null) return direct;
+          const otherSide = parseRate(
+            paymentMethod === 'credito'
+              ? (rawBrandTax as any)?.debito ?? (rawBrandTax as any)?.debit
+              : (rawBrandTax as any)?.credito ?? (rawBrandTax as any)?.credit
+          );
+          if (otherSide !== null) return otherSide;
+        }
+
+        return fallbackRate;
+      };
+
       if ((method === 'credito' || method === 'debito') && cardBrand && cardBrand !== 'bandeira') {
-        const brandRate = Number(establishment?.card_brand_taxes?.[cardBrand]);
-        return Number.isFinite(brandRate) ? brandRate : 3.5;
+        const fallbackRate = method === 'credito'
+          ? (Number.isFinite(creditBaseRate) ? creditBaseRate : 3.5)
+          : (Number.isFinite(debitBaseRate) ? debitBaseRate : 2.5);
+        const brandRateRaw = (establishment as any)?.card_brand_taxes?.[cardBrand];
+        return resolveBrandTaxByMethod(
+          brandRateRaw,
+          method as 'credito' | 'debito',
+          fallbackRate
+        );
       }
       switch (method) {
         case 'credito':
@@ -1727,6 +1765,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
       // Quando o agendamento tem extras no texto do serviço, a duração correta já está salva em apt.duration
       // (assinatura + extras). Nesse caso, não sobrescrever com duração base do plano.
       if (hasSubscriberExtraInService && Number.isFinite(apt.duration) && apt.duration > 0) {
+        return apt.duration;
+      }
+      // Quando o serviço vem combinado (ex.: "cabelo + barba"), a duração já foi calculada no booking.
+      // Respeitar o valor salvo evita reduzir para apenas um item da assinatura.
+      const hasCombinedSubscriberServices = serviceStr.includes('+');
+      if (hasCombinedSubscriberServices && Number.isFinite(apt.duration) && apt.duration > 0) {
         return apt.duration;
       }
       const normalizedService = normalizeName(serviceStr);
