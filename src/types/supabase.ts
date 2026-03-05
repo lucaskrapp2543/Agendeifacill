@@ -205,6 +205,8 @@ export interface Database {
           end_date: string;
           payment_status: 'paid' | 'unpaid';
           last_payment_date: string | null;
+          billing_reminder_count?: number | null;
+          last_billing_reminder_at?: string | null;
           subscriber_payment_method?: string | null;
           subscriber_observation?: string | null;
           custom_subscription_value?: number | null;
@@ -218,6 +220,8 @@ export interface Database {
           end_date: string;
           payment_status?: 'paid' | 'unpaid';
           last_payment_date?: string;
+          billing_reminder_count?: number | null;
+          last_billing_reminder_at?: string | null;
           subscriber_payment_method?: string | null;
           subscriber_observation?: string | null;
           custom_subscription_value?: number | null;
@@ -226,6 +230,8 @@ export interface Database {
         Update: {
           payment_status?: 'paid' | 'unpaid';
           last_payment_date?: string;
+          billing_reminder_count?: number | null;
+          last_billing_reminder_at?: string | null;
           subscriber_payment_method?: string | null;
           subscriber_observation?: string | null;
           custom_subscription_value?: number | null;

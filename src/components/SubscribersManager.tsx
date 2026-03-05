@@ -234,6 +234,62 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return String(fromList?.name || 'Plano').trim() || 'Plano';
   };
 
+  const getBillingReminderCount = (clientSubscription: any): number => {
+    const raw = Number((clientSubscription as any)?.billing_reminder_count ?? 0);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return Math.floor(raw);
+  };
+
+  const incrementBillingReminderCount = async (clientSubscription: ClientSubscription) => {
+    const currentCount = getBillingReminderCount(clientSubscription);
+    const nextCount = currentCount + 1;
+    const nowIso = new Date().toISOString();
+
+    let persistError: any = null;
+
+    try {
+      let { error } = await supabase
+        .from('client_subscriptions')
+        .update({
+          billing_reminder_count: nextCount,
+          last_billing_reminder_at: nowIso,
+          updated_at: nowIso,
+        } as any)
+        .eq('id', clientSubscription.id);
+
+      const errMsg = String(error?.message || '').toLowerCase();
+      if (error && (errMsg.includes('billing_reminder_count') || errMsg.includes('last_billing_reminder_at'))) {
+        ({ error } = await supabase
+          .from('client_subscriptions')
+          .update({ updated_at: nowIso } as any)
+          .eq('id', clientSubscription.id));
+      }
+
+      if (error) {
+        persistError = error;
+      }
+    } catch (e: any) {
+      persistError = e;
+    }
+
+    setClientSubscriptions((prev) =>
+      prev.map((cs) =>
+        String(cs.id) === String(clientSubscription.id)
+          ? ({ ...cs, billing_reminder_count: nextCount, last_billing_reminder_at: nowIso } as any)
+          : cs
+      )
+    );
+
+    if (persistError) {
+      console.error('Erro ao persistir contador de cobrança:', persistError);
+      toast.error(
+        [persistError?.message || 'Erro ao salvar contador de cobrança', persistError?.code ? `(código: ${persistError.code})` : null]
+          .filter(Boolean)
+          .join(' ')
+      );
+    }
+  };
+
   const parseIsoDateSafe = (rawDate: unknown): Date | null => {
     const value = String(rawDate || '').trim();
     if (!value) return null;
@@ -272,6 +328,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       `É simples, rápido e fácil.`;
 
     window.open(`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`, '_blank');
+    void incrementBillingReminderCount(clientSubscription);
   };
 
   const createEmptyDividedService = (): DividedSubscriptionService => ({
@@ -3078,10 +3135,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           clientName: String(cs.profiles?.full_name || 'Cliente').trim() || 'Cliente',
           planName: String(cs.subscriptions?.name || 'Plano').trim() || 'Plano',
           value: getSubscriptionValue(cs),
+          reminderCount: getBillingReminderCount(cs),
           bucket: active ? 'Ativo sem pagamento' : 'Vencido sem pagamento',
         };
       })
       .sort((a, b) => a.clientName.localeCompare(b.clientName, 'pt-BR'));
+  }, [clientSubscriptions]);
+
+  const clientSubscriptionById = useMemo(() => {
+    const map = new Map<string, ClientSubscription>();
+    clientSubscriptions.forEach((cs) => map.set(String(cs.id || ''), cs));
+    return map;
   }, [clientSubscriptions]);
 
   // Saldo (assinantes) - SOMENTE assinantes pagos via PIX da Pagar.me (assinatura)
@@ -3511,8 +3575,28 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       <p className="text-xs text-gray-300 truncate">
                         {item.planName} • {item.bucket}
                       </p>
+                      <p className="text-[11px] text-rose-200/80 mt-1">
+                        {item.reminderCount} cobrança{item.reminderCount === 1 ? '' : 's'} feita{item.reminderCount === 1 ? '' : 's'}
+                      </p>
                     </div>
-                    <p className="text-sm font-extrabold text-rose-300 whitespace-nowrap">{fmtBRL(item.value)}</p>
+                    <div className="flex flex-col items-end gap-2 shrink-0">
+                      <p className="text-sm font-extrabold text-rose-300 whitespace-nowrap">{fmtBRL(item.value)}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const cs = clientSubscriptionById.get(item.id);
+                          if (!cs) {
+                            toast.error('Não foi possível localizar este assinante para enviar cobrança.');
+                            return;
+                          }
+                          handleSendBillingReminder(cs);
+                        }}
+                        className="inline-flex items-center justify-center px-3 py-1.5 text-xs font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700 shadow-md"
+                        title="Enviar cobrança por WhatsApp"
+                      >
+                        💬 Enviar cobrança
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -5019,6 +5103,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         <span className="hidden sm:inline ml-1">Enviar cobrança</span>
                         <span className="sm:hidden ml-1">Cobrança</span>
                       </button>
+                      <div className="col-span-2 sm:col-span-6 text-[11px] text-gray-300">
+                        {getBillingReminderCount(cs)} cobrança{getBillingReminderCount(cs) === 1 ? '' : 's'} feita{getBillingReminderCount(cs) === 1 ? '' : 's'}
+                      </div>
                     </div>
 
                     {/* Botão remover em linha separada */}
