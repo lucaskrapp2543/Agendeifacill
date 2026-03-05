@@ -90,8 +90,15 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [newSubscriptionDescription, setNewSubscriptionDescription] = useState(''); // Nova descrição
   const [newDivideTotalEnabled, setNewDivideTotalEnabled] = useState(false);
   const [newDivideTotalAttendances, setNewDivideTotalAttendances] = useState<string>(''); // Ex: 4
-  const [newDivideServicesEnabled, setNewDivideServicesEnabled] = useState(false);
-  const [newDividedServices, setNewDividedServices] = useState<DividedSubscriptionService[]>([]);
+  const [newDivideServicesEnabled, setNewDivideServicesEnabled] = useState(true);
+  const [newDividedServices, setNewDividedServices] = useState<DividedSubscriptionService[]>([
+    {
+      id: `svc_default_${Date.now()}`,
+      name: '',
+      duration: 30,
+      limit: 1,
+    },
+  ]);
   const [newSubscriptionLabelColor, setNewSubscriptionLabelColor] = useState<string>('');
 
   const [selectedSubscriptionToAdd, setSelectedSubscriptionToAdd] = useState<string>('');
@@ -1782,7 +1789,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     if (
       !newSubscriptionName ||
       !newSubscriptionValue ||
-      (!newDivideServicesEnabled && !newSubscriptionDuration) ||
       newSubscriptionWeekdays.length === 0
     ) {
       toast.error('Preencha todos os campos para criar uma assinatura.');
@@ -1800,8 +1806,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         }
       }
 
-      if (newDivideServicesEnabled && normalizedDividedServices.length === 0) {
-        toast.error('Adicione pelo menos 1 serviço válido em “Dividir serviços” (nome, duração e limite).');
+      if (normalizedDividedServices.length === 0) {
+        toast.error('Preencha os “Serviços oferecidos na assinatura” com pelo menos 1 serviço válido (nome, duração e limite).');
         return;
       }
 
@@ -1811,13 +1817,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         newSubscriptionValue,
         1, // Duração fixa de 1 mês (não será mais usada)
         newSubscriptionWeekdays, // Adicionar os dias da semana
-        newDivideServicesEnabled ? undefined : newSubscriptionDuration, // Compat: mantém duração apenas no fluxo antigo
+        undefined, // Novo padrão obrigatório: serviços oferecidos com duração por serviço
         valorComissaoDiariaCalculado, // Valor em R$ calculado a partir do percentual
         newSubscriptionDescription, // Adicionar descrição
         newDivideTotalEnabled,
         newDivideTotalEnabled ? divideAttendancesNum : null,
-        newDivideServicesEnabled,
-        newDivideServicesEnabled ? normalizedDividedServices : null,
+        true,
+        normalizedDividedServices,
         newSubscriptionLabelColor || null
       );
       if (error) {
@@ -1832,8 +1838,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setNewSubscriptionDescription(''); // Limpar descrição
       setNewDivideTotalEnabled(false);
       setNewDivideTotalAttendances('');
-      setNewDivideServicesEnabled(false);
-      setNewDividedServices([]);
+      setNewDivideServicesEnabled(true);
+      setNewDividedServices([createEmptyDividedService()]);
       setNewSubscriptionLabelColor('');
       fetchSubscriptions(); // Atualiza a lista
     } catch (error: any) {
@@ -2017,11 +2023,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       return;
     }
 
-    if (!editDuration || editDuration <= 0) {
-      toast.error('A duração deve ser maior que zero.');
-      return;
-    }
-
     const nextValue = Number(String(editSubscriptionValue || '').replace(',', '.'));
     if (!Number.isFinite(nextValue) || nextValue <= 0) {
       toast.error('O valor da assinatura deve ser maior que zero.');
@@ -2038,16 +2039,19 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     const nextFixedCommissionValue = round2(nextValue * (nextPercent / 100));
     const nextDivideEnabled = Boolean(editDivideTotalEnabled);
     const nextDivideAttendancesNum = Number(String(editDivideTotalAttendances || '').replace(',', '.'));
-    const nextDivideServicesEnabled = Boolean(editDivideServicesEnabled);
-    const nextDividedServices = normalizeDividedServices(editDividedServices);
+    const nextDivideServicesEnabled = true; // Novo padrão obrigatório
+    let nextDividedServices = normalizeDividedServices(editDividedServices);
+    if (nextDividedServices.length === 0 && selectedSubscriptionForEdit) {
+      nextDividedServices = [buildDefaultOfferedServiceFromSubscription(selectedSubscriptionForEdit)];
+    }
     if (nextDivideEnabled) {
       if (!Number.isFinite(nextDivideAttendancesNum) || nextDivideAttendancesNum <= 0) {
         toast.error('Informe a quantidade de atendimentos para “Dividir valor total” (ex: 4).');
         return;
       }
     }
-    if (nextDivideServicesEnabled && nextDividedServices.length === 0) {
-      toast.error('Adicione pelo menos 1 serviço válido em “Dividir serviços” (nome, duração e limite).');
+      if (nextDividedServices.length === 0) {
+        toast.error('Adicione pelo menos 1 serviço válido em “Serviços oferecidos na assinatura” (nome, duração e limite).');
       return;
     }
 
@@ -2057,12 +2061,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         name: editName.trim(),
         value: nextValue,
         weekdays: editWeekdays,
-        service_duration: nextDivideServicesEnabled ? null : editDuration,
+        service_duration: null,
         fixed_commission_value: nextFixedCommissionValue,
         divide_total_enabled: nextDivideEnabled,
         divide_total_attendances: nextDivideEnabled ? nextDivideAttendancesNum : null,
-        divide_services_enabled: nextDivideServicesEnabled,
-        divided_services: nextDivideServicesEnabled ? nextDividedServices : null,
+        divide_services_enabled: true,
+        divided_services: nextDividedServices,
         label_color: editSubscriptionLabelColor || null,
       };
       let { data: updatedRow, error } = await supabase
@@ -2102,6 +2106,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         )
       );
 
+      await syncFutureSubscriberAppointmentsDuration(
+        selectedSubscriptionForEdit.id,
+        nextDividedServices
+      );
+
       toast.success('Assinatura atualizada com sucesso! Novos agendamentos usarão a nova duração.');
       setShowEditDescriptionModal(false);
       setSelectedSubscriptionForEdit(null);
@@ -2113,7 +2122,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setEditRepassePercent('');
       setEditDivideTotalEnabled(false);
       setEditDivideTotalAttendances('');
-      setEditDivideServicesEnabled(false);
+      setEditDivideServicesEnabled(true);
       setEditDividedServices([]);
       setEditSubscriptionLabelColor('');
       fetchSubscriptions(); // Revalidar lista com o servidor
@@ -2424,6 +2433,121 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     setEditSubscriberPaymentMethod(String((clientSubscription as any)?.subscriber_payment_method || ''));
     setEditSubscriberObservation(String((clientSubscription as any)?.subscriber_observation || ''));
     setShowEditEndDateModal(true);
+  };
+
+  const buildDefaultOfferedServiceFromSubscription = (subscription: any): DividedSubscriptionService => {
+    const limitRaw = Number((subscription as any)?.divide_total_attendances || 0);
+    const fallbackLimit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : 999;
+    return {
+      id: `svc_legacy_${String(subscription?.id || Date.now())}`,
+      name: String(subscription?.name || 'Serviço da assinatura').trim() || 'Serviço da assinatura',
+      duration: Number(subscription?.service_duration || 30) > 0 ? Number(subscription?.service_duration || 30) : 30,
+      limit: fallbackLimit,
+    };
+  };
+
+  const syncFutureSubscriberAppointmentsDuration = async (
+    subscriptionId: string,
+    offeredServices: DividedSubscriptionService[]
+  ) => {
+    const safeSubscriptionId = String(subscriptionId || '').trim();
+    if (!safeSubscriptionId || !Array.isArray(offeredServices) || offeredServices.length === 0) return;
+
+    const serviceById = new Map<string, DividedSubscriptionService>();
+    const serviceByNameKey = new Map<string, DividedSubscriptionService>();
+    offeredServices.forEach((service) => {
+      const id = String(service.id || '').trim();
+      const nameKey = normalizeNameKey(service.name || '');
+      if (id) serviceById.set(id, service);
+      if (nameKey) serviceByNameKey.set(nameKey, service);
+    });
+
+    try {
+      const todayIso = format(new Date(), 'yyyy-MM-dd');
+      const { data: appointments, error } = await supabase
+        .from('appointments')
+        .select('id, appointment_date, status, duration, subscriber_service_id, subscriber_service_name, service, additional_products')
+        .eq('establishment_id', establishmentId)
+        .eq('subscription_id', safeSubscriptionId)
+        .eq('is_subscriber', true)
+        .in('status', ['pending', 'confirmed'])
+        .gte('appointment_date', todayIso);
+
+      if (error) {
+        const errMsg = String(error.message || '').toLowerCase();
+        const isLegacySchema =
+          error.code === '42703' ||
+          errMsg.includes('subscriber_service_id') ||
+          errMsg.includes('subscription_id');
+        if (!isLegacySchema) {
+          console.warn('⚠️ Não foi possível sincronizar duração dos agendamentos de assinante:', error);
+        }
+        return;
+      }
+
+      const rows = (appointments || []) as any[];
+      if (rows.length === 0) return;
+
+      const parseExtraDuration = (raw: unknown): number => {
+        if (!Array.isArray(raw)) return 0;
+        return raw.reduce((sum, item: any) => sum + (Number(item?.duration || 0) || 0), 0);
+      };
+
+      const resolveBaseDuration = (apt: any): number => {
+        const byId = serviceById.get(String(apt?.subscriber_service_id || '').trim());
+        if (byId && Number(byId.duration) > 0) return Number(byId.duration);
+
+        const rawName = String(apt?.subscriber_service_name || apt?.service || '').trim();
+        if (!rawName) return 0;
+        const rawNameKey = normalizeNameKey(rawName);
+
+        const splitParts = rawName
+          .split('+')
+          .map((part) => normalizeNameKey(part))
+          .filter(Boolean);
+
+        if (splitParts.length > 1) {
+          const total = splitParts.reduce((sum, key) => {
+            const found = serviceByNameKey.get(key);
+            return sum + (found ? Number(found.duration || 0) : 0);
+          }, 0);
+          if (total > 0) return total;
+        }
+
+        const exact = serviceByNameKey.get(rawNameKey);
+        if (exact && Number(exact.duration) > 0) return Number(exact.duration);
+
+        for (const [key, found] of serviceByNameKey.entries()) {
+          if (key && rawNameKey.includes(key) && Number(found.duration) > 0) {
+            return Number(found.duration);
+          }
+        }
+
+        return 0;
+      };
+
+      let updatedCount = 0;
+      for (const apt of rows) {
+        const baseDuration = resolveBaseDuration(apt);
+        if (!(baseDuration > 0)) continue;
+        const extraDuration = parseExtraDuration((apt as any)?.additional_products);
+        const nextDuration = Math.max(1, Math.round(baseDuration + extraDuration));
+        const currentDuration = Math.max(0, Number((apt as any)?.duration || 0));
+        if (nextDuration === currentDuration) continue;
+
+        const { error: updateErr } = await supabase
+          .from('appointments')
+          .update({ duration: nextDuration } as any)
+          .eq('id', String(apt.id));
+        if (!updateErr) updatedCount += 1;
+      }
+
+      if (updatedCount > 0) {
+        toast.success(`${updatedCount} agendamento(s) futuro(s) sincronizado(s) com a duração atual da assinatura.`);
+      }
+    } catch (syncError) {
+      console.warn('⚠️ Erro ao sincronizar duração dos agendamentos futuros de assinante:', syncError);
+    }
   };
 
   const openLimitModal = (clientSubscription: ClientSubscription) => {
@@ -3807,88 +3931,84 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           </div>
           <div className="p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg">
             <label className="flex items-center gap-2 text-sm font-semibold text-white">
-              <input
-                type="checkbox"
-                checked={newDivideServicesEnabled}
-                onChange={(e) => {
-                  const enabled = e.target.checked;
-                  setNewDivideServicesEnabled(enabled);
-                  if (enabled && newDividedServices.length === 0) {
-                    setNewDividedServices([createEmptyDividedService()]);
-                  }
-                }}
-              />
-              👉 Dividir serviços
+              👉 Serviços oferecidos na assinatura <span className="text-amber-300 text-xs">(obrigatório)</span>
             </label>
             <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-              Ao ativar, a assinatura deixa de usar uma duração fixa e passa a permitir múltiplos serviços com tempo e limite próprios.
+              O assinante escolherá 1 ou mais serviços desta lista no booking. Preencha nome, duração e limite de cada serviço.
             </p>
-            {newDivideServicesEnabled && (
-              <div className="mt-3 space-y-3">
-                {newDividedServices.map((service, index) => (
-                  <div key={service.id} className="rounded-lg border border-white/10 bg-black/20 p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs text-gray-300 font-semibold">Serviço {index + 1}</p>
-                      <button
-                        type="button"
-                        onClick={() => setNewDividedServices((prev) => prev.filter((item) => item.id !== service.id))}
-                        className="text-xs text-red-300 hover:text-red-200"
-                      >
-                        Remover
-                      </button>
-                    </div>
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        value={service.name}
-                        onChange={(e) =>
-                          setNewDividedServices((prev) =>
-                            prev.map((item) => (item.id === service.id ? { ...item, name: e.target.value } : item))
-                          )
-                        }
-                        placeholder="Nome do serviço"
-                        className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500"
-                      />
-                      <div className="grid grid-cols-2 gap-2">
-                        <input
-                          type="number"
-                          min={5}
-                          step={5}
-                          value={service.duration}
-                          onChange={(e) =>
-                            setNewDividedServices((prev) =>
-                              prev.map((item) => (item.id === service.id ? { ...item, duration: Number(e.target.value || 0) } : item))
-                            )
-                          }
-                          placeholder="Tempo (min)"
-                          className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500"
-                        />
-                        <input
-                          type="number"
-                          min={1}
-                          step={1}
-                          value={service.limit}
-                          onChange={(e) =>
-                            setNewDividedServices((prev) =>
-                              prev.map((item) => (item.id === service.id ? { ...item, limit: Number(e.target.value || 0) } : item))
-                            )
-                          }
-                          placeholder="Limite"
-                          className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500"
-                        />
-                      </div>
-                    </div>
+            <div className="mt-3 space-y-3">
+              {newDividedServices.map((service, index) => (
+                <div key={service.id} className="rounded-lg border border-white/10 bg-black/20 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs text-gray-300 font-semibold">Serviço {index + 1}</p>
+                    <button
+                      type="button"
+                      onClick={() => setNewDividedServices((prev) => prev.filter((item) => item.id !== service.id))}
+                      className="text-xs text-red-300 hover:text-red-200"
+                    >
+                      Remover
+                    </button>
                   </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setNewDividedServices((prev) => [...prev, createEmptyDividedService()])}
-                  className="w-full px-3 py-2 rounded-lg border border-white/10 text-sm text-gray-200 hover:bg-white/5 transition-colors"
-                >
-                  + Adicionar serviço
-                </button>
-              </div>
-            )}
+                    <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={service.name}
+                      onChange={(e) =>
+                        setNewDividedServices((prev) =>
+                          prev.map((item) => (item.id === service.id ? { ...item, name: e.target.value } : item))
+                        )
+                      }
+                      placeholder="Nome do serviço"
+                      className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500"
+                    />
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[11px] text-gray-400 mb-1">Tempo (minutos)</label>
+                          <input
+                            type="number"
+                            min={5}
+                            step={5}
+                            value={service.duration}
+                            onChange={(e) =>
+                              setNewDividedServices((prev) =>
+                                prev.map((item) => (item.id === service.id ? { ...item, duration: Number(e.target.value || 0) } : item))
+                              )
+                            }
+                            placeholder="Ex: 30"
+                            className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] text-gray-400 mb-1">Limite de atendimentos</label>
+                          <input
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={service.limit}
+                            onChange={(e) =>
+                              setNewDividedServices((prev) =>
+                                prev.map((item) => (item.id === service.id ? { ...item, limit: Number(e.target.value || 0) } : item))
+                              )
+                            }
+                            placeholder="Ex: 4"
+                            className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500"
+                          />
+                        </div>
+                    </div>
+                      <p className="text-[11px] text-gray-500">
+                        Tempo = duração do serviço no agendamento. Limite = quantas vezes esse serviço pode ser usado na assinatura.
+                      </p>
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setNewDividedServices((prev) => [...prev, createEmptyDividedService()])}
+                className="w-full px-3 py-2 rounded-lg border border-white/10 text-sm text-gray-200 hover:bg-white/5 transition-colors"
+              >
+                + Adicionar serviço
+              </button>
+            </div>
           </div>
           <div className="p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg">
             <div className="flex items-center justify-between gap-2 mb-2">
@@ -4245,7 +4365,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   <p className="text-gray-400 text-sm">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sub.value)}</p>
                   {Boolean((sub as any)?.divide_services_enabled) && (
                     <p className="text-emerald-300 text-xs mt-1">
-                      ✂️ Dividir serviços ativo ({parseDividedServices((sub as any)?.divided_services).length} serviço(s))
+                      ✂️ Serviços oferecidos na assinatura ({parseDividedServices((sub as any)?.divided_services).length} serviço(s))
                     </p>
                   )}
                   {sub.weekdays && sub.weekdays.length > 0 && (
@@ -4311,8 +4431,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           ? String(Number((sub as any)?.divide_total_attendances))
                           : ''
                       );
-                      setEditDivideServicesEnabled(Boolean((sub as any)?.divide_services_enabled));
-                      setEditDividedServices(parseDividedServices((sub as any)?.divided_services));
+                      const parsedOfferedServices = parseDividedServices((sub as any)?.divided_services);
+                      setEditDivideServicesEnabled(true);
+                      setEditDividedServices(
+                        parsedOfferedServices.length > 0
+                          ? parsedOfferedServices
+                          : [buildDefaultOfferedServiceFromSubscription(sub)]
+                      );
                       setEditSubscriptionLabelColor(String((sub as any)?.label_color || ''));
                       setShowEditDescriptionModal(true);
                     }}
@@ -5458,7 +5583,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   setEditRepassePercent('');
                   setEditDivideTotalEnabled(false);
                   setEditDivideTotalAttendances('');
-                  setEditDivideServicesEnabled(false);
+                  setEditDivideServicesEnabled(true);
                   setEditDividedServices([]);
                   setEditSubscriptionLabelColor('');
                 }}
@@ -5558,49 +5683,39 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
               <div className="p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg">
                 <label className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <input
-                    type="checkbox"
-                    checked={editDivideServicesEnabled}
-                    onChange={(e) => {
-                      const enabled = e.target.checked;
-                      setEditDivideServicesEnabled(enabled);
-                      if (enabled && editDividedServices.length === 0) {
-                        setEditDividedServices([createEmptyDividedService()]);
-                      }
-                    }}
-                  />
-                  👉 Dividir serviços
+                  👉 Serviços oferecidos na assinatura <span className="text-amber-300 text-xs">(obrigatório)</span>
                 </label>
                 <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                  Ao ativar, o assinante deve escolher um serviço específico da assinatura no booking.
+                  O assinante deve escolher um serviço específico desta lista no booking.
                 </p>
-                {editDivideServicesEnabled && (
-                  <div className="mt-3 space-y-3">
-                    {editDividedServices.map((service, index) => (
-                      <div key={service.id} className="rounded-lg border border-white/10 bg-black/20 p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs text-gray-300 font-semibold">Serviço {index + 1}</p>
-                          <button
-                            type="button"
-                            onClick={() => setEditDividedServices((prev) => prev.filter((item) => item.id !== service.id))}
-                            className="text-xs text-red-300 hover:text-red-200"
-                          >
-                            Remover
-                          </button>
-                        </div>
-                        <div className="space-y-2">
-                          <input
-                            type="text"
-                            value={service.name}
-                            onChange={(e) =>
-                              setEditDividedServices((prev) =>
-                                prev.map((item) => (item.id === service.id ? { ...item, name: e.target.value } : item))
-                              )
-                            }
-                            placeholder="Nome do serviço"
-                            className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-blue-500"
-                          />
-                          <div className="grid grid-cols-2 gap-2">
+                <div className="mt-3 space-y-3">
+                  {editDividedServices.map((service, index) => (
+                    <div key={service.id} className="rounded-lg border border-white/10 bg-black/20 p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs text-gray-300 font-semibold">Serviço {index + 1}</p>
+                        <button
+                          type="button"
+                          onClick={() => setEditDividedServices((prev) => prev.filter((item) => item.id !== service.id))}
+                          className="text-xs text-red-300 hover:text-red-200"
+                        >
+                          Remover
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={service.name}
+                          onChange={(e) =>
+                            setEditDividedServices((prev) =>
+                              prev.map((item) => (item.id === service.id ? { ...item, name: e.target.value } : item))
+                            )
+                          }
+                          placeholder="Nome do serviço"
+                          className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-blue-500"
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[11px] text-gray-400 mb-1">Tempo (minutos)</label>
                             <input
                               type="number"
                               min={5}
@@ -5611,9 +5726,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                                   prev.map((item) => (item.id === service.id ? { ...item, duration: Number(e.target.value || 0) } : item))
                                 )
                               }
-                              placeholder="Tempo (min)"
+                              placeholder="Ex: 30"
                               className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-blue-500"
                             />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-gray-400 mb-1">Limite de atendimentos</label>
                             <input
                               type="number"
                               min={1}
@@ -5624,22 +5742,25 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                                   prev.map((item) => (item.id === service.id ? { ...item, limit: Number(e.target.value || 0) } : item))
                                 )
                               }
-                              placeholder="Limite"
+                              placeholder="Ex: 4"
                               className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-blue-500"
                             />
                           </div>
                         </div>
+                        <p className="text-[11px] text-gray-500">
+                          Tempo = duração do serviço no agendamento. Limite = quantas vezes esse serviço pode ser usado na assinatura.
+                        </p>
                       </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => setEditDividedServices((prev) => [...prev, createEmptyDividedService()])}
-                      className="w-full px-3 py-2 rounded-lg border border-white/10 text-sm text-gray-200 hover:bg-white/5 transition-colors"
-                    >
-                      + Adicionar serviço
-                    </button>
-                  </div>
-                )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setEditDividedServices((prev) => [...prev, createEmptyDividedService()])}
+                    className="w-full px-3 py-2 rounded-lg border border-white/10 text-sm text-gray-200 hover:bg-white/5 transition-colors"
+                  >
+                    + Adicionar serviço
+                  </button>
+                </div>
               </div>
               <div className="p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg">
                 <div className="flex items-center justify-between gap-2 mb-2">
@@ -5767,7 +5888,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   setEditRepassePercent('');
                   setEditDivideTotalEnabled(false);
                   setEditDivideTotalAttendances('');
-                  setEditDivideServicesEnabled(false);
+                  setEditDivideServicesEnabled(true);
                   setEditDividedServices([]);
                   setEditSubscriptionLabelColor('');
                 }}

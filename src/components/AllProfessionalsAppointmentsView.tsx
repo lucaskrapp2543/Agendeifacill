@@ -322,6 +322,33 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
     };
 
+    const logAppointmentCardActionClick = async (
+      appointment: Appointment,
+      action: string,
+      description: string,
+      metadata?: Record<string, any>
+    ) => {
+      const appointmentId = String(appointment?.id || '').trim();
+      if (!appointmentId) return;
+      await writeAppointmentChangeLog({
+        appointmentId,
+        eventType: 'card_action_clicked',
+        description,
+        oldValues: {
+          status: String(appointment?.status || '').trim() || null,
+          payment_method: String((appointment as any)?.payment_method || '').trim() || null,
+        },
+        newValues: null,
+        metadata: {
+          action,
+          clicked_at: format(new Date(), 'dd/MM/yyyy HH:mm:ss'),
+          selected_date: format(selectedDate, 'dd/MM/yyyy'),
+          selected_time: String(appointment?.appointment_time || ''),
+          ...metadata,
+        },
+      });
+    };
+
     useEffect(() => {
       if (!establishment?.id) {
         setSubscriptionDurations([]);
@@ -1750,7 +1777,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
         .toLowerCase()
         .trim();
 
-    // Para assinantes: usar duração atual da assinatura (pode ter sido alterada depois do agendamento)
+    // Para assinantes: priorizar sempre a duração salva no agendamento.
+    // Isso evita regressão visual (ex.: cair para 30min) quando o plano/serviços mudam depois.
     const getEffectiveBaseDuration = (apt: Appointment, interval: number): number => {
       const fallback = Number.isFinite(apt.duration) && apt.duration > 0 ? apt.duration : interval;
       if (!apt.service || subscriptionDurations.length === 0) return fallback;
@@ -1760,19 +1788,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
         String((apt as any)?.client_name || '').toUpperCase().includes('(ASSINANTE)');
       if (!isSubscriberAppointment) return fallback;
 
+      if (Number.isFinite(apt.duration) && apt.duration > 0) {
+        return apt.duration;
+      }
+
       const serviceStr = String(apt.service).trim();
-      const hasSubscriberExtraInService = /\bextra\s*:/i.test(serviceStr);
-      // Quando o agendamento tem extras no texto do serviço, a duração correta já está salva em apt.duration
-      // (assinatura + extras). Nesse caso, não sobrescrever com duração base do plano.
-      if (hasSubscriberExtraInService && Number.isFinite(apt.duration) && apt.duration > 0) {
-        return apt.duration;
-      }
-      // Quando o serviço vem combinado (ex.: "cabelo + barba"), a duração já foi calculada no booking.
-      // Respeitar o valor salvo evita reduzir para apenas um item da assinatura.
-      const hasCombinedSubscriberServices = serviceStr.includes('+');
-      if (hasCombinedSubscriberServices && Number.isFinite(apt.duration) && apt.duration > 0) {
-        return apt.duration;
-      }
       const normalizedService = normalizeName(serviceStr);
       const aptSubscriptionId = String((apt as any)?.subscription_id || '').trim();
 
@@ -2226,13 +2246,18 @@ export const AllProfessionalsAppointmentsView: React.FC<
         };
 
         const targetStart = toMinutes(appointment.appointment_time);
-        const targetDur = Number(appointment.duration || 30);
+        const targetDur = getDuracaoTotalAgendamento(appointment, intervaloAgendaMinutos);
         const conflictingAppointments = appointments.filter((apt) =>
           apt.id !== appointment.id &&
           apt.professional === appointment.professional &&
           apt.appointment_date === appointment.appointment_date &&
           apt.status !== 'cancelled' &&
-          overlaps(targetStart, targetDur, toMinutes(apt.appointment_time), Number(apt.duration || 30))
+          overlaps(
+            targetStart,
+            targetDur,
+            toMinutes(apt.appointment_time),
+            getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos)
+          )
         );
 
         if (conflictingAppointments.length === 0) {
@@ -2514,6 +2539,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const handlePaymentMethodChange = async (appointment: Appointment, paymentMethod: string) => {
+      await logAppointmentCardActionClick(
+        appointment,
+        'forma_pagamento_change_click',
+        'Alteração da forma de pagamento pelo card.',
+        { requested_payment_method: paymentMethod }
+      );
       if (paymentMethod === 'multi') {
         handleOpenSplitPaymentModal(appointment);
         return;
@@ -2554,6 +2585,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     const handleCardBrandChange = async (appointmentId: string, cardBrand: string) => {
       try {
+        const appointment = (appointments || []).find((apt) => String(apt.id) === String(appointmentId));
+        if (appointment) {
+          await logAppointmentCardActionClick(
+            appointment,
+            'bandeira_change_click',
+            'Alteração de bandeira do cartão pelo card.',
+            { requested_card_brand: cardBrand }
+          );
+        }
         const { error } = await supabase
           .from('appointments')
           .update({ card_brand: cardBrand === 'bandeira' ? null : cardBrand })
@@ -3055,14 +3095,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
           if (apt.appointment_date !== selectedDateStr) return false;
           if (apt.status === 'cancelled') return false;
           const aptStart = timeToMinutes(apt.appointment_time);
-          const aptEnd = aptStart + Number(apt.duration || 30);
+          const aptEnd = aptStart + getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos);
           return hasTimeOverlap(newStart, newEnd, aptStart, aptEnd);
         });
 
         if (conflictingLocal) {
           const conflictClient = String(conflictingLocal.client_name || 'Cliente').trim() || 'Cliente';
           const conflictStart = String(conflictingLocal.appointment_time || '').trim() || 'sem horário';
-          const conflictDuration = Number(conflictingLocal.duration || 30);
+          const conflictDuration = getDuracaoTotalAgendamento(conflictingLocal, intervaloAgendaMinutos);
           const conflictEndMins = timeToMinutes(conflictStart) + conflictDuration;
           const conflictEnd = `${String(Math.floor(conflictEndMins / 60)).padStart(2, '0')}:${String(conflictEndMins % 60).padStart(2, '0')}`;
           toast.error(
@@ -4352,6 +4392,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <button
                                               onClick={(e) => {
                                                 e.stopPropagation();
+                                                void logAppointmentCardActionClick(apt, 'produto_v2', 'Clique em Produto V2.');
                                                 if (onOpenProductV2Modal) onOpenProductV2Modal(apt.id);
                                               }}
                                               data-tutorial-id="appointments-detalhes-produto"
@@ -4364,6 +4405,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <button
                                               onClick={(e) => {
                                                 e.stopPropagation();
+                                                void logAppointmentCardActionClick(apt, 'servico_extra', 'Clique em Serviço Extra.');
                                                 if (onOpenAdditionalProductModal) onOpenAdditionalProductModal(apt.id);
                                               }}
                                               data-tutorial-id="appointments-detalhes-servico-extra"
@@ -4376,6 +4418,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <button
                                               onClick={(e) => {
                                                 e.stopPropagation();
+                                                void logAppointmentCardActionClick(apt, 'status_completed_click', 'Clique em Concluído.');
                                                 handleUpdateAppointmentStatus(apt.id, 'completed');
                                               }}
                                               data-tutorial-id="appointments-detalhes-concluido"
@@ -4395,6 +4438,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <button
                                               onClick={(e) => {
                                                 e.stopPropagation();
+                                                void logAppointmentCardActionClick(apt, 'status_pending_click', 'Clique em Pendente.');
                                                 handleUpdateAppointmentStatus(apt.id, 'pending');
                                               }}
                                               data-tutorial-id="appointments-detalhes-pendente"
@@ -4406,6 +4450,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <button
                                               onClick={(e) => {
                                                 e.stopPropagation();
+                                                void logAppointmentCardActionClick(apt, 'transferir_click', 'Clique em Transferir.');
                                                 if (onOpenTransferModal) onOpenTransferModal(apt);
                                               }}
                                               data-tutorial-id="appointments-detalhes-transferir"
@@ -4417,6 +4462,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <button
                                               onClick={(e) => {
                                                 e.stopPropagation();
+                                                void logAppointmentCardActionClick(apt, 'terminei_antes_click', 'Clique em Terminei Antes.');
                                                 if (onOpenFinishEarlyModal) onOpenFinishEarlyModal(apt);
                                               }}
                                               data-tutorial-id="appointments-detalhes-terminei-antes"
@@ -4429,6 +4475,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <button
                                               onClick={(e) => {
                                                 e.stopPropagation();
+                                                void logAppointmentCardActionClick(apt, 'cancelar_click', 'Clique em Cancelar.');
                                                 // Se tiver função de cancelamento customizada, usar ela (para pedir senha)
                                                 if (onCancelAppointment) {
                                                   onCancelAppointment(apt.id);
@@ -4465,6 +4512,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                   phoneNumber = '55' + phoneNumber;
                                                 }
                                                 const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+                                                void logAppointmentCardActionClick(apt, 'imprevisto_click', 'Clique em Imprevisto (envio WhatsApp).', {
+                                                  whatsapp_target: phoneNumber,
+                                                });
                                                 window.open(whatsappUrl, '_blank');
                                               }}
                                               data-tutorial-id="appointments-detalhes-imprevisto"
@@ -4480,6 +4530,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                   e.stopPropagation();
                                                   const clientName = apt.client_name || 'este cliente';
                                                   if (!window.confirm(`Tem certeza que deseja marcar que ${clientName} faltou? O agendamento será cancelado.`)) return;
+                                                  void logAppointmentCardActionClick(apt, 'cliente_faltou_click', 'Clique em Cliente Faltou.');
                                                   onClientNoShow(apt);
                                                 }}
                                                 data-tutorial-id="appointments-detalhes-cliente-faltou"
@@ -4495,6 +4546,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <button
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              void logAppointmentCardActionClick(apt, 'atendimento_assinatura_click', 'Clique em Atendimento assinatura.');
                                               handleOpenSubscriberAttendanceModal(apt);
                                             }}
                                             data-tutorial-id="appointments-detalhes-assinatura"
@@ -4507,6 +4559,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <button
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              void logAppointmentCardActionClick(apt, 'trocar_horario_click', 'Clique em Trocar horário.');
                                               handleOpenRescheduleModal(apt);
                                             }}
                                             data-tutorial-id="appointments-detalhes-trocar-horario"
@@ -4519,6 +4572,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <button
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              void logAppointmentCardActionClick(apt, 'trocar_servico_click', 'Clique em Trocar serviço.');
                                               handleOpenChangeServiceModal(apt);
                                             }}
                                             data-tutorial-id="appointments-detalhes-trocar-servico"
@@ -4531,6 +4585,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <button
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              void logAppointmentCardActionClick(apt, 'minhas_observacoes_click', 'Clique em Minhas Observações.');
                                               if (onOpenObservationModal) onOpenObservationModal(apt.id, apt.establishment_observation);
                                             }}
                                             data-tutorial-id="appointments-detalhes-observacoes"
@@ -4542,6 +4597,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <button
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              void logAppointmentCardActionClick(apt, 'ver_historico_click', 'Clique em Ver histórico.');
                                               void handleOpenAppointmentHistoryModal(apt);
                                             }}
                                             className="w-full px-2 py-1.5 text-xs bg-amber-700 text-white rounded hover:bg-amber-800"
