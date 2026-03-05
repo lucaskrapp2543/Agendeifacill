@@ -234,6 +234,25 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return String(fromList?.name || 'Plano').trim() || 'Plano';
   };
 
+  const parseIsoDateSafe = (rawDate: unknown): Date | null => {
+    const value = String(rawDate || '').trim();
+    if (!value) return null;
+    const parsed = parseISO(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const formatIsoDateSafe = (rawDate: unknown, fallback = '--/--/----'): string => {
+    const parsed = parseIsoDateSafe(rawDate);
+    if (!parsed) return fallback;
+    return format(parsed, 'dd/MM/yyyy', { locale: ptBR });
+  };
+
+  const isPastIsoDateSafe = (rawDate: unknown): boolean => {
+    const parsed = parseIsoDateSafe(rawDate);
+    if (!parsed) return false;
+    return isPast(parsed);
+  };
+
   const handleSendBillingReminder = (clientSubscription: ClientSubscription) => {
     const whatsappNumber = getSubscriberWhatsappForLink(clientSubscription as any);
     if (!whatsappNumber) {
@@ -243,14 +262,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
     const planName = getSubscriberPlanName(clientSubscription as any);
     const endDateRaw = String((clientSubscription as any)?.end_date || '').trim();
-    let endDateLabel = endDateRaw;
-    try {
-      if (endDateRaw) {
-        endDateLabel = format(parseISO(endDateRaw), 'dd/MM/yyyy', { locale: ptBR });
-      }
-    } catch {
-      // Mantém valor original caso não seja uma data ISO válida.
-    }
+    const endDateLabel = endDateRaw ? formatIsoDateSafe(endDateRaw, endDateRaw) : '';
 
     const bookingCode = String(establishment?.code || '').trim() || String(establishmentId || '').trim();
     const bookingUrl = `https://agendeifacil.com/booking/${bookingCode}`;
@@ -416,6 +428,19 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
     // Para meses passados/futuros, registra no fechamento do mês selecionado.
     return format(new Date(selectedYear, selectedMonth + 1, 0), 'yyyy-MM-dd');
+  };
+
+  // Quando o pagamento é marcado manualmente no card, usar a data real do clique.
+  const getPaymentDateForImmediateStatusChange = () => {
+    return format(new Date(), 'yyyy-MM-dd');
+  };
+
+  const getRenewedEndDateFromPaymentDate = (paymentDateIso: string) => {
+    const parsedPaymentDate = parse(paymentDateIso, 'yyyy-MM-dd', new Date());
+    const baseDate = Number.isNaN(parsedPaymentDate.getTime()) ? new Date() : parsedPaymentDate;
+    const renewedEndDate = new Date(baseDate);
+    renewedEndDate.setDate(renewedEndDate.getDate() + 30);
+    return format(renewedEndDate, 'yyyy-MM-dd');
   };
 
   // Comissão por venda de assinatura (não é atendimento) - auto-save
@@ -1929,7 +1954,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         updated_at: new Date().toISOString()
       };
       if (newStatus === 'paid') {
-        updatePayload.last_payment_date = getPaymentDateForSelectedMonth();
+        const paymentDate = getPaymentDateForImmediateStatusChange();
+        const renewedEndDate = getRenewedEndDateFromPaymentDate(paymentDate);
+        updatePayload.last_payment_date = paymentDate;
+        updatePayload.end_date = renewedEndDate;
       }
 
       // FORÇAR atualização direta no banco - SEM lógica automática
@@ -1944,6 +1972,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           .from('client_subscriptions')
           .update({
             payment_status: newStatus,
+            ...(newStatus === 'paid'
+              ? { end_date: getRenewedEndDateFromPaymentDate(getPaymentDateForImmediateStatusChange()) }
+              : {}),
             updated_at: new Date().toISOString()
           })
           .eq('id', clientSubscription.id));
@@ -1954,7 +1985,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       }
 
       console.log('✅ Status FORÇADO para:', newStatus);
-      toast(`Status FORÇADO para ${newStatus === 'paid' ? 'Pago' : 'Não Pago'}!`, 'success');
+      if (newStatus === 'paid') {
+        const renewedEndDate = getRenewedEndDateFromPaymentDate(getPaymentDateForImmediateStatusChange());
+        toast(`Status FORÇADO para Pago e vencimento renovado para ${formatIsoDateSafe(renewedEndDate, renewedEndDate)}!`, 'success');
+      } else {
+        toast('Status FORÇADO para Não Pago!', 'success');
+      }
       fetchClientSubscriptions(); // Atualiza a lista
     } catch (error: any) {
       console.error('Erro ao atualizar status de pagamento:', error);
@@ -2745,7 +2781,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     console.log('🔍 Iniciando checagem diária de vencimento...');
 
     for (const cs of clientSubscriptions) {
-      const endDate = parseISO(cs.end_date);
+      const endDate = parseIsoDateSafe(cs.end_date);
+      if (!endDate) continue;
       endDate.setHours(0, 0, 0, 0);
 
       // Se a data de término já passou e o status ainda não foi atualizado
@@ -3051,8 +3088,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Regra: soma apenas registros com subscription_payment_provider='pagarme_pix' (e pago/ativo),
   // já descontando 1,19% + R$0,50.
   const saldoAssinantes = clientSubscriptions.reduce((sum, cs) => {
-    const endDate = parseISO(cs.end_date);
-    if (isPast(endDate)) return sum;
+    if (isPastIsoDateSafe(cs.end_date)) return sum;
     if (cs.payment_status !== 'paid') return sum;
 
     const provider = String((cs as any)?.subscription_payment_provider || '').toLowerCase();
@@ -4699,8 +4735,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           <div className="space-y-3">
             {filteredClientSubscriptions.map((cs) => {
               const isPaid = cs.payment_status === 'paid';
-              const endDate = parseISO(cs.end_date);
-              const isExpired = isPast(endDate);
+              const isExpired = isPastIsoDateSafe(cs.end_date);
               const limit = Number((cs as any)?.monthly_limit || 0);
               const concludedCountRaw = subscriberAttendanceCountsByClientSubId[String(cs.id)] || 0;
               const concludedCount = Number.isFinite(limit) && limit > 0 ? Math.min(concludedCountRaw, limit) : concludedCountRaw;
@@ -4810,11 +4845,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs sm:text-sm">
                       <div className={`${textColor}/90`}>
                         <span className="font-medium">Início:</span><br />
-                        {format(parseISO(cs.start_date), 'dd/MM/yyyy', { locale: ptBR })}
+                        {formatIsoDateSafe(cs.start_date)}
                       </div>
                       <div className={`${textColor}/90`}>
                         <span className="font-medium">Fim:</span><br />
-                        {format(parseISO(cs.end_date), 'dd/MM/yyyy', { locale: ptBR })}
+                        {formatIsoDateSafe(cs.end_date)}
                       </div>
                     </div>
                   </div>
@@ -5266,10 +5301,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               <p className="text-sm text-gray-400">Cliente:</p>
               <p className="text-white font-medium">{selectedClientForEdit.profiles?.full_name}</p>
               <p className="text-xs text-gray-400 mt-1">
-                Início atual: {format(parseISO(selectedClientForEdit.start_date), 'dd/MM/yyyy', { locale: ptBR })}
+                Início atual: {formatIsoDateSafe(selectedClientForEdit.start_date)}
               </p>
               <p className="text-xs text-gray-400">
-                Término atual: {format(parseISO(selectedClientForEdit.end_date), 'dd/MM/yyyy', { locale: ptBR })}
+                Término atual: {formatIsoDateSafe(selectedClientForEdit.end_date)}
               </p>
             </div>
 
