@@ -37,31 +37,24 @@ const recursos: ItemRecurso[] = [
     destacado: true
   },
   {
+    texto: 'sistema de avaliaçoes',
+    inclusoNoOuro: true,
+    inclusoNoDiamante: true
+  },
+  {
+    texto: 'Suporte priorizado',
+    inclusoNoOuro: false,
+    inclusoNoDiamante: true,
+    destacado: true
+  },
+  {
     texto: 'Lembretes automáticos para clientes 1h antes no WhatsApp',
     inclusoNoOuro: false,
     inclusoNoDiamante: true,
     destacado: true
   },
   {
-    texto: 'Lembretes automáticos para clientes na fila de espera',
-    inclusoNoOuro: false,
-    inclusoNoDiamante: true,
-    destacado: true
-  },
-  {
-    texto: 'Repescagem automática de clientes sumidos',
-    inclusoNoOuro: false,
-    inclusoNoDiamante: true,
-    destacado: true
-  },
-  {
-    texto: 'Mensagem de parabéns automática para clientes',
-    inclusoNoOuro: false,
-    inclusoNoDiamante: true,
-    destacado: true
-  },
-  {
-    texto: 'Mensagem automática após atendimento para cliente avaliar você no Google',
+    texto: 'Lembretes automatico para clientes assinantes 1h antes no WhatsApp ILIMITADO',
     inclusoNoOuro: false,
     inclusoNoDiamante: true,
     destacado: true
@@ -106,7 +99,7 @@ export default function PlanosOuroDiamante({
   diamanteCtaLabel = 'Começar Agora'
 }: PlanosOuroDiamanteProps) {
   const precoOuro = 47.9;
-  const precoDiamante = 69.9;
+  const precoDiamante = 77.9;
 
   const recursosBase = recursos.filter((r) => !r.destacado);
   const recursosExtra = recursos.filter((r) => r.destacado);
@@ -211,6 +204,16 @@ export default function PlanosOuroDiamante({
                 <LinhaRecurso key={r.texto} texto={r.texto} incluso={r.inclusoNoDiamante} escuro />
               ))}
             </ul>
+            <div className="mt-3 rounded-xl border border-cyan-300/40 bg-gradient-to-b from-cyan-500/15 to-blue-500/10 px-4 py-3 text-center shadow-[0_0_18px_rgba(34,211,238,0.2)]">
+              <div className="text-[13px] leading-relaxed text-cyan-50 font-semibold">
+                No plano Diamante, seus clientes recebem lembretes automáticos ilimitados no WhatsApp.
+                <span className="block mt-1">Isso ajuda o cliente a não esquecer o compromisso com você.</span>
+              </div>
+              <span className="block mt-2 text-[13px] font-extrabold text-cyan-100">Você escolhe quando enviar: 2h antes, 1h antes ou 30 min antes.</span>
+              <span className="inline-flex mt-2 rounded-full border border-emerald-300/40 bg-emerald-500/20 px-3 py-1 text-[11px] font-black tracking-wide text-emerald-100">
+                Reduzindo até 60% em faltas
+              </span>
+            </div>
 
             {/* Preço */}
             <div className="mt-6 rounded-2xl bg-black/70 border border-white/10 px-5 py-4">
