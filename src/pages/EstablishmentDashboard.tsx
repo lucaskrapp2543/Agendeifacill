@@ -6975,6 +6975,62 @@ const EstablishmentDashboard = () => {
     // Removido salvamento automático para evitar loops
   };
 
+  const mergeProfessionalsPreservingCriticalFields = (nextProfessionals: any[], dbProfessionals: any[]) => {
+    return nextProfessionals.map((localProfessional: any) => {
+      const dbProfessional = dbProfessionals.find((p: any) => String(p?.id) === String(localProfessional?.id)) || {};
+      const mergedProfessional = { ...dbProfessional, ...localProfessional };
+
+      const localBlocked = (localProfessional as any)?.blocked_hours;
+      const dbBlocked = (dbProfessional as any)?.blocked_hours;
+      const hasLocalBlocked = localBlocked && typeof localBlocked === 'object' && Object.keys(localBlocked).length > 0;
+      const hasDbBlocked = dbBlocked && typeof dbBlocked === 'object' && Object.keys(dbBlocked).length > 0;
+      (mergedProfessional as any).blocked_hours = hasLocalBlocked ? localBlocked : hasDbBlocked ? dbBlocked : {};
+
+      const localAbsences = (localProfessional as any)?.absences;
+      const dbAbsences = (dbProfessional as any)?.absences;
+      (mergedProfessional as any).absences = Array.isArray(localAbsences)
+        ? localAbsences
+        : Array.isArray(dbAbsences)
+          ? dbAbsences
+          : [];
+
+      const localWorkHours = (localProfessional as any)?.work_hours;
+      const dbWorkHours = (dbProfessional as any)?.work_hours;
+      (mergedProfessional as any).work_hours = localWorkHours ?? dbWorkHours ?? null;
+
+      return mergedProfessional;
+    });
+  };
+
+  const saveProfessionalsSafely = async (nextProfessionals: any[]) => {
+    if (!establishment?.id) {
+      return {
+        error: new Error('Estabelecimento não encontrado'),
+        professionals: nextProfessionals
+      };
+    }
+
+    const { data: establishmentData, error: fetchError } = await supabase
+      .from('establishments')
+      .select('professionals')
+      .eq('id', establishment.id)
+      .single();
+
+    if (fetchError) {
+      return { error: fetchError, professionals: nextProfessionals };
+    }
+
+    const dbProfessionals = (establishmentData?.professionals || []) as any[];
+    const safeProfessionals = mergeProfessionalsPreservingCriticalFields(nextProfessionals, dbProfessionals);
+
+    const { error: updateError } = await supabase
+      .from('establishments')
+      .update({ professionals: safeProfessionals })
+      .eq('id', establishment.id);
+
+    return { error: updateError, professionals: safeProfessionals };
+  };
+
   // Função para alternar serviço infantil do profissional
   const handleToggleChildService = async (professionalId: string, offersChildService: boolean) => {
     console.log('🔄 Alternando serviço infantil:', { professionalId, offersChildService });
@@ -6990,11 +7046,8 @@ const EstablishmentDashboard = () => {
       setProfessionals(updatedProfessionals);
       console.log('👶 Profissionais após atualização serviço infantil:', updatedProfessionals);
 
-      // Salvar no banco de dados usando o estado atualizado
-      const { error } = await supabase
-        .from('establishments')
-        .update({ professionals: updatedProfessionals })
-        .eq('id', establishment.id);
+      // Salvar no banco de dados com proteção para não perder blocked_hours/absences
+      const { error, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
 
       if (error) {
         console.error('❌ Erro ao salvar serviço infantil:', error);
@@ -7008,9 +7061,10 @@ const EstablishmentDashboard = () => {
       }
 
       // Atualizar o estado do estabelecimento também
+      setProfessionals(safeProfessionals);
       setEstablishment({
         ...establishment,
-        professionals: updatedProfessionals
+        professionals: safeProfessionals
       });
 
       toast.success(offersChildService
@@ -7037,11 +7091,8 @@ const EstablishmentDashboard = () => {
       setProfessionals(updatedProfessionals);
       console.log('👁️ Profissionais após atualização ocultar do booking:', updatedProfessionals);
 
-      // Salvar no banco de dados usando o estado atualizado
-      const { error } = await supabase
-        .from('establishments')
-        .update({ professionals: updatedProfessionals })
-        .eq('id', establishment.id);
+      // Salvar no banco de dados com proteção para não perder blocked_hours/absences
+      const { error, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
 
       if (error) {
         console.error('❌ Erro ao salvar configuração de ocultar profissional:', error);
@@ -7055,9 +7106,10 @@ const EstablishmentDashboard = () => {
       }
 
       // Atualizar o estado do estabelecimento também
+      setProfessionals(safeProfessionals);
       setEstablishment({
         ...establishment,
-        professionals: updatedProfessionals
+        professionals: safeProfessionals
       });
 
       toast.success(hiddenFromBooking
@@ -7080,10 +7132,7 @@ const EstablishmentDashboard = () => {
 
       setProfessionals(updatedProfessionals);
 
-      const { error } = await supabase
-        .from('establishments')
-        .update({ professionals: updatedProfessionals })
-        .eq('id', establishment.id);
+      const { error, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
 
       if (error) {
         toast('Erro ao salvar configuração de ocultar bruto', 'error');
@@ -7093,9 +7142,10 @@ const EstablishmentDashboard = () => {
         return;
       }
 
+      setProfessionals(safeProfessionals);
       setEstablishment({
         ...establishment,
-        professionals: updatedProfessionals
+        professionals: safeProfessionals
       });
 
       toast.success(
@@ -13834,11 +13884,8 @@ Estamos te aguardando! 😎✂️`;
         return professional;
       });
 
-      // Salvar no banco de dados
-      const { error: updateError } = await supabase
-        .from('establishments')
-        .update({ professionals: updatedProfessionals })
-        .eq('id', establishment.id);
+      // Salvar no banco de dados com proteção para não perder blocked_hours/absences
+      const { error: updateError, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
 
       if (updateError) {
         console.error('Erro ao atualizar profissional:', updateError);
@@ -13847,10 +13894,10 @@ Estamos te aguardando! 😎✂️`;
       }
 
       // Atualizar estados locais
-      setProfessionals(updatedProfessionals);
+      setProfessionals(safeProfessionals);
       setEstablishment({
         ...establishment,
-        professionals: updatedProfessionals
+        professionals: safeProfessionals
       });
 
       toast.success('Foto do profissional atualizada com sucesso!');
@@ -13875,10 +13922,7 @@ Estamos te aguardando! 😎✂️`;
         return professional;
       });
 
-      const { error: updateError } = await supabase
-        .from('establishments')
-        .update({ professionals: updatedProfessionals })
-        .eq('id', establishment.id);
+      const { error: updateError, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
 
       if (updateError) {
         console.error('Erro ao remover foto do profissional:', updateError);
@@ -13899,10 +13943,10 @@ Estamos te aguardando! 😎✂️`;
         console.warn('Não foi possível remover arquivo do storage (ok ignorar):', e);
       }
 
-      setProfessionals(updatedProfessionals);
+      setProfessionals(safeProfessionals);
       setEstablishment({
         ...establishment,
-        professionals: updatedProfessionals
+        professionals: safeProfessionals
       });
 
       toast.success('Foto do profissional removida');
@@ -14143,10 +14187,7 @@ Estamos te aguardando! 😎✂️`;
 
       // Salvar no banco de dados
       console.log('🔧 DEBUG - Salvando no banco...');
-      const { error } = await supabase
-        .from('establishments')
-        .update({ professionals: updatedProfessionals })
-        .eq('id', establishment.id);
+      const { error, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
 
       if (error) {
         console.error('❌ Erro ao salvar serviços específicos:', error);
@@ -14157,9 +14198,10 @@ Estamos te aguardando! 😎✂️`;
       console.log('✅ Serviços específicos salvos com sucesso!');
 
       // ✅ IMPORTANTE: Atualizar também o estado do establishment para manter sincronizado
+      setProfessionals(safeProfessionals);
       setEstablishment({
         ...establishment,
-        professionals: updatedProfessionals
+        professionals: safeProfessionals
       });
 
       toast.success('Serviços específicos salvos com sucesso!');
@@ -15601,11 +15643,8 @@ Estamos te aguardando! 😎✂️`;
         return professional;
       });
 
-      // Salvar no banco de dados
-      const { error: updateError } = await supabase
-        .from('establishments')
-        .update({ professionals: updatedProfessionals })
-        .eq('id', establishment.id);
+      // Salvar no banco de dados com proteção para não perder blocked_hours/absences
+      const { error: updateError, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
 
       if (updateError) {
         console.error('Erro ao atualizar horários de trabalho:', updateError);
@@ -15614,10 +15653,10 @@ Estamos te aguardando! 😎✂️`;
       }
 
       // Atualizar estados locais
-      setProfessionals(updatedProfessionals);
+      setProfessionals(safeProfessionals);
       setEstablishment({
         ...establishment,
-        professionals: updatedProfessionals
+        professionals: safeProfessionals
       });
 
       toast.success('Horários de trabalho do profissional salvos com sucesso!');
