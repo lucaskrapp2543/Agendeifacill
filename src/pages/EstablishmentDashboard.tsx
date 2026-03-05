@@ -3788,11 +3788,12 @@ const EstablishmentDashboard = () => {
   const [selectedAppointmentForReschedule, setSelectedAppointmentForReschedule] = useState<Appointment | null>(null);
   const [showChangeServiceModal, setShowChangeServiceModal] = useState(false);
   const [selectedAppointmentForServiceChange, setSelectedAppointmentForServiceChange] = useState<Appointment | null>(null);
+  const getLocalDateKey = (date: Date = new Date()) => format(date, 'yyyy-MM-dd');
 
   // Estados para gerenciar bloqueio de horários dos profissionais
   const [showBlockTimeModal, setShowBlockTimeModal] = useState(false);
   const [selectedProfessionalForBlock, setSelectedProfessionalForBlock] = useState<string | null>(null);
-  const [blockTimeDate, setBlockTimeDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [blockTimeDate, setBlockTimeDate] = useState<string>(getLocalDateKey());
   const [blockedHours, setBlockedHours] = useState<Record<string, Record<string, string[]>>>({});
   const [selectedBlockedHours, setSelectedBlockedHours] = useState<string[]>([]);
   const [showResetBlockConfirm, setShowResetBlockConfirm] = useState(false);
@@ -15273,9 +15274,9 @@ Estamos te aguardando! 😎✂️`;
     setSelectedProfessionalForBlock(professionalId);
 
     const professional = professionals.find(p => p.id === professionalId);
-    setBlockTimeDate(new Date().toISOString().split('T')[0]);
+    setBlockTimeDate(getLocalDateKey());
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateKey();
     const professionalBlockedHours = professional && (professional as any).blocked_hours
       ? (professional as any).blocked_hours
       : {};
@@ -15291,7 +15292,7 @@ Estamos te aguardando! 😎✂️`;
     setShowBlockTimeModal(false);
     setSelectedProfessionalForBlock(null);
     setSelectedBlockedHours([]);
-    setBlockTimeDate(new Date().toISOString().split('T')[0]);
+    setBlockTimeDate(getLocalDateKey());
     setShowResetBlockConfirm(false);
   };
 
@@ -26660,7 +26661,7 @@ Estamos te aguardando! 😎✂️`;
                             setSelectedBlockedHours([]);
                           }
                         }}
-                        min={new Date().toISOString().split('T')[0]}
+                        min={getLocalDateKey()}
                         className="w-full px-4 py-2 bg-[#242628] border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
                       />
                     </div>
@@ -29962,30 +29963,6 @@ Estamos te aguardando! 😎✂️`;
                       >
                         <span>🔧</span>
                         <span>SERVIÇO ESPECÍFICO</span>
-                      </button>
-                    </div>
-
-                    {/* Campo de Ausência */}
-                    <div className="space-y-2">
-                      <label className="block text-sm text-gray-400">Configurar dias ausente</label>
-                      <button
-                        onClick={() => handleOpenAbsenceModal(professional.id)}
-                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
-                      >
-                        <span>📅</span>
-                        <span>Ausência</span>
-                      </button>
-                    </div>
-
-                    {/* Campo de Bloquear Horário */}
-                    <div className="space-y-2">
-                      <label className="block text-sm text-gray-400">Bloquear horários específicos</label>
-                      <button
-                        onClick={() => handleOpenBlockTimeModal(professional.id)}
-                        className="w-full px-4 py-2 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white hover:bg-gray-700 focus:outline-none focus:border-blue-500 flex items-center justify-center gap-2 transition-colors"
-                      >
-                        <span>🔒</span>
-                        <span>Bloquear Horário</span>
                       </button>
                     </div>
 
