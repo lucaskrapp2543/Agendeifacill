@@ -381,6 +381,20 @@ interface TopBarbershopLeaderboardRow {
   jumpInPeriod: number;
 }
 
+interface BlockedHourHistoryEvent {
+  id: string;
+  establishment_id: string;
+  professional_id: string;
+  professional_name: string | null;
+  action_type: 'block' | 'unblock';
+  block_date: string;
+  block_time: string;
+  source: string | null;
+  performed_by_user_id: string | null;
+  metadata: Record<string, any> | null;
+  created_at: string;
+}
+
 const TOP10_SOCIAL_PROOF_MIN_OUTSIDE = 2367;
 const TOP_LEADERBOARD_SIZE = 5;
 
@@ -392,6 +406,53 @@ const EstablishmentDashboard = () => {
   const lastSaldoFetchAtRef = useRef<number>(0);
   const lastSaldoFetchEstIdRef = useRef<string>('');
   const { notifyNewAppointment, notifyCancelledAppointment } = useNotifications();
+
+  const formatSupabaseErrorDetails = (error: any): string =>
+    [error?.message, error?.code, error?.details, error?.hint]
+      .filter(Boolean)
+      .map((part) => String(part))
+      .join(' | ');
+
+  const normalizeBlockedHoursMap = (value: any): Record<string, string[]> => {
+    if (!value || typeof value !== 'object') return {};
+    const output: Record<string, string[]> = {};
+    for (const [rawDate, rawHours] of Object.entries(value as Record<string, unknown>)) {
+      const date = String(rawDate || '').trim();
+      if (!date) continue;
+      const normalizedHours = Array.from(
+        new Set((Array.isArray(rawHours) ? rawHours : []).map((hour) => String(hour || '').trim()).filter(Boolean))
+      ).sort();
+      output[date] = normalizedHours;
+    }
+    return output;
+  };
+
+  const buildBlockedHoursDiffEvents = (
+    previousMap: Record<string, string[]>,
+    nextMap: Record<string, string[]>
+  ): Array<{ action_type: 'block' | 'unblock'; block_date: string; block_time: string }> => {
+    const events: Array<{ action_type: 'block' | 'unblock'; block_date: string; block_time: string }> = [];
+    const allDates = Array.from(new Set([...Object.keys(previousMap), ...Object.keys(nextMap)])).sort();
+
+    for (const date of allDates) {
+      const previousSet = new Set(previousMap[date] || []);
+      const nextSet = new Set(nextMap[date] || []);
+
+      for (const time of Array.from(nextSet).sort()) {
+        if (!previousSet.has(time)) {
+          events.push({ action_type: 'block', block_date: date, block_time: time });
+        }
+      }
+
+      for (const time of Array.from(previousSet).sort()) {
+        if (!nextSet.has(time)) {
+          events.push({ action_type: 'unblock', block_date: date, block_time: time });
+        }
+      }
+    }
+
+    return events;
+  };
 
   const writeAppointmentChangeLog = async (params: {
     appointmentId: string;
@@ -3797,6 +3858,9 @@ const EstablishmentDashboard = () => {
   const [blockedHours, setBlockedHours] = useState<Record<string, Record<string, string[]>>>({});
   const [selectedBlockedHours, setSelectedBlockedHours] = useState<string[]>([]);
   const [showResetBlockConfirm, setShowResetBlockConfirm] = useState(false);
+  const [showBlockHistoryModal, setShowBlockHistoryModal] = useState(false);
+  const [blockedHourHistoryEvents, setBlockedHourHistoryEvents] = useState<BlockedHourHistoryEvent[]>([]);
+  const [isLoadingBlockedHourHistory, setIsLoadingBlockedHourHistory] = useState(false);
 
   // Estados para gerenciar horários de trabalho dos profissionais
   const [showWorkHoursModal, setShowWorkHoursModal] = useState(false);
@@ -6982,9 +7046,10 @@ const EstablishmentDashboard = () => {
 
       const localBlocked = (localProfessional as any)?.blocked_hours;
       const dbBlocked = (dbProfessional as any)?.blocked_hours;
-      const hasLocalBlocked = localBlocked && typeof localBlocked === 'object' && Object.keys(localBlocked).length > 0;
-      const hasDbBlocked = dbBlocked && typeof dbBlocked === 'object' && Object.keys(dbBlocked).length > 0;
-      (mergedProfessional as any).blocked_hours = hasLocalBlocked ? localBlocked : hasDbBlocked ? dbBlocked : {};
+      const safeDbBlocked = dbBlocked && typeof dbBlocked === 'object' ? dbBlocked : {};
+      const safeLocalBlocked = localBlocked && typeof localBlocked === 'object' ? localBlocked : {};
+      const mergedBlockedHours = { ...safeDbBlocked, ...safeLocalBlocked };
+      (mergedProfessional as any).blocked_hours = Object.keys(mergedBlockedHours).length > 0 ? mergedBlockedHours : {};
 
       const localAbsences = (localProfessional as any)?.absences;
       const dbAbsences = (dbProfessional as any)?.absences;
@@ -15314,6 +15379,8 @@ Estamos te aguardando! 😎✂️`;
   // Funções para gerenciar bloqueio de horários dos profissionais
   const handleOpenBlockTimeModal = (professionalId: string) => {
     setSelectedProfessionalForBlock(professionalId);
+    setShowBlockHistoryModal(false);
+    setBlockedHourHistoryEvents([]);
 
     const professional = professionals.find(p => p.id === professionalId);
     setBlockTimeDate(getLocalDateKey());
@@ -15336,6 +15403,96 @@ Estamos te aguardando! 😎✂️`;
     setSelectedBlockedHours([]);
     setBlockTimeDate(getLocalDateKey());
     setShowResetBlockConfirm(false);
+    setShowBlockHistoryModal(false);
+    setBlockedHourHistoryEvents([]);
+  };
+
+  const loadBlockedHoursHistory = async (professionalId: string) => {
+    if (!establishment?.id || !professionalId) return;
+    setIsLoadingBlockedHourHistory(true);
+    try {
+      const { data, error } = await (supabase as any)
+        .from('professional_blocked_hours_history')
+        .select(
+          'id, establishment_id, professional_id, professional_name, action_type, block_date, block_time, source, performed_by_user_id, metadata, created_at'
+        )
+        .eq('establishment_id', establishment.id)
+        .eq('professional_id', professionalId)
+        .order('created_at', { ascending: false })
+        .limit(1000);
+
+      if (error) {
+        const details = formatSupabaseErrorDetails(error);
+        toast.error(`Erro ao carregar histórico de bloqueio: ${details || 'Erro desconhecido'}`);
+        setBlockedHourHistoryEvents([]);
+        return;
+      }
+
+      const normalized = Array.isArray(data)
+        ? (data as any[]).map((item) => ({
+          id: String(item?.id || ''),
+          establishment_id: String(item?.establishment_id || ''),
+          professional_id: String(item?.professional_id || ''),
+          professional_name: item?.professional_name ? String(item.professional_name) : null,
+          action_type: item?.action_type === 'unblock' ? 'unblock' : 'block',
+          block_date: String(item?.block_date || ''),
+          block_time: String(item?.block_time || ''),
+          source: item?.source ? String(item.source) : null,
+          performed_by_user_id: item?.performed_by_user_id ? String(item.performed_by_user_id) : null,
+          metadata: item?.metadata && typeof item.metadata === 'object' ? item.metadata : null,
+          created_at: String(item?.created_at || ''),
+        }))
+        : [];
+
+      setBlockedHourHistoryEvents(normalized);
+    } catch (error: any) {
+      const details = formatSupabaseErrorDetails(error);
+      toast.error(`Erro ao carregar histórico de bloqueio: ${details || 'Erro desconhecido'}`);
+      setBlockedHourHistoryEvents([]);
+    } finally {
+      setIsLoadingBlockedHourHistory(false);
+    }
+  };
+
+  const persistBlockedHourHistoryEvents = async (
+    professionalId: string,
+    professionalName: string,
+    source: string,
+    events: Array<{ action_type: 'block' | 'unblock'; block_date: string; block_time: string }>
+  ) => {
+    if (!establishment?.id || !professionalId || events.length === 0) return;
+    try {
+      const payload = events.map((event) => ({
+        establishment_id: establishment.id,
+        professional_id: professionalId,
+        professional_name: professionalName || null,
+        action_type: event.action_type,
+        block_date: event.block_date,
+        block_time: event.block_time,
+        source,
+        performed_by_user_id: String(user?.id || '').trim() || null,
+        metadata: {
+          trigger: source,
+          changed_by_email: String(user?.email || '').trim() || null,
+          dashboard_date: blockTimeDate,
+        },
+      }));
+
+      const { error } = await (supabase as any).from('professional_blocked_hours_history').insert(payload);
+      if (error) {
+        const details = formatSupabaseErrorDetails(error);
+        toast.error(`Bloqueio salvo, mas falhou ao gravar histórico: ${details || 'Erro desconhecido'}`);
+      }
+    } catch (error: any) {
+      const details = formatSupabaseErrorDetails(error);
+      toast.error(`Bloqueio salvo, mas falhou ao gravar histórico: ${details || 'Erro desconhecido'}`);
+    }
+  };
+
+  const handleOpenBlockedHoursHistoryModal = async () => {
+    if (!selectedProfessionalForBlock) return;
+    setShowBlockHistoryModal(true);
+    await loadBlockedHoursHistory(selectedProfessionalForBlock);
   };
 
   const handleToggleBlockedHour = (hour: string) => {
@@ -15409,7 +15566,8 @@ Estamos te aguardando! 😎✂️`;
 
       if (fetchError) {
         console.error('❌ Erro ao buscar dados do estabelecimento:', fetchError);
-        toast.error('Erro ao salvar horários bloqueados');
+        const details = formatSupabaseErrorDetails(fetchError);
+        toast.error(`Erro ao salvar horários bloqueados: ${details || 'Erro desconhecido'}`);
         return;
       }
 
@@ -15425,8 +15583,8 @@ Estamos te aguardando! 😎✂️`;
             (localProfessional as any)?.blocked_hours ||
             dbProfessional.blocked_hours ||
             {};
-          let updatedBlockedHours: Record<string, string[]> = { ...currentBlockedHours };
-          updatedBlockedHours[blockTimeDate] = [...selectedBlockedHours];
+          let updatedBlockedHours: Record<string, string[]> = normalizeBlockedHoursMap(currentBlockedHours);
+          updatedBlockedHours[blockTimeDate] = Array.from(new Set(selectedBlockedHours)).sort();
 
           // Persistir últimas opções do modal (inclui horários por dia da semana para "Bloquear meses")
           const block_modal_last_options = {
@@ -15454,6 +15612,18 @@ Estamos te aguardando! 😎✂️`;
         }
       });
 
+      const selectedProfessionalInDb = dbProfessionals.find((professional: any) => professional.id === selectedProfessionalForBlock);
+      const selectedProfessionalAfterUpdate = updatedProfessionals.find((professional: any) => professional.id === selectedProfessionalForBlock);
+      const oldBlockedMap = normalizeBlockedHoursMap(selectedProfessionalInDb?.blocked_hours || {});
+      const newBlockedMap = normalizeBlockedHoursMap(selectedProfessionalAfterUpdate?.blocked_hours || {});
+      const historyDiffEvents = buildBlockedHoursDiffEvents(oldBlockedMap, newBlockedMap);
+      const selectedProfessionalName = String(
+        selectedProfessionalAfterUpdate?.name ||
+        selectedProfessionalInDb?.name ||
+        professionals.find((professional) => professional.id === selectedProfessionalForBlock)?.name ||
+        'Profissional'
+      );
+
       const { error: updateError } = await supabase
         .from('establishments')
         .update({ professionals: updatedProfessionals })
@@ -15461,9 +15631,17 @@ Estamos te aguardando! 😎✂️`;
 
       if (updateError) {
         console.error('Erro ao atualizar horários bloqueados:', updateError);
-        toast.error('Erro ao salvar horários bloqueados');
+        const details = formatSupabaseErrorDetails(updateError);
+        toast.error(`Erro ao salvar horários bloqueados: ${details || 'Erro desconhecido'}`);
         return;
       }
+
+      await persistBlockedHourHistoryEvents(
+        selectedProfessionalForBlock,
+        selectedProfessionalName,
+        'manual_block_modal_save',
+        historyDiffEvents
+      );
 
       // Atualizar estados locais com dados do banco
       setProfessionals(updatedProfessionals);
@@ -15475,9 +15653,10 @@ Estamos te aguardando! 😎✂️`;
       console.log('✅ Horários bloqueados salvos:', updatedProfessionals.find(p => p.id === selectedProfessionalForBlock)?.blocked_hours);
       toast.success('Horários bloqueados salvos! Já gravados no sistema — não é necessário clicar em Salvar Profissionais.');
       handleCloseBlockTimeModal();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao salvar horários bloqueados:', error);
-      toast.error('Erro ao salvar horários bloqueados');
+      const details = formatSupabaseErrorDetails(error);
+      toast.error(`Erro ao salvar horários bloqueados: ${details || 'Erro desconhecido'}`);
     }
   };
 
@@ -15491,10 +15670,13 @@ Estamos te aguardando! 😎✂️`;
         .eq('id', establishment.id)
         .single();
       if (fetchError) {
-        toast.error('Erro ao remover bloqueios');
+        const details = formatSupabaseErrorDetails(fetchError);
+        toast.error(`Erro ao remover bloqueios: ${details || 'Erro desconhecido'}`);
         return;
       }
       const dbProfessionals = (establishmentData?.professionals || []) as any[];
+      const selectedProfessionalInDb = dbProfessionals.find((professional: any) => professional.id === selectedProfessionalForBlock);
+      const previousBlockedMap = normalizeBlockedHoursMap(selectedProfessionalInDb?.blocked_hours || {});
       const updatedProfessionals = dbProfessionals.map((p: any) => {
         if (p.id === selectedProfessionalForBlock) {
           return {
@@ -15510,17 +15692,33 @@ Estamos te aguardando! 😎✂️`;
         .update({ professionals: updatedProfessionals })
         .eq('id', establishment.id);
       if (updateError) {
-        toast.error('Erro ao remover bloqueios');
+        const details = formatSupabaseErrorDetails(updateError);
+        toast.error(`Erro ao remover bloqueios: ${details || 'Erro desconhecido'}`);
         return;
       }
+
+      const historyDiffEvents = buildBlockedHoursDiffEvents(previousBlockedMap, {});
+      const selectedProfessionalName = String(
+        selectedProfessionalInDb?.name ||
+        professionals.find((professional) => professional.id === selectedProfessionalForBlock)?.name ||
+        'Profissional'
+      );
+      await persistBlockedHourHistoryEvents(
+        selectedProfessionalForBlock,
+        selectedProfessionalName,
+        'reset_all_blocked_hours',
+        historyDiffEvents
+      );
+
       setProfessionals(updatedProfessionals);
       setEstablishment(prev => prev ? { ...prev, professionals: updatedProfessionals } : prev);
       setSelectedBlockedHours([]);
       toast.success('Todos os bloqueios deste profissional foram removidos.');
       handleCloseBlockTimeModal();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao resetar bloqueios:', error);
-      toast.error('Erro ao remover bloqueios');
+      const details = formatSupabaseErrorDetails(error);
+      toast.error(`Erro ao remover bloqueios: ${details || 'Erro desconhecido'}`);
     }
   };
 
@@ -26942,6 +27140,13 @@ Estamos te aguardando! 😎✂️`;
                   <div className="flex flex-wrap gap-3 justify-end items-center">
                     <button
                       type="button"
+                      onClick={handleOpenBlockedHoursHistoryModal}
+                      className="px-4 py-2 bg-gray-700 text-blue-200 border border-blue-500/50 rounded-lg hover:bg-gray-600 transition-colors"
+                    >
+                      Histórico
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setShowResetBlockConfirm(true)}
                       className="px-4 py-2 bg-gray-700 text-red-200 border border-red-500/50 rounded-lg hover:bg-gray-600 transition-colors"
                     >
@@ -26960,6 +27165,87 @@ Estamos te aguardando! 😎✂️`;
                       Salvar Horários Bloqueados
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showBlockHistoryModal && selectedProfessionalForBlock && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+              <div className="bg-[#1a1b1c] rounded-lg border border-gray-700 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                <div className="p-6">
+                  <div className="flex justify-between items-center gap-3 mb-4">
+                    <div>
+                      <h3 className="text-xl font-semibold text-white">
+                        Histórico de Bloqueio e Desbloqueio
+                      </h3>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Profissional: {professionals.find((p) => p.id === selectedProfessionalForBlock)?.name || 'Não identificado'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => loadBlockedHoursHistory(selectedProfessionalForBlock)}
+                        className="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors text-sm"
+                      >
+                        Atualizar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowBlockHistoryModal(false)}
+                        className="text-gray-400 hover:text-white transition-colors"
+                      >
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mb-4 p-3 rounded-lg border border-blue-500/40 bg-blue-900/20 text-blue-100 text-xs">
+                    Este histórico não é apagado no uso normal e registra cada horário bloqueado/desbloqueado para auditoria.
+                  </div>
+
+                  {isLoadingBlockedHourHistory ? (
+                    <div className="py-8 text-center text-gray-300">Carregando histórico...</div>
+                  ) : blockedHourHistoryEvents.length === 0 ? (
+                    <div className="py-8 text-center text-gray-400">Ainda não há eventos registrados para este profissional.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {blockedHourHistoryEvents.map((event) => {
+                        const createdAt = event.created_at ? new Date(event.created_at) : null;
+                        const isUnblock = event.action_type === 'unblock';
+                        const actorLabel = event.performed_by_user_id
+                          ? event.performed_by_user_id === String(user?.id || '').trim()
+                            ? 'Você'
+                            : event.performed_by_user_id
+                          : 'Sistema';
+                        return (
+                          <div key={event.id} className="rounded-lg border border-gray-700 bg-[#242628] p-3">
+                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[11px] font-semibold ${isUnblock ? 'bg-orange-600 text-white' : 'bg-red-600 text-white'
+                                  }`}
+                              >
+                                {isUnblock ? 'DESBLOQUEOU' : 'BLOQUEOU'}
+                              </span>
+                              <span className="text-white text-sm font-semibold">
+                                {new Date(`${event.block_date}T12:00:00`).toLocaleDateString('pt-BR')} - {event.block_time}
+                              </span>
+                            </div>
+                            <div className="text-xs text-gray-300 space-y-1">
+                              <p>
+                                Em: {createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toLocaleString('pt-BR') : 'Data inválida'}
+                              </p>
+                              <p>Responsável: {actorLabel}</p>
+                              <p>Origem: {event.source || 'não informada'}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
