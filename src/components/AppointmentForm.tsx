@@ -105,6 +105,8 @@ interface AppointmentFormProps {
   onSubscriberDetectionDisabledChange?: (disabled: boolean) => void; // Callback para mudar o estado
   guestClientData?: { name: string; phone: string } | null; // Dados do cliente convidado (sem login)
   onRequestChangeSubscriberService?: () => void; // Solicita voltar para seleção de serviço da assinatura
+  externalCurrentStep?: number; // Controle opcional de etapa por componente pai (modo chat)
+  onExternalCurrentStepChange?: (step: number) => void; // Notifica mudança de etapa no modo controlado
 }
 
 export function AppointmentForm({
@@ -122,7 +124,9 @@ export function AppointmentForm({
   subscriberDetectionDisabled: externalSubscriberDetectionDisabled,
   guestClientData,
   onSubscriberDetectionDisabledChange,
-  onRequestChangeSubscriberService
+  onRequestChangeSubscriberService,
+  externalCurrentStep,
+  onExternalCurrentStepChange
 }: AppointmentFormProps) {
   const { user } = useAuth();
   const isEstablishmentOwner = user?.id === establishment?.owner_id;
@@ -853,6 +857,21 @@ export function AppointmentForm({
 
   // ✅ NOVO: Sistema de steps tipo quiz
   const [currentStep, setCurrentStep] = useState(1); // 1: Profissional, 2: Serviço, 3: Dia, 4: Horário, 5: Pagamento
+
+  // Modo controlado opcional de etapa (fallback total para o modo interno atual).
+  useEffect(() => {
+    if (typeof externalCurrentStep !== 'number') return;
+    if (externalCurrentStep < 1 || externalCurrentStep > 5) return;
+    if (externalCurrentStep !== currentStep) {
+      setCurrentStep(externalCurrentStep);
+    }
+  }, [externalCurrentStep, currentStep]);
+
+  useEffect(() => {
+    if (onExternalCurrentStepChange) {
+      onExternalCurrentStepChange(currentStep);
+    }
+  }, [currentStep, onExternalCurrentStepChange]);
 
   // Auto-selecionar profissional para assinantes se houver apenas um ou se o serviço de assinante tiver profissional definido
   useEffect(() => {
@@ -3419,7 +3438,9 @@ export function AppointmentForm({
                   id: subscriberService.id,
                   name: subscriberService.name,
                   price: 0, // Preço 0 para assinantes
-                  duration: getResolvedSubscriberDuration() // Usar duração da assinatura
+                  // IMPORTANTE: na grade de horários, assinante precisa considerar assinatura + extras selecionados.
+                  // Sem isso, poderia liberar slot que estoura em cima do próximo agendamento.
+                  duration: getResolvedSubscriberDuration() + getResolvedSubscriberExtraDuration()
                 } : useMultiService && selectedServices.length > 0 ? {
                   id: 'multiple',
                   name: selectedServices.map(s => s.name).join(' + '),

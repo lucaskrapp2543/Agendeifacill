@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AppointmentForm } from '../components/AppointmentForm';
+import { BookingChatFlow } from '../components/BookingChatFlow';
 import { PaymentModal } from '../components/PaymentModal';
 import { QuickBookingModal } from '../components/QuickBookingModal';
 import ReadMore from '../components/ReadMore';
@@ -120,6 +121,7 @@ export default function BookingPage() {
   const [subscriberDetectionDisabled, setSubscriberDetectionDisabled] = useState(false); // Estado para desabilitar detecção de assinante
   const [showQuickBookingModal, setShowQuickBookingModal] = useState(false); // Modal de agendamento rápido
   const [guestClientData, setGuestClientData] = useState<{ name: string; phone: string } | null>(null); // Dados do cliente convidado
+  const [useLegacyBookingFlow, setUseLegacyBookingFlow] = useState(false);
 
   // ✅ Fila de espera (booking público)
   const [showWaitlistModal, setShowWaitlistModal] = useState(false);
@@ -147,6 +149,7 @@ export default function BookingPage() {
   const retryFetchEstablishmentRef = useRef(0);
   const isReloadingRef = useRef(false); // ✅ Proteção contra reload loops
   const isFetchingApprovedReviewsRef = useRef(false);
+  const hasRestoredQuickFlowRef = useRef(false);
   const activeSubscriberPlanId = String(
     convertedSubscriberData?.subscription_id || convertedSubscriberData?.subscriptions?.id || ''
   ).trim();
@@ -621,9 +624,21 @@ export default function BookingPage() {
   }, [id]);
 
   // ✅ Recuperar fluxo do "quero agendar" se a página remountar (piscadas/reloads em mobile)
+  // Regra de compatibilidade:
+  // - se chat estiver ativo, não reabrimos automaticamente no refresh para evitar travar usuário em etapa antiga
+  // - se chat estiver desativado (fluxo legado), mantém recuperação antiga
   useEffect(() => {
+    if (!establishment || hasRestoredQuickFlowRef.current) return;
+    hasRestoredQuickFlowRef.current = true;
+
+    const chatEnabled = Boolean((establishment as any)?.booking_chat_enabled ?? true);
     const flow = safeSessionGet(QUICK_BOOKING_FLOW_KEY);
     if (flow === 'modal') {
+      if (chatEnabled) {
+        safeSessionRemove(QUICK_BOOKING_FLOW_KEY);
+        safeSessionRemove(QUICK_BOOKING_DATA_KEY);
+        return;
+      }
       setShowQuickBookingModal(true);
       return;
     }
@@ -639,10 +654,15 @@ export default function BookingPage() {
           // ignore
         }
       }
+      if (chatEnabled) {
+        safeSessionRemove(QUICK_BOOKING_FLOW_KEY);
+        safeSessionRemove(QUICK_BOOKING_DATA_KEY);
+        return;
+      }
+      setUseLegacyBookingFlow(true);
       setShowBookingForm(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [establishment]);
 
   // ✅ Retry controlado: evita setTimeout/fetch durante render (isso causa flicker e resets em celular)
   useEffect(() => {
@@ -1615,6 +1635,76 @@ export default function BookingPage() {
         pagamentoOpcionalNoGatewayAtual &&
         !forceMandatoryInOptionalMode;
 
+      // Trava final anti-sobreposição no Booking:
+      // mesmo que a grade mostre horário livre por qualquer inconsistência visual,
+      // este guard impede gravar dois clientes no mesmo período do mesmo profissional.
+      const normalizeText = (raw: any): string =>
+        String(raw || '')
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim();
+      const normalizeTimeHHmm = (rawTime: any): string => {
+        const value = String(rawTime || '').trim();
+        if (!value) return '00:00';
+        const [h = '00', m = '00'] = value.split(':');
+        return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+      };
+      const parseDurationMinutes = (rawDuration: any): number => {
+        const parsed = Number(rawDuration);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+      };
+      const toMinutes = (hhmm: string): number => {
+        const [h, m] = String(hhmm || '00:00').split(':').map(Number);
+        return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+      };
+
+      {
+        const targetDate = String(appointmentData?.appointment_date || format(selectedDate, 'yyyy-MM-dd')).slice(0, 10);
+        const targetProfessionalRefNorm = normalizeText(appointmentData?.professional);
+        const targetStart = toMinutes(normalizeTimeHHmm(appointmentData?.appointment_time));
+        const targetDuration = parseDurationMinutes(appointmentData?.duration);
+        const targetEnd = targetStart + targetDuration;
+
+        let targetProfessionalNameNorm = '';
+        const selectedProfessional = Array.isArray(establishment?.professionals)
+          ? establishment.professionals.find((professional: any) => String(professional?.id || '').trim() === String(appointmentData?.professional || '').trim())
+          : null;
+        if (selectedProfessional?.name) {
+          targetProfessionalNameNorm = normalizeText(selectedProfessional.name);
+        }
+
+        const { data: sameDayAppointments, error: sameDayAppointmentsError } = await supabase
+          .from('appointments')
+          .select('id, appointment_time, duration, status, professional')
+          .eq('establishment_id', establishment.id)
+          .eq('appointment_date', targetDate)
+          .neq('status', 'cancelled');
+
+        if (sameDayAppointmentsError) {
+          throw sameDayAppointmentsError;
+        }
+
+        const hasConflict = (sameDayAppointments || []).some((existing: any) => {
+          const existingProfessionalNorm = normalizeText(existing?.professional);
+          const sameProfessional =
+            (targetProfessionalRefNorm.length > 0 && existingProfessionalNorm === targetProfessionalRefNorm) ||
+            (targetProfessionalNameNorm.length > 0 && existingProfessionalNorm === targetProfessionalNameNorm);
+          if (!sameProfessional) return false;
+
+          const existingStart = toMinutes(normalizeTimeHHmm(existing?.appointment_time));
+          const existingDuration = parseDurationMinutes(existing?.duration);
+          const existingEnd = existingStart + existingDuration;
+          return !(targetEnd <= existingStart || targetStart >= existingEnd);
+        });
+
+        if (hasConflict) {
+          toast.error('Esse horário acabou de ser ocupado. Escolha outro horário.');
+          await fetchExistingAppointments();
+          return;
+        }
+      }
+
       console.log('💳 DEBUG - BookingPage/handleSubmit pagamento:', {
         exigirPagamentoAntecipado,
         exigirPagamentoAntecipadoMercadoPago,
@@ -1892,26 +1982,49 @@ export default function BookingPage() {
 
 
   const handleAgendarClick = () => {
-    if (id === '3814' || id === '3315') {
+    const isChatEnabled = Boolean((establishment as any)?.booking_chat_enabled ?? true);
+
+    if ((id === '3814' || id === '3315') && !isChatEnabled) {
+      setUseLegacyBookingFlow(true);
       setShowBookingForm(true);
       safeSessionSet(QUICK_BOOKING_FLOW_KEY, 'form');
       return;
     }
 
-    // NOVO FLUXO: Sempre usar modal de agendamento rápido (sem login)
+    if (isChatEnabled) {
+      setUseLegacyBookingFlow(false);
+      setShowBookingForm(true);
+      safeSessionSet(QUICK_BOOKING_FLOW_KEY, 'form');
+      return;
+    }
+
+    // Fluxo legado: modal rápido para coletar nome/telefone
     setShowQuickBookingModal(true);
     safeSessionSet(QUICK_BOOKING_FLOW_KEY, 'modal');
   };
 
-  // Função para continuar após preencher nome e telefone
-  const handleContinueQuickBooking = (name: string, phone: string) => {
+  const persistGuestClientData = (name: string, phone: string) => {
     setGuestClientData({ name, phone });
-    setShowQuickBookingModal(false);
-    setShowBookingForm(true);
-
     safeSessionSet(QUICK_BOOKING_FLOW_KEY, 'form');
     safeSessionSet(QUICK_BOOKING_DATA_KEY, JSON.stringify({ name, phone }));
   };
+
+  // Função para continuar após preencher nome e telefone
+  const handleContinueQuickBooking = (name: string, phone: string) => {
+    persistGuestClientData(name, phone);
+    setShowQuickBookingModal(false);
+    setShowBookingForm(true);
+    setUseLegacyBookingFlow(!Boolean((establishment as any)?.booking_chat_enabled ?? true));
+  };
+
+  useEffect(() => {
+    if (!showBookingForm) return;
+    const enabled = Boolean((establishment as any)?.booking_chat_enabled ?? true);
+    if (enabled) return;
+    if (!useLegacyBookingFlow) {
+      setUseLegacyBookingFlow(true);
+    }
+  }, [establishment, showBookingForm, useLegacyBookingFlow]);
 
   const normalizePhoneDigits = (phone: string) => String(phone || '').replace(/\D/g, '');
   const normalizeWhatsappForStorage = (input: string): string => {
@@ -2492,6 +2605,22 @@ export default function BookingPage() {
     open2: null,
     close2: null
   } : null;
+
+  const bookingRequireAdvancePayment = (() => {
+    const hasPagarMe = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
+    const exigirPagarMe = (establishment as any)?.exigir_pagamento_antecipado === true;
+    const hasMercadoPago = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+    const exigirMercadoPago = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
+    const usarMercadoPago = hasMercadoPago && exigirMercadoPago;
+    const usarPagarMe = hasPagarMe && exigirPagarMe;
+    const algumGatewayExigePagamento = usarMercadoPago || usarPagarMe;
+    if (!algumGatewayExigePagamento) return false;
+    const pagamentoAdiantadoOpcional = usarMercadoPago
+      ? (establishment as any)?.pagamento_adiantado_opcional_mercadopago === true
+      : (establishment as any)?.pagamento_adiantado_opcional === true;
+    return algumGatewayExigePagamento && !pagamentoAdiantadoOpcional;
+  })();
+  const bookingChatEnabled = Boolean((establishment as any)?.booking_chat_enabled ?? true);
 
   return (
     <div
@@ -3780,53 +3909,53 @@ export default function BookingPage() {
               ref={bookingFormRef}
               className="rounded-2xl border border-white/10 bg-white/5 shadow-[0_20px_60px_rgba(0,0,0,0.45)] p-6 text-white"
             >
-              <h2 className="text-xl font-extrabold mb-4 text-white">Fazer Agendamento</h2>
-              <AppointmentForm
-                establishment={establishment}
-                onSubmit={handleSubmit}
-                selectedDate={selectedDate}
-                onSelectDate={setSelectedDate}
-                existingAppointments={existingAppointments}
-                requireAdvancePayment={(() => {
-                  // Verificar Pagar.me
-                  const hasPagarMe = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
-                  const exigirPagarMe = (establishment as any)?.exigir_pagamento_antecipado === true;
-
-                  // Verificar Mercado Pago
-                  const hasMercadoPago = !!String((establishment as any)?.mercadopago_access_token || '').trim();
-                  const exigirMercadoPago = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
-
-                  // ✅ CORRIGIDO: Cada gateway funciona INDEPENDENTE do outro
-                  // Se Mercado Pago está configurado para exigir → ativar
-                  // Se Pagar.me está configurado para exigir → ativar
-                  const usarMercadoPago = hasMercadoPago && exigirMercadoPago;
-                  const usarPagarMe = hasPagarMe && exigirPagarMe;
-
-                  // Se QUALQUER um estiver configurado para exigir pagamento, ativar
-                  const algumGatewayExigePagamento = usarMercadoPago || usarPagarMe;
-
-                  if (!algumGatewayExigePagamento) {
-                    return false; // Nenhum gateway exige pagamento
-                  }
-
-                  // ✅ CORRIGIDO: Remover dependência de pagamento_adiantado_liberado_admin
-                  // Cada gateway funciona independente - se está configurado para exigir, funciona
-                  // Verificar se é opcional (depende de qual gateway está sendo usado)
-                  const pagamentoAdiantadoOpcional = usarMercadoPago
-                    ? (establishment as any)?.pagamento_adiantado_opcional_mercadopago === true
-                    : (establishment as any)?.pagamento_adiantado_opcional === true;
-
-                  // Se algum gateway exige E não é opcional → precisa pagamento
-                  const precisaPagamento = algumGatewayExigePagamento && !pagamentoAdiantadoOpcional;
-
-                  return precisaPagamento;
-                })()}
-                onConvertToSubscriber={handleConvertToSubscriber}
-                onOpenRenewSubscription={handleOpenRenewSubscription}
-                subscriberDetectionDisabled={subscriberDetectionDisabled}
-                onSubscriberDetectionDisabledChange={setSubscriberDetectionDisabled}
-                guestClientData={guestClientData}
-              />
+              {(useLegacyBookingFlow || !bookingChatEnabled) ? (
+                <>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-extrabold text-white">Fazer Agendamento</h2>
+                    {bookingChatEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => setUseLegacyBookingFlow(false)}
+                        className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-semibold"
+                      >
+                        Usar chat guiado
+                      </button>
+                    )}
+                  </div>
+                  <AppointmentForm
+                    establishment={establishment}
+                    onSubmit={handleSubmit}
+                    selectedDate={selectedDate}
+                    onSelectDate={setSelectedDate}
+                    existingAppointments={existingAppointments}
+                    requireAdvancePayment={bookingRequireAdvancePayment}
+                    onConvertToSubscriber={handleConvertToSubscriber}
+                    onOpenRenewSubscription={handleOpenRenewSubscription}
+                    subscriberDetectionDisabled={subscriberDetectionDisabled}
+                    onSubscriberDetectionDisabledChange={setSubscriberDetectionDisabled}
+                    guestClientData={guestClientData}
+                  />
+                </>
+              ) : (
+                <BookingChatFlow
+                  establishment={establishment}
+                  guestClientData={guestClientData}
+                  onGuestClientDataCollected={persistGuestClientData}
+                  onCloseChat={() => {
+                    setShowBookingForm(false);
+                    safeSessionRemove(QUICK_BOOKING_FLOW_KEY);
+                    safeSessionRemove(QUICK_BOOKING_DATA_KEY);
+                  }}
+                  existingAppointments={existingAppointments}
+                  selectedDate={selectedDate}
+                  onSelectDate={setSelectedDate}
+                  onSubmit={handleSubmit}
+                  requireAdvancePayment={bookingRequireAdvancePayment}
+                  subscriberServices={subscriberServicesForBooking}
+                  subscriberExtraServiceCategories={subscriberExtraServiceCategories}
+                />
+              )}
             </div>
           )}
 

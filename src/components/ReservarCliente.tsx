@@ -141,6 +141,18 @@ export default function ReservarCliente({
       .trim();
   };
 
+  const normalizeTimeHHmm = (rawTime: any): string => {
+    const value = String(rawTime || '').trim();
+    if (!value) return '00:00';
+    const [h = '00', m = '00'] = value.split(':');
+    return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+  };
+
+  const parseDurationMinutes = (rawDuration: any): number => {
+    const parsed = Number(rawDuration);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+  };
+
   const parseExcludedProfessionalIds = (raw: any): string[] => {
     if (!Array.isArray(raw)) return [];
     return raw
@@ -863,9 +875,15 @@ export default function ReservarCliente({
         console.log('🔍 DEBUG - Intervalo de horários:', interval, 'minutos');
 
         // Agendamentos do profissional para incluir horário de término como slot (ex: 14:50)
-        const professionalAppointments = appointments?.filter(
-          a => a.professional === selectedProfessional?.id
-        ) || [];
+        const selectedProfessionalIdNorm = normalizeText(selectedProfessional?.id);
+        const selectedProfessionalNameNorm = normalizeText(selectedProfessional?.name);
+        const professionalAppointments = (appointments || []).filter((a: any) => {
+          const appointmentProfessionalNorm = normalizeText(a?.professional);
+          if (!appointmentProfessionalNorm) return false;
+          const matchById = selectedProfessionalIdNorm.length > 0 && appointmentProfessionalNorm === selectedProfessionalIdNorm;
+          const matchByName = selectedProfessionalNameNorm.length > 0 && appointmentProfessionalNorm === selectedProfessionalNameNorm;
+          return matchById || matchByName;
+        });
 
         const buildPeriodSlotMinutes = (periodStart: number, periodEnd: number) => {
           const candidate = new Set<number>();
@@ -874,7 +892,9 @@ export default function ReservarCliente({
           // (ex.: 09:00 + 30min => abre 09:30), inclusive em grade de 1h.
           if (!closedTimeEnabledProp) {
             professionalAppointments.forEach((apt) => {
-              const aptEndMins = timeToMinutes(apt.appointment_time) + (apt.duration || 30);
+              const aptStartTime = normalizeTimeHHmm(apt?.appointment_time);
+              const aptDurationMins = parseDurationMinutes(apt?.duration);
+              const aptEndMins = timeToMinutes(aptStartTime) + aptDurationMins;
               if (aptEndMins >= periodStart && aptEndMins < periodEnd) candidate.add(aptEndMins);
             });
           }
@@ -909,8 +929,10 @@ export default function ReservarCliente({
 
             if (appointments) {
               for (const appointment of professionalAppointments) {
-                const apptStart = new Date(`${selectedDate}T${appointment.appointment_time}:00`);
-                const apptEnd = new Date(apptStart.getTime() + (appointment.duration || 30) * 60000);
+                const normalizedAppointmentStartTime = normalizeTimeHHmm(appointment?.appointment_time);
+                const appointmentDuration = parseDurationMinutes(appointment?.duration);
+                const apptStart = new Date(`${selectedDate}T${normalizedAppointmentStartTime}:00`);
+                const apptEnd = new Date(apptStart.getTime() + appointmentDuration * 60000);
 
                 // Verificar sobreposição
                 const hasOverlap = (slotStart < apptEnd && slotEnd > apptStart);
@@ -920,9 +942,9 @@ export default function ReservarCliente({
                   isAvulso = appointment.is_avulso || false;
                   reason = isAvulso ? 'RESERVA AVULSA' : 'Horário Reservado';
 
-                  if (time === appointment.appointment_time) {
+                  if (time === normalizedAppointmentStartTime) {
                     appointmentId = appointment.id;
-                    appointmentStartTime = appointment.appointment_time;
+                    appointmentStartTime = normalizedAppointmentStartTime;
                   }
                 }
               }
@@ -965,8 +987,10 @@ export default function ReservarCliente({
 
             if (appointments) {
               for (const appointment of professionalAppointments) {
-                const apptStart = new Date(`${selectedDate}T${appointment.appointment_time}:00`);
-                const apptEnd = new Date(apptStart.getTime() + (appointment.duration || 30) * 60000);
+                const normalizedAppointmentStartTime = normalizeTimeHHmm(appointment?.appointment_time);
+                const appointmentDuration = parseDurationMinutes(appointment?.duration);
+                const apptStart = new Date(`${selectedDate}T${normalizedAppointmentStartTime}:00`);
+                const apptEnd = new Date(apptStart.getTime() + appointmentDuration * 60000);
 
                 const hasOverlap = (slotStart < apptEnd && slotEnd > apptStart);
 
@@ -975,9 +999,9 @@ export default function ReservarCliente({
                   isAvulso = appointment.is_avulso || false;
                   reason = isAvulso ? 'RESERVA AVULSA' : 'Horário Reservado';
 
-                  if (time === appointment.appointment_time) {
+                  if (time === normalizedAppointmentStartTime) {
                     appointmentId = appointment.id;
-                    appointmentStartTime = appointment.appointment_time;
+                    appointmentStartTime = normalizedAppointmentStartTime;
                   }
                 }
               }

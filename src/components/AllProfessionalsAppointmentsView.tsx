@@ -73,6 +73,8 @@ interface Appointment {
   is_child_service?: boolean;
   is_avulso?: boolean;
   is_squeeze?: boolean; // Indica se é um encaixe
+  created_at?: string;
+  is_establishment_booking?: boolean;
 }
 
 interface ServiceSubcategoryLabel {
@@ -219,6 +221,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [monthPendingAppointments, setMonthPendingAppointments] = useState<Appointment[]>([]);
     const [isLoadingMonthPending, setIsLoadingMonthPending] = useState(false);
     const [monthPendingFilterDate, setMonthPendingFilterDate] = useState('');
+    const [showCancelledHistoryModal, setShowCancelledHistoryModal] = useState(false);
+    const [cancelledHistoryRows, setCancelledHistoryRows] = useState<Appointment[]>([]);
+    const [cancelledHistoryProfessionalName, setCancelledHistoryProfessionalName] = useState('');
+    const [cancelledHistoryDate, setCancelledHistoryDate] = useState('');
     const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
     const [editingValue, setEditingValue] = useState<string>('');
     const [editingAvulsoNameId, setEditingAvulsoNameId] = useState<string | null>(null);
@@ -786,6 +792,22 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
     };
 
+    const getAppointmentOriginLabel = (apt: Appointment): string => {
+      const isInternalByFlag = Boolean((apt as any)?.is_establishment_booking === true);
+      const isAvulsoLike = Boolean(apt.is_avulso) || Boolean(apt.is_squeeze);
+      const ownerCreated = String(apt.client_id || '').trim() !== '' && String(apt.client_id || '').trim() === String(user?.id || '').trim();
+
+      if (isInternalByFlag || isAvulsoLike || ownerCreated) {
+        return 'Interno (criado dentro da barbearia)';
+      }
+
+      if (String(apt.client_id || '').trim()) {
+        return 'Cliente (booking externo)';
+      }
+
+      return 'Origem não identificada (legado)';
+    };
+
     const handleOpenAppointmentHistoryModal = async (apt: Appointment) => {
       const establishmentId = String(establishment?.id || '').trim();
       if (!establishmentId || !apt?.id) {
@@ -1123,10 +1145,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
         // Buscar config da assinatura (já veio no loadSubscriberOptions)
         const subCfg: any = (selectedSub as any)?.subscription || null;
-        const baseFixed = Number(subCfg?.fixed_commission_value || 0);
-        if (!Number.isFinite(baseFixed) || baseFixed <= 0) {
-          toast('Essa assinatura está sem repasse configurado. Edite a assinatura e defina a % de repasse.', 'error');
-          return;
+        const subscriptionValue = Number(subCfg?.value || 0);
+        const fallbackFromAppointmentPrice = Number((apt as any)?.price || 0);
+        const configuredFixed = Number(subCfg?.fixed_commission_value || 0);
+        // Compatibilidade: se a assinatura não tiver repasse configurado, considera 100% do valor.
+        // Se o valor estiver explicitamente 0, respeita 0.
+        const baseFixed = Number.isFinite(configuredFixed) && configuredFixed > 0
+          ? configuredFixed
+          : Number.isFinite(subscriptionValue) && subscriptionValue > 0
+            ? subscriptionValue
+            : Number.isFinite(fallbackFromAppointmentPrice) && fallbackFromAppointmentPrice > 0
+              ? fallbackFromAppointmentPrice
+              : 0;
+        if ((!(Number.isFinite(configuredFixed) && configuredFixed > 0)) && baseFixed > 0) {
+          toast('Repasse não configurado nesta assinatura. Calculando automaticamente como 100% do valor da assinatura.', 'warning');
         }
 
         // Comissão de venda (se existir) => atendimentos saem do valor restante
@@ -3602,6 +3634,75 @@ export const AllProfessionalsAppointmentsView: React.FC<
         )}
 
 
+        {showCancelledHistoryModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowCancelledHistoryModal(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-gradient-to-r from-red-700 to-red-800 text-white p-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-bold">❌ Histórico de cancelados</h2>
+                  <p className="text-xs text-red-100">
+                    {cancelledHistoryProfessionalName || 'Profissional'} • {String(cancelledHistoryDate || '').split('-').reverse().join('/')}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowCancelledHistoryModal(false)}
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-4 max-h-[70vh] overflow-y-auto">
+                {cancelledHistoryRows.length === 0 ? (
+                  <div className="py-8 text-center text-gray-600">
+                    Nenhum agendamento cancelado nesse dia para este profissional.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {cancelledHistoryRows.map((apt) => (
+                      <div key={`cancelled-history-${apt.id}`} className="rounded-lg border border-red-200 p-3 bg-red-50">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-extrabold text-gray-900 truncate">
+                              {String(getDisplayedClientName(apt) || apt.client_name || 'Cliente')}
+                            </div>
+                            <div className="text-xs text-gray-700 truncate">{String(apt.service || 'Serviço não informado')}</div>
+                            <div className="text-[11px] text-gray-700 mt-1">
+                              Data: {String(apt.appointment_date || '').slice(0, 10).split('-').reverse().join('/')} • Horário: {String(apt.appointment_time || '--:--')}
+                            </div>
+                            <div className="text-[11px] text-gray-700">
+                              Duração: {formatDuration(getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos))}
+                            </div>
+                            {apt.client_whatsapp && (
+                              <div className="text-[11px] text-gray-700">
+                                WhatsApp: {apt.client_whatsapp}
+                              </div>
+                            )}
+                            {apt.payment_method && (
+                              <div className="text-[11px] text-gray-700">
+                                Forma de PG: {String(apt.payment_method)}
+                              </div>
+                            )}
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <div className="text-[11px] font-bold text-red-700">CANCELADO</div>
+                            <div className="text-xs text-gray-700">
+                              Base: {formatCurrency(Number(apt.price || 0))}
+                            </div>
+                            <div className="text-xs font-semibold text-gray-900">
+                              Total: {formatCurrency(calculateTotalPrice(apt))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Layout Horizontal Scrollável - MOBILE E DESKTOP */}
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <style>{`
@@ -3657,11 +3758,18 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   apt.status === 'completed'
                 ).length;
 
-                const cancelledCount = appointments.filter((apt) =>
-                  appointmentBelongsToProfessionalColumn(apt, professional) &&
-                  apt.appointment_date === selectedDateStr &&
-                  apt.status === 'cancelled'
-                ).length;
+                const cancelledAppointments = appointments
+                  .filter((apt) =>
+                    appointmentBelongsToProfessionalColumn(apt, professional) &&
+                    apt.appointment_date === selectedDateStr &&
+                    apt.status === 'cancelled'
+                  )
+                  .sort((a, b) =>
+                    parse(a.appointment_time, 'HH:mm', selectedDate).getTime() -
+                    parse(b.appointment_time, 'HH:mm', selectedDate).getTime()
+                  );
+
+                const cancelledCount = cancelledAppointments.length;
 
                 const hiddenOpen =
                   hiddenAppointments.length > 0 &&
@@ -3822,9 +3930,19 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
                         {/* Contadores de Status por Profissional */}
                         <div className="mt-2 flex gap-1 text-xs">
-                          <span className="px-2 py-1 bg-red-600/80 text-white rounded border border-red-700">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCancelledHistoryRows(cancelledAppointments);
+                              setCancelledHistoryProfessionalName(professional.name);
+                              setCancelledHistoryDate(selectedDateStr);
+                              setShowCancelledHistoryModal(true);
+                            }}
+                            className="px-2 py-1 bg-red-600/80 text-white rounded border border-red-700 hover:bg-red-700 transition-colors"
+                            title="Ver histórico de cancelados deste profissional no dia"
+                          >
                             ❌ {cancelledCount}
-                          </span>
+                          </button>
                           <span className="px-2 py-1 bg-yellow-600/80 text-white rounded border border-yellow-700">
                             ⏳ {pendingCount}
                           </span>
@@ -4879,6 +4997,52 @@ export const AllProfessionalsAppointmentsView: React.FC<
               </div>
 
               <div className="p-4 max-h-[70vh] overflow-y-auto space-y-3">
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <div className="text-xs font-extrabold text-gray-800 mb-2">Resumo do agendamento</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-700">
+                    <div>
+                      <span className="font-semibold">Cliente:</span>{' '}
+                      {String(getDisplayedClientName(selectedAppointmentForHistory) || selectedAppointmentForHistory.client_name || 'Cliente')}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Profissional:</span>{' '}
+                      {getProfessionalName(String(selectedAppointmentForHistory.professional || ''))}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Agendado para:</span>{' '}
+                      {String(selectedAppointmentForHistory.appointment_date || '').slice(0, 10).split('-').reverse().join('/')} às {String(selectedAppointmentForHistory.appointment_time || '--:--')}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Criado em:</span>{' '}
+                      {(() => {
+                        const createdRaw = String((selectedAppointmentForHistory as any)?.created_at || '').trim();
+                        if (!createdRaw) return 'Não disponível';
+                        try {
+                          return format(parseISO(createdRaw), 'dd/MM/yyyy HH:mm');
+                        } catch {
+                          return createdRaw;
+                        }
+                      })()}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Origem:</span>{' '}
+                      {getAppointmentOriginLabel(selectedAppointmentForHistory)}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Tipo:</span>{' '}
+                      {selectedAppointmentForHistory.is_subscriber ? 'Assinante' : selectedAppointmentForHistory.is_avulso ? 'Avulso' : 'Normal'}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Serviço:</span>{' '}
+                      {String(selectedAppointmentForHistory.service || 'Não informado')}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Valor:</span>{' '}
+                      {formatCurrency(calculateTotalPrice(selectedAppointmentForHistory))}
+                    </div>
+                  </div>
+                </div>
+
                 {isLoadingAppointmentHistory ? (
                   <div className="text-sm text-gray-600">Carregando histórico...</div>
                 ) : appointmentHistoryRows.length === 0 ? (

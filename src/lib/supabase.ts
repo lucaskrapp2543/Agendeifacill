@@ -743,13 +743,31 @@ export const createAppointment = async (appointmentData: any) => {
     // VALIDAÇÃO DUPLA: Verificar conflitos antes de criar
     console.log('🔍 Verificando conflitos antes de criar agendamento...');
 
-    // Buscar agendamentos existentes no mesmo dia e profissional (com retry)
+    const normalizeText = (raw: any): string =>
+      String(raw || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+
+    const normalizeTimeHHmm = (rawTime: any): string => {
+      const value = String(rawTime || '').trim();
+      if (!value) return '00:00';
+      const [h = '00', m = '00'] = value.split(':');
+      return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+    };
+
+    const parseDurationMinutes = (rawDuration: any): number => {
+      const parsed = Number(rawDuration);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+    };
+
+    // Buscar agendamentos existentes no mesmo dia (com retry)
     const { data: existingAppointments, error: fetchError } = await retryRequest(async () => {
       return await supabase
         .from('appointments')
-        .select('appointment_time, duration, status')
+        .select('appointment_time, duration, status, professional')
         .eq('appointment_date', appointmentData.appointment_date)
-        .eq('professional', appointmentData.professional)
         .eq('establishment_id', appointmentData.establishment_id)
         .neq('status', 'cancelled');
     });
@@ -762,13 +780,46 @@ export const createAppointment = async (appointmentData: any) => {
     console.log('📋 Agendamentos existentes encontrados:', existingAppointments);
 
     // Verificar conflitos
-    const newStartMinutes = timeToMinutes(appointmentData.appointment_time);
-    const newDurationMinutes = Math.max(1, Math.round(Number(appointmentData?.duration || 30)));
+    const newStartMinutes = timeToMinutes(normalizeTimeHHmm(appointmentData.appointment_time));
+    const newDurationMinutes = parseDurationMinutes(appointmentData?.duration);
     const newEndMinutes = newStartMinutes + newDurationMinutes;
 
+    // Compatibilidade com base legada:
+    // alguns registros antigos guardam profissional por NOME em vez de ID.
+    const selectedProfessionalRefNorm = normalizeText(appointmentData?.professional);
+    let selectedProfessionalNameNorm = normalizeText(appointmentData?.professional_name);
+    if (!selectedProfessionalNameNorm && appointmentData?.establishment_id && selectedProfessionalRefNorm) {
+      try {
+        const { data: establishmentData } = await retryRequest(async () => {
+          return await supabase
+            .from('establishments')
+            .select('professionals')
+            .eq('id', appointmentData.establishment_id)
+            .maybeSingle();
+        });
+        const professionals = Array.isArray((establishmentData as any)?.professionals)
+          ? (establishmentData as any).professionals
+          : [];
+        const selectedProfessional = professionals.find((professional: any) => {
+          const idNorm = normalizeText(professional?.id);
+          return idNorm && idNorm === selectedProfessionalRefNorm;
+        });
+        selectedProfessionalNameNorm = normalizeText(selectedProfessional?.name);
+      } catch (professionalLookupError) {
+        console.warn('⚠️ Falha ao resolver nome do profissional para validação de conflito:', professionalLookupError);
+      }
+    }
+
     for (const existing of existingAppointments || []) {
-      const existingStartMinutes = timeToMinutes(existing.appointment_time);
-      const existingEndMinutes = existingStartMinutes + existing.duration;
+      const existingProfessionalNorm = normalizeText((existing as any)?.professional);
+      const sameProfessional =
+        (selectedProfessionalRefNorm.length > 0 && existingProfessionalNorm === selectedProfessionalRefNorm) ||
+        (selectedProfessionalNameNorm.length > 0 && existingProfessionalNorm === selectedProfessionalNameNorm);
+      if (!sameProfessional) continue;
+
+      const existingStartMinutes = timeToMinutes(normalizeTimeHHmm((existing as any)?.appointment_time));
+      const existingDurationMinutes = parseDurationMinutes((existing as any)?.duration);
+      const existingEndMinutes = existingStartMinutes + existingDurationMinutes;
 
       // Verificar sobreposição
       const hasConflict = !(newEndMinutes <= existingStartMinutes || newStartMinutes >= existingEndMinutes);

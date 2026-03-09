@@ -148,6 +148,7 @@ interface Establishment {
   booking_min_advance_minutes?: number;
   limit_client_pending_booking?: boolean;
   closed_time_enabled?: boolean;
+  booking_chat_enabled?: boolean;
   show_best_of_brazil_image?: boolean;
   payment_methods_enabled?: string[];
   plan_prata_active?: boolean; // ✅ ativado via botão PRATA no Admin (limites de recursos)
@@ -2845,6 +2846,7 @@ const EstablishmentDashboard = () => {
   const [limitClientPendingBooking, setLimitClientPendingBooking] = useState<boolean>(false);
   // Tempo fechado: mantém horários presos ao grid de exibição
   const [closedTimeEnabled, setClosedTimeEnabled] = useState<boolean>(false);
+  const [bookingChatEnabled, setBookingChatEnabled] = useState<boolean>(true);
 
   // Lembrete para descer e salvar configuracoes manuais da pagina
   const [showSettingsSaveReminder, setShowSettingsSaveReminder] = useState(false);
@@ -9006,6 +9008,7 @@ Estamos te aguardando! 😎✂️`;
         setLimitClientPendingBooking(Boolean((establishmentData as any).limit_client_pending_booking ?? false));
         // Carrega configuração de tempo fechado (fallback: desativado)
         setClosedTimeEnabled(Boolean((establishmentData as any).closed_time_enabled ?? false));
+        setBookingChatEnabled(Boolean((establishmentData as any).booking_chat_enabled ?? true));
 
         // Carrega a configuração da imagem "Melhor do Brasil"
         setShowBestOfBrazilImage(establishmentData.show_best_of_brazil_image ?? true);
@@ -14932,7 +14935,7 @@ Estamos te aguardando! 😎✂️`;
   ]);
 
   // ✅ Auto-save para Configuração de Horários
-  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceMinutes?: number; limitClientPendingBooking?: boolean; closedTimeEnabled?: boolean; showBestOfBrazilImage?: boolean }) => {
+  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceMinutes?: number; limitClientPendingBooking?: boolean; closedTimeEnabled?: boolean; showBestOfBrazilImage?: boolean; bookingChatEnabled?: boolean }) => {
     if (!establishment?.id) return;
 
     const configToSave = {
@@ -14942,7 +14945,8 @@ Estamos te aguardando! 😎✂️`;
       bookingMinAdvanceMinutes: config?.bookingMinAdvanceMinutes ?? bookingMinAdvanceMinutes,
       limitClientPendingBooking: config?.limitClientPendingBooking ?? limitClientPendingBooking,
       closedTimeEnabled: config?.closedTimeEnabled ?? closedTimeEnabled,
-      showBestOfBrazilImage: config?.showBestOfBrazilImage ?? showBestOfBrazilImage
+      showBestOfBrazilImage: config?.showBestOfBrazilImage ?? showBestOfBrazilImage,
+      bookingChatEnabled: config?.bookingChatEnabled ?? bookingChatEnabled,
     };
     const bookingMinAdvanceHoursCompatibility =
       configToSave.bookingMinAdvanceMinutes > 0
@@ -14958,7 +14962,8 @@ Estamos te aguardando! 😎✂️`;
         booking_min_advance_minutes: configToSave.bookingMinAdvanceMinutes,
         limit_client_pending_booking: configToSave.limitClientPendingBooking,
         closed_time_enabled: configToSave.closedTimeEnabled,
-        show_best_of_brazil_image: configToSave.showBestOfBrazilImage
+        show_best_of_brazil_image: configToSave.showBestOfBrazilImage,
+        booking_chat_enabled: configToSave.bookingChatEnabled,
       };
 
       const runScheduleUpdate = async (payload: Record<string, any>) =>
@@ -14978,6 +14983,7 @@ Estamos te aguardando! 😎✂️`;
           'booking_min_advance_hours',
           'limit_client_pending_booking',
           'closed_time_enabled',
+          'booking_chat_enabled',
         ];
         const missingColumns = removableColumns.filter((column) => message.includes(column));
 
@@ -15012,12 +15018,13 @@ Estamos te aguardando! 😎✂️`;
         booking_min_advance_minutes: configToSave.bookingMinAdvanceMinutes,
         limit_client_pending_booking: configToSave.limitClientPendingBooking,
         closed_time_enabled: configToSave.closedTimeEnabled,
-        show_best_of_brazil_image: configToSave.showBestOfBrazilImage
+        show_best_of_brazil_image: configToSave.showBestOfBrazilImage,
+        booking_chat_enabled: configToSave.bookingChatEnabled,
       });
     } catch (error) {
       console.error('❌ Erro ao salvar configuração de horários automaticamente:', error);
     }
-  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceMinutes, limitClientPendingBooking, closedTimeEnabled, showBestOfBrazilImage]);
+  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceMinutes, limitClientPendingBooking, closedTimeEnabled, showBestOfBrazilImage, bookingChatEnabled]);
 
   const notifySettingsNeedManualSave = useCallback((showToastMessage = true) => {
     setShowSettingsSaveReminder(true);
@@ -23390,6 +23397,42 @@ Estamos te aguardando! 😎✂️`;
                             <p className="text-sm text-gray-300 leading-relaxed mt-2">
                               <strong>Marcado</strong> = bloqueia o horário completo do card.<br />
                               <strong>Desmarcado</strong> = libera horário logo após atendimento.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
+                          <input
+                            type="checkbox"
+                            id="bookingChatEnabled"
+                            checked={bookingChatEnabled}
+                            onChange={(e) => {
+                              const newValue = e.target.checked;
+                              setBookingChatEnabled(newValue);
+                              notifySettingsNeedManualSave(true);
+                              if (scheduleConfigAutoSaveTimeoutRef.current) {
+                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                              }
+                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveScheduleConfig({
+                                  bookingChatEnabled: newValue
+                                });
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
+                          />
+                          <div className="flex-1">
+                            <label htmlFor="bookingChatEnabled" className="block text-white font-medium mb-2">
+                              Chat de atendimento
+                            </label>
+                            <p className="text-sm text-gray-400 leading-relaxed">
+                              Ao marcar essa opção, seus clientes irão agendar como se fosse em um chatbot, muito mais simples, rápido e fácil.
+                            </p>
+                            <p className="text-sm text-gray-400 leading-relaxed mt-2">
+                              Feito para clientes que não são muito bons com tecnologia.
+                            </p>
+                            <p className="text-xs text-gray-500 mt-2">
+                              Desativado: o booking abre direto no fluxo antigo.
                             </p>
                           </div>
                         </div>
