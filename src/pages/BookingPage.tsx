@@ -3950,7 +3950,12 @@ export default function BookingPage() {
                   existingAppointments={existingAppointments}
                   selectedDate={selectedDate}
                   onSelectDate={setSelectedDate}
-                  onSubmit={handleSubmit}
+                  onSubmit={async (appointmentData: any) => {
+                    if (bookingRequireAdvancePayment) {
+                      setShowBookingForm(false);
+                    }
+                    await handleSubmit(appointmentData);
+                  }}
                   requireAdvancePayment={bookingRequireAdvancePayment}
                   subscriberServices={subscriberServicesForBooking}
                   subscriberExtraServiceCategories={subscriberExtraServiceCategories}

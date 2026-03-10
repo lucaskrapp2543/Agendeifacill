@@ -690,6 +690,11 @@ export function BookingChatFlow({
                 <div><strong>Data:</strong> {format(selectedDate, 'dd/MM/yyyy')} às {selectedTime || '--:--'}</div>
                 <div><strong>Duração:</strong> {formatDuration(computedSelection.duration)}</div>
                 <div><strong>Valor:</strong> {toMoney(computedSelection.price)}</div>
+                {requireAdvancePayment && !isSubscriberFlow && (
+                  <div className="text-amber-300 font-semibold">
+                    Pagamento antecipado obrigatório: ao confirmar, abrirá a tela de pagamento.
+                  </div>
+                )}
                 {isSubscriberFlow && (
                   <div className="text-emerald-400 font-semibold">Agendamento com assinatura</div>
                 )}
