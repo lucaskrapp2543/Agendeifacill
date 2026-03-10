@@ -1193,13 +1193,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       const percent = Number(String(nextPercentStr || '').replace(',', '.'));
       const professionalName = String(nextProfessional || '').trim();
 
-      // Regras: precisa de profissional e percentual > 0 para salvar
-      if (!professionalName) return;
-
       setIsSavingSaleCommission(true);
       try {
-        // Remover comissão se percentual vazio/0
-        if (!Number.isFinite(percent) || percent <= 0) {
+        // Remover comissão quando:
+        // - profissional é limpo (demissão/troca de vendedor), OU
+        // - percentual vazio/0
+        const shouldRemoveCommission = !professionalName || !Number.isFinite(percent) || percent <= 0;
+        if (shouldRemoveCommission) {
           const { error } = await supabase
             .from('subscription_sale_commissions')
             .delete()
@@ -5290,11 +5290,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       onChange={(e) => {
                         const next = e.target.value;
                         setSaleCommissionProfessional(next);
+                        if (!next) {
+                          // Ao remover o profissional vendedor, limpar percentual e persistir remoção.
+                          setSaleCommissionPercent('');
+                          saveSaleCommissionDebounced(selectedClientForAttendance, '', '');
+                          return;
+                        }
                         saveSaleCommissionDebounced(selectedClientForAttendance, next, saleCommissionPercent);
                       }}
                       className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
                     >
-                      <option value="">Selecione o profissional</option>
+                      <option value="">Sem profissional vendedor</option>
                       {professionals.map((professional) => (
                         <option key={professional.id} value={professional.full_name}>
                           {professional.full_name}

@@ -1,5 +1,5 @@
 import { format } from 'date-fns';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
 import { checkWhatsAppSubscriber as checkLegacySubscriber } from '../lib/supabase';
