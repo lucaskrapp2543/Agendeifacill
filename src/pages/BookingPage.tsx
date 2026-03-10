@@ -903,6 +903,7 @@ export default function BookingPage() {
           .from('service_subcategories')
           .select(`*, service_categories!inner(*)`)
           .eq('is_active', true)
+          .eq('service_categories.is_active', true)
           .eq('service_categories.establishment_id', data.id)
           .order('service_categories(display_order)', { ascending: true })
           .order('display_order', { ascending: true });

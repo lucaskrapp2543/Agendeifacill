@@ -29,6 +29,19 @@ const timeToMinutes = (time: string): number => {
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return 0;
   return hours * 60 + minutes;
 };
+const normalizeSpecificService = (raw: any, fallbackKey: string) => {
+  const name = String(raw?.name || raw?.service_name || '').trim();
+  const price = Number(raw?.price ?? raw?.service_price ?? 0);
+  const duration = Number(raw?.duration ?? raw?.service_duration_minutes ?? 0);
+  const rawId = String(raw?.id || raw?.service_id || '').trim();
+  if (!name || !Number.isFinite(price) || price <= 0) return null;
+  return {
+    id: rawId || `specific-generated-${fallbackKey}`,
+    name,
+    price,
+    duration: Number.isFinite(duration) && duration > 0 ? duration : 30,
+  };
+};
 const formatPhoneChat = (raw: string) => {
   const digits = onlyDigits(raw).slice(0, 11);
   if (digits.length <= 2) return digits;
@@ -111,15 +124,45 @@ export function BookingChatFlow({
   );
 
   const allServices = useMemo(() => {
-    const services = Array.isArray(establishment?.services_with_prices) ? establishment.services_with_prices : [];
-    return services.filter((service: any) => {
+    const generalServices = Array.isArray(establishment?.services_with_prices) ? establishment.services_with_prices : [];
+    const filteredGeneralServices = generalServices.filter((service: any) => {
       const hidden = Boolean(service?.hidden_from_booking ?? service?.oculto_da_reserva);
       if (hidden) return false;
       const excluded = Array.isArray(service?.excluded_professional_ids) ? service.excluded_professional_ids.map((id: any) => String(id)) : [];
       if (selectedProfessionalId && excluded.includes(String(selectedProfessionalId))) return false;
       return true;
     });
-  }, [establishment?.services_with_prices, selectedProfessionalId]);
+
+    const specificRaw = Array.isArray((selectedProfessional as any)?.specific_services)
+      ? (selectedProfessional as any).specific_services
+      : [];
+    const specificServices = specificRaw
+      .map((service: any, index: number) =>
+        normalizeSpecificService(
+          service,
+          `${String(selectedProfessionalId || 'prof')}-${index}-${String(service?.name || service?.service_name || '')}`
+        )
+      )
+      .filter(Boolean)
+      .map((service: any) => ({
+        id: `specific-${service.id}`,
+        name: `${service.name} (${String(selectedProfessional?.name || 'Profissional')})`,
+        price: Number(service.price || 0),
+        duration: Number(service.duration || 30),
+        category_id: 'specific-professional-services',
+        category_name: 'Serviços do Profissional',
+        excluded_professional_ids: [],
+      }));
+
+    const mergedServices = [...filteredGeneralServices, ...specificServices];
+    const dedupedById = new Map<string, any>();
+    mergedServices.forEach((service: any) => {
+      const serviceId = String(service?.id || '').trim();
+      if (!serviceId) return;
+      if (!dedupedById.has(serviceId)) dedupedById.set(serviceId, service);
+    });
+    return Array.from(dedupedById.values());
+  }, [establishment?.services_with_prices, selectedProfessional as any, selectedProfessionalId]);
 
   const groupedServices = useMemo(() => {
     const map = new Map<string, { id: string; name: string; services: any[] }>();
@@ -430,7 +473,21 @@ export function BookingChatFlow({
       .filter(({ professional, availableCount }) => String(professional?.id || '') !== String(selectedProfessionalId) && availableCount > 0)
       .sort((a, b) => b.availableCount - a.availableCount)
       .slice(0, 6);
-  }, [computedSelection?.duration, isSelectedDateAllowedForSubscriber, isSubscriberFlow, professionals, selectedProfessionalId, step]);
+  }, [
+    computedSelection?.duration,
+    existingAppointments,
+    isSelectedDateAllowedForSubscriber,
+    isSubscriberFlow,
+    professionals,
+    selectedDate,
+    selectedDateKey,
+    selectedProfessionalId,
+    step,
+    businessHoursForDate,
+    establishment?.use_15_minute_interval,
+    establishment?.use_20_minute_schedule,
+    establishment?.use_60_minute_schedule,
+  ]);
 
   useEffect(() => {
     setVisibleSlotsCountForSelectedProfessional(null);

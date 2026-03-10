@@ -7362,6 +7362,9 @@ const EstablishmentDashboard = () => {
           percentage: normalizeProfessionalPercentage(localProfessional.percentage ?? dbProfessional.percentage),
           photo_url: (localProfessional as any).photo_url || dbProfessional.photo_url || null,
           whatsapp: localProfessional.whatsapp || dbProfessional.whatsapp || null,
+          hide_gross_in_financial: (localProfessional as any).hide_gross_in_financial !== undefined
+            ? Boolean((localProfessional as any).hide_gross_in_financial)
+            : Boolean((dbProfessional as any).hide_gross_in_financial),
           hidden_from_booking: (localProfessional as any).hidden_from_booking !== undefined
             ? (localProfessional as any).hidden_from_booking
             : (dbProfessional.hidden_from_booking !== undefined ? dbProfessional.hidden_from_booking : false),
@@ -7716,6 +7719,7 @@ const EstablishmentDashboard = () => {
           percentage: normalizeProfessionalPercentage(p.percentage), // Manter o percentual normalizado
           photo_url: (p as any).photo_url, // Preservar a foto do profissional
           whatsapp: p.whatsapp || null, // ✅ PRESERVAR WHATSAPP!
+          hide_gross_in_financial: Boolean((p as any).hide_gross_in_financial), // ✅ PRESERVAR ocultar bruto no financeiro
           specific_services: Array.isArray((p as any).specific_services) ? (p as any).specific_services : [], // ✅ PRESERVAR SERVIÇOS ESPECÍFICOS!
           offers_child_service: p.offers_child_service || false, // PRESERVAR configuração de serviço infantil
           work_hours: p.work_hours || null, // PRESERVAR horários de trabalho personalizados
