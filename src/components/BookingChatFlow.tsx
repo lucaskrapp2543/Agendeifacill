@@ -192,6 +192,39 @@ export function BookingChatFlow({
 
   const businessHoursForDate = useMemo(() => buildBusinessHoursForDate(establishment, selectedDate), [establishment, selectedDate]);
   const selectedDateKey = format(selectedDate, 'yyyy-MM-dd');
+  const filteredExistingAppointments = useMemo(() => {
+    const norm = (value: unknown) => String(value ?? '').trim().toLowerCase();
+    const selectedProfessionalIdNorm = norm(selectedProfessionalId);
+    const selectedProfessionalNameNorm = norm((selectedProfessional as any)?.name);
+    if (!selectedProfessionalIdNorm && !selectedProfessionalNameNorm) return [];
+
+    return (Array.isArray(existingAppointments) ? existingAppointments : []).filter((appointment: any) => {
+      const appointmentDateStr = appointment?.appointment_date == null
+        ? ''
+        : String(appointment.appointment_date).slice(0, 10);
+      if (appointmentDateStr !== selectedDateKey) return false;
+
+      const appointmentProfessionalNorm = norm(appointment?.professional);
+      const appointmentProfessionalIdNorm = norm(appointment?.professional_id);
+      const appointmentProfessionalNameNorm = norm(appointment?.professional_name);
+
+      const matchesById =
+        selectedProfessionalIdNorm.length > 0 &&
+        (
+          appointmentProfessionalNorm === selectedProfessionalIdNorm ||
+          appointmentProfessionalIdNorm === selectedProfessionalIdNorm
+        );
+
+      const matchesByName =
+        selectedProfessionalNameNorm.length > 0 &&
+        (
+          appointmentProfessionalNorm === selectedProfessionalNameNorm ||
+          appointmentProfessionalNameNorm === selectedProfessionalNameNorm
+        );
+
+      return matchesById || matchesByName;
+    });
+  }, [existingAppointments, selectedDateKey, selectedProfessional?.name, selectedProfessionalId]);
   const professionalBlockedHours = useMemo(
     () => ((selectedProfessional as any)?.blocked_hours?.[selectedDateKey] || []),
     [selectedProfessional, selectedDateKey]
@@ -658,7 +691,7 @@ export function BookingChatFlow({
                   <TimeSlotSelector
                     selectedDate={selectedDate}
                     selectedService={effectiveSelectedService}
-                    existingAppointments={existingAppointments}
+                    existingAppointments={filteredExistingAppointments}
                     selectedTime={selectedTime}
                     onTimeSelect={(value) => {
                       setSelectedTime(value);

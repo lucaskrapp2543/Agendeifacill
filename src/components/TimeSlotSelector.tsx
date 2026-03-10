@@ -133,9 +133,22 @@ export function TimeSlotSelector({
     console.log(`🕒 TimeSlotSelector - Dia da semana: ${dayOfWeek}`);
     console.log(`🕒 TimeSlotSelector - Horários personalizados do profissional:`, professionalWorkHours);
 
+    const hasMeaningfulProfessionalSchedule = (() => {
+      if (!professionalWorkHours || typeof professionalWorkHours !== 'object') return false;
+      return Object.values(professionalWorkHours).some((rawDay: any) => {
+        if (!rawDay || typeof rawDay !== 'object') return false;
+        const hasWindow = Boolean(rawDay.entry_time || rawDay.exit_time);
+        const hasBreak = Boolean(rawDay.break_start || rawDay.break_end);
+        const isExplicitlyEnabled = rawDay.enabled === true;
+        return hasWindow || hasBreak || isExplicitlyEnabled;
+      });
+    })();
+
     // ✅ REGRA: se o profissional está marcado como FECHADO nesse dia, NÃO mostrar horários.
-    // Antes estava caindo no horário do estabelecimento e liberando agenda indevidamente.
+    // Porém, só aplicar esse bloqueio quando houver jornada personalizada de fato.
+    // Isso evita "fechar tudo" em profissionais legados com work_hours default (enabled:false em todos os dias).
     if (
+      hasMeaningfulProfessionalSchedule &&
       professionalWorkHours &&
       professionalWorkHours[dayOfWeek] &&
       typeof professionalWorkHours[dayOfWeek].enabled === 'boolean' &&

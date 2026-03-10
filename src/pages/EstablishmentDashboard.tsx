@@ -7909,6 +7909,23 @@ const EstablishmentDashboard = () => {
         );
       }
 
+      // Atualização otimista: remove a sensação de "precisar cancelar duas vezes"
+      // enquanto o recarregamento completo da agenda ainda está acontecendo.
+      setAppointments((prev) =>
+        prev.map((apt) =>
+          String(apt.id) === String(appointmentId)
+            ? { ...apt, status: 'cancelled' as Appointment['status'] }
+            : apt
+        )
+      );
+      setMonthlyAppointments((prev) =>
+        prev.map((apt) =>
+          String(apt.id) === String(appointmentId)
+            ? { ...apt, status: 'cancelled' as Appointment['status'] }
+            : apt
+        )
+      );
+
       await Promise.all([
         fetchAppointments(),
         fetchMonthlyAppointments()
