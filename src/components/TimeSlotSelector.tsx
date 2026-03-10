@@ -1,4 +1,5 @@
 import { format } from 'date-fns';
+import { useEffect } from 'react';
 
 interface Service {
   id: string;
@@ -54,6 +55,7 @@ interface TimeSlotSelectorProps {
       exit_time?: string;
     };
   } | null; // Horários personalizados de trabalho do profissional
+  onVisibleSlotsChange?: (count: number) => void;
 }
 
 export function TimeSlotSelector({
@@ -73,7 +75,8 @@ export function TimeSlotSelector({
   professionalAbsences = [],
   professionalBlockedHours = [],
   hideIntervalSlots = false,
-  professionalWorkHours = null
+  professionalWorkHours = null,
+  onVisibleSlotsChange
 }: TimeSlotSelectorProps) {
   // Função para converter horário HH:mm para minutos totais
   const timeToMinutes = (time: string | null): number => {
@@ -613,6 +616,11 @@ export function TimeSlotSelector({
   const visibleTimeSlots = hideIntervalSlots
     ? timeSlots.filter((slot) => slot.isAvailable)
     : timeSlots;
+
+  useEffect(() => {
+    if (!onVisibleSlotsChange) return;
+    onVisibleSlotsChange(visibleTimeSlots.length);
+  }, [onVisibleSlotsChange, visibleTimeSlots.length]);
 
   if (visibleTimeSlots.length === 0) {
     return (

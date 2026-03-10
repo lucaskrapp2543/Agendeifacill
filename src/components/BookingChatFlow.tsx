@@ -24,6 +24,11 @@ interface BookingChatFlowProps {
 const toMoney = (value: number): string => `R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`;
 const formatDuration = (minutes: number): string => `${Math.max(0, Number(minutes || 0))} min`;
 const onlyDigits = (raw: string) => String(raw || '').replace(/\D/g, '');
+const timeToMinutes = (time: string): number => {
+  const [hours, minutes] = String(time || '00:00').split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return 0;
+  return hours * 60 + minutes;
+};
 const formatPhoneChat = (raw: string) => {
   const digits = onlyDigits(raw).slice(0, 11);
   if (digits.length <= 2) return digits;
@@ -93,6 +98,7 @@ export function BookingChatFlow({
   const [selectedSubscriberServiceId, setSelectedSubscriberServiceId] = useState('');
   const [selectedSubscriberExtraIds, setSelectedSubscriberExtraIds] = useState<string[]>([]);
   const [invalidSubscriberDateMessage, setInvalidSubscriberDateMessage] = useState('');
+  const [visibleSlotsCountForSelectedProfessional, setVisibleSlotsCountForSelectedProfessional] = useState<number | null>(null);
 
   const professionals = useMemo(
     () => (Array.isArray(establishment?.professionals) ? establishment.professionals.filter((p: any) => !p?.hidden_from_booking) : []),
@@ -237,6 +243,198 @@ export function BookingChatFlow({
     () => ((selectedProfessional as any)?.work_hours || null),
     [selectedProfessional]
   );
+  const selectedServiceDuration = Math.max(1, Number(effectiveSelectedService?.duration || 30));
+
+  const getAvailableSlotsCountForProfessional = (professional: any): number => {
+    if (!professional) return 0;
+    if (!businessHoursForDate?.enabled) return 0;
+
+    const interval = Boolean(establishment?.use_60_minute_schedule)
+      ? 60
+      : Boolean(establishment?.use_20_minute_schedule)
+        ? 20
+        : Boolean(establishment?.use_15_minute_interval)
+          ? 30
+          : 15;
+
+    const selectedDateString = selectedDateKey;
+    const dayOfWeek = getWeekdayKey(selectedDate);
+    const normalize = (value: unknown) => String(value ?? '').trim().toLowerCase();
+    const professionalIdNorm = normalize(professional?.id);
+    const professionalNameNorm = normalize(professional?.name);
+
+    const hasMeaningfulProfessionalSchedule = (() => {
+      const rawHours = (professional as any)?.work_hours;
+      if (!rawHours || typeof rawHours !== 'object') return false;
+      return Object.values(rawHours).some((rawDay: any) => {
+        if (!rawDay || typeof rawDay !== 'object') return false;
+        const hasWindow = Boolean(rawDay.entry_time || rawDay.exit_time);
+        const hasBreak = Boolean(rawDay.break_start || rawDay.break_end);
+        const isExplicitlyEnabled = rawDay.enabled === true;
+        return hasWindow || hasBreak || isExplicitlyEnabled;
+      });
+    })();
+
+    const currentWorkDay = (professional as any)?.work_hours?.[dayOfWeek];
+    if (
+      hasMeaningfulProfessionalSchedule &&
+      currentWorkDay &&
+      typeof currentWorkDay.enabled === 'boolean' &&
+      currentWorkDay.enabled === false
+    ) {
+      return 0;
+    }
+
+    let effectiveHours = businessHoursForDate;
+    if (currentWorkDay?.enabled && currentWorkDay?.entry_time && currentWorkDay?.exit_time) {
+      effectiveHours = {
+        enabled: true,
+        open1: String(currentWorkDay.entry_time),
+        close1: String(currentWorkDay.exit_time),
+        open2: null,
+        close2: null,
+      };
+    }
+
+    if (!effectiveHours?.enabled || !effectiveHours?.open1 || !effectiveHours?.close1) return 0;
+
+    const absences = Array.isArray((professional as any)?.absences) ? (professional as any).absences : [];
+    if (absences.includes(selectedDateString)) return 0;
+
+    const blockedHours = ((professional as any)?.blocked_hours?.[selectedDateString] || []) as string[];
+    const isAligned = (step: number) =>
+      blockedHours.every((time) => {
+        const minute = Number(String(time).split(':')[1] ?? NaN);
+        return Number.isFinite(minute) && minute % step === 0;
+      });
+    const blockedSlotDuration = (() => {
+      if (blockedHours.length === 0) return interval;
+      if (Boolean(establishment?.use_60_minute_schedule)) return isAligned(60) ? 60 : 15;
+      if (Boolean(establishment?.use_20_minute_schedule)) return isAligned(20) ? 20 : 15;
+      if (Boolean(establishment?.use_15_minute_interval)) return isAligned(30) ? 30 : 15;
+      return 15;
+    })();
+
+    const relevantAppointments = (Array.isArray(existingAppointments) ? existingAppointments : []).filter((appointment: any) => {
+      const appointmentDateStr = appointment?.appointment_date == null ? '' : String(appointment.appointment_date).slice(0, 10);
+      if (appointmentDateStr !== selectedDateString) return false;
+      if (String(appointment?.status || '').toLowerCase() === 'cancelled') return false;
+
+      const appointmentProfessionalNorm = normalize(appointment?.professional);
+      const appointmentProfessionalIdNorm = normalize(appointment?.professional_id);
+      const appointmentProfessionalNameNorm = normalize(appointment?.professional_name);
+
+      const matchesById =
+        professionalIdNorm.length > 0 &&
+        (appointmentProfessionalNorm === professionalIdNorm || appointmentProfessionalIdNorm === professionalIdNorm);
+      const matchesByName =
+        professionalNameNorm.length > 0 &&
+        (appointmentProfessionalNorm === professionalNameNorm || appointmentProfessionalNameNorm === professionalNameNorm);
+      return matchesById || matchesByName;
+    });
+
+    const getAppointmentDurationMinutes = (appointment: any): number => {
+      const baseDuration = Number(appointment?.duration || 0);
+      const extraDuration = Array.isArray(appointment?.additional_products)
+        ? appointment.additional_products.reduce((sum: number, item: any) => sum + (Number(item?.duration || 0) || 0), 0)
+        : 0;
+      return Math.max(1, baseDuration + extraDuration);
+    };
+
+    const isTimeInPast = (timeString: string): boolean => {
+      const now = new Date();
+      const selectedDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (selectedDay.getTime() < today.getTime()) return true;
+      if (selectedDay.getTime() > today.getTime()) return false;
+      const [hours, minutes] = String(timeString).split(':').map(Number);
+      const slotDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), hours || 0, minutes || 0, 0);
+      return slotDate.getTime() <= now.getTime();
+    };
+
+    const buildPeriodMinutes = (start: number, end: number): number[] => {
+      const period: number[] = [];
+      for (let minute = start; minute < end; minute += interval) period.push(minute);
+      return period;
+    };
+
+    const hasBreakWindow = Boolean(currentWorkDay?.enabled && currentWorkDay?.break_start && currentWorkDay?.break_end);
+    const breakStart = hasBreakWindow ? timeToMinutes(String(currentWorkDay.break_start)) : 0;
+    const breakEnd = hasBreakWindow ? timeToMinutes(String(currentWorkDay.break_end)) : 0;
+
+    const periods: Array<{ start: string; end: string }> = [];
+    if (effectiveHours.open1 && effectiveHours.close1) periods.push({ start: effectiveHours.open1, end: effectiveHours.close1 });
+    if (effectiveHours.open2 && effectiveHours.close2) periods.push({ start: effectiveHours.open2, end: effectiveHours.close2 });
+
+    let availableCount = 0;
+    for (const period of periods) {
+      const periodStart = timeToMinutes(period.start);
+      const periodEnd = timeToMinutes(period.end);
+      const periodMinutes = buildPeriodMinutes(periodStart, periodEnd);
+
+      for (const startMinute of periodMinutes) {
+        const endMinute = startMinute + selectedServiceDuration;
+        if (endMinute >= 24 * 60) continue;
+        if (endMinute > periodEnd) continue;
+
+        const timeString = `${String(Math.floor(startMinute / 60)).padStart(2, '0')}:${String(startMinute % 60).padStart(2, '0')}`;
+        if (isTimeInPast(timeString)) continue;
+
+        let hasConflict = false;
+
+        for (const blockedTime of blockedHours) {
+          const blockedStart = timeToMinutes(blockedTime);
+          const blockedEnd = blockedStart + blockedSlotDuration;
+          const overlapsBlocked = startMinute < blockedEnd && blockedStart < endMinute;
+          if (overlapsBlocked) {
+            hasConflict = true;
+            break;
+          }
+        }
+        if (hasConflict) continue;
+
+        if (hasBreakWindow) {
+          const overlapsBreak = startMinute < breakEnd && breakStart < endMinute;
+          if (overlapsBreak) continue;
+        }
+
+        for (const appointment of relevantAppointments) {
+          const appointmentStart = timeToMinutes(String(appointment?.appointment_time || '00:00'));
+          const appointmentEnd = appointmentStart + getAppointmentDurationMinutes(appointment);
+          const overlapsAppointment = startMinute < appointmentEnd && appointmentStart < endMinute;
+          if (overlapsAppointment) {
+            hasConflict = true;
+            break;
+          }
+        }
+        if (hasConflict) continue;
+
+        availableCount += 1;
+      }
+    }
+
+    return availableCount;
+  };
+
+  const suggestedProfessionalsForDate = useMemo(() => {
+    if (step !== 'datetime') return [] as Array<any>;
+    if (!selectedProfessionalId) return [] as Array<any>;
+    if (!computedSelection?.duration || computedSelection.duration <= 0) return [] as Array<any>;
+    if (isSubscriberFlow && !isSelectedDateAllowedForSubscriber) return [] as Array<any>;
+
+    return professionals
+      .map((professional: any) => ({
+        professional,
+        availableCount: getAvailableSlotsCountForProfessional(professional),
+      }))
+      .filter(({ professional, availableCount }) => String(professional?.id || '') !== String(selectedProfessionalId) && availableCount > 0)
+      .sort((a, b) => b.availableCount - a.availableCount)
+      .slice(0, 6);
+  }, [computedSelection?.duration, isSelectedDateAllowedForSubscriber, isSubscriberFlow, professionals, selectedProfessionalId, step]);
+
+  useEffect(() => {
+    setVisibleSlotsCountForSelectedProfessional(null);
+  }, [selectedProfessionalId, selectedDateKey, computedSelection.duration, step]);
 
   const isPhoneValid = (raw: string) => onlyDigits(raw).length === 11;
 
@@ -688,28 +886,53 @@ export function BookingChatFlow({
                     {invalidSubscriberDateMessage || 'Esse dia não está disponível para sua assinatura. Escolha um dia permitido.'}
                   </div>
                 ) : (
-                  <TimeSlotSelector
-                    selectedDate={selectedDate}
-                    selectedService={effectiveSelectedService}
-                    existingAppointments={filteredExistingAppointments}
-                    selectedTime={selectedTime}
-                    onTimeSelect={(value) => {
-                      setSelectedTime(value);
-                      setInvalidSubscriberDateMessage('');
-                      setStep('confirm');
-                    }}
-                    filterPastTimes={true}
-                    businessHours={businessHoursForDate}
-                    use15MinuteInterval={Boolean(establishment?.use_15_minute_interval)}
-                    use20MinuteSchedule={Boolean(establishment?.use_20_minute_schedule)}
-                    use60MinuteSchedule={Boolean(establishment?.use_60_minute_schedule)}
-                    closedTimeEnabled={Boolean(establishment?.closed_time_enabled)}
-                    selectedProfessional={selectedProfessionalId}
-                    professionalAbsences={professionalAbsences}
-                    professionalBlockedHours={professionalBlockedHours}
-                    professionalWorkHours={professionalWorkHours}
-                    hideIntervalSlots={true}
-                  />
+                  <>
+                    <TimeSlotSelector
+                      selectedDate={selectedDate}
+                      selectedService={effectiveSelectedService}
+                      existingAppointments={filteredExistingAppointments}
+                      selectedTime={selectedTime}
+                      onTimeSelect={(value) => {
+                        setSelectedTime(value);
+                        setInvalidSubscriberDateMessage('');
+                        setStep('confirm');
+                      }}
+                      filterPastTimes={true}
+                      businessHours={businessHoursForDate}
+                      use15MinuteInterval={Boolean(establishment?.use_15_minute_interval)}
+                      use20MinuteSchedule={Boolean(establishment?.use_20_minute_schedule)}
+                      use60MinuteSchedule={Boolean(establishment?.use_60_minute_schedule)}
+                      closedTimeEnabled={Boolean(establishment?.closed_time_enabled)}
+                      selectedProfessional={selectedProfessionalId}
+                      professionalAbsences={professionalAbsences}
+                      professionalBlockedHours={professionalBlockedHours}
+                      professionalWorkHours={professionalWorkHours}
+                      hideIntervalSlots={true}
+                      onVisibleSlotsChange={(count) => setVisibleSlotsCountForSelectedProfessional(count)}
+                    />
+                    {visibleSlotsCountForSelectedProfessional === 0 && suggestedProfessionalsForDate.length > 0 && (
+                      <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-3">
+                        <p className="text-sm text-emerald-200 font-semibold">
+                          Mas temos esses profissionais com essa data disponível:
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {suggestedProfessionalsForDate.map(({ professional, availableCount }) => (
+                            <button
+                              key={`available-professional-${professional.id}`}
+                              type="button"
+                              onClick={() => {
+                                setSelectedProfessionalId(String(professional.id));
+                                setSelectedTime('');
+                              }}
+                              className="px-3 py-1.5 rounded-full text-xs font-semibold border border-emerald-400/40 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-100"
+                            >
+                              {String(professional?.name || 'Profissional')} ({availableCount} horários)
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
