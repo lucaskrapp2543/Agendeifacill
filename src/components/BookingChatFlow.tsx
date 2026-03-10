@@ -192,11 +192,29 @@ export function BookingChatFlow({
     [allServices, selectedServiceIds]
   );
 
-  const subscriberServiceOptions = useMemo(() => (Array.isArray(subscriberServices) ? subscriberServices : []), [subscriberServices]);
+  const subscriberServiceOptions = useMemo(() => {
+    const all = Array.isArray(subscriberServices) ? subscriberServices : [];
+    const detectedPlanId = String(
+      (detectedSubscriber as any)?.subscription_id ||
+      (detectedSubscriber as any)?.subscriptions?.id ||
+      ''
+    ).trim();
+    if (!detectedPlanId) return all;
+    const filtered = all.filter((service: any) => String(service?.id || '').trim() === detectedPlanId);
+    return filtered.length > 0 ? filtered : all;
+  }, [detectedSubscriber, subscriberServices]);
   const selectedSubscriberService = useMemo(
     () => subscriberServiceOptions.find((service: any) => String(service?.id || '') === String(selectedSubscriberServiceId || '')),
     [selectedSubscriberServiceId, subscriberServiceOptions]
   );
+  useEffect(() => {
+    if (!selectedSubscriberServiceId) return;
+    const stillExists = subscriberServiceOptions.some((service: any) => String(service?.id || '') === String(selectedSubscriberServiceId || ''));
+    if (!stillExists) {
+      setSelectedSubscriberServiceId('');
+      setSelectedSubscriberExtraIds([]);
+    }
+  }, [selectedSubscriberServiceId, subscriberServiceOptions]);
 
   const subscriberExtraServicesFlat = useMemo(() => {
     const categories = Array.isArray(subscriberExtraServiceCategories) ? subscriberExtraServiceCategories : [];
