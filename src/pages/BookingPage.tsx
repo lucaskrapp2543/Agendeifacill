@@ -912,9 +912,19 @@ export default function BookingPage() {
           console.warn('⚠️ BookingPage - erro ao buscar serviços por categorias (subcategorias):', subErr);
         } else {
           const isHidden = (o: any) => Boolean(o?.hidden_from_booking ?? o?.oculto_da_reserva);
+          const isActive = (o: any) => o?.is_active !== false;
+          const establishmentIdNorm = String(data?.id || '').trim();
           const visible = (subs || []).filter((s: any) => {
             const cat = (s as any)?.service_categories;
-            return !isHidden(s) && !isHidden(cat);
+            const categoryEstablishmentIdNorm = String((cat as any)?.establishment_id || '').trim();
+            const matchesEstablishment = establishmentIdNorm.length > 0 && categoryEstablishmentIdNorm === establishmentIdNorm;
+            return (
+              matchesEstablishment &&
+              isActive(s) &&
+              isActive(cat) &&
+              !isHidden(s) &&
+              !isHidden(cat)
+            );
           });
 
           servicesFromCategories = visible
@@ -949,6 +959,9 @@ export default function BookingPage() {
 
       const resolvedEstablishment = {
         ...data,
+        legacy_services_with_prices: Array.isArray((data as any)?.services_with_prices)
+          ? (data as any).services_with_prices
+          : [],
         services_with_prices: resolvedServices,
       };
 

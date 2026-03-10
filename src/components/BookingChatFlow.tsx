@@ -124,7 +124,22 @@ export function BookingChatFlow({
   );
 
   const allServices = useMemo(() => {
-    const generalServices = Array.isArray(establishment?.services_with_prices) ? establishment.services_with_prices : [];
+    const legacyServices = Array.isArray((establishment as any)?.legacy_services_with_prices)
+      ? ((establishment as any).legacy_services_with_prices as any[])
+      : [];
+    const resolvedServices = Array.isArray(establishment?.services_with_prices)
+      ? (establishment.services_with_prices as any[])
+      : [];
+    const specificRaw = Array.isArray((selectedProfessional as any)?.specific_services)
+      ? (selectedProfessional as any).specific_services
+      : [];
+    const hasSpecificForSelectedProfessional = specificRaw.length > 0;
+    // Regra definitiva do chat:
+    // Se o profissional possui serviços específicos, mostrar SOMENTE os específicos.
+    // Isso evita mistura de serviços "fantasmas" vindos de fontes gerais/categorias.
+    const generalServices = hasSpecificForSelectedProfessional
+      ? []
+      : (legacyServices.length > 0 ? legacyServices : resolvedServices);
     const filteredGeneralServices = generalServices.filter((service: any) => {
       const hidden = Boolean(service?.hidden_from_booking ?? service?.oculto_da_reserva);
       if (hidden) return false;
@@ -132,10 +147,6 @@ export function BookingChatFlow({
       if (selectedProfessionalId && excluded.includes(String(selectedProfessionalId))) return false;
       return true;
     });
-
-    const specificRaw = Array.isArray((selectedProfessional as any)?.specific_services)
-      ? (selectedProfessional as any).specific_services
-      : [];
     const specificServices = specificRaw
       .map((service: any, index: number) =>
         normalizeSpecificService(
