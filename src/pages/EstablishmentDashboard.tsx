@@ -22136,7 +22136,7 @@ Estamos te aguardando! 😎✂️`;
                         <textarea
                           value={supportKnowledgePassword}
                           onChange={(e) => setSupportKnowledgePassword(e.target.value)}
-                          placeholder="Senha para conhecimento suporte"
+                          placeholder="Sua nova senha"
                           rows={2}
                           className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 resize-none"
                         />
