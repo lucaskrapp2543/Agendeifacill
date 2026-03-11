@@ -2,7 +2,8 @@ import { format } from 'date-fns';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
-import { checkWhatsAppSubscriber as checkLegacySubscriber } from '../lib/supabase';
+import { checkMonthlyServiceLimit, checkWhatsAppSubscriber as checkLegacySubscriber } from '../lib/supabase';
+import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { TimeSlotSelector } from './TimeSlotSelector';
 
 type ChatStep = 'name' | 'phone' | 'subscriberChoice' | 'professional' | 'service' | 'datetime' | 'confirm';
@@ -124,6 +125,27 @@ export function BookingChatFlow({
   const [selectedSubscriberExtraIds, setSelectedSubscriberExtraIds] = useState<string[]>([]);
   const [invalidSubscriberDateMessage, setInvalidSubscriberDateMessage] = useState('');
   const [visibleSlotsCountForSelectedProfessional, setVisibleSlotsCountForSelectedProfessional] = useState<number | null>(null);
+  const [subscriberLimitStatus, setSubscriberLimitStatus] = useState<{
+    isLoading: boolean;
+    canBook: boolean;
+    currentUsage: number;
+    monthlyLimit: number | string;
+    remaining: number | null;
+  }>({
+    isLoading: false,
+    canBook: true,
+    currentUsage: 0,
+    monthlyLimit: 'Ilimitado',
+    remaining: null,
+  });
+  const [subscriberServiceLimitMap, setSubscriberServiceLimitMap] = useState<Record<string, {
+    canBook: boolean;
+    currentUsage: number;
+    monthlyLimit: number | null;
+    remaining: number | null;
+    errorMessage?: string;
+  }>>({});
+  const [isLoadingSubscriberServiceLimits, setIsLoadingSubscriberServiceLimits] = useState(false);
 
   const professionals = useMemo(
     () => (Array.isArray(establishment?.professionals) ? establishment.professionals.filter((p: any) => !p?.hidden_from_booking) : []),
@@ -168,20 +190,32 @@ export function BookingChatFlow({
 
     // Sem específico: seguir o mesmo serviço geral do fluxo antigo.
     const source = resolvedServices.length > 0 ? resolvedServices : legacyServices;
-    return source.map((service: any, index: number) => {
+    const normalized = source.map((service: any, index: number) => {
       const normalizedName = String(service?.name || service?.service_name || '').trim();
       const rawId = String(service?.id || '').trim();
+      const rawDuration = service?.duration ?? service?.service_duration ?? service?.service_duration_minutes;
       return {
         ...service,
         id: rawId || `service-${index}-${normalizedName || 'item'}`,
         name: normalizedName || `Serviço ${index + 1}`,
         price: Number(service?.price || service?.service_price || 0),
-        duration: parseDurationMinutes(
-          service?.duration ?? service?.service_duration ?? service?.service_duration_minutes,
-          30
-        ),
+        duration: parseDurationMinutes(rawDuration, 30),
         __source_index: index,
       };
+    });
+
+    const hasDisplayOrder = normalized.some((service: any) => Number.isFinite(Number(service?.display_order)));
+    if (!hasDisplayOrder) return normalized;
+
+    return [...normalized].sort((a: any, b: any) => {
+      const aOrder = Number(a?.display_order);
+      const bOrder = Number(b?.display_order);
+      const aHas = Number.isFinite(aOrder);
+      const bHas = Number.isFinite(bOrder);
+      if (aHas && bHas && aOrder !== bOrder) return aOrder - bOrder;
+      if (aHas && !bHas) return -1;
+      if (!aHas && bHas) return 1;
+      return Number(a?.__source_index || 0) - Number(b?.__source_index || 0);
     });
   }, [establishment?.legacy_services_with_prices, establishment?.services_with_prices, selectedProfessional, selectedProfessionalId]);
 
@@ -286,6 +320,20 @@ export function BookingChatFlow({
       setSelectedSubscriberServiceIds(next);
     }
   }, [selectedSubscriberServiceIds, subscriberServiceOptions]);
+  useEffect(() => {
+    if (!isSubscriberFlow) return;
+    if (isDividedSubscriberPlan) {
+      const next = selectedSubscriberServiceIds.filter((id) => subscriberServiceLimitMap[String(id)]?.canBook !== false);
+      if (next.length !== selectedSubscriberServiceIds.length) {
+        setSelectedSubscriberServiceIds(next);
+      }
+      return;
+    }
+    if (!selectedSubscriberServiceId) return;
+    if (subscriberServiceLimitMap[String(selectedSubscriberServiceId)]?.canBook === false) {
+      setSelectedSubscriberServiceId('');
+    }
+  }, [isDividedSubscriberPlan, isSubscriberFlow, selectedSubscriberServiceId, selectedSubscriberServiceIds, subscriberServiceLimitMap]);
 
   const subscriberExtraServicesFlat = useMemo(() => {
     const categories = Array.isArray(subscriberExtraServiceCategories) ? subscriberExtraServiceCategories : [];
@@ -648,6 +696,104 @@ export function BookingChatFlow({
     return null;
   };
 
+  const refreshSubscriberLimitStatus = async (phoneRaw: string) => {
+    const establishmentId = String(establishment?.id || establishment?.establishment_id || '').trim();
+    if (!establishmentId) return;
+    try {
+      setSubscriberLimitStatus((prev) => ({ ...prev, isLoading: true }));
+      const limit = await checkMonthlyServiceLimit(phoneRaw, establishmentId);
+      const limitRaw = (limit as any)?.monthlyLimit;
+      const usageRaw = Number((limit as any)?.currentUsage || 0);
+      const numericLimit = Number(limitRaw);
+      const hasNumericLimit = Number.isFinite(numericLimit) && numericLimit > 0;
+      const isUnlimited = String(limitRaw || '').toLowerCase() === 'ilimitado' || !hasNumericLimit;
+      const remaining = isUnlimited ? null : Math.max(0, numericLimit - usageRaw);
+
+      setSubscriberLimitStatus({
+        isLoading: false,
+        canBook: Boolean((limit as any)?.canBook ?? true),
+        currentUsage: usageRaw,
+        monthlyLimit: isUnlimited ? 'Ilimitado' : numericLimit,
+        remaining,
+      });
+    } catch {
+      setSubscriberLimitStatus((prev) => ({ ...prev, isLoading: false }));
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      const phoneRaw = String(chatClientPhone || '').trim();
+      const establishmentId = String(establishment?.id || establishment?.establishment_id || '').trim();
+      const hasSubscriber = Boolean(detectedSubscriber);
+      if (!hasSubscriber || !phoneRaw || !establishmentId || subscriberServiceOptions.length === 0) {
+        setSubscriberServiceLimitMap({});
+        setIsLoadingSubscriberServiceLimits(false);
+        return;
+      }
+
+      setIsLoadingSubscriberServiceLimits(true);
+      try {
+        const entries = await Promise.all(
+          subscriberServiceOptions.map(async (service: any) => {
+            const serviceIdKey = String(service?.id || '').trim();
+            if (!serviceIdKey) return null;
+            const serviceName = String(service?.booking_service_name || service?.name || '').trim();
+            const perServiceLimit = Number((service as any)?.service_limit || 0) || null;
+            const limitCheck = await checkMonthlyLimit(
+              phoneRaw,
+              establishmentId,
+              selectedDate,
+              {
+                id: String((service as any)?.service_id || '').trim() || null,
+                name: serviceName || null,
+                limit: perServiceLimit,
+              }
+            );
+
+            const monthlyLimit = Number.isFinite(Number(limitCheck.monthlyLimit))
+              ? Number(limitCheck.monthlyLimit)
+              : null;
+            const currentUsage = Number(limitCheck.currentUsage || 0);
+            return [
+              serviceIdKey,
+              {
+                canBook: Boolean(limitCheck.canBook),
+                currentUsage,
+                monthlyLimit,
+                remaining: monthlyLimit && monthlyLimit > 0 ? Math.max(0, monthlyLimit - currentUsage) : null,
+                errorMessage: limitCheck.errorMessage,
+              },
+            ] as const;
+          })
+        );
+
+        if (cancelled) return;
+        const nextMap: Record<string, {
+          canBook: boolean;
+          currentUsage: number;
+          monthlyLimit: number | null;
+          remaining: number | null;
+          errorMessage?: string;
+        }> = {};
+        entries.forEach((entry) => {
+          if (!entry) return;
+          nextMap[entry[0]] = entry[1];
+        });
+        setSubscriberServiceLimitMap(nextMap);
+      } catch {
+        if (!cancelled) setSubscriberServiceLimitMap({});
+      } finally {
+        if (!cancelled) setIsLoadingSubscriberServiceLimits(false);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [chatClientPhone, detectedSubscriber, establishment?.establishment_id, establishment?.id, selectedDate, subscriberServiceOptions]);
+
   const goNext = async () => {
     if (!canProceedFromStep()) return;
     if (step === 'name') {
@@ -668,10 +814,18 @@ export function BookingChatFlow({
       setIsCheckingSubscriber(false);
       if (subscriber) {
         setDetectedSubscriber(subscriber);
+        await refreshSubscriberLimitStatus(nextPhone);
         setStep('subscriberChoice');
       } else {
         setDetectedSubscriber(null);
         setIsSubscriberFlow(false);
+        setSubscriberLimitStatus({
+          isLoading: false,
+          canBook: true,
+          currentUsage: 0,
+          monthlyLimit: 'Ilimitado',
+          remaining: null,
+        });
         setStep('professional');
       }
       setDraftInput('');
@@ -725,6 +879,21 @@ export function BookingChatFlow({
     if (isSubscriberFlow && !isSelectedDateAllowedForSubscriber) {
       const allowedDays = subscriberAllowedWeekdays.map((day) => weekdayPtMap[day] || day).join(', ');
       toast.error(`Esse plano permite agendamento somente em: ${allowedDays}.`);
+      return;
+    }
+    if (isSubscriberFlow) {
+      const blockedSelected = (isDividedSubscriberPlan ? selectedSubscriberServices : [selectedPrimarySubscriberService])
+        .filter(Boolean)
+        .find((service: any) => subscriberServiceLimitMap[String(service?.id || '')]?.canBook === false);
+      if (blockedSelected) {
+        const blockedName = String((blockedSelected as any)?.booking_service_name || (blockedSelected as any)?.name || 'serviço').trim();
+        toast.error(`O serviço "${blockedName}" atingiu o limite desta assinatura. Escolha outro serviço.`);
+        return;
+      }
+    }
+    if (isSubscriberFlow && subscriberLimitStatus.canBook === false) {
+      const limitLabel = subscriberLimitStatus.monthlyLimit;
+      toast.error(`Limite mensal atingido: ${subscriberLimitStatus.currentUsage}/${limitLabel}.`);
       return;
     }
     setIsSubmitting(true);
@@ -787,6 +956,26 @@ export function BookingChatFlow({
         role: 'bot',
         text: 'Opa! Você é cliente assinante. Deseja usar sua assinatura ou agendar sem ela?'
       });
+      if (subscriberLimitStatus.isLoading) {
+        messages.push({
+          id: 'bot-subscriber-limit-loading',
+          role: 'bot',
+          text: 'Consultando limite mensal da assinatura...'
+        });
+      } else {
+        const limitLabel = String(subscriberLimitStatus.monthlyLimit);
+        const remainingText = subscriberLimitStatus.remaining === null
+          ? 'Sem limite mensal de atendimentos.'
+          : `Restam ${subscriberLimitStatus.remaining} agendamento(s) neste mês.`;
+
+        messages.push({
+          id: 'bot-subscriber-limit',
+          role: 'bot',
+          text: subscriberLimitStatus.canBook
+            ? `Assinatura: ${subscriberLimitStatus.currentUsage}/${limitLabel} utilizados. ${remainingText}`
+            : `Limite mensal atingido: ${subscriberLimitStatus.currentUsage}/${limitLabel}. Você pode agendar sem assinatura ou aguardar o próximo mês.`
+        });
+      }
       if (step !== 'subscriberChoice') {
         messages.push({
           id: 'user-subscriber-choice',
@@ -831,7 +1020,7 @@ export function BookingChatFlow({
       messages.push({ id: 'bot-confirm', role: 'bot', text: 'Perfeito! Revise os dados e confirme seu agendamento.' });
     }
     return messages;
-  }, [chatClientName, chatClientPhone, computedSelection.serviceName, detectedSubscriber, establishment?.name, invalidSubscriberDateMessage, isSubscriberFlow, selectedDate, selectedProfessional?.name, selectedTime, step]);
+  }, [chatClientName, chatClientPhone, computedSelection.serviceName, detectedSubscriber, establishment?.name, invalidSubscriberDateMessage, isSubscriberFlow, selectedDate, selectedProfessional?.name, selectedTime, step, subscriberLimitStatus]);
 
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const serviceIntroRef = useRef<HTMLDivElement | null>(null);
@@ -1012,6 +1201,8 @@ export function BookingChatFlow({
                   )}
                   {subscriberServiceOptions.map((service: any) => {
                     const serviceId = String(service?.id || '');
+                    const serviceLimitData = subscriberServiceLimitMap[serviceId];
+                    const blockedByLimit = serviceLimitData?.canBook === false;
                     const selected = isDividedSubscriberPlan
                       ? selectedSubscriberServiceIds.includes(serviceId)
                       : String(selectedSubscriberServiceId) === serviceId;
@@ -1020,16 +1211,36 @@ export function BookingChatFlow({
                         key={`subscriber-service-${service.id}`}
                         type="button"
                         onClick={() => {
+                          if (blockedByLimit) {
+                            const defaultLimitText = serviceLimitData?.monthlyLimit
+                              ? `${serviceLimitData.currentUsage}/${serviceLimitData.monthlyLimit}`
+                              : 'limite atingido';
+                            toast.error(serviceLimitData?.errorMessage || `Esse serviço já atingiu o limite (${defaultLimitText}).`);
+                            return;
+                          }
                           if (isDividedSubscriberPlan) {
                             toggleSubscriberService(serviceId);
                             return;
                           }
                           setSelectedSubscriberServiceId(serviceId);
                         }}
-                        className={`w-full text-left px-3 py-2 rounded-lg border ${selected ? 'bg-emerald-600 border-emerald-500' : 'bg-white/10 border-white/20'}`}
+                        className={`w-full text-left px-3 py-2 rounded-lg border ${
+                          blockedByLimit
+                            ? 'bg-red-500/10 border-red-500/40 opacity-80'
+                            : (selected ? 'bg-emerald-600 border-emerald-500' : 'bg-white/10 border-white/20')
+                        }`}
                       >
                         <div className="font-semibold">{service.name}</div>
                         <div className="text-xs text-white/80">Duração: {formatDuration(parseDurationMinutes(service?.service_duration ?? service?.duration, 30))}</div>
+                        {isLoadingSubscriberServiceLimits ? (
+                          <div className="text-[11px] text-white/60 mt-1">Consultando limite deste serviço...</div>
+                        ) : serviceLimitData?.monthlyLimit && serviceLimitData.monthlyLimit > 0 ? (
+                          <div className={`text-[11px] mt-1 ${blockedByLimit ? 'text-red-200' : 'text-emerald-200'}`}>
+                            Limite: {serviceLimitData.currentUsage}/{serviceLimitData.monthlyLimit} • Restam {Math.max(0, serviceLimitData.remaining || 0)}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-white/60 mt-1">Sem limite para este serviço</div>
+                        )}
                       </button>
                     );
                   })}

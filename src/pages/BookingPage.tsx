@@ -153,6 +153,7 @@ export default function BookingPage() {
   const activeSubscriberPlanId = String(
     convertedSubscriberData?.subscription_id || convertedSubscriberData?.subscriptions?.id || ''
   ).trim();
+  const visibleSubscriptions = subscriptions.filter((subscription: any) => !Boolean(subscription?.is_hidden));
   const subscriberServicesForBooking = activeSubscriberPlanId
     ? subscriptions.filter((subscription: any) => String(subscription?.id || '').trim() === activeSubscriberPlanId)
     : subscriptions;
@@ -1297,15 +1298,15 @@ export default function BookingPage() {
       }
 
       if (subscriptionsData && Array.isArray(subscriptionsData)) {
-        // 👁️ FILTRAR assinaturas ocultas (is_hidden = true) para não mostrar no Booking
-        const visibleSubscriptions = subscriptionsData.filter(sub => !sub.is_hidden);
+        const visibleCount = subscriptionsData.filter((sub: any) => !sub?.is_hidden).length;
 
         console.log('📋 Total de assinaturas:', subscriptionsData.length);
         console.log('👁️ Assinaturas ocultas:', subscriptionsData.filter(sub => sub.is_hidden).length);
-        console.log('✅ Assinaturas visíveis:', visibleSubscriptions.length);
+        console.log('✅ Assinaturas visíveis:', visibleCount);
 
-        setSubscriptions(visibleSubscriptions);
-        console.log('✅ Assinaturas carregadas no Booking:', visibleSubscriptions.length, 'planos visíveis');
+        // Mantém todas as assinaturas em memória para reconhecer plano oculto de cliente já assinante.
+        setSubscriptions(subscriptionsData);
+        console.log('✅ Assinaturas carregadas no Booking:', subscriptionsData.length, 'planos (incluindo ocultos)');
       } else {
         setSubscriptions([]);
         console.log('⚠️ Nenhuma assinatura encontrada ou dados inválidos');
@@ -2953,7 +2954,7 @@ export default function BookingPage() {
               </div>
 
               {/* Dropdown SER ASSINANTE */}
-              {subscriptions.length > 0 && (
+              {visibleSubscriptions.length > 0 && (
                 (() => {
                   let showFull = false;
                   try {
@@ -2968,7 +2969,7 @@ export default function BookingPage() {
                       className={`${compact ? 'absolute top-full left-0 right-0 mt-2 max-h-60 overflow-y-auto' : 'mt-2 overflow-hidden'} bg-[#0f0f10] border border-white/10 rounded-xl shadow-2xl`}
                       style={{ zIndex: 100 }}
                     >
-                      {subscriptions.map((subscription) => (
+                      {visibleSubscriptions.map((subscription) => (
                         <div
                           key={subscription.id}
                           className="p-3 hover:bg-white/5 border-b border-white/10 last:border-b-0 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"

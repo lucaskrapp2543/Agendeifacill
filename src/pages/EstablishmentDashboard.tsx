@@ -692,6 +692,14 @@ const EstablishmentDashboard = () => {
   const [hasAirConditioning, setHasAirConditioning] = useState(false); // Novo estado para Ar-Condicionado
   const [wifiPassword, setWifiPassword] = useState(''); // Senha do Wi-Fi
   const [wifiNetworkName, setWifiNetworkName] = useState(''); // Nome da rede Wi-Fi
+  const [currentLoginPassword, setCurrentLoginPassword] = useState('');
+  const [supportKnowledgePassword, setSupportKnowledgePassword] = useState('');
+  const [repeatNewLoginPassword, setRepeatNewLoginPassword] = useState('');
+  const [repeatNewLoginPasswordConfirm, setRepeatNewLoginPasswordConfirm] = useState('');
+  const [showCurrentLoginPassword, setShowCurrentLoginPassword] = useState(false);
+  const [showRepeatNewLoginPassword, setShowRepeatNewLoginPassword] = useState(false);
+  const [showRepeatNewLoginPasswordConfirm, setShowRepeatNewLoginPasswordConfirm] = useState(false);
+  const [isChangingLoginPassword, setIsChangingLoginPassword] = useState(false);
   const [requireCancellationRequest, setRequireCancellationRequest] = useState(false); // Exigir solicitação de cancelamento via WhatsApp
   const [preventSameDayReschedule, setPreventSameDayReschedule] = useState(false); // Impedir remarcação no mesmo dia
   const [requireCpf, setRequireCpf] = useState(false); // Solicitar CPF no agendamento
@@ -13664,6 +13672,111 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
+  const handleChangeLoginPassword = async () => {
+    const currentPassword = String(currentLoginPassword || '').trim();
+    const supportPassword = String(supportKnowledgePassword || '');
+    const repeatPassword = String(repeatNewLoginPassword || '');
+    const repeatPasswordConfirm = String(repeatNewLoginPasswordConfirm || '');
+
+    if (!currentPassword || !supportPassword || !repeatPassword || !repeatPasswordConfirm) {
+      hotToast.error('Preencha senha atual e os 3 campos da nova senha.');
+      return;
+    }
+    if (supportPassword !== repeatPassword || supportPassword !== repeatPasswordConfirm) {
+      hotToast.error('As 3 novas senhas devem ser idênticas.');
+      return;
+    }
+    if (currentPassword === supportPassword) {
+      hotToast.error('A nova senha deve ser diferente da senha atual.');
+      return;
+    }
+
+    // Mínimo de segurança para conta principal do estabelecimento.
+    const hasMinLength = supportPassword.length >= 8;
+    const hasUpper = /[A-Z]/.test(supportPassword);
+    const hasLower = /[a-z]/.test(supportPassword);
+    const hasNumber = /\d/.test(supportPassword);
+    const hasSpecial = /[^A-Za-z0-9]/.test(supportPassword);
+    if (!hasMinLength || !hasUpper || !hasLower || !hasNumber || !hasSpecial) {
+      hotToast.error('A nova senha deve ter 8+ caracteres, letra maiúscula, minúscula, número e símbolo.');
+      return;
+    }
+
+    setIsChangingLoginPassword(true);
+    try {
+      const { data: currentUserData, error: currentUserError } = await supabase.auth.getUser();
+      if (currentUserError || !currentUserData?.user?.email) {
+        throw currentUserError || new Error('Sessão inválida. Faça login novamente.');
+      }
+
+      const userEmail = String(currentUserData.user.email || '').trim();
+      const verifyResult = await supabase.auth.signInWithPassword({
+        email: userEmail,
+        password: currentPassword,
+      });
+      if (verifyResult.error) {
+        hotToast.error('Senha atual incorreta.');
+        return;
+      }
+
+      const { error: updatePasswordError } = await supabase.auth.updateUser({ password: supportPassword });
+      if (updatePasswordError) throw updatePasswordError;
+
+      // Atualiza também o registro em texto claro usado no painel admin.
+      const normalizeDigits = (value: string | null | undefined) => String(value || '').replace(/\D/g, '');
+      const cleanWhatsapp = normalizeDigits((establishment as any)?.whatsapp || '');
+      const establishmentCode = String((establishment as any)?.code || '').trim();
+      const notesSuffix = establishmentCode ? `Código: ${establishmentCode}` : 'Atualização de senha via configurações';
+
+      const { data: existingRows, error: existingRowsError } = await supabase
+        .from('registration_forms')
+        .select('id')
+        .eq('email', userEmail)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (existingRowsError) throw existingRowsError;
+
+      const existingId = String((existingRows || [])[0]?.id || '').trim();
+      if (existingId) {
+        const { error: updateClearError } = await supabase
+          .from('registration_forms')
+          .update({
+            password: supportPassword,
+            establishment_name: String((establishment as any)?.name || '').trim() || null,
+            client_whatsapp: cleanWhatsapp || null,
+            notes: notesSuffix,
+          })
+          .eq('id', existingId);
+        if (updateClearError) throw updateClearError;
+      } else {
+        const { error: insertClearError } = await supabase
+          .from('registration_forms')
+          .insert([{
+            client_name: String((establishment as any)?.name || 'Estabelecimento').trim() || 'Estabelecimento',
+            establishment_name: String((establishment as any)?.name || '').trim() || null,
+            email: userEmail,
+            password: supportPassword,
+            client_whatsapp: cleanWhatsapp || null,
+            ip_address: '127.0.0.1',
+            user_agent: navigator.userAgent,
+            notes: notesSuffix,
+          }]);
+        if (insertClearError) throw insertClearError;
+      }
+
+      setCurrentLoginPassword('');
+      setSupportKnowledgePassword('');
+      setRepeatNewLoginPassword('');
+      setRepeatNewLoginPasswordConfirm('');
+      hotToast.success('Senha de login atualizada com sucesso.');
+    } catch (error: any) {
+      const details = formatSupabaseErrorDetails(error);
+      hotToast.error(details || 'Não foi possível atualizar a senha.');
+    } finally {
+      setIsChangingLoginPassword(false);
+    }
+  };
+
   // Função para validar a senha (configurações / Meus serviços / Meus assinantes / etc.)
   const handleValidatePin = async (enteredPin: string, remember?: boolean) => {
     const targetTab: TabType = pendingTabAfterPin || 'settings';
@@ -21993,6 +22106,94 @@ Estamos te aguardando! 😎✂️`;
                       </div>
                     </div>
                   )}
+
+                  <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mt-6">
+                    <h3 className="text-lg font-medium text-white mb-2">Mudar senha de acesso</h3>
+                    <p className="text-sm text-gray-400 mb-4">
+                      Essa senha é do login da conta do estabelecimento (email + senha), não do PIN interno de 4 dígitos.
+                    </p>
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <input
+                          type={showCurrentLoginPassword ? 'text' : 'password'}
+                          value={currentLoginPassword}
+                          onChange={(e) => setCurrentLoginPassword(e.target.value)}
+                          placeholder="Senha atual"
+                          autoComplete="current-password"
+                          className="w-full px-3 py-2 pr-11 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowCurrentLoginPassword((prev) => !prev)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-white"
+                          aria-label={showCurrentLoginPassword ? 'Ocultar senha atual' : 'Mostrar senha atual'}
+                        >
+                          {showCurrentLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+
+                      <div className="relative">
+                        <textarea
+                          value={supportKnowledgePassword}
+                          onChange={(e) => setSupportKnowledgePassword(e.target.value)}
+                          placeholder="Senha para conhecimento suporte"
+                          rows={2}
+                          className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 resize-none"
+                        />
+                      </div>
+
+                      <div className="relative">
+                        <input
+                          type={showRepeatNewLoginPassword ? 'text' : 'password'}
+                          value={repeatNewLoginPassword}
+                          onChange={(e) => setRepeatNewLoginPassword(e.target.value)}
+                          placeholder="Repita a senha"
+                          autoComplete="new-password"
+                          className="w-full px-3 py-2 pr-11 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowRepeatNewLoginPassword((prev) => !prev)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-white"
+                          aria-label={showRepeatNewLoginPassword ? 'Ocultar repetição de senha' : 'Mostrar repetição de senha'}
+                        >
+                          {showRepeatNewLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+
+                      <div className="relative">
+                        <input
+                          type={showRepeatNewLoginPasswordConfirm ? 'text' : 'password'}
+                          value={repeatNewLoginPasswordConfirm}
+                          onChange={(e) => setRepeatNewLoginPasswordConfirm(e.target.value)}
+                          placeholder="Repita a senha"
+                          autoComplete="new-password"
+                          className="w-full px-3 py-2 pr-11 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowRepeatNewLoginPasswordConfirm((prev) => !prev)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-white"
+                          aria-label={showRepeatNewLoginPasswordConfirm ? 'Ocultar confirmação final' : 'Mostrar confirmação final'}
+                        >
+                          {showRepeatNewLoginPasswordConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+
+                      <p className="text-xs text-gray-500">
+                        Requisitos: mínimo 8 caracteres, com maiúscula, minúscula, número e símbolo.
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={handleChangeLoginPassword}
+                        disabled={isChangingLoginPassword}
+                        className={`px-5 py-2.5 rounded-xl font-extrabold shadow-lg transition-colors ${isChangingLoginPassword ? 'bg-gray-600 text-gray-200 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-600/20'}`}
+                      >
+                        {isChangingLoginPassword ? 'Atualizando...' : 'Atualizar senha de acesso'}
+                      </button>
+                    </div>
+                  </div>
 
                   {/* Seção de Comodidades - Etapa 4 do Quiz */}
                   {(!isNewUser || quizStep === 4) && (
