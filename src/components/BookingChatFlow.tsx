@@ -29,6 +29,17 @@ const timeToMinutes = (time: string): number => {
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return 0;
   return hours * 60 + minutes;
 };
+const parseDurationMinutes = (value: unknown, fallback = 30): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(1, Math.round(value));
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  const normalized = raw.replace(',', '.');
+  const direct = Number(normalized);
+  if (Number.isFinite(direct)) return Math.max(1, Math.round(direct));
+  const extracted = Number(normalized.replace(/[^\d.]/g, ''));
+  if (Number.isFinite(extracted)) return Math.max(1, Math.round(extracted));
+  return fallback;
+};
 const normalizeSpecificService = (raw: any, fallbackKey: string) => {
   const name = String(raw?.name || raw?.service_name || '').trim();
   const price = Number(raw?.price ?? raw?.service_price ?? 0);
@@ -134,21 +145,7 @@ export function BookingChatFlow({
     const specificRaw = Array.isArray((selectedProfessional as any)?.specific_services)
       ? (selectedProfessional as any).specific_services
       : [];
-    const hasSpecificForSelectedProfessional = specificRaw.length > 0;
-    // Regra definitiva do chat:
-    // Se o profissional possui serviços específicos, mostrar SOMENTE os específicos.
-    // Isso evita mistura de serviços "fantasmas" vindos de fontes gerais/categorias.
-    const generalServices = hasSpecificForSelectedProfessional
-      ? []
-      : (legacyServices.length > 0 ? legacyServices : resolvedServices);
-    const filteredGeneralServices = generalServices.filter((service: any) => {
-      const hidden = Boolean(service?.hidden_from_booking ?? service?.oculto_da_reserva);
-      if (hidden) return false;
-      const excluded = Array.isArray(service?.excluded_professional_ids) ? service.excluded_professional_ids.map((id: any) => String(id)) : [];
-      if (selectedProfessionalId && excluded.includes(String(selectedProfessionalId))) return false;
-      return true;
-    });
-    const specificServices = specificRaw
+    const normalizedSpecific = specificRaw
       .map((service: any, index: number) =>
         normalizeSpecificService(
           service,
@@ -156,25 +153,37 @@ export function BookingChatFlow({
         )
       )
       .filter(Boolean)
-      .map((service: any) => ({
+      .map((service: any, index: number) => ({
         id: `specific-${service.id}`,
-        name: `${service.name} (${String(selectedProfessional?.name || 'Profissional')})`,
+        name: service.name,
         price: Number(service.price || 0),
-        duration: Number(service.duration || 30),
-        category_id: 'specific-professional-services',
-        category_name: 'Serviços do Profissional',
-        excluded_professional_ids: [],
+        duration: parseDurationMinutes(service.duration, 30),
+        __source_index: index,
       }));
 
-    const mergedServices = [...filteredGeneralServices, ...specificServices];
-    const dedupedById = new Map<string, any>();
-    mergedServices.forEach((service: any) => {
-      const serviceId = String(service?.id || '').trim();
-      if (!serviceId) return;
-      if (!dedupedById.has(serviceId)) dedupedById.set(serviceId, service);
+    // Regra exigida: se profissional tem serviços específicos, mostrar APENAS eles.
+    if (normalizedSpecific.length > 0) {
+      return normalizedSpecific;
+    }
+
+    // Sem específico: seguir o mesmo serviço geral do fluxo antigo.
+    const source = resolvedServices.length > 0 ? resolvedServices : legacyServices;
+    return source.map((service: any, index: number) => {
+      const normalizedName = String(service?.name || service?.service_name || '').trim();
+      const rawId = String(service?.id || '').trim();
+      return {
+        ...service,
+        id: rawId || `service-${index}-${normalizedName || 'item'}`,
+        name: normalizedName || `Serviço ${index + 1}`,
+        price: Number(service?.price || service?.service_price || 0),
+        duration: parseDurationMinutes(
+          service?.duration ?? service?.service_duration ?? service?.service_duration_minutes,
+          30
+        ),
+        __source_index: index,
+      };
     });
-    return Array.from(dedupedById.values());
-  }, [establishment?.services_with_prices, selectedProfessional as any, selectedProfessionalId]);
+  }, [establishment?.legacy_services_with_prices, establishment?.services_with_prices, selectedProfessional, selectedProfessionalId]);
 
   const groupedServices = useMemo(() => {
     const map = new Map<string, { id: string; name: string; services: any[] }>();
@@ -294,7 +303,7 @@ export function BookingChatFlow({
       const baseDuration = Math.max(
         0,
         baseServices.reduce(
-          (sum: number, service: any) => sum + (Number((service as any)?.service_duration ?? (service as any)?.duration ?? 30) || 30),
+          (sum: number, service: any) => sum + parseDurationMinutes((service as any)?.service_duration ?? (service as any)?.duration, 30),
           0
         )
       );
@@ -312,7 +321,13 @@ export function BookingChatFlow({
       };
     }
 
-    const duration = selectedServices.reduce((sum: number, service: any) => sum + (Number(service?.duration) || 0), 0);
+    const duration = selectedServices.reduce(
+      (sum: number, service: any) => sum + parseDurationMinutes(
+        service?.duration ?? service?.service_duration ?? service?.service_duration_minutes,
+        0
+      ),
+      0
+    );
     const price = selectedServices.reduce((sum: number, service: any) => sum + (Number(service?.price) || 0), 0);
     const serviceName = selectedServices.map((service: any) => String(service?.name || '').trim()).filter(Boolean).join(' + ');
     return { duration, price, serviceName };
@@ -968,28 +983,22 @@ export function BookingChatFlow({
 
             {step === 'service' && !isSubscriberFlow && (
               <div className="space-y-3">
-                {groupedServices.map((category) => (
-                  <div key={category.id}>
-                    <div className="text-xs font-bold text-white/80 mb-1">{category.name}</div>
-                    <div className="space-y-2">
-                      {category.services.map((service: any) => {
-                        const serviceId = String(service?.id || '');
-                        const selected = selectedServiceIds.includes(serviceId);
-                        return (
-                          <button
-                            key={serviceId}
-                            type="button"
-                            onClick={() => toggleService(serviceId)}
-                            className={`w-full text-left px-3 py-2 rounded-lg border ${selected ? 'bg-emerald-600 border-emerald-500' : 'bg-white/10 border-white/20'}`}
-                          >
-                            <div className="font-semibold">{service.name}</div>
-                            <div className="text-xs text-white/80">{toMoney(Number(service?.price || 0))} • {formatDuration(Number(service?.duration || 0))}</div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+                {allServices.map((service: any) => {
+                  const serviceId = String(service?.id || '');
+                  const selected = selectedServiceIds.includes(serviceId);
+                  const serviceDuration = Number(service?.duration || 0);
+                  return (
+                    <button
+                      key={serviceId}
+                      type="button"
+                      onClick={() => toggleService(serviceId)}
+                      className={`w-full text-left px-3 py-2 rounded-lg border ${selected ? 'bg-emerald-600 border-emerald-500' : 'bg-white/10 border-white/20'}`}
+                    >
+                      <div className="font-semibold">{service.name}</div>
+                      <div className="text-xs text-white/80">{toMoney(Number(service?.price || 0))} • {formatDuration(serviceDuration > 0 ? serviceDuration : 30)}</div>
+                    </button>
+                  );
+                })}
               </div>
             )}
 
@@ -1020,7 +1029,7 @@ export function BookingChatFlow({
                         className={`w-full text-left px-3 py-2 rounded-lg border ${selected ? 'bg-emerald-600 border-emerald-500' : 'bg-white/10 border-white/20'}`}
                       >
                         <div className="font-semibold">{service.name}</div>
-                        <div className="text-xs text-white/80">Duração: {formatDuration(Number(service?.service_duration || service?.duration || 30))}</div>
+                        <div className="text-xs text-white/80">Duração: {formatDuration(parseDurationMinutes(service?.service_duration ?? service?.duration, 30))}</div>
                       </button>
                     );
                   })}
