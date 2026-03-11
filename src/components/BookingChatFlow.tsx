@@ -109,6 +109,7 @@ export function BookingChatFlow({
   const [detectedSubscriber, setDetectedSubscriber] = useState<any>(null);
   const [isSubscriberFlow, setIsSubscriberFlow] = useState(false);
   const [selectedSubscriberServiceId, setSelectedSubscriberServiceId] = useState('');
+  const [selectedSubscriberServiceIds, setSelectedSubscriberServiceIds] = useState<string[]>([]);
   const [selectedSubscriberExtraIds, setSelectedSubscriberExtraIds] = useState<string[]>([]);
   const [invalidSubscriberDateMessage, setInvalidSubscriberDateMessage] = useState('');
   const [visibleSlotsCountForSelectedProfessional, setVisibleSlotsCountForSelectedProfessional] = useState<number | null>(null);
@@ -193,19 +194,72 @@ export function BookingChatFlow({
   );
 
   const subscriberServiceOptions = useMemo(() => {
-    const all = Array.isArray(subscriberServices) ? subscriberServices : [];
+    const allRaw = Array.isArray(subscriberServices) ? subscriberServices : [];
+    const expanded = allRaw.flatMap((plan: any) => {
+      const planId = String(plan?.id || '').trim();
+      const dividedEnabled = Boolean(plan?.divide_services_enabled);
+      const divided = Array.isArray(plan?.divided_services) ? plan.divided_services : [];
+      if (!dividedEnabled || divided.length === 0) {
+        return [{
+          ...plan,
+          subscription_id: planId || String(plan?.subscription_id || '').trim() || null,
+          service_id: String((plan as any)?.service_id || '').trim() || null,
+          service_limit: Number((plan as any)?.service_limit || 0) || null,
+          booking_service_name: String((plan as any)?.booking_service_name || plan?.name || '').trim() || null,
+          service_duration: Number((plan as any)?.service_duration || (plan as any)?.duration || 30) || 30,
+          duration: Number((plan as any)?.service_duration || (plan as any)?.duration || 30) || 30,
+        }];
+      }
+
+      return divided
+        .map((entry: any, index: number) => {
+          const entryId = String(entry?.id || '').trim();
+          const entryName = String(entry?.name || '').trim();
+          const entryDuration = Number(entry?.duration || 0);
+          const entryLimit = Number(entry?.limit || 0);
+          if (!entryName || !Number.isFinite(entryDuration) || entryDuration <= 0) return null;
+          return {
+            ...plan,
+            id: `${planId || 'subscription'}::${entryId || `service-${index}`}`,
+            subscription_id: planId || null,
+            service_id: entryId || null,
+            service_limit: Number.isFinite(entryLimit) && entryLimit > 0 ? entryLimit : null,
+            booking_service_name: entryName,
+            name: entryName,
+            service_duration: entryDuration,
+            duration: entryDuration,
+          };
+        })
+        .filter(Boolean);
+    });
+
     const detectedPlanId = String(
       (detectedSubscriber as any)?.subscription_id ||
       (detectedSubscriber as any)?.subscriptions?.id ||
       ''
     ).trim();
-    if (!detectedPlanId) return all;
-    const filtered = all.filter((service: any) => String(service?.id || '').trim() === detectedPlanId);
-    return filtered.length > 0 ? filtered : all;
+    if (!detectedPlanId) return expanded;
+    const filtered = expanded.filter((service: any) => {
+      const servicePlanId = String((service as any)?.subscription_id || service?.id || '').trim();
+      return servicePlanId === detectedPlanId;
+    });
+    return filtered.length > 0 ? filtered : expanded;
   }, [detectedSubscriber, subscriberServices]);
   const selectedSubscriberService = useMemo(
     () => subscriberServiceOptions.find((service: any) => String(service?.id || '') === String(selectedSubscriberServiceId || '')),
     [selectedSubscriberServiceId, subscriberServiceOptions]
+  );
+  const selectedSubscriberServices = useMemo(
+    () => subscriberServiceOptions.filter((service: any) => selectedSubscriberServiceIds.includes(String(service?.id || ''))),
+    [selectedSubscriberServiceIds, subscriberServiceOptions]
+  );
+  const selectedPrimarySubscriberService = useMemo(
+    () => selectedSubscriberService || selectedSubscriberServices[0] || null,
+    [selectedSubscriberService, selectedSubscriberServices]
+  );
+  const isDividedSubscriberPlan = useMemo(
+    () => subscriberServiceOptions.some((service: any) => Boolean(service?.divide_services_enabled)),
+    [subscriberServiceOptions]
   );
   useEffect(() => {
     if (!selectedSubscriberServiceId) return;
@@ -215,6 +269,14 @@ export function BookingChatFlow({
       setSelectedSubscriberExtraIds([]);
     }
   }, [selectedSubscriberServiceId, subscriberServiceOptions]);
+  useEffect(() => {
+    if (selectedSubscriberServiceIds.length === 0) return;
+    const validIds = new Set(subscriberServiceOptions.map((service: any) => String(service?.id || '')));
+    const next = selectedSubscriberServiceIds.filter((id) => validIds.has(String(id)));
+    if (next.length !== selectedSubscriberServiceIds.length) {
+      setSelectedSubscriberServiceIds(next);
+    }
+  }, [selectedSubscriberServiceIds, subscriberServiceOptions]);
 
   const subscriberExtraServicesFlat = useMemo(() => {
     const categories = Array.isArray(subscriberExtraServiceCategories) ? subscriberExtraServiceCategories : [];
@@ -228,13 +290,23 @@ export function BookingChatFlow({
 
   const computedSelection = useMemo(() => {
     if (isSubscriberFlow) {
-      const baseDuration = Number((selectedSubscriberService as any)?.service_duration ?? (selectedSubscriberService as any)?.duration ?? 30) || 30;
+      const baseServices = isDividedSubscriberPlan ? selectedSubscriberServices : (selectedPrimarySubscriberService ? [selectedPrimarySubscriberService] : []);
+      const baseDuration = Math.max(
+        0,
+        baseServices.reduce(
+          (sum: number, service: any) => sum + (Number((service as any)?.service_duration ?? (service as any)?.duration ?? 30) || 30),
+          0
+        )
+      );
       const extraDuration = selectedSubscriberExtraServices.reduce((sum: number, service: any) => sum + (Number(service?.duration) || 0), 0);
       const extraPrice = selectedSubscriberExtraServices.reduce((sum: number, service: any) => sum + (Number(service?.price) || 0), 0);
-      const baseName = String((selectedSubscriberService as any)?.booking_service_name || (selectedSubscriberService as any)?.name || '').trim();
+      const baseName = baseServices
+        .map((service: any) => String((service as any)?.booking_service_name || (service as any)?.name || '').trim())
+        .filter(Boolean)
+        .join(' + ');
       const extraNames = selectedSubscriberExtraServices.map((service: any) => String(service?.name || '').trim()).filter(Boolean);
       return {
-        duration: baseDuration + extraDuration,
+        duration: Math.max(1, (baseDuration || 0) + extraDuration),
         price: extraPrice,
         serviceName: extraNames.length ? `${baseName} + Extra: ${extraNames.join(' + ')}` : baseName,
       };
@@ -244,13 +316,13 @@ export function BookingChatFlow({
     const price = selectedServices.reduce((sum: number, service: any) => sum + (Number(service?.price) || 0), 0);
     const serviceName = selectedServices.map((service: any) => String(service?.name || '').trim()).filter(Boolean).join(' + ');
     return { duration, price, serviceName };
-  }, [isSubscriberFlow, selectedServices, selectedSubscriberExtraServices, selectedSubscriberService]);
+  }, [isDividedSubscriberPlan, isSubscriberFlow, selectedPrimarySubscriberService, selectedServices, selectedSubscriberExtraServices, selectedSubscriberServices]);
 
   const subscriberAllowedWeekdays = useMemo(() => {
     if (!isSubscriberFlow) return [] as string[];
-    const weekdays = Array.isArray((selectedSubscriberService as any)?.weekdays) ? (selectedSubscriberService as any).weekdays : [];
+    const weekdays = Array.isArray((selectedPrimarySubscriberService as any)?.weekdays) ? (selectedPrimarySubscriberService as any).weekdays : [];
     return weekdays.map((day: any) => String(day || '').toLowerCase().trim()).filter(Boolean);
-  }, [isSubscriberFlow, selectedSubscriberService]);
+  }, [isSubscriberFlow, selectedPrimarySubscriberService]);
 
   const isSelectedDateAllowedForSubscriber = useMemo(() => {
     if (!isSubscriberFlow) return true;
@@ -260,12 +332,12 @@ export function BookingChatFlow({
 
   const effectiveSelectedService = useMemo(
     () => ({
-      id: isSubscriberFlow ? String((selectedSubscriberService as any)?.id || 'subscriber-service') : 'normal-service',
+      id: isSubscriberFlow ? String((selectedPrimarySubscriberService as any)?.id || 'subscriber-service') : 'normal-service',
       name: computedSelection.serviceName || 'Serviço',
       price: computedSelection.price || 0,
       duration: computedSelection.duration || 30,
     }),
-    [computedSelection.duration, computedSelection.price, computedSelection.serviceName, isSubscriberFlow, selectedSubscriberService]
+    [computedSelection.duration, computedSelection.price, computedSelection.serviceName, isSubscriberFlow, selectedPrimarySubscriberService]
   );
 
   const businessHoursForDate = useMemo(() => buildBusinessHoursForDate(establishment, selectedDate), [establishment, selectedDate]);
@@ -528,7 +600,10 @@ export function BookingChatFlow({
     if (step === 'name') return String(draftInput || '').trim().length >= 3;
     if (step === 'phone') return isPhoneValid(draftInput);
     if (step === 'service') {
-      if (isSubscriberFlow) return Boolean(selectedSubscriberServiceId);
+      if (isSubscriberFlow) {
+        if (isDividedSubscriberPlan) return selectedSubscriberServiceIds.length > 0;
+        return Boolean(selectedSubscriberServiceId);
+      }
       return selectedServiceIds.length > 0;
     }
     return true;
@@ -621,6 +696,13 @@ export function BookingChatFlow({
       return [...previous, serviceId];
     });
   };
+  const toggleSubscriberService = (serviceId: string) => {
+    setSelectedSubscriberServiceIds((previous) => (
+      previous.includes(serviceId)
+        ? previous.filter((id) => id !== serviceId)
+        : [...previous, serviceId]
+    ));
+  };
 
   const handleConfirmBooking = async () => {
     if (!chatClientName || !chatClientPhone || !selectedProfessionalId || !selectedTime) return;
@@ -645,11 +727,21 @@ export function BookingChatFlow({
         is_child_service: false,
         is_subscriber: isSubscriberFlow,
         subscription_id: isSubscriberFlow
-          ? String((selectedSubscriberService as any)?.id || (detectedSubscriber as any)?.subscription_id || '').trim() || null
+          ? String((selectedPrimarySubscriberService as any)?.subscription_id || (selectedPrimarySubscriberService as any)?.id || (detectedSubscriber as any)?.subscription_id || '').trim() || null
           : null,
-        subscriber_service_id: isSubscriberFlow ? String((selectedSubscriberService as any)?.service_id || '').trim() || null : null,
-        subscriber_service_name: isSubscriberFlow ? String((selectedSubscriberService as any)?.name || '').trim() || null : null,
-        subscriber_service_limit: isSubscriberFlow ? Number((selectedSubscriberService as any)?.service_limit || 0) || null : null,
+        subscriber_service_id: isSubscriberFlow && selectedSubscriberServices.length === 1
+          ? String((selectedSubscriberServices[0] as any)?.service_id || '').trim() || null
+          : (isSubscriberFlow && !isDividedSubscriberPlan ? String((selectedPrimarySubscriberService as any)?.service_id || '').trim() || null : null),
+        subscriber_service_name: isSubscriberFlow
+          ? (
+            isDividedSubscriberPlan
+              ? selectedSubscriberServices.map((service: any) => String(service?.name || '').trim()).filter(Boolean).join(' + ')
+              : String((selectedPrimarySubscriberService as any)?.name || '').trim()
+          ) || null
+          : null,
+        subscriber_service_limit: isSubscriberFlow && selectedSubscriberServices.length === 1
+          ? Number((selectedSubscriberServices[0] as any)?.service_limit || 0) || null
+          : (isSubscriberFlow && !isDividedSubscriberPlan ? Number((selectedPrimarySubscriberService as any)?.service_limit || 0) || null : null),
       };
       await onSubmit(payload);
     } finally {
@@ -822,6 +914,9 @@ export function BookingChatFlow({
                   type="button"
                   onClick={() => {
                     setIsSubscriberFlow(true);
+                    setSelectedSubscriberServiceId('');
+                    setSelectedSubscriberServiceIds([]);
+                    setSelectedSubscriberExtraIds([]);
                     setStep('professional');
                   }}
                   className="px-3 py-2 rounded-lg border bg-emerald-600 border-emerald-500"
@@ -833,6 +928,7 @@ export function BookingChatFlow({
                   onClick={() => {
                     setIsSubscriberFlow(false);
                     setSelectedSubscriberServiceId('');
+                    setSelectedSubscriberServiceIds([]);
                     setSelectedSubscriberExtraIds([]);
                     setStep('professional');
                   }}
@@ -900,13 +996,27 @@ export function BookingChatFlow({
             {step === 'service' && isSubscriberFlow && (
               <div className="space-y-3">
                 <div className="space-y-2">
+                  {isDividedSubscriberPlan && (
+                    <div className="text-xs text-white/70">
+                      Você pode selecionar um ou mais serviços da assinatura.
+                    </div>
+                  )}
                   {subscriberServiceOptions.map((service: any) => {
-                    const selected = String(selectedSubscriberServiceId) === String(service?.id || '');
+                    const serviceId = String(service?.id || '');
+                    const selected = isDividedSubscriberPlan
+                      ? selectedSubscriberServiceIds.includes(serviceId)
+                      : String(selectedSubscriberServiceId) === serviceId;
                     return (
                       <button
                         key={`subscriber-service-${service.id}`}
                         type="button"
-                        onClick={() => setSelectedSubscriberServiceId(String(service.id))}
+                        onClick={() => {
+                          if (isDividedSubscriberPlan) {
+                            toggleSubscriberService(serviceId);
+                            return;
+                          }
+                          setSelectedSubscriberServiceId(serviceId);
+                        }}
                         className={`w-full text-left px-3 py-2 rounded-lg border ${selected ? 'bg-emerald-600 border-emerald-500' : 'bg-white/10 border-white/20'}`}
                       >
                         <div className="font-semibold">{service.name}</div>
