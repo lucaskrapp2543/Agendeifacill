@@ -14,6 +14,16 @@ const addMonths = (date: Date, months: number) => {
   return d;
 };
 
+const getSubscriberPaymentMethodFromProvider = (providerRaw: unknown): string | null => {
+  const provider = String(providerRaw || '').toLowerCase().trim();
+  if (!provider) return null;
+  if (provider.includes('pix')) return 'pix';
+  if (provider.includes('debit') || provider.includes('debito')) return 'debito';
+  if (provider.includes('credit') || provider.includes('card') || provider.includes('credito')) return 'credito';
+  if (provider.includes('dinheiro')) return 'dinheiro';
+  return null;
+};
+
 export const handler: Handler = async (event) => {
   try {
     if (event.httpMethod !== 'POST') {
@@ -163,6 +173,7 @@ export const handler: Handler = async (event) => {
         providerNormalized === 'mercadopago_card' || providerNormalized === 'mercadopago_pix'
         ? providerNormalized
         : 'pagarme_pix';
+    const subscriberPaymentMethod = getSubscriberPaymentMethodFromProvider(providerFinal);
 
     const payload: any = {
       subscription_id: String(subscriptionId),
@@ -174,6 +185,7 @@ export const handler: Handler = async (event) => {
       subscriber_name: customerName,
       subscriber_whatsapp: customerWhatsapp,
       subscriber_email: customerEmail,
+      subscriber_payment_method: subscriberPaymentMethod,
       subscription_payment_provider: providerFinal,
       subscription_payment_order_id: String(orderId),
     };

@@ -198,6 +198,22 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const { toast } = useToast();
     const { user } = useAuth();
 
+    const normalizeProfessionalPercentage = (raw: unknown): number => {
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed)) return 100;
+      if (parsed < 0) return 0;
+      if (parsed > 100) {
+        const legacyScaled = parsed / 10;
+        if (legacyScaled <= 100) return legacyScaled;
+        return 100;
+      }
+      return parsed;
+    };
+
+    const isOwnerProfessional = (professional?: { percentage?: unknown } | null): boolean => {
+      return normalizeProfessionalPercentage(professional?.percentage) === 100;
+    };
+
     const DEFAULT_PAYMENT_METHODS = ['pix', 'credito', 'debito', 'dinheiro', 'pagar_local'] as const;
     const defaultPaymentMethodSet = new Set<string>(DEFAULT_PAYMENT_METHODS as unknown as string[]);
     const getCustomPaymentMethods = (): string[] => {
@@ -445,9 +461,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
             }
           > = {};
 
+          const ownerProfessionalNameKeys = new Set(
+            (professionals || [])
+              .filter((p) => isOwnerProfessional(p))
+              .map((p) => String(p?.name || '').trim().toLowerCase())
+              .filter(Boolean)
+          );
+
           const ensure = (professionalNameRaw: string) => {
             const name = String(professionalNameRaw || '').trim();
             if (!name) return null;
+            if (ownerProfessionalNameKeys.has(name.toLowerCase())) return null;
             const key = normalizeKey(name);
             if (!totalsByName[key]) {
               totalsByName[key] = {
@@ -2780,7 +2804,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
       );
 
       const professional = professionals.find((p) => p.id === professionalId);
-      const percentage = professional?.percentage || 100;
+      const percentage = normalizeProfessionalPercentage(professional?.percentage);
       const professionalNameKey = String(professional?.name || '').trim().toLowerCase();
       const subscriberFinancial = subscriberFinancialByProfessional[professionalNameKey] || {
         accumulated: 0,
@@ -2810,8 +2834,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return {
         dailyGross,
         dailyNet,
-        monthlyGross: monthlyGross + subscriberFinancial.pending,
-        monthlyNet: monthlyNet + subscriberFinancial.pending,
+        monthlyGross: monthlyGross + (isOwnerProfessional(professional) ? 0 : subscriberFinancial.pending),
+        monthlyNet: monthlyNet + (isOwnerProfessional(professional) ? 0 : subscriberFinancial.pending),
         appointmentsToday: dailyAppointments.length, // Apenas concluídos (igual ao contador verde da agenda)
         appointmentsMonth: monthlyAppointmentsForCount.length, // Contagem: todos não cancelados
         subscriberMonthlyAccumulated: subscriberFinancial.accumulated,
@@ -4836,6 +4860,44 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               ))}
                                             </div>
                                           )}
+                                          <div className="mt-2 space-y-1 text-[10px] text-amber-900/90">
+                                            <div>
+                                              <span className="font-bold">Origem:</span> {getAppointmentOriginLabel(apt)}
+                                            </div>
+                                            <div>
+                                              <span className="font-bold">Quem criou:</span>{' '}
+                                              {Boolean((apt as any)?.is_establishment_booking === true)
+                                                ? 'Equipe/Barbearia (interno)'
+                                                : String(apt.client_id || '').trim()
+                                                  ? 'Cliente'
+                                                  : 'Não identificado (legado)'}
+                                            </div>
+                                            <div>
+                                              <span className="font-bold">Status:</span> {String(apt.status || 'indefinido').toUpperCase()}
+                                              {apt.payment_method ? (
+                                                <>
+                                                  {' '}• <span className="font-bold">PG:</span> {String(apt.payment_method)}
+                                                </>
+                                              ) : null}
+                                            </div>
+                                            {String(apt.client_whatsapp || '').trim() && (
+                                              <div>
+                                                <span className="font-bold">WhatsApp:</span> {String(apt.client_whatsapp || '').trim()}
+                                              </div>
+                                            )}
+                                            <div>
+                                              <span className="font-bold">Criado em:</span>{' '}
+                                              {(() => {
+                                                const createdRaw = String((apt as any)?.created_at || '').trim();
+                                                if (!createdRaw) return 'Não disponível';
+                                                try {
+                                                  return format(parseISO(createdRaw), 'dd/MM/yyyy HH:mm');
+                                                } catch {
+                                                  return createdRaw;
+                                                }
+                                              })()}
+                                            </div>
+                                          </div>
                                         </div>
                                         <div className="shrink-0 text-[11px] font-extrabold text-amber-900">
                                           {formatCurrency(calculateTotalPrice(apt))}
@@ -4849,6 +4911,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           className="flex-1 px-3 py-2 rounded bg-black text-white text-xs font-semibold hover:bg-gray-800 transition-colors"
                                         >
                                           🕒 Trocar horário
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => { void handleOpenAppointmentHistoryModal(apt); }}
+                                          className="px-3 py-2 rounded bg-amber-700 text-white text-xs font-semibold hover:bg-amber-800 transition-colors"
+                                          title="Ver histórico completo desse agendamento"
+                                        >
+                                          📜 Histórico
                                         </button>
                                       </div>
                                       <div className="mt-2 text-[10px] text-amber-900/80">

@@ -68,9 +68,17 @@ interface SubscribersManagerProps {
     mercadopago_access_token?: string | null;
     show_subscriptions_fullpage?: boolean;
     payment_methods_enabled?: string[] | null;
+    credit_card_tax_percentage?: number | null;
+    debit_card_tax_percentage?: number | null;
   };
   onEstablishmentUpdate?: () => void;
 }
+
+type EstablishmentProfessional = {
+  id: string;
+  full_name: string;
+  percentage: number;
+};
 
 export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establishmentId, clients, onClientUpdated, establishment, onEstablishmentUpdate }) => {
   const { user } = useAuth();
@@ -132,6 +140,18 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       return digits.slice(2);
     }
     return digits;
+  };
+
+  const normalizeProfessionalPercentage = (raw: unknown): number => {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return 100;
+    if (parsed < 0) return 0;
+    if (parsed > 100) {
+      const legacyScaled = parsed / 10;
+      if (legacyScaled <= 100) return legacyScaled;
+      return 100;
+    }
+    return parsed;
   };
 
   const knownClients = useMemo<KnownClientSuggestion[]>(() => {
@@ -467,10 +487,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     Record<string, Record<string, number>>
   >({});
   const [subscriptionSaleCommissions, setSubscriptionSaleCommissions] = useState<any[]>([]);
-  const [professionals, setProfessionals] = useState<any[]>([]);
+  const [professionals, setProfessionals] = useState<EstablishmentProfessional[]>([]);
   const [professionalPayments, setProfessionalPayments] = useState<any[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedProfessionalForHistory, setSelectedProfessionalForHistory] = useState<string>('');
+
+  const isOwnerProfessionalByName = (professionalNameRaw: string): boolean => {
+    const key = normalizeNameKey(professionalNameRaw);
+    if (!key) return false;
+    const professional = professionals.find((p) => normalizeNameKey(p.full_name) === key);
+    return normalizeProfessionalPercentage(professional?.percentage) === 100;
+  };
 
   // Estado para controlar o mês/ano selecionado (padrão: mês atual)
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
@@ -916,7 +943,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       // Os profissionais estão em establishment.professionals como array JSONB
       const professionals = (establishmentData.professionals || []).map((prof: any) => ({
         id: prof.id || prof.name, // Usar id se existir, senão usar name como id
-        full_name: prof.name
+        full_name: prof.name,
+        percentage: normalizeProfessionalPercentage(prof?.percentage),
       }));
 
       console.log('✅ Profissionais mapeados:', professionals);
@@ -2940,31 +2968,55 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return Number.isFinite(value) ? value : 0;
   };
 
-  const getNetFromSubscription = (grossValue: number, providerRaw?: string | null): number => {
+  const getNetFromSubscription = (
+    grossValue: number,
+    providerRaw?: string | null,
+    subscriberPaymentMethodRaw?: string | null,
+    subscriptionPaymentOrderIdRaw?: string | null
+  ): number => {
     if (!Number.isFinite(grossValue) || grossValue <= 0) return 0;
 
     const provider = String(providerRaw || '').toLowerCase().trim();
+    const subscriberPaymentMethod = String(subscriberPaymentMethodRaw || '').toLowerCase().trim();
     const taxaPlataforma = 0.5;
-    let taxaPercentual = 1.19 / 100; // padrão PIX Pagar.me
+    const configuredCreditTax = Number(establishment?.credit_card_tax_percentage);
+    const configuredDebitTax = Number(establishment?.debit_card_tax_percentage);
+    const hasConfiguredCreditTax = Number.isFinite(configuredCreditTax) && configuredCreditTax >= 0;
+    const hasConfiguredDebitTax = Number.isFinite(configuredDebitTax) && configuredDebitTax >= 0;
 
-    if (provider.includes('mercadopago')) {
-      if (provider.includes('credit') || provider.includes('card')) {
-        taxaPercentual = 4.99 / 100;
-      } else if (provider.includes('debit')) {
-        taxaPercentual = 1.99 / 100;
-      } else {
-        taxaPercentual = 0.99 / 100; // PIX Mercado Pago
-      }
-    } else if (provider.includes('credit') || provider.includes('card')) {
-      taxaPercentual = 4.99 / 100;
-    } else if (provider.includes('debit')) {
-      taxaPercentual = 1.99 / 100;
-    } else if (provider.includes('pix')) {
-      taxaPercentual = 1.19 / 100;
+    const hasPaymentMethod = subscriberPaymentMethod.length > 0;
+    if (!hasPaymentMethod) {
+      // Regra solicitada: sem forma de pagamento definida no assinante, não desconta taxa.
+      return Math.max(0, Math.round(grossValue * 100) / 100);
     }
 
-    const netValue = grossValue - taxaPlataforma - (grossValue * taxaPercentual);
-    return Math.max(0, Math.round(netValue * 100) / 100);
+    const methodIsCredit = subscriberPaymentMethod === 'credito' || subscriberPaymentMethod === 'credit_card';
+    const methodIsDebit = subscriberPaymentMethod === 'debito' || subscriberPaymentMethod === 'debit_card';
+    const methodIsPix = subscriberPaymentMethod === 'pix';
+
+    const isCredit = methodIsCredit;
+    const isDebit = methodIsDebit;
+    const isPix = methodIsPix;
+
+    if (isCredit) {
+      const taxaPercentual = hasConfiguredCreditTax ? (configuredCreditTax / 100) : 4.99 / 100;
+      const netValue = grossValue - taxaPlataforma - (grossValue * taxaPercentual);
+      return Math.max(0, Math.round(netValue * 100) / 100);
+    } else if (isDebit) {
+      const taxaPercentual = hasConfiguredDebitTax ? (configuredDebitTax / 100) : 1.99 / 100;
+      const netValue = grossValue - taxaPlataforma - (grossValue * taxaPercentual);
+      return Math.max(0, Math.round(netValue * 100) / 100);
+    } else if (isPix) {
+      const isMercadoPago = provider.includes('mercadopago');
+      const isPagarme = provider.includes('pagarme');
+      const isPixMercadoPago =
+        isMercadoPago || (!isPagarme && methodIsPix && useMercadoPagoSubscriptionPix && !usePagarmeSubscriptionPix);
+      const taxaPercentual = isPixMercadoPago ? 0.99 / 100 : 1.19 / 100;
+      const netValue = grossValue - taxaPlataforma - (grossValue * taxaPercentual);
+      return Math.max(0, Math.round(netValue * 100) / 100);
+    }
+
+    return Math.max(0, Math.round(grossValue * 100) / 100);
   };
 
   const isActivePaidSubscriber = (cs: ClientSubscription): boolean => {
@@ -3013,7 +3065,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const liquidoAtivo = clientSubscriptions.reduce((sum, cs) => {
     if (!isActivePaidSubscriber(cs)) return sum;
     const grossValue = getSubscriptionValue(cs);
-    return sum + getNetFromSubscription(grossValue, (cs as any)?.subscription_payment_provider);
+    return sum + getNetFromSubscription(
+      grossValue,
+      (cs as any)?.subscription_payment_provider,
+      (cs as any)?.subscriber_payment_method,
+      (cs as any)?.subscription_payment_order_id
+    );
   }, 0);
 
   // Entradas do mês: somente pagamentos de assinatura que aconteceram no mês selecionado
@@ -3097,7 +3154,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       .filter((cs) => isActivePaidSubscriber(cs))
       .map((cs) => {
         const bruto = getSubscriptionValue(cs);
-        const liquido = getNetFromSubscription(bruto, (cs as any)?.subscription_payment_provider);
+        const liquido = getNetFromSubscription(
+          bruto,
+          (cs as any)?.subscription_payment_provider,
+          (cs as any)?.subscriber_payment_method,
+          (cs as any)?.subscription_payment_order_id
+        );
         const rawEndDate = String(cs.end_date || '').trim();
         const endDate = rawEndDate ? parseISO(rawEndDate) : null;
         return {
@@ -3148,25 +3210,38 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return map;
   }, [clientSubscriptions]);
 
-  // Saldo (assinantes) - SOMENTE assinantes pagos via PIX da Pagar.me (assinatura)
-  // Regra: soma apenas registros com subscription_payment_provider='pagarme_pix' (e pago/ativo),
-  // já descontando 1,19% + R$0,50.
-  const saldoAssinantes = clientSubscriptions.reduce((sum, cs) => {
-    if (isPastIsoDateSafe(cs.end_date)) return sum;
-    if (cs.payment_status !== 'paid') return sum;
+  // Saldo (assinantes): entradas PIX líquidas do mês selecionado - pagamentos do mês.
+  // O desconto (taxa + R$0,50) é aplicado por pagamento individual.
+  const pixEntradasLiquidasMesCents = clientSubscriptions.reduce((sum, cs) => {
+    if (String(cs.payment_status || '').toLowerCase() !== 'paid') return sum;
 
+    const rawPaymentDate = String((cs as any)?.last_payment_date || '').trim();
+    const rawFallbackDate = String(cs.start_date || '').trim();
+    const dateToCheckRaw = rawPaymentDate || rawFallbackDate;
+    if (!dateToCheckRaw) return sum;
+
+    const paymentDate = parseISO(dateToCheckRaw);
+    if (Number.isNaN(paymentDate.getTime())) return sum;
+    if (paymentDate < monthStart || paymentDate > monthEnd) return sum;
+
+    const paymentMethod = String((cs as any)?.subscriber_payment_method || '').toLowerCase().trim();
+    if (paymentMethod !== 'pix') return sum;
     const provider = String((cs as any)?.subscription_payment_provider || '').toLowerCase();
-    if (provider !== 'pagarme_pix') return sum;
 
     const bruto = Number(getSubscriptionValue(cs));
     if (!Number.isFinite(bruto) || bruto <= 0) return sum;
 
-    const taxaPixPercent = 1.19;
-    const taxaPlataforma = 0.5; // R$ 0,50 (AgendeiFácil)
-    const taxaPercentual = bruto * (taxaPixPercent / 100);
-    const liquido = Math.max(0, Math.round((bruto - taxaPlataforma - taxaPercentual) * 100) / 100);
-    return sum + liquido;
+    const liquido = getNetFromSubscription(
+      bruto,
+      provider,
+      (cs as any)?.subscriber_payment_method,
+      (cs as any)?.subscription_payment_order_id
+    );
+    return sum + toCents(liquido);
   }, 0);
+
+  const saldoAssinantes = fromCents(Math.max(0, pixEntradasLiquidasMesCents - emContaSaidasCents));
+  const shouldShowSubscribersBalanceCard = !useMercadoPagoSubscriptionPix;
 
   const [isRefreshingSaldoAssinantes, setIsRefreshingSaldoAssinantes] = useState(false);
   const handleRefreshSaldoAssinantes = async () => {
@@ -3605,41 +3680,43 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         )}
 
         {/* Saldo + Sacar (assinantes) */}
-        <div className="mt-4 rounded-lg border border-green-500/20 bg-black/20 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <div className="text-xs text-gray-300">Saldo (assinantes)</div>
-            <div className="text-xl font-extrabold text-green-200">{fmtBRL(saldoAssinantes)}</div>
-            <div className="mt-1 text-[11px] text-gray-300/80">
-              * Soma somente PIX pagos (Pagar.me), já com R$ 0,50 + 1,19% descontados.
+        {shouldShowSubscribersBalanceCard && (
+          <div className="mt-4 rounded-lg border border-green-500/20 bg-black/20 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div className="text-xs text-gray-300">Saldo (assinantes)</div>
+              <div className="text-xl font-extrabold text-green-200">{fmtBRL(saldoAssinantes)}</div>
+              <div className="mt-1 text-[11px] text-gray-300/80">
+                * PIX líquido do mês (R$0,50 + taxa por pagamento) - pagamentos de profissionais no mês.
+              </div>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                disabled={isRefreshingSaldoAssinantes}
+                onClick={handleRefreshSaldoAssinantes}
+                className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                Atualizar
+              </button>
+              <button
+                type="button"
+                disabled={isRefreshingSaldoAssinantes || saldoAssinantes <= 0}
+                onClick={() => {
+                  if (saldoAssinantes <= 0) {
+                    toast.error('Seu saldo de assinantes está zerado.');
+                    return;
+                  }
+                  const whatsappNumber = '5548991265320';
+                  const message = `Quero sacar meu valor (assinantes): ${fmtBRL(saldoAssinantes)}\nEstabelecimento: ${String(establishmentId)}`;
+                  window.open(`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`, '_blank');
+                }}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                Sacar
+              </button>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <button
-              type="button"
-              disabled={isRefreshingSaldoAssinantes}
-              onClick={handleRefreshSaldoAssinantes}
-              className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              Atualizar
-            </button>
-            <button
-              type="button"
-              disabled={isRefreshingSaldoAssinantes || saldoAssinantes <= 0}
-              onClick={() => {
-                if (saldoAssinantes <= 0) {
-                  toast.error('Seu saldo de assinantes está zerado.');
-                  return;
-                }
-                const whatsappNumber = '5548991265320';
-                const message = `Quero sacar meu valor (assinantes): ${fmtBRL(saldoAssinantes)}\nEstabelecimento: ${String(establishmentId)}`;
-                window.open(`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`, '_blank');
-              }}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              Sacar
-            </button>
-          </div>
-        </div>
+        )}
 
         {/* Controle por Profissional */}
         {(subscriberAttendances.length > 0 || subscriptionSaleCommissions.length > 0) && (
@@ -3708,6 +3785,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   return acc as any;
                 })()
               ).map(([professional, info]) => {
+                const isOwnerProfessional = isOwnerProfessionalByName(professional);
                 const totalValue = (info as any)?.totalValue || 0;
                 const attendanceCount = (info as any)?.attendanceCount || 0;
                 const uniqueClientsCount = (info as any)?.uniqueClientIds?.size || 0;
@@ -3727,12 +3805,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   .reduce((sum, p) => sum + (p.amount || 0), 0);
 
                 // Valor pendente = total acumulado - total pago
-                const pendingValue = Math.max(0, totalValue - totalPaid);
+                const pendingValue = isOwnerProfessional ? 0 : Math.max(0, totalValue - totalPaid);
 
                 return (
                   <div key={professional} className="flex justify-between items-center bg-[#2a2b2c] rounded-lg p-3">
                     <div className="flex-1">
                       <p className="text-sm font-medium text-white">{professional}</p>
+                      {isOwnerProfessional && (
+                        <p className="text-[11px] text-emerald-400 mt-0.5">
+                          Dono (100%): não gera pagamento para si mesmo no controle de assinaturas.
+                        </p>
+                      )}
                       <p className="text-xs text-gray-400">
                         Valor total acumulado de {monthNames[selectedMonth]} {selectedYear}
                       </p>

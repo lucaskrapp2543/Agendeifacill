@@ -91,6 +91,16 @@ const addMonths = (date: Date, months: number) => {
   return d;
 };
 
+const getSubscriberPaymentMethodFromProvider = (providerRaw: unknown): string | null => {
+  const provider = String(providerRaw || '').toLowerCase().trim();
+  if (!provider) return null;
+  if (provider.includes('pix')) return 'pix';
+  if (provider.includes('debit') || provider.includes('debito')) return 'debito';
+  if (provider.includes('credit') || provider.includes('card') || provider.includes('credito')) return 'credito';
+  if (provider.includes('dinheiro')) return 'dinheiro';
+  return null;
+};
+
 // Health check
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -152,6 +162,7 @@ app.post('/api/subscribers/create-pending-subscription', async (req, res) => {
       .maybeSingle();
 
     const providerFinal = String(provider || 'pagarme_pix').toLowerCase().trim() || 'pagarme_pix';
+    const subscriberPaymentMethod = getSubscriberPaymentMethodFromProvider(providerFinal);
 
     const payload: any = {
       subscription_id: String(subscriptionId),
@@ -163,6 +174,7 @@ app.post('/api/subscribers/create-pending-subscription', async (req, res) => {
       subscriber_name: customerName,
       subscriber_whatsapp: customerWhatsapp,
       subscriber_email: customerEmail,
+      subscriber_payment_method: subscriberPaymentMethod,
       subscription_payment_provider: providerFinal,
       subscription_payment_order_id: String(orderId),
     };
@@ -231,6 +243,7 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
       providerNormalized === 'mercadopago_card' || providerNormalized === 'mercadopago_pix'
         ? providerNormalized
         : 'pagarme_pix';
+    const subscriberPaymentMethod = getSubscriberPaymentMethodFromProvider(providerFinal);
 
     // Validar pagamento no gateway correto
     let normalizedStatus = '';
@@ -331,6 +344,7 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
       subscriber_name: customerName,
       subscriber_whatsapp: customerWhatsapp,
       subscriber_email: customerEmail,
+      subscriber_payment_method: subscriberPaymentMethod,
       // marcar origem do pagamento (para saldo de assinantes)
       subscription_payment_provider: providerFinal,
       subscription_payment_order_id: String(orderId),
@@ -394,7 +408,7 @@ app.post('/api/subscribers/claim-subscription-credit', async (req, res) => {
       });
     }
 
-    const { establishmentId, subscriptionId, customer } = req.body || {};
+    const { establishmentId, subscriptionId, customer, providerKey } = req.body || {};
     const customerName = String(customer?.name || '').trim();
     const customerWhatsapp = onlyDigits(String(customer?.whatsapp || customer?.phone || ''));
     const customerEmail = String(customer?.email || '').trim() || null;
@@ -436,7 +450,11 @@ app.post('/api/subscribers/claim-subscription-credit', async (req, res) => {
       console.warn('⚠️ Não foi possível checar assinatura existente (crédito):', existingErr);
     }
 
-    const providerFinal = 'credit_link';
+    const providerFinal = String(providerKey || 'credit_link').toLowerCase().trim() || 'credit_link';
+    const subscriberPaymentMethod =
+      providerFinal === 'credit_link'
+        ? 'credito'
+        : getSubscriberPaymentMethodFromProvider(providerFinal);
     const orderId = `credit_${Date.now()}_${uuidv4()}`;
 
     const payload: any = {
@@ -450,6 +468,7 @@ app.post('/api/subscribers/claim-subscription-credit', async (req, res) => {
       subscriber_name: customerName,
       subscriber_whatsapp: customerWhatsapp,
       subscriber_email: customerEmail,
+      subscriber_payment_method: subscriberPaymentMethod,
       // auditoria/origem
       subscription_payment_provider: providerFinal,
       subscription_payment_order_id: orderId,

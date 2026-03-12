@@ -1681,12 +1681,99 @@ export default function BookingPage() {
         const targetDuration = parseDurationMinutes(appointmentData?.duration);
         const targetEnd = targetStart + targetDuration;
 
+        // Guard extra: valida com snapshot fresco do banco para evitar booking em horário bloqueado
+        // caso o cliente esteja com cache antigo da tela de agendamento.
+        let freshProfessionals: any[] = Array.isArray(establishment?.professionals) ? establishment.professionals : [];
+        try {
+          const { data: freshEstablishmentData, error: freshEstablishmentError } = await supabase
+            .from('establishments')
+            .select('professionals')
+            .eq('id', establishment.id)
+            .single();
+          if (!freshEstablishmentError && Array.isArray(freshEstablishmentData?.professionals)) {
+            freshProfessionals = freshEstablishmentData.professionals;
+          } else if (freshEstablishmentError) {
+            console.warn('⚠️ Não foi possível atualizar profissionais em tempo real no submit do booking:', freshEstablishmentError);
+          }
+        } catch (freshSnapshotError) {
+          console.warn('⚠️ Falha inesperada ao buscar snapshot fresco de profissionais no booking:', freshSnapshotError);
+        }
+
         let targetProfessionalNameNorm = '';
-        const selectedProfessional = Array.isArray(establishment?.professionals)
-          ? establishment.professionals.find((professional: any) => String(professional?.id || '').trim() === String(appointmentData?.professional || '').trim())
+        const selectedProfessional = Array.isArray(freshProfessionals)
+          ? freshProfessionals.find((professional: any) => {
+            const professionalId = String(professional?.id || '').trim();
+            const professionalNameNorm = normalizeText(professional?.name);
+            return (
+              (professionalId.length > 0 && professionalId === String(appointmentData?.professional || '').trim()) ||
+              (professionalNameNorm.length > 0 && professionalNameNorm === targetProfessionalRefNorm)
+            );
+          })
           : null;
         if (selectedProfessional?.name) {
           targetProfessionalNameNorm = normalizeText(selectedProfessional.name);
+        }
+
+        if (selectedProfessional) {
+          const normalizedAbsences = Array.isArray((selectedProfessional as any)?.absences)
+            ? ((selectedProfessional as any).absences as any[])
+              .map((absenceDate: any) => String(absenceDate || '').slice(0, 10))
+              .filter(Boolean)
+            : [];
+          if (normalizedAbsences.includes(targetDate)) {
+            toast.error('Este profissional está indisponível neste dia. Escolha outro horário.');
+            await fetchExistingAppointments();
+            return;
+          }
+
+          const blockedMap = ((selectedProfessional as any)?.blocked_hours && typeof (selectedProfessional as any).blocked_hours === 'object')
+            ? (selectedProfessional as any).blocked_hours
+            : {};
+          const blockedTimes = Array.isArray(blockedMap[targetDate])
+            ? blockedMap[targetDate]
+              .map((rawTime: any) => normalizeTimeHHmm(rawTime))
+              .filter(Boolean)
+            : [];
+
+          if (blockedTimes.length > 0) {
+            const use60MinuteSchedule = Boolean((establishment as any)?.use_60_minute_schedule);
+            const use20MinuteSchedule = Boolean((establishment as any)?.use_20_minute_schedule);
+            const use15MinuteInterval = Boolean((establishment as any)?.use_15_minute_interval);
+            const currentGridInterval = use60MinuteSchedule
+              ? 60
+              : use20MinuteSchedule
+                ? 20
+                : use15MinuteInterval
+                  ? 30
+                  : 15;
+            const blockedSlotDuration = (() => {
+              const isAligned = (step: number) =>
+                blockedTimes.every((time: string) => {
+                  const [, minutesStr = ''] = String(time).split(':');
+                  const minutes = Number(minutesStr);
+                  return Number.isFinite(minutes) && minutes % step === 0;
+                });
+              if (use60MinuteSchedule) return isAligned(60) ? 60 : 15;
+              if (use20MinuteSchedule) return isAligned(20) ? 20 : 15;
+              if (use15MinuteInterval) return isAligned(30) ? 30 : 15;
+              return currentGridInterval;
+            })();
+
+            const hasBlockedConflict = blockedTimes.some((blockedTime: string) => {
+              const blockedStart = toMinutes(blockedTime);
+              const blockedEnd = blockedStart + blockedSlotDuration;
+              const startsInBlocked = targetStart >= blockedStart && targetStart < blockedEnd;
+              const endsInBlocked = targetEnd > blockedStart && targetEnd <= blockedEnd;
+              const encompassesBlocked = targetStart <= blockedStart && targetEnd >= blockedEnd;
+              return startsInBlocked || endsInBlocked || encompassesBlocked;
+            });
+
+            if (hasBlockedConflict) {
+              toast.error('Este horário foi bloqueado pelo profissional. Escolha outro horário.');
+              await fetchExistingAppointments();
+              return;
+            }
+          }
         }
 
         const { data: sameDayAppointments, error: sameDayAppointmentsError } = await supabase

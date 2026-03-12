@@ -2882,6 +2882,10 @@ const EstablishmentDashboard = () => {
     return parsed;
   };
 
+  const isOwnerProfessional = (professional?: { percentage?: unknown } | null): boolean => {
+    return normalizeProfessionalPercentage(professional?.percentage) === 100;
+  };
+
   // Estado para mostrar/ocultar valores financeiros
   const [showFinancialValues, setShowFinancialValues] = useState(true);
 
@@ -4719,22 +4723,23 @@ const EstablishmentDashboard = () => {
 
       const provider = String(providerRaw || '').toLowerCase().trim();
       const taxaPlataforma = 0.5;
-      let taxaPercentual = 1.19 / 100; // padrão: PIX Pagar.me
+      const configuredCreditTax = Number(establishment?.credit_card_tax_percentage);
+      const configuredDebitTax = Number(establishment?.debit_card_tax_percentage);
+      const hasConfiguredCreditTax = Number.isFinite(configuredCreditTax) && configuredCreditTax >= 0;
+      const hasConfiguredDebitTax = Number.isFinite(configuredDebitTax) && configuredDebitTax >= 0;
 
-      if (provider.includes('mercadopago')) {
-        if (provider.includes('credit') || provider.includes('card')) {
-          taxaPercentual = 4.99 / 100;
-        } else if (provider.includes('debit')) {
-          taxaPercentual = 1.99 / 100;
-        } else {
-          taxaPercentual = 0.99 / 100; // PIX Mercado Pago
-        }
-      } else if (provider.includes('credit') || provider.includes('card')) {
-        taxaPercentual = 4.99 / 100;
-      } else if (provider.includes('debit')) {
-        taxaPercentual = 1.99 / 100;
-      } else if (provider.includes('pix')) {
-        taxaPercentual = 1.19 / 100;
+      let taxaPercentual = 1.19 / 100; // padrão: PIX Pagar.me
+      const isMercadoPago = provider.includes('mercadopago');
+      const isCredit = provider.includes('credit') || provider.includes('card') || provider.includes('credito');
+      const isDebit = provider.includes('debit') || provider.includes('debito');
+      const isPix = provider.includes('pix');
+
+      if (isCredit) {
+        taxaPercentual = hasConfiguredCreditTax ? (configuredCreditTax / 100) : 4.99 / 100;
+      } else if (isDebit) {
+        taxaPercentual = hasConfiguredDebitTax ? (configuredDebitTax / 100) : 1.99 / 100;
+      } else if (isPix) {
+        taxaPercentual = isMercadoPago ? 0.99 / 100 : 1.19 / 100;
       }
 
       return Math.max(0, Math.round((bruto - taxaPlataforma - (bruto * taxaPercentual)) * 100) / 100);
@@ -4786,7 +4791,7 @@ const EstablishmentDashboard = () => {
     const saldoAssinantes = subscriptionsRows.reduce((sum, cs: any) => {
       if (!wasPaidInReferenceMonth(cs)) return sum;
       const provider = String(cs?.subscription_payment_provider || '').toLowerCase();
-      if (provider !== 'pagarme_pix') return sum;
+      if (!provider.includes('pix')) return sum;
 
       const rawSubscription = cs?.subscriptions;
       const subscriptionValueFromRelation = Array.isArray(rawSubscription)
@@ -4799,9 +4804,7 @@ const EstablishmentDashboard = () => {
           : fallbackSubscriptionValue;
       if (!Number.isFinite(bruto) || bruto <= 0) return sum;
 
-      const taxaPixPercent = 1.19;
-      const taxaPlataforma = 0.5;
-      const liquido = Math.max(0, Math.round((bruto - taxaPlataforma - (bruto * taxaPixPercent / 100)) * 100) / 100);
+      const liquido = getSubscriptionNetValue(bruto, provider);
       return sum + liquido;
     }, 0);
 
@@ -4891,9 +4894,17 @@ const EstablishmentDashboard = () => {
         }
       > = {};
 
+      const ownerProfessionalNameKeys = new Set(
+        ((establishment.professionals || []) as any[])
+          .filter((p: any) => isOwnerProfessional(p))
+          .map((p: any) => String(p?.name || '').trim().toLowerCase())
+          .filter(Boolean)
+      );
+
       const ensureProfessional = (professionalNameRaw: string) => {
         const professionalName = String(professionalNameRaw || '').trim();
         if (!professionalName) return null;
+        if (ownerProfessionalNameKeys.has(professionalName.toLowerCase())) return null;
         if (!acc[professionalName]) {
           acc[professionalName] = {
             totalAccumulated: 0,
@@ -7382,13 +7393,18 @@ const EstablishmentDashboard = () => {
           offers_child_service: localProfessional.offers_child_service ?? dbProfessional.offers_child_service ?? false,
           work_hours: localProfessional.work_hours || dbProfessional.work_hours || null,
           absences: (localProfessional as any).absences || dbProfessional.absences || [], // ✅ PRESERVAR AUSÊNCIAS!
-          // ✅ PRESERVAR HORÁRIOS BLOQUEADOS: nunca zerar — preferir local; se local vazio e DB tem dados, manter do DB
+          // ✅ PRESERVAR HORÁRIOS BLOQUEADOS: mesclar DB + local por data para não perder bloqueios futuros
           blocked_hours: (() => {
             const local = (localProfessional as any).blocked_hours;
             const db = dbProfessional.blocked_hours;
-            if (local && typeof local === 'object' && Object.keys(local).length > 0) return local;
-            if (db && typeof db === 'object' && Object.keys(db).length > 0) return db;
-            return local || db || {};
+            const safeLocal = local && typeof local === 'object'
+              ? normalizeBlockedHoursMap(local)
+              : {};
+            const safeDb = db && typeof db === 'object'
+              ? normalizeBlockedHoursMap(db)
+              : {};
+            const merged = { ...safeDb, ...safeLocal };
+            return Object.keys(merged).length > 0 ? merged : {};
           })()
         };
 
@@ -7567,17 +7583,27 @@ const EstablishmentDashboard = () => {
       newPins.push({ professional_id: id, pin: '0000' });
     }
     try {
+      const { data: establishmentData, error: fetchError } = await supabase
+        .from('establishments')
+        .select('professionals')
+        .eq('id', establishment.id)
+        .single();
+      if (fetchError) throw fetchError;
+
+      const dbProfessionals = (establishmentData?.professionals || []) as any[];
+      const safeProfessionals = mergeProfessionalsPreservingCriticalFields(newProfessionals, dbProfessionals);
+
       const { error } = await supabase
         .from('establishments')
         .update({
-          professionals: newProfessionals,
+          professionals: safeProfessionals,
           professionals_pins: newPins,
           deleted_professionals: currentDeleted
         })
         .eq('id', establishment.id);
       if (error) throw error;
-      setEstablishment({ ...establishment, professionals: newProfessionals, professionals_pins: newPins, deleted_professionals: currentDeleted });
-      setProfessionals(newProfessionals);
+      setEstablishment({ ...establishment, professionals: safeProfessionals, professionals_pins: newPins, deleted_professionals: currentDeleted });
+      setProfessionals(safeProfessionals);
       setShowDeletedProfessionalsModal(false);
       toast.success(`${deletedProfessional.name} reativado. Ele volta a aparecer na Receita por Profissional e pode receber pagamentos.`);
     } catch (e: any) {
@@ -10372,7 +10398,7 @@ Estamos te aguardando! 😎✂️`;
   // Total líquido que vai só para profissionais que NÃO são dono (para subtrair do Líquido Estabelecimento)
   const calculateTotalNonOwnerProfessionalsLiquid = (appointments: Appointment[]): number => {
     return professionals
-      .filter(pro => (pro.percentage ?? 100) !== 100)
+      .filter((pro) => !isOwnerProfessional(pro))
       .reduce((sum, pro) => sum + calculateProfessionalNetValue(pro.name, appointments), 0);
   };
 
@@ -14250,11 +14276,15 @@ Estamos te aguardando! 😎✂️`;
         if (dbProfessional.id === selectedProfessionalForAbsence) {
           // Buscar dados locais do profissional
           const localProfessional = professionals.find(p => p.id === selectedProfessionalForAbsence);
+          const safeDbBlocked = normalizeBlockedHoursMap((dbProfessional as any)?.blocked_hours || {});
+          const safeLocalBlocked = normalizeBlockedHoursMap((localProfessional as any)?.blocked_hours || {});
+          const mergedBlockedHours = { ...safeDbBlocked, ...safeLocalBlocked };
 
           // Mesclar todos os campos, preservando dados do banco
           return {
             ...dbProfessional,
             ...(localProfessional || {}),
+            blocked_hours: mergedBlockedHours,
             absences: absences
           };
         }
@@ -16383,7 +16413,7 @@ Estamos te aguardando! 😎✂️`;
   // Função para calcular valor líquido do dono (descontando apenas taxas de cartão)
   const calculateOwnerNetValue = (professionalName: string, appointments: Appointment[]) => {
     const professional = professionals.find(p => p.name === professionalName);
-    if (!professional || professional.percentage !== 100) return 0;
+    if (!professional || !isOwnerProfessional(professional)) return 0;
 
     // Filtrar apenas agendamentos deste profissional (matching seguro, sem dupla contagem)
     const professionalAppointments = appointments.filter(apt =>
@@ -16430,7 +16460,7 @@ Estamos te aguardando! 😎✂️`;
     if (!professional) return 0;
 
     // Se for dono (100%), usar cálculo específico
-    if (professional.percentage === 100) {
+    if (isOwnerProfessional(professional)) {
       return calculateOwnerNetValue(professionalName, appointments);
     }
 
@@ -16602,7 +16632,7 @@ Estamos te aguardando! 😎✂️`;
   const calculateProfessionalNetForAppointment = (professional: any, apt: Appointment): number => {
     const baseValue = getAppointmentRevenueBase(apt);
     const cardTaxAmount = getCardTaxAmountFromAppointment(apt, baseValue);
-    if (professional?.percentage === 100) {
+    if (isOwnerProfessional(professional)) {
       if (cardTaxAmount > 0) return Math.max(0, baseValue - cardTaxAmount);
       return baseValue;
     }
@@ -25923,10 +25953,10 @@ Estamos te aguardando! 😎✂️`;
                                   <p className="flex items-center gap-2">
                                     <span className="font-medium">{professionalAppointments.length} agendamento(s)</span>
                                     <span className="text-gray-400">•</span>
-                                    {professional.percentage === 100 ? (
+                                    {isOwnerProfessional(professional) ? (
                                       <span className="text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md">Dono (100%)</span>
                                     ) : (
-                                      <span className="text-blue-600 font-medium bg-blue-50 px-2 py-0.5 rounded-md">{professional.percentage || 100}%</span>
+                                      <span className="text-blue-600 font-medium bg-blue-50 px-2 py-0.5 rounded-md">{normalizeProfessionalPercentage(professional.percentage)}%</span>
                                     )}
                                   </p>
                                   {(subscriberProfessionalFinancial.totalAccumulated > 0 || subscriberProfessionalFinancial.totalPaid > 0) && (
@@ -25998,7 +26028,7 @@ Estamos te aguardando! 😎✂️`;
                                   {formatCurrency(professionalRevenue)}
                                 </p>
                                 <div className="text-sm text-blue-700 font-medium">
-                                  {professional.percentage === 100 ? (
+                                  {isOwnerProfessional(professional) ? (
                                     <span>Líquido: <span className="font-bold">{formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span></span>
                                   ) : (
                                     <span>Líquido: <span className="font-bold">{formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span></span>
@@ -26020,7 +26050,7 @@ Estamos te aguardando! 😎✂️`;
 
                             {/* Controle de Pagamentos - Dono não se paga, o líquido já é do estabelecimento */}
                             <div className="border-t border-gray-300/60 pt-4 mt-5 bg-gradient-to-r from-gray-50/30 to-gray-100/30 rounded-lg p-3 -mx-3 -mb-3">
-                              {professional.percentage === 100 ? (
+                              {isOwnerProfessional(professional) ? (
                                 <p className="text-sm text-gray-600 italic">
                                   Dono (100%): este valor já está incluído no <strong>Líquido Estabelecimento</strong> acima. Não é necessário registrar pagamento para si mesmo.
                                 </p>
@@ -26100,7 +26130,7 @@ Estamos te aguardando! 😎✂️`;
                                           const baseValue = getAppointmentRevenueBase(apt);
                                           let netValue;
 
-                                          if (professional.percentage === 100) {
+                                          if (isOwnerProfessional(professional)) {
                                             // Para dono: bruto - taxa de cartão (se houver)
                                             const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
                                             if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
@@ -26186,7 +26216,7 @@ Estamos te aguardando! 😎✂️`;
                                         const baseValue = getAppointmentRevenueBase(apt);
                                         let netValue;
 
-                                        if (professional.percentage === 100) {
+                                        if (isOwnerProfessional(professional)) {
                                           // Para dono: bruto - taxa de cartão (se houver)
                                           const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
                                           if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
