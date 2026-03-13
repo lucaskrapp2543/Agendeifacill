@@ -4534,14 +4534,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <button
                                               onClick={(e) => {
                                                 e.stopPropagation();
-                                                void logAppointmentCardActionClick(apt, 'produto_v2', 'Clique em Produto V2.');
+                                                void logAppointmentCardActionClick(apt, 'produto_v2', 'Clique em Adicionar Produto.');
                                                 if (onOpenProductV2Modal) onOpenProductV2Modal(apt.id);
                                               }}
                                               data-tutorial-id="appointments-detalhes-produto"
                                               className="px-2 py-1.5 text-xs bg-black text-white rounded hover:bg-gray-800 flex items-center justify-center gap-1"
                                             >
                                               <Package className="w-3 h-3" />
-                                              Produto V2
+                                              Adicionar Produto
                                             </button>
 
                                             <button

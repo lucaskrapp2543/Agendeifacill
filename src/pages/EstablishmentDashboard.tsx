@@ -3950,6 +3950,7 @@ const EstablishmentDashboard = () => {
   // Estado para controlar o modal de produtos adicionais
   const [showAdditionalProductModal, setShowAdditionalProductModal] = useState(false);
   const [selectedAppointmentForProduct, setSelectedAppointmentForProduct] = useState<string | null>(null);
+  const [addProductSearchQuery, setAddProductSearchQuery] = useState('');
 
   // Novo estado para controlar o modal do comprovante
   const [showProofModal, setShowProofModal] = useState(false);
@@ -19175,6 +19176,7 @@ Estamos te aguardando! 😎✂️`;
                       }}
                       onOpenProductV2Modal={(appointmentId) => {
                         setSelectedAppointmentForProduct(appointmentId);
+                        setAddProductSearchQuery('');
                         setShowAddProductToAppointmentModal(true);
                       }}
                       onGenerateNF={handleGenerateNF as any}
@@ -20198,12 +20200,13 @@ Estamos te aguardando! 😎✂️`;
                                           <button
                                             onClick={() => {
                                               setSelectedAppointmentForProduct(appointment.id);
+                                              setAddProductSearchQuery('');
                                               setShowAddProductToAppointmentModal(true);
                                             }}
                                             className="inline-flex items-center px-3 py-1.5 text-sm bg-black text-white rounded hover:bg-gray-800 transition-colors mb-2"
                                           >
                                             <Package className="h-4 w-4 mr-1" />
-                                            Adicionar Produto V2
+                                            Adicionar Produto
                                           </button>
 
                                           <button
@@ -31331,7 +31334,7 @@ Estamos te aguardando! 😎✂️`;
         )
       }
 
-      {/* Modal para Adicionar Produto V2 (do estoque) */}
+      {/* Modal para Adicionar Produto (do estoque) */}
       {
         showAddProductToAppointmentModal && selectedAppointmentForProduct && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -31342,6 +31345,7 @@ Estamos te aguardando! 😎✂️`;
                   onClick={() => {
                     setShowAddProductToAppointmentModal(false);
                     setSelectedAppointmentForProduct(null);
+                    setAddProductSearchQuery('');
                   }}
                   className="text-gray-400 hover:text-gray-600"
                 >
@@ -31353,6 +31357,13 @@ Estamos te aguardando! 😎✂️`;
                 <p className="text-sm text-gray-600 mb-4">
                   Selecione um produto do seu estoque para adicionar ao agendamento:
                 </p>
+                <input
+                  type="text"
+                  value={addProductSearchQuery}
+                  onChange={(e) => setAddProductSearchQuery(e.target.value)}
+                  placeholder="Pesquisar produto por nome..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
 
                 {products.length === 0 ? (
                   <div className="text-center py-4">
@@ -31362,9 +31373,18 @@ Estamos te aguardando! 😎✂️`;
                       Cadastre produtos em "Meus Produtos" primeiro
                     </p>
                   </div>
-                ) : (
+                ) : (() => {
+                  const query = String(addProductSearchQuery || '').trim().toLowerCase();
+                  const filteredProducts = products.filter((product) =>
+                    String(product?.name || '').toLowerCase().includes(query)
+                  );
+                  return (
                   <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {products.map((product) => (
+                    {filteredProducts.length === 0 ? (
+                      <div className="text-center py-4 border border-dashed border-gray-300 rounded-lg">
+                        <p className="text-sm text-gray-600">Nenhum produto encontrado para essa busca.</p>
+                      </div>
+                    ) : filteredProducts.map((product) => (
                       <div
                         key={product.id}
                         onClick={() => handleAddProductToAppointment(product)}
@@ -31395,7 +31415,8 @@ Estamos te aguardando! 😎✂️`;
                       </div>
                     ))}
                   </div>
-                )}
+                  );
+                })()}
               </div>
             </div>
           </div>

@@ -3019,26 +3019,25 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return Math.max(0, Math.round(grossValue * 100) / 100);
   };
 
+  const isSubscriptionActiveInSelectedMonth = (cs: ClientSubscription): boolean => {
+    const startDate = parseIsoDateSafe(cs.start_date);
+    const endDate = parseIsoDateSafe(cs.end_date);
+
+    // Se começou depois do mês selecionado, não deve contar neste mês.
+    if (startDate && startDate > monthEnd) return false;
+    // Se terminou antes do mês selecionado, não deve contar neste mês.
+    if (endDate && endDate < monthStart) return false;
+
+    return true;
+  };
+
   const isActivePaidSubscriber = (cs: ClientSubscription): boolean => {
     if (String(cs.payment_status || '').toLowerCase() !== 'paid') return false;
-
-    const rawEndDate = String(cs.end_date || '').trim();
-    if (!rawEndDate) return true;
-
-    const endDate = parseISO(rawEndDate);
-    if (Number.isNaN(endDate.getTime())) return true;
-
-    return !isPast(endDate);
+    return isSubscriptionActiveInSelectedMonth(cs);
   };
 
   const isSubscriptionActiveByEndDate = (cs: ClientSubscription): boolean => {
-    const rawEndDate = String(cs.end_date || '').trim();
-    if (!rawEndDate) return true;
-
-    const endDate = parseISO(rawEndDate);
-    if (Number.isNaN(endDate.getTime())) return true;
-
-    return !isPast(endDate);
+    return isSubscriptionActiveInSelectedMonth(cs);
   };
 
   // Bruto = MRR atual (somente assinaturas ativas e pagas)
