@@ -120,15 +120,23 @@ export function SpecificServiceModal({
           {/* Descrição */}
           <div className="mb-6 p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg">
             <p className="text-blue-300 text-sm">
-              <strong>💡 Como funciona:</strong> Estes serviços aparecerão apenas quando o cliente selecionar este profissional específico.
-              Por exemplo, se este profissional faz sobrancelhas, adicione "Sobrancelhas" aqui.
+              <strong>💡 Como funciona:</strong> Os serviços cadastrados aqui aparecem apenas quando o cliente selecionar este profissional.
+              Use esta área para serviços exclusivos, como "Sobrancelhas", quando somente este profissional oferece esse atendimento.
             </p>
           </div>
 
           {/* Mensagem destacada */}
           <div className="mb-6 p-4 bg-yellow-900/30 border border-yellow-600 rounded-lg">
             <p className="text-yellow-200 text-sm font-semibold">
-              ⚠️ Se você é o único profissional, não precisa adicionar serviços aqui, e apenas se o profissional faz um serviço que outros não fazem.
+              ⚠️ Se você é o único profissional, normalmente não precisa cadastrar serviços específicos aqui. Use este campo apenas quando o profissional fizer algo diferente dos demais.
+            </p>
+          </div>
+
+          {/* Ponto de atenção */}
+          <div className="mb-6 p-4 bg-amber-950/40 border border-amber-500/60 rounded-lg">
+            <p className="text-amber-200 text-sm font-bold">
+              ⚠️ ATENÇÃO: ao cadastrar serviços nesta área, o sistema prioriza somente os serviços específicos deste profissional.
+              Para os clientes, aparecerão apenas os serviços cadastrados aqui (e não os da seção "Meus serviços").
             </p>
           </div>
 

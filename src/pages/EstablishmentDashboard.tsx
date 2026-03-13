@@ -352,6 +352,19 @@ interface Client {
   forceAdvancePayment?: boolean; // Se true, este cliente precisa pagar antes de agendar
 }
 
+interface ClientFutureAppointmentItem {
+  id: string;
+  client_id?: string | null;
+  client_whatsapp?: string | null;
+  client_name?: string | null;
+  appointment_date: string;
+  appointment_time: string;
+  service?: string | null;
+  professional?: string | null;
+  status?: string | null;
+  is_subscriber?: boolean | null;
+}
+
 interface Subscription {
   id: string;
   name: string;
@@ -564,6 +577,12 @@ const EstablishmentDashboard = () => {
   const [showClientInfoModal, setShowClientInfoModal] = useState(false);
   const [selectedClientInfo, setSelectedClientInfo] = useState<Client | null>(null);
   const [isSavingFalta, setIsSavingFalta] = useState(false);
+  const [showClientFutureAppointmentsModal, setShowClientFutureAppointmentsModal] = useState(false);
+  const [selectedClientForFutureAppointments, setSelectedClientForFutureAppointments] = useState<Client | null>(null);
+  const [clientFutureAppointments, setClientFutureAppointments] = useState<ClientFutureAppointmentItem[]>([]);
+  const [selectedFutureAppointmentIds, setSelectedFutureAppointmentIds] = useState<string[]>([]);
+  const [isLoadingClientFutureAppointments, setIsLoadingClientFutureAppointments] = useState(false);
+  const [isCancellingFutureAppointments, setIsCancellingFutureAppointments] = useState(false);
 
   // Estados para adicionar cliente manualmente
   const [showAddClientModal, setShowAddClientModal] = useState(false);
@@ -1237,6 +1256,13 @@ const EstablishmentDashboard = () => {
     if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) return digits;
     if (digits.length >= 10 && digits.length <= 11) return `55${digits}`;
     return digits;
+  };
+  const getWhatsappLookupKeys = (raw: string): string[] => {
+    const digits = String(raw || '').replace(/\D/g, '');
+    if (!digits) return [];
+    if (digits.startsWith('55') && digits.length > 2) return Array.from(new Set([digits, digits.slice(2)]));
+    if (digits.length === 10 || digits.length === 11) return Array.from(new Set([digits, `55${digits}`]));
+    return [digits];
   };
 
   const parseValorBR = (raw: string): number => {
@@ -10774,6 +10800,179 @@ Estamos te aguardando! 😎✂️`;
     setEditingClient(client.whatsapp);
     setEditClientName(client.name);
     setEditClientWhatsapp(client.whatsapp);
+  };
+
+  const fetchClientFutureAppointments = async (client: Client): Promise<ClientFutureAppointmentItem[]> => {
+    if (!establishment?.id) return [];
+
+    const todayKey = format(new Date(), 'yyyy-MM-dd');
+    const whatsappKeys = getWhatsappLookupKeys(client.whatsapp);
+    if (whatsappKeys.length === 0) return [];
+
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('id,client_id,client_whatsapp,client_name,appointment_date,appointment_time,service,professional,status,is_subscriber')
+      .eq('establishment_id', establishment.id)
+      .in('client_whatsapp', whatsappKeys)
+      .gte('appointment_date', todayKey)
+      .in('status', ['pending', 'confirmed', 'pending_payment'])
+      .order('appointment_date', { ascending: true })
+      .order('appointment_time', { ascending: true });
+
+    if (error) throw error;
+
+    const rows = (data || []) as ClientFutureAppointmentItem[];
+    const filtered = rows.filter((row) => {
+      const rowWhatsapp = String(row?.client_whatsapp || '').trim();
+      const rowWhatsappKeys = getWhatsappLookupKeys(rowWhatsapp);
+      const byWhatsapp = rowWhatsappKeys.some((k) => whatsappKeys.includes(k));
+      return byWhatsapp;
+    });
+
+    return filtered.sort((a, b) => {
+      const aKey = `${String(a.appointment_date || '')} ${String(a.appointment_time || '')}`;
+      const bKey = `${String(b.appointment_date || '')} ${String(b.appointment_time || '')}`;
+      return aKey.localeCompare(bKey);
+    });
+  };
+
+  const handleOpenClientFutureAppointments = async (client: Client) => {
+    if (!establishment?.id) {
+      toast('Estabelecimento não carregado. Tente novamente.', 'error');
+      return;
+    }
+
+    setSelectedClientForFutureAppointments(client);
+    setShowClientFutureAppointmentsModal(true);
+    setSelectedFutureAppointmentIds([]);
+    setIsLoadingClientFutureAppointments(true);
+    try {
+      const rows = await fetchClientFutureAppointments(client);
+      setClientFutureAppointments(rows);
+    } catch (error: any) {
+      console.error('Erro ao carregar agendamentos futuros do cliente:', error);
+      toast(
+        [error?.message || 'Erro ao carregar agendamentos futuros', error?.code, error?.details, error?.hint]
+          .filter(Boolean)
+          .join(' | '),
+        'error'
+      );
+      setClientFutureAppointments([]);
+    } finally {
+      setIsLoadingClientFutureAppointments(false);
+    }
+  };
+
+  const toggleFutureAppointmentSelection = (appointmentId: string) => {
+    setSelectedFutureAppointmentIds((prev) => (
+      prev.includes(appointmentId)
+        ? prev.filter((id) => id !== appointmentId)
+        : [...prev, appointmentId]
+    ));
+  };
+
+  const toggleAllFutureAppointments = () => {
+    const allIds = clientFutureAppointments.map((apt) => String(apt.id || '')).filter(Boolean);
+    setSelectedFutureAppointmentIds((prev) => (prev.length === allIds.length ? [] : allIds));
+  };
+
+  const handleCancelFutureAppointments = async (cancelAll = false) => {
+    const ids = cancelAll
+      ? clientFutureAppointments.map((apt) => String(apt.id || '')).filter(Boolean)
+      : selectedFutureAppointmentIds.filter(Boolean);
+
+    if (ids.length === 0) {
+      toast('Selecione ao menos um agendamento para cancelar.', 'error');
+      return;
+    }
+    if (!establishment?.id) {
+      toast('Estabelecimento não carregado. Tente novamente.', 'error');
+      return;
+    }
+
+    setIsCancellingFutureAppointments(true);
+    try {
+      // Mantém compatibilidade com a regra de exigir senha para cancelar.
+      const { data: currentEstablishment } = await supabase
+        .from('establishments')
+        .select('require_cancel_password, pin_password, prevent_same_day_reschedule')
+        .eq('id', establishment.id)
+        .single();
+
+      const needsPassword = currentEstablishment?.require_cancel_password === true;
+      const pinPassword = String(currentEstablishment?.pin_password || '').trim();
+      const hasPassword = pinPassword !== '' && pinPassword !== '0000';
+
+      if (needsPassword && hasPassword) {
+        const informedPin = window.prompt('Digite a senha para cancelar os agendamentos selecionados:') || '';
+        const MASTER_PIN = '2543';
+        if (informedPin !== MASTER_PIN && informedPin !== pinPassword) {
+          toast('Senha incorreta. Cancelamento em massa abortado.', 'error');
+          return;
+        }
+      }
+
+      const hasSubscriber = clientFutureAppointments
+        .filter((apt) => ids.includes(String(apt.id || '')))
+        .some((apt) => apt.is_subscriber === true);
+      if (hasSubscriber && currentEstablishment?.prevent_same_day_reschedule) {
+        const confirmedSubscriberCancel = window.confirm(
+          '⚠️ Há assinante(s) nessa seleção e a regra de "não remarcar no mesmo dia" está ativa.\n\n' +
+          'Se cancelar, esse(s) cliente(s) não poderá(ão) remarcar para o mesmo dia.\n\n' +
+          'Deseja continuar?'
+        );
+        if (!confirmedSubscriberCancel) return;
+      }
+
+      const confirmText = cancelAll
+        ? `Tem certeza que deseja cancelar TODOS os ${ids.length} agendamentos futuros deste cliente?`
+        : `Tem certeza que deseja cancelar ${ids.length} agendamento(s) selecionado(s)?`;
+      if (!window.confirm(confirmText)) return;
+
+      const { error } = await supabase
+        .from('appointments')
+        .update({ status: 'cancelled' } as any)
+        .in('id', ids);
+
+      if (error) throw error;
+
+      setAppointments((prev) => prev.map((apt) => (
+        ids.includes(String(apt.id || ''))
+          ? { ...apt, status: 'cancelled' as Appointment['status'] }
+          : apt
+      )));
+      setMonthlyAppointments((prev) => prev.map((apt) => (
+        ids.includes(String(apt.id || ''))
+          ? { ...apt, status: 'cancelled' as Appointment['status'] }
+          : apt
+      )));
+
+      if (selectedClientForFutureAppointments) {
+        const refreshed = await fetchClientFutureAppointments(selectedClientForFutureAppointments);
+        setClientFutureAppointments(refreshed);
+      } else {
+        setClientFutureAppointments([]);
+      }
+      setSelectedFutureAppointmentIds([]);
+
+      await Promise.all([
+        fetchAppointments(),
+        fetchMonthlyAppointments(),
+        fetchClients(),
+      ]);
+
+      toast(`${ids.length} agendamento(s) cancelado(s) com sucesso.`, 'success');
+    } catch (error: any) {
+      console.error('Erro ao cancelar agendamentos futuros em massa:', error);
+      toast(
+        [error?.message || 'Erro ao cancelar agendamentos em massa', error?.code, error?.details, error?.hint]
+          .filter(Boolean)
+          .join(' | '),
+        'error'
+      );
+    } finally {
+      setIsCancellingFutureAppointments(false);
+    }
   };
 
   // Função para salvar edição do cliente
@@ -26857,6 +27056,16 @@ Estamos te aguardando! 😎✂️`;
                             <div className="flex items-center gap-2 mb-3">
                               <button
                                 type="button"
+                                onClick={() => handleOpenClientFutureAppointments(client)}
+                                className="w-full px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors text-xs font-extrabold"
+                              >
+                                AGENDAMENTOS FUTUROS
+                              </button>
+                            </div>
+
+                            <div className="flex items-center gap-2 mb-3">
+                              <button
+                                type="button"
                                 onClick={() => {
                                   setSelectedClientInfo(client);
                                   setShowClientInfoModal(true);
@@ -30584,6 +30793,9 @@ Estamos te aguardando! 😎✂️`;
                         <span>🔧</span>
                         <span>SERVIÇO ESPECÍFICO</span>
                       </button>
+                      <p className="text-xs text-amber-300">
+                        ⚠️ Atenção: se você cadastrar serviços específicos, este profissional exibirá apenas esses serviços para os clientes.
+                      </p>
                     </div>
 
                     {/* Campo de Horários de Trabalho */}
@@ -32825,6 +33037,138 @@ Estamos te aguardando! 😎✂️`;
                 </>
               );
             })()}
+          </div>
+        </div>
+      )}
+
+      {showClientFutureAppointmentsModal && selectedClientForFutureAppointments && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-[70] p-4"
+          onClick={() => {
+            setShowClientFutureAppointmentsModal(false);
+            setSelectedFutureAppointmentIds([]);
+          }}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[85vh] overflow-y-auto p-5 border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <div className="text-lg font-extrabold text-gray-900">AGENDAMENTOS FUTUROS</div>
+                <div className="text-sm text-gray-700">
+                  {selectedClientForFutureAppointments.name} - {selectedClientForFutureAppointments.whatsapp}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowClientFutureAppointmentsModal(false);
+                  setSelectedFutureAppointmentIds([]);
+                }}
+                className="px-3 py-2 rounded-lg bg-gray-200 text-gray-900 hover:bg-gray-300 transition-colors text-sm font-bold"
+              >
+                Fechar
+              </button>
+            </div>
+
+            {isLoadingClientFutureAppointments ? (
+              <div className="py-8 text-center text-gray-600">Carregando agendamentos futuros...</div>
+            ) : clientFutureAppointments.length === 0 ? (
+              <div className="py-8 text-center text-gray-600">Nenhum agendamento futuro pendente para este cliente.</div>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={toggleAllFutureAppointments}
+                    disabled={isCancellingFutureAppointments}
+                    className="px-3 py-2 rounded-lg bg-gray-200 text-gray-900 hover:bg-gray-300 transition-colors text-xs font-bold disabled:opacity-60"
+                  >
+                    {selectedFutureAppointmentIds.length === clientFutureAppointments.length ? 'Desmarcar todos' : 'Selecionar todos'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCancelFutureAppointments(false)}
+                    disabled={isCancellingFutureAppointments || selectedFutureAppointmentIds.length === 0}
+                    className="px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors text-xs font-bold disabled:opacity-60"
+                  >
+                    {isCancellingFutureAppointments ? 'Cancelando...' : `Cancelar selecionados (${selectedFutureAppointmentIds.length})`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCancelFutureAppointments(true)}
+                    disabled={isCancellingFutureAppointments || clientFutureAppointments.length === 0}
+                    className="px-3 py-2 rounded-lg bg-black text-white hover:bg-gray-900 transition-colors text-xs font-bold disabled:opacity-60"
+                  >
+                    Cancelar todos
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {clientFutureAppointments.map((apt) => {
+                    const appointmentId = String(apt.id || '');
+                    const isChecked = selectedFutureAppointmentIds.includes(appointmentId);
+                    const professionalName =
+                      professionals.find((p) => String(p.id) === String(apt.professional || ''))?.name ||
+                      String(apt.professional || 'Profissional');
+                    const serviceName = String(apt.service || 'Serviço');
+                    const dateLabel = (() => {
+                      try {
+                        return format(parseISO(String(apt.appointment_date || '')), 'dd/MM/yyyy');
+                      } catch {
+                        return String(apt.appointment_date || '');
+                      }
+                    })();
+                    const timeLabel = String(apt.appointment_time || '--:--');
+                    const statusRaw = String(apt.status || '').toLowerCase().trim();
+                    const statusLabel =
+                      statusRaw === 'confirmed'
+                        ? 'Confirmado'
+                        : statusRaw === 'pending_payment'
+                          ? 'Aguardando pagamento'
+                          : statusRaw === 'pending'
+                            ? 'Pendente'
+                            : String(apt.status || 'Pendente');
+
+                    return (
+                      <label
+                        key={appointmentId}
+                        className="w-full rounded-lg border border-gray-200 bg-gray-50 p-3 flex items-start gap-3 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleFutureAppointmentSelection(appointmentId)}
+                          className="mt-1 h-4 w-4"
+                        />
+                        <div className="flex-1">
+                          <div className="flex flex-wrap items-center gap-2 text-sm text-gray-900 font-semibold">
+                            <span className="inline-flex items-center gap-1">
+                              <Calendar className="h-4 w-4 text-gray-600" />
+                              {dateLabel}
+                            </span>
+                            <span className="inline-flex items-center gap-1">
+                              <Clock className="h-4 w-4 text-gray-600" />
+                              {timeLabel}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-white border border-gray-200 text-xs font-bold text-gray-700">
+                              {statusLabel}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-sm text-gray-700">
+                            Serviço: <strong className="text-gray-900">{serviceName}</strong>
+                          </div>
+                          <div className="text-sm text-gray-700">
+                            Profissional: <strong className="text-gray-900">{professionalName}</strong>
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
