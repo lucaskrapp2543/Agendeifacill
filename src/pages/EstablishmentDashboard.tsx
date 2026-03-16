@@ -209,6 +209,8 @@ interface EstablishmentProduct {
   cost_price: number;
   stock_quantity: number;
   sold_quantity: number;
+  image_url?: string | null;
+  highlight_for_client_booking?: boolean;
   // % por colaborador (repasse por venda do produto): { "Nome do profissional": percentual }
   commission_percentages?: Record<string, number>;
   created_at: string;
@@ -305,6 +307,8 @@ interface Appointment {
   is_subscriber?: boolean;
   is_child_service?: boolean;
   is_avulso?: boolean;
+  is_waitlist?: boolean | null;
+  waitlist_entry_id?: string | null;
   sold_products?: {
     id: string;
     product_id: string;
@@ -904,6 +908,14 @@ const EstablishmentDashboard = () => {
 
   const fmtBRL = useCallback((v: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+  }, []);
+
+  // Compatibilidade: alguns bancos antigos podem não ter todas as colunas da fila.
+  // Regra de negócio: itens da fila de espera nunca devem entrar no fluxo de agendamentos normais.
+  const isWaitlistAppointment = useCallback((appointment: any): boolean => {
+    const isWaitlistFlag = appointment?.is_waitlist === true;
+    const hasWaitlistLink = Boolean(String(appointment?.waitlist_entry_id || '').trim());
+    return isWaitlistFlag || hasWaitlistLink;
   }, []);
 
   const carregarSaldoEmVendas = useCallback(async () => {
@@ -3979,11 +3991,15 @@ const EstablishmentDashboard = () => {
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [showEditProductModal, setShowEditProductModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<EstablishmentProduct | null>(null);
+  const [isUploadingNewProductImage, setIsUploadingNewProductImage] = useState(false);
+  const [isUploadingEditProductImage, setIsUploadingEditProductImage] = useState(false);
+  const [productSearchQuery, setProductSearchQuery] = useState('');
   const [newProduct, setNewProduct] = useState({
     name: '',
     sale_price: '',
     cost_price: '',
-    stock_quantity: ''
+    stock_quantity: '',
+    image_url: '',
   });
   const [selectedProductForSales, setSelectedProductForSales] = useState<string | null>(null);
   const [productSalesData, setProductSalesData] = useState<Record<string, any[]>>({});
@@ -3999,6 +4015,7 @@ const EstablishmentDashboard = () => {
     error: string | null;
     totalArrecadado: number;
     totalRepasses: number;
+    totalRepassesPagosMes: number;
     lucroLiquido: number;
     brutoAtivo: number;
     liquidoAtivo: number;
@@ -4011,6 +4028,7 @@ const EstablishmentDashboard = () => {
     error: null,
     totalArrecadado: 0,
     totalRepasses: 0,
+    totalRepassesPagosMes: 0,
     lucroLiquido: 0,
     brutoAtivo: 0,
     liquidoAtivo: 0,
@@ -4485,6 +4503,106 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  const filteredProducts = products.filter((product) =>
+    String(product?.name || '')
+      .toLowerCase()
+      .includes(String(productSearchQuery || '').trim().toLowerCase())
+  );
+
+  const uploadProductImageToStorage = async (file: File): Promise<string | null> => {
+    if (!establishment?.id) return null;
+
+    // Validar tamanho do arquivo (máximo 20MB)
+    if (file.size > 20 * 1024 * 1024) {
+      toast('A imagem deve ter no máximo 20MB', 'error');
+      return null;
+    }
+
+    const extFromName = String(file.name || '').split('.').pop()?.toLowerCase();
+    const typeLower = String(file.type || '').toLowerCase();
+    const isHeic =
+      typeLower === 'image/heic' ||
+      typeLower === 'image/heif' ||
+      extFromName === 'heic' ||
+      extFromName === 'heif';
+
+    const imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif', 'bmp', 'tiff', 'tif', 'jfif'];
+    const seemsImage = typeLower.startsWith('image/') || imageExtensions.includes(String(extFromName || ''));
+    if (!seemsImage) {
+      toast('Arquivo inválido. Envie uma imagem (JPG, PNG, WebP, etc).', 'error');
+      return null;
+    }
+
+    let fileToUpload: File = file;
+    if (isHeic) {
+      try {
+        const mod: any = await import('heic2any');
+        const heic2any = mod?.default || mod;
+        const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
+        const blob: Blob = Array.isArray(out) ? out[0] : out;
+        fileToUpload = new File([blob], `${uuidv4()}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      } catch (e) {
+        console.warn('Falha ao converter HEIC/HEIF da foto do produto:', e);
+        toast('Esse formato (HEIC) não foi suportado aqui. Envie em JPG/PNG.', 'error');
+        return null;
+      }
+    }
+
+    const fileExt = (String(fileToUpload.name || '').split('.').pop() || 'jpg').toLowerCase();
+    const fileName = `${uuidv4()}_${Date.now()}.${fileExt}`;
+    const filePath = `product-photos/${establishment.id}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('establishment-assets')
+      .upload(filePath, fileToUpload, { contentType: fileToUpload.type || undefined, upsert: true });
+
+    if (uploadError) {
+      console.error('Erro no upload da foto do produto:', uploadError);
+      toast('Erro ao fazer upload da foto do produto', 'error');
+      return null;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('establishment-assets')
+      .getPublicUrl(filePath);
+
+    return publicUrl;
+  };
+
+  const handleNewProductImageFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !establishment?.id) return;
+
+    setIsUploadingNewProductImage(true);
+    try {
+      const uploadedUrl = await uploadProductImageToStorage(file);
+      if (uploadedUrl) {
+        setNewProduct((prev) => ({ ...prev, image_url: uploadedUrl }));
+        toast('Foto do produto enviada com sucesso!', 'success');
+      }
+    } finally {
+      setIsUploadingNewProductImage(false);
+      event.target.value = '';
+    }
+  };
+
+  const handleEditProductImageFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !editingProduct || !establishment?.id) return;
+
+    setIsUploadingEditProductImage(true);
+    try {
+      const uploadedUrl = await uploadProductImageToStorage(file);
+      if (uploadedUrl) {
+        setEditingProduct((prev) => (prev ? { ...prev, image_url: uploadedUrl } : prev));
+        toast('Foto do produto enviada com sucesso!', 'success');
+      }
+    } finally {
+      setIsUploadingEditProductImage(false);
+      event.target.value = '';
+    }
+  };
+
   // Função para buscar vendas de produtos por período
   const fetchProductSalesByPeriod = async (
     month: Date,
@@ -4652,6 +4770,7 @@ const EstablishmentDashboard = () => {
       return {
         totalArrecadado: 0,
         totalRepasses: 0,
+        totalRepassesPagosMes: 0,
         lucroLiquido: 0,
         brutoAtivo: 0,
         liquidoAtivo: 0,
@@ -4703,7 +4822,7 @@ const EstablishmentDashboard = () => {
       throw subscriptionsError;
     }
 
-    const [attendancesResult, saleCommissionsResult] = await Promise.all([
+    const [attendancesResult, saleCommissionsResult, repassesPagosResult] = await Promise.all([
       supabase
         .from('subscriber_attendances')
         .select('repass_value')
@@ -4716,10 +4835,16 @@ const EstablishmentDashboard = () => {
         .eq('establishment_id', establishment.id)
         .gte('created_at', start.toISOString())
         .lte('created_at', end.toISOString()),
+      supabase
+        .from('professional_payments')
+        .select('amount,for_month,payment_date,payment_source')
+        .eq('establishment_id', establishment.id)
+        .in('payment_source', ['subscription', 'assinatura']),
     ]);
 
     const attendanceRows = attendancesResult.data || [];
     const commissionRows = saleCommissionsResult.data || [];
+    const repassesPagosRows = repassesPagosResult.data || [];
     const subscriptionsRows = clientSubscriptions || [];
 
     const totalRepassesAtendimentos = attendanceRows.reduce(
@@ -4731,6 +4856,23 @@ const EstablishmentDashboard = () => {
       0
     );
     const totalRepasses = totalRepassesAtendimentos + totalRepassesComissaoVenda;
+    const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+    const totalRepassesPagosMes = (repassesPagosRows as any[]).reduce((sum, row: any) => {
+      const amount = Number(row?.amount || 0);
+      if (!Number.isFinite(amount) || amount <= 0) return sum;
+
+      const forMonth = String(row?.for_month || '').trim();
+      if (forMonth) {
+        return forMonth === monthKey ? sum + amount : sum;
+      }
+
+      const paymentDate = new Date(String(row?.payment_date || ''));
+      if (Number.isNaN(paymentDate.getTime())) return sum;
+      const isSameMonth =
+        paymentDate.getFullYear() === selectedMonth.getFullYear() &&
+        paymentDate.getMonth() === selectedMonth.getMonth();
+      return isSameMonth ? sum + amount : sum;
+    }, 0);
 
     const getSubscriptionValue = (cs: any) => {
       const rawSubscription = cs?.subscriptions;
@@ -4838,6 +4980,7 @@ const EstablishmentDashboard = () => {
     return {
       totalArrecadado,
       totalRepasses,
+      totalRepassesPagosMes,
       lucroLiquido: totalArrecadado - totalRepasses,
       brutoAtivo,
       liquidoAtivo,
@@ -5187,6 +5330,7 @@ const EstablishmentDashboard = () => {
     const salePrice = parseFloat(newProduct.sale_price);
     const costPrice = parseFloat(newProduct.cost_price);
     const stockQuantity = parseInt(newProduct.stock_quantity);
+    const imageUrl = String(newProduct.image_url || '').trim();
 
     if (!newProduct.name || isNaN(salePrice) || isNaN(costPrice) || isNaN(stockQuantity)) {
       toast('Por favor, preencha todos os campos corretamente', 'error');
@@ -5194,16 +5338,35 @@ const EstablishmentDashboard = () => {
     }
 
     try {
-      const { error } = await supabase
+      const payload: Record<string, any> = {
+        establishment_id: establishment.id,
+        name: newProduct.name,
+        sale_price: salePrice,
+        cost_price: costPrice,
+        stock_quantity: stockQuantity,
+        sold_quantity: 0,
+        image_url: imageUrl || null,
+      };
+
+      let { error } = await supabase
         .from('establishment_products')
-        .insert({
-          establishment_id: establishment.id,
-          name: newProduct.name,
-          sale_price: salePrice,
-          cost_price: costPrice,
-          stock_quantity: stockQuantity,
-          sold_quantity: 0
-        });
+        .insert(payload);
+
+      if (error) {
+        const msg = String(error?.message || '').toLowerCase();
+        const missingImageColumn = msg.includes('image_url') || (msg.includes('column') && msg.includes('exist'));
+        if (missingImageColumn) {
+          if (imageUrl) {
+            toast('A foto foi enviada, mas falta a migration image_url para salvar no produto.', 'error');
+          }
+          const fallbackPayload = { ...payload };
+          delete fallbackPayload.image_url;
+          const fallback = await supabase
+            .from('establishment_products')
+            .insert(fallbackPayload);
+          error = fallback.error;
+        }
+      }
 
       if (error) {
         console.error('Erro ao adicionar produto:', error);
@@ -5211,7 +5374,7 @@ const EstablishmentDashboard = () => {
         return;
       }
 
-      setNewProduct({ name: '', sale_price: '', cost_price: '', stock_quantity: '' });
+      setNewProduct({ name: '', sale_price: '', cost_price: '', stock_quantity: '', image_url: '' });
       setShowAddProductModal(false);
       fetchProducts();
       toast('Produto adicionado com sucesso!', 'success');
@@ -5347,6 +5510,7 @@ const EstablishmentDashboard = () => {
     const salePrice = parseFloat(editingProduct.sale_price.toString());
     const costPrice = parseFloat(editingProduct.cost_price.toString());
     const stockQuantity = parseInt(editingProduct.stock_quantity.toString());
+    const imageUrl = String((editingProduct as any)?.image_url || '').trim();
 
     if (!editingProduct.name.trim() || isNaN(salePrice) || isNaN(costPrice) || isNaN(stockQuantity)) {
       toast('Por favor, preencha todos os campos corretamente', 'error');
@@ -5359,16 +5523,37 @@ const EstablishmentDashboard = () => {
     }
 
     try {
-      const { error } = await supabase
+      const updatePayload: Record<string, any> = {
+        name: editingProduct.name.trim(),
+        sale_price: salePrice,
+        cost_price: costPrice,
+        stock_quantity: stockQuantity,
+        image_url: imageUrl || null,
+      };
+
+      let { error } = await supabase
         .from('establishment_products')
-        .update({
-          name: editingProduct.name.trim(),
-          sale_price: salePrice,
-          cost_price: costPrice,
-          stock_quantity: stockQuantity
-        })
+        .update(updatePayload)
         .eq('id', editingProduct.id)
         .eq('establishment_id', establishment.id);
+
+      if (error) {
+        const msg = String(error?.message || '').toLowerCase();
+        const missingImageColumn = msg.includes('image_url') || (msg.includes('column') && msg.includes('exist'));
+        if (missingImageColumn) {
+          if (imageUrl) {
+            toast('A foto foi enviada, mas falta a migration image_url para salvar no produto.', 'error');
+          }
+          const fallbackPayload = { ...updatePayload };
+          delete fallbackPayload.image_url;
+          const fallback = await supabase
+            .from('establishment_products')
+            .update(fallbackPayload)
+            .eq('id', editingProduct.id)
+            .eq('establishment_id', establishment.id);
+          error = fallback.error;
+        }
+      }
 
       if (error) {
         console.error('Erro ao editar produto:', error);
@@ -5380,7 +5565,14 @@ const EstablishmentDashboard = () => {
       setProducts(prev =>
         prev.map(product =>
           product.id === editingProduct.id
-            ? { ...product, name: editingProduct.name.trim(), sale_price: salePrice, cost_price: costPrice, stock_quantity: stockQuantity }
+            ? {
+              ...product,
+              name: editingProduct.name.trim(),
+              sale_price: salePrice,
+              cost_price: costPrice,
+              stock_quantity: stockQuantity,
+              image_url: imageUrl || null,
+            }
             : product
         )
       );
@@ -5391,6 +5583,55 @@ const EstablishmentDashboard = () => {
     } catch (error: any) {
       console.error('Erro ao editar produto:', error);
       toast('Erro ao editar produto', 'error');
+    }
+  };
+
+  const handleToggleProductHighlightForBooking = async (product: EstablishmentProduct) => {
+    if (!establishment?.id) return;
+
+    const nextValue = !Boolean((product as any)?.highlight_for_client_booking);
+
+    try {
+      const { error } = await supabase
+        .from('establishment_products')
+        .update({
+          highlight_for_client_booking: nextValue,
+        } as any)
+        .eq('id', product.id)
+        .eq('establishment_id', establishment.id);
+
+      if (error) {
+        const msg = String(error?.message || '').toLowerCase();
+        if (msg.includes('highlight_for_client_booking') || (msg.includes('column') && msg.includes('exist'))) {
+          toast(
+            'Falta a coluna de destaque de produto no banco. Rode a migration nova de produtos para booking.',
+            'error'
+          );
+          return;
+        }
+        toast(`Erro ao atualizar destaque do produto: ${formatSupabaseErrorDetails(error)}`, 'error');
+        return;
+      }
+
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === product.id
+            ? { ...p, highlight_for_client_booking: nextValue }
+            : p
+        )
+      );
+
+      toast(
+        nextValue
+          ? 'Produto destacado para o cliente no booking.'
+          : 'Destaque do produto removido do booking.',
+        'success'
+      );
+    } catch (error: any) {
+      toast(
+        `Erro ao atualizar destaque do produto: ${formatSupabaseErrorDetails(error)}`,
+        'error'
+      );
     }
   };
 
@@ -8589,9 +8830,7 @@ Estamos te aguardando! 😎✂️`;
       console.log('  - Start:', startOfSelectedDate);
       console.log('  - End:', endOfSelectedDate);
 
-      const { data, error } = await supabase
-        .from('appointments')
-        .select(`
+      const baseSelect = `
           id,
           client_id,
           client_name,
@@ -8619,17 +8858,73 @@ Estamos te aguardando! 😎✂️`;
           is_avulso,
           additional_products,
           total_price,
-          payment_split_details
-        `)
-        .eq('establishment_id', establishment.id)
-        .gte('appointment_date', startOfSelectedDate)
-        .lte('appointment_date', endOfSelectedDate)
-        .order('appointment_time', { ascending: true })
-        .abortSignal(new AbortController().signal); // Forçar busca sem cache
+          payment_split_details,
+          is_waitlist,
+          waitlist_entry_id
+        `;
 
-      if (error) throw error;
+      let appointmentsRaw: any[] = [];
+      {
+        const { data, error } = await supabase
+          .from('appointments')
+          .select(baseSelect)
+          .eq('establishment_id', establishment.id)
+          .gte('appointment_date', startOfSelectedDate)
+          .lte('appointment_date', endOfSelectedDate)
+          .order('appointment_time', { ascending: true })
+          .abortSignal(new AbortController().signal); // Forçar busca sem cache
 
-      const appointmentsData = data as Appointment[] || [];
+        if (error) {
+          const msg = String((error as any)?.message || '').toLowerCase();
+          const missingWaitlistCols = msg.includes('is_waitlist') || msg.includes('waitlist_entry_id');
+          if (!missingWaitlistCols) throw error;
+
+          // Fallback legado (sem colunas de fila no appointments)
+          const legacy = await supabase
+            .from('appointments')
+            .select(`
+              id,
+              client_id,
+              client_name,
+              client_whatsapp,
+              client_cpf,
+              establishment_id,
+              service,
+              professional,
+              appointment_date,
+              appointment_time,
+              status,
+              created_at,
+              is_premium,
+              duration,
+              price,
+              payment_method,
+              card_brand,
+              pix_payment_status,
+              pix_proof_url,
+              observation,
+              establishment_observation,
+              is_child_service,
+              is_squeeze,
+              is_subscriber,
+              is_avulso,
+              additional_products,
+              total_price,
+              payment_split_details
+            `)
+            .eq('establishment_id', establishment.id)
+            .gte('appointment_date', startOfSelectedDate)
+            .lte('appointment_date', endOfSelectedDate)
+            .order('appointment_time', { ascending: true })
+            .abortSignal(new AbortController().signal);
+          if (legacy.error) throw legacy.error;
+          appointmentsRaw = (legacy.data as any[]) || [];
+        } else {
+          appointmentsRaw = (data as any[]) || [];
+        }
+      }
+
+      const appointmentsData = (appointmentsRaw as Appointment[]).filter((apt) => !isWaitlistAppointment(apt));
 
       console.log('✅ AGENDAMENTOS ENCONTRADOS:', appointmentsData.length);
       console.log('📋 Dados:', appointmentsData);
@@ -8745,30 +9040,57 @@ Estamos te aguardando! 😎✂️`;
         console.log('📋 DEBUG - Nenhum agendamento encontrado para este mês');
       }
 
-      console.log('🔍 DEBUG - Vou atualizar monthlyAppointments com:', appointments?.length || 0, 'agendamentos');
-      setMonthlyAppointments(appointments || []);
+      const monthlyNormalAppointments = ((appointments as any[]) || []).filter((apt) => !isWaitlistAppointment(apt));
+      console.log('🔍 DEBUG - Vou atualizar monthlyAppointments com:', monthlyNormalAppointments.length, 'agendamentos');
+      setMonthlyAppointments(monthlyNormalAppointments as any);
 
       // Resumo mensal por status (independente da query financeira que usa apenas completed)
-      const { data: monthStatusRows, error: monthStatusError } = await supabase
-        .from('appointments')
-        .select('id,status,appointment_date,appointment_time,client_name,professional')
-        .eq('establishment_id', establishment.id)
-        .gte('appointment_date', startDateStr)
-        .lte('appointment_date', endDateStr);
+      let monthStatusRows: any[] | null = null;
+      let monthStatusError: any = null;
+      {
+        const q = await supabase
+          .from('appointments')
+          .select('id,status,appointment_date,appointment_time,client_name,professional,is_waitlist,waitlist_entry_id')
+          .eq('establishment_id', establishment.id)
+          .gte('appointment_date', startDateStr)
+          .lte('appointment_date', endDateStr);
+        if (q.error) {
+          const msg = String((q.error as any)?.message || '').toLowerCase();
+          const missingWaitlistCols = msg.includes('is_waitlist') || msg.includes('waitlist_entry_id');
+          if (missingWaitlistCols) {
+            const legacyQ = await supabase
+              .from('appointments')
+              .select('id,status,appointment_date,appointment_time,client_name,professional')
+              .eq('establishment_id', establishment.id)
+              .gte('appointment_date', startDateStr)
+              .lte('appointment_date', endDateStr);
+            monthStatusRows = (legacyQ.data as any[]) || [];
+            monthStatusError = legacyQ.error;
+          } else {
+            monthStatusRows = (q.data as any[]) || [];
+            monthStatusError = q.error;
+          }
+        } else {
+          monthStatusRows = (q.data as any[]) || [];
+          monthStatusError = null;
+        }
+      }
 
       if (monthStatusError) {
         console.error('Erro ao buscar resumo mensal de status:', monthStatusError);
         setMonthlyStatusSummary({ completed: 0, cancelled: 0, pending: 0 });
         setMonthlyPendingAppointments([]);
       } else {
-        const rows = (monthStatusRows || []) as Array<{
+        const rows = ((monthStatusRows || []) as Array<{
           id?: string | null;
           status?: string | null;
           appointment_date?: string | null;
           appointment_time?: string | null;
           client_name?: string | null;
           professional?: string | null;
-        }>;
+          is_waitlist?: boolean | null;
+          waitlist_entry_id?: string | null;
+        }>).filter((row: any) => !isWaitlistAppointment(row));
         const summary = rows.reduce(
           (acc, row: any) => {
             const status = String(row?.status || '').toLowerCase().trim();
@@ -10633,6 +10955,7 @@ Estamos te aguardando! 😎✂️`;
 
   // Filtrar agendamentos por profissional e forma de pagamento selecionados
   const filteredAppointments = appointments.filter(appointment => {
+    if (isWaitlistAppointment(appointment)) return false;
     // Se nenhum profissional estiver selecionado, não mostrar agendamentos
     if (selectedProfessional === '') return false;
 
@@ -25746,8 +26069,19 @@ Estamos te aguardando! 😎✂️`;
                       const appointmentsGrossCurrent = calculateTotalGrossForMonth(monthlyAppointments, selectedMonth);
                       const appointmentsLiquidCurrent = calculateTotalEstablishmentLiquidForMonth(monthlyAppointments, expensesTotal, selectedMonth);
                       const totalBrutoMes = appointmentsGrossCurrent + subscribersFinancialSummary.totalArrecadado + productsGrossRevenue;
-                      const totalLiquidoMes = appointmentsLiquidCurrent + subscribersFinancialSummary.lucroLiquido + productsNetProfit;
+                      const subscribersNetForDiscountCard =
+                        subscribersFinancialSummary.totalArrecadado - (subscribersFinancialSummary.totalRepassesPagosMes || 0);
+                      const totalLiquidoMes = appointmentsLiquidCurrent + subscribersNetForDiscountCard + productsNetProfit;
                       const totalDescontosMes = totalBrutoMes - totalLiquidoMes;
+                      const descontosAgendamentos = appointmentsGrossCurrent - appointmentsLiquidCurrent;
+                      const descontosAssinaturas = subscribersFinancialSummary.totalRepassesPagosMes || 0;
+                      const descontosProdutos = productsGrossRevenue - productsNetProfit;
+                      const hasMercadoPagoConnected = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+                      const hasPagarmeConnected = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
+                      const shouldShowSubscribersBalanceCard =
+                        hasMercadoPagoConnected ||
+                        hasPagarmeConnected ||
+                        subscribersFinancialSummary.saldoAssinantes > 0;
 
                       return (
                         <div className="space-y-4 mb-6">
@@ -25772,6 +26106,21 @@ Estamos te aguardando! 😎✂️`;
                               <p className="text-[11px] text-gray-600 mt-2">
                                 Diferença entre bruto total e líquido total consolidado.
                               </p>
+                              <div className="mt-2 rounded-lg border border-violet-300/70 bg-white/45 p-2 space-y-1">
+                                <p className="text-[11px] font-semibold text-violet-800">Origem dos descontos:</p>
+                                <div className="flex items-center justify-between text-[11px] text-gray-700">
+                                  <span>Agendamentos/serviços</span>
+                                  <span className="font-bold">{formatCurrency(descontosAgendamentos)}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-[11px] text-gray-700">
+                                  <span>Assinaturas (repasses pagos)</span>
+                                  <span className="font-bold">{formatCurrency(descontosAssinaturas)}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-[11px] text-gray-700">
+                                  <span>Produtos (custo + repasse)</span>
+                                  <span className="font-bold">{formatCurrency(descontosProdutos)}</span>
+                                </div>
+                              </div>
                             </div>
                           </div>
 
@@ -25819,10 +26168,12 @@ Estamos te aguardando! 😎✂️`;
                                     <p className="text-xs text-gray-600">Não Pagos</p>
                                     <p className="text-lg font-bold text-gray-900">{subscribersFinancialSummary.assinantesNaoPagos}</p>
                                   </div>
-                                  <div className="bg-white border border-gray-200 rounded-lg p-3 col-span-2">
-                                    <p className="text-xs text-gray-600">Saldo (assinantes PIX Pagar.me)</p>
-                                    <p className="text-xl font-bold text-gray-900">{formatCurrency(subscribersFinancialSummary.saldoAssinantes)}</p>
-                                  </div>
+                                  {shouldShowSubscribersBalanceCard && (
+                                    <div className="bg-white border border-gray-200 rounded-lg p-3 col-span-2">
+                                      <p className="text-xs text-gray-600">Saldo (assinantes PIX Pagar.me)</p>
+                                      <p className="text-xl font-bold text-gray-900">{formatCurrency(subscribersFinancialSummary.saldoAssinantes)}</p>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                               {subscribersFinancialSummary.error && (
@@ -30017,8 +30368,31 @@ Estamos te aguardando! 😎✂️`;
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {products.map((product) => {
+                <>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Pesquisar produto
+                    </label>
+                    <input
+                      type="text"
+                      value={productSearchQuery}
+                      onChange={(e) => setProductSearchQuery(e.target.value)}
+                      placeholder="Digite o nome do produto..."
+                      className="w-full md:w-96 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Mostrando {filteredProducts.length} de {products.length} produto(s).
+                    </p>
+                  </div>
+
+                  {filteredProducts.length === 0 ? (
+                    <div className="text-center py-8 border border-dashed border-gray-300 rounded-lg">
+                      <p className="text-gray-700 font-medium">Nenhum produto encontrado para essa busca.</p>
+                      <p className="text-xs text-gray-500 mt-1">Tente pesquisar por outro nome.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {filteredProducts.map((product) => {
                     // Usar vendas do período selecionado
                     const periodSoldQuantity = productSalesByPeriod[product.id] || 0;
                     const totalProfit = (product.sale_price - product.cost_price) * product.stock_quantity;
@@ -30026,8 +30400,8 @@ Estamos te aguardando! 😎✂️`;
                     const currentProfit = ((product.sale_price - product.cost_price) * periodSoldQuantity) - productPayoutInPeriod;
                     const periodRevenue = product.sale_price * periodSoldQuantity;
 
-                    return (
-                      <div key={product.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative group">
+                        return (
+                          <div key={product.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative group">
                         <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={() => {
@@ -30048,7 +30422,21 @@ Estamos te aguardando! 😎✂️`;
                           </button>
                         </div>
 
-                        <h3 className="text-lg font-semibold text-gray-900 mb-2 pr-16">{product.name}</h3>
+                        <div className="flex items-start gap-3 mb-2 pr-16">
+                          <div className="h-14 w-14 rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center shrink-0">
+                            {String((product as any)?.image_url || '').trim() ? (
+                              <img
+                                src={String((product as any)?.image_url || '')}
+                                alt={`Foto do produto ${product.name}`}
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <span className="text-[10px] text-gray-500 text-center px-1">Sem foto</span>
+                            )}
+                          </div>
+                          <h3 className="text-lg font-semibold text-gray-900">{product.name}</h3>
+                        </div>
 
                         <div className="space-y-2">
                           <div className="flex justify-between">
@@ -30252,12 +30640,40 @@ Estamos te aguardando! 😎✂️`;
                                 )}
                               </div>
                             )}
+
+                            <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
+                              <button
+                                onClick={() => handleToggleProductHighlightForBooking(product)}
+                                className={`w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors ${
+                                  Boolean((product as any)?.highlight_for_client_booking)
+                                    ? 'bg-emerald-100 hover:bg-emerald-200'
+                                    : 'bg-gray-100 hover:bg-gray-200'
+                                }`}
+                              >
+                                <span className="text-black">🛍️ Destacar produto para cliente</span>
+                                <span
+                                  className={`text-xs font-bold px-2 py-1 rounded ${
+                                    Boolean((product as any)?.highlight_for_client_booking)
+                                      ? 'bg-emerald-600 text-white'
+                                      : 'bg-gray-300 text-gray-700'
+                                  }`}
+                                >
+                                  {Boolean((product as any)?.highlight_for_client_booking) ? 'ATIVADO' : 'DESATIVADO'}
+                                </span>
+                              </button>
+                              <p className="text-xs text-gray-600 mt-2">
+                                Quando esta opção estiver ativada, este produto será exibido para o cliente no momento em que ele
+                                estiver finalizando o agendamento, permitindo que ele adicione o produto ao serviço.
+                              </p>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -31209,6 +31625,44 @@ Estamos te aguardando! 😎✂️`;
                   />
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Foto do produto (upload opcional)
+                  </label>
+                  {String(newProduct.image_url || '').trim() ? (
+                    <div className="mb-2">
+                      <img
+                        src={String(newProduct.image_url || '')}
+                        alt="Preview da foto do produto"
+                        className="h-24 w-24 rounded-lg object-cover border border-gray-300"
+                      />
+                    </div>
+                  ) : null}
+                  <input
+                    type="file"
+                    accept="image/*,.heic,.heif"
+                    onChange={handleNewProductImageFileChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    disabled={isUploadingNewProductImage}
+                  />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p className="text-xs text-gray-500">
+                      {isUploadingNewProductImage
+                        ? 'Enviando foto...'
+                        : 'Essa foto também aparecerá no agendamento e no chatbot.'}
+                    </p>
+                    {String(newProduct.image_url || '').trim() ? (
+                      <button
+                        type="button"
+                        onClick={() => setNewProduct((prev) => ({ ...prev, image_url: '' }))}
+                        className="text-xs text-red-600 hover:text-red-700 font-semibold"
+                      >
+                        Remover foto
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
@@ -31219,9 +31673,10 @@ Estamos te aguardando! 😎✂️`;
                   </button>
                   <button
                     onClick={handleAddProduct}
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    disabled={isUploadingNewProductImage}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    Adicionar
+                    {isUploadingNewProductImage ? 'Enviando foto...' : 'Adicionar'}
                   </button>
                 </div>
               </div>
@@ -31310,6 +31765,44 @@ Estamos te aguardando! 😎✂️`;
                   />
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Foto do produto (upload opcional)
+                  </label>
+                  {String((editingProduct as any)?.image_url || '').trim() ? (
+                    <div className="mb-2">
+                      <img
+                        src={String((editingProduct as any)?.image_url || '')}
+                        alt="Preview da foto do produto"
+                        className="h-24 w-24 rounded-lg object-cover border border-gray-300"
+                      />
+                    </div>
+                  ) : null}
+                  <input
+                    type="file"
+                    accept="image/*,.heic,.heif"
+                    onChange={handleEditProductImageFileChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    disabled={isUploadingEditProductImage}
+                  />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p className="text-xs text-gray-500">
+                      {isUploadingEditProductImage
+                        ? 'Enviando foto...'
+                        : 'Essa foto também aparecerá no agendamento e no chatbot.'}
+                    </p>
+                    {String((editingProduct as any)?.image_url || '').trim() ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditingProduct({ ...editingProduct, image_url: null })}
+                        className="text-xs text-red-600 hover:text-red-700 font-semibold"
+                      >
+                        Remover foto
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
@@ -31323,9 +31816,10 @@ Estamos te aguardando! 😎✂️`;
                   </button>
                   <button
                     onClick={handleEditProduct}
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    disabled={isUploadingEditProductImage}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    Salvar
+                    {isUploadingEditProductImage ? 'Enviando foto...' : 'Salvar'}
                   </button>
                 </div>
               </div>

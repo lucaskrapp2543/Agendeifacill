@@ -6,7 +6,7 @@ import { checkMonthlyServiceLimit, checkWhatsAppSubscriber as checkLegacySubscri
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { TimeSlotSelector } from './TimeSlotSelector';
 
-type ChatStep = 'name' | 'phone' | 'subscriberChoice' | 'professional' | 'service' | 'datetime' | 'confirm';
+type ChatStep = 'name' | 'phone' | 'subscriberChoice' | 'professional' | 'service' | 'datetime' | 'products' | 'confirm';
 
 interface BookingChatFlowProps {
   establishment: any;
@@ -20,6 +20,14 @@ interface BookingChatFlowProps {
   requireAdvancePayment: boolean;
   subscriberServices?: any[];
   subscriberExtraServiceCategories?: any[];
+  bookingHighlightedProducts?: Array<{
+    id: string;
+    name: string;
+    sale_price: number;
+    image_url?: string | null;
+    stock_quantity?: number | null;
+    highlight_for_client_booking?: boolean | null;
+  }>;
 }
 
 const toMoney = (value: number): string => `R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`;
@@ -108,6 +116,7 @@ export function BookingChatFlow({
   requireAdvancePayment,
   subscriberServices = [],
   subscriberExtraServiceCategories = [],
+  bookingHighlightedProducts = [],
 }: BookingChatFlowProps) {
   const [step, setStep] = useState<ChatStep>('name');
   const [chatClientName, setChatClientName] = useState(String(guestClientData?.name || '').trim());
@@ -123,6 +132,8 @@ export function BookingChatFlow({
   const [selectedSubscriberServiceId, setSelectedSubscriberServiceId] = useState('');
   const [selectedSubscriberServiceIds, setSelectedSubscriberServiceIds] = useState<string[]>([]);
   const [selectedSubscriberExtraIds, setSelectedSubscriberExtraIds] = useState<string[]>([]);
+  const [selectedBookingProductIds, setSelectedBookingProductIds] = useState<string[]>([]);
+  const [selectedBookingProductImagePreview, setSelectedBookingProductImagePreview] = useState<{ url: string; name: string } | null>(null);
   const [invalidSubscriberDateMessage, setInvalidSubscriberDateMessage] = useState('');
   const [visibleSlotsCountForSelectedProfessional, setVisibleSlotsCountForSelectedProfessional] = useState<number | null>(null);
   const [subscriberLimitStatus, setSubscriberLimitStatus] = useState<{
@@ -344,6 +355,30 @@ export function BookingChatFlow({
     () => subscriberExtraServicesFlat.filter((service: any) => selectedSubscriberExtraIds.includes(String(service?.id || ''))),
     [selectedSubscriberExtraIds, subscriberExtraServicesFlat]
   );
+
+  const availableBookingProducts = useMemo(() => {
+    return (Array.isArray(bookingHighlightedProducts) ? bookingHighlightedProducts : []).filter((product: any) => {
+      const highlighted = Boolean(product?.highlight_for_client_booking);
+      const stock = Number(product?.stock_quantity ?? 0);
+      const hasStock = !Number.isFinite(stock) || stock > 0;
+      return highlighted && hasStock;
+    });
+  }, [bookingHighlightedProducts]);
+
+  const selectedBookingProducts = useMemo(
+    () => availableBookingProducts.filter((product: any) => selectedBookingProductIds.includes(String(product?.id || ''))),
+    [availableBookingProducts, selectedBookingProductIds]
+  );
+
+  const bookingProductsTotal = useMemo(
+    () => selectedBookingProducts.reduce((sum: number, product: any) => sum + (Number(product?.sale_price) || 0), 0),
+    [selectedBookingProducts]
+  );
+
+  useEffect(() => {
+    const validIds = new Set(availableBookingProducts.map((product: any) => String(product?.id || '')));
+    setSelectedBookingProductIds((previous) => previous.filter((id) => validIds.has(String(id))));
+  }, [availableBookingProducts]);
 
   const computedSelection = useMemo(() => {
     if (isSubscriberFlow) {
@@ -839,7 +874,7 @@ export function BookingChatFlow({
   };
 
   const goBack = () => {
-    const sequence: ChatStep[] = ['name', 'phone', ...(detectedSubscriber ? (['subscriberChoice'] as ChatStep[]) : []), 'professional', 'service', 'datetime', 'confirm'];
+    const sequence: ChatStep[] = ['name', 'phone', ...(detectedSubscriber ? (['subscriberChoice'] as ChatStep[]) : []), 'professional', 'service', 'datetime', 'products', 'confirm'];
     const currentIndex = sequence.indexOf(step);
     if (currentIndex <= 0) {
       if (onCloseChat) onCloseChat();
@@ -907,6 +942,17 @@ export function BookingChatFlow({
         appointment_time: selectedTime,
         duration: computedSelection.duration,
         price: computedSelection.price,
+        total_price: Number(computedSelection.price || 0) + Number(bookingProductsTotal || 0),
+        additional_products: selectedBookingProducts.length > 0
+          ? selectedBookingProducts.map((product: any) => ({
+            product_id: String(product?.id || '').trim(),
+            name: String(product?.name || '').trim() || 'Produto',
+            price: Number(product?.sale_price || 0),
+            duration: 0,
+            quantity: 1,
+            item_type: 'booking_product',
+          }))
+          : null,
         payment_method: isSubscriberFlow ? 'assinante' : (requireAdvancePayment ? 'pendente' : 'pagar_local'),
         is_child_service: false,
         is_subscriber: isSubscriberFlow,
@@ -1017,10 +1063,20 @@ export function BookingChatFlow({
     }
     if (selectedTime) {
       messages.push({ id: 'user-date-time', role: 'user', text: `${format(selectedDate, 'dd/MM/yyyy')} • ${selectedTime}` });
-      messages.push({ id: 'bot-confirm', role: 'bot', text: 'Perfeito! Revise os dados e confirme seu agendamento.' });
+      messages.push({ id: 'bot-products', role: 'bot', text: 'Quer aproveitar e garantir também?' });
+      if (selectedBookingProducts.length > 0) {
+        const productsSummary = selectedBookingProducts
+          .map((product: any) => String(product?.name || 'Produto').trim())
+          .filter(Boolean)
+          .join(' + ');
+        messages.push({ id: 'user-products', role: 'user', text: productsSummary });
+      }
+      if (step === 'confirm') {
+        messages.push({ id: 'bot-confirm', role: 'bot', text: 'Perfeito! Revise os dados e confirme seu agendamento.' });
+      }
     }
     return messages;
-  }, [chatClientName, chatClientPhone, computedSelection.serviceName, detectedSubscriber, establishment?.name, invalidSubscriberDateMessage, isSubscriberFlow, selectedDate, selectedProfessional?.name, selectedTime, step, subscriberLimitStatus]);
+  }, [chatClientName, chatClientPhone, computedSelection.serviceName, detectedSubscriber, establishment?.name, invalidSubscriberDateMessage, isSubscriberFlow, selectedBookingProducts, selectedDate, selectedProfessional?.name, selectedTime, step, subscriberLimitStatus]);
 
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const serviceIntroRef = useRef<HTMLDivElement | null>(null);
@@ -1311,7 +1367,7 @@ export function BookingChatFlow({
                       onTimeSelect={(value) => {
                         setSelectedTime(value);
                         setInvalidSubscriberDateMessage('');
-                        setStep('confirm');
+                        setStep('products');
                       }}
                       filterPastTimes={true}
                       businessHours={businessHoursForDate}
@@ -1353,6 +1409,108 @@ export function BookingChatFlow({
               </div>
             )}
 
+            {step === 'products' && (
+              <div
+                className="space-y-3 rounded-xl border p-3"
+                style={{
+                  background: 'linear-gradient(160deg, rgba(230,199,139,0.18) 0%, rgba(17,17,17,0.98) 45%, rgba(17,17,17,1) 100%)',
+                  borderColor: 'rgba(230,199,139,0.35)',
+                  boxShadow: '0 12px 30px rgba(0,0,0,0.45)',
+                }}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black px-2 py-1 rounded-full" style={{ background: 'rgba(230,199,139,0.22)', color: '#F5E7C2' }}>
+                    ✨ Vitrine Premium
+                  </span>
+                </div>
+                <div className="text-base font-extrabold text-[#F5E7C2]">Quer aproveitar e garantir também?</div>
+                {availableBookingProducts.length === 0 ? (
+                  <div className="text-xs text-white/70">
+                    Nenhum produto adicional disponível agora.
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-xs text-white/70">
+                      Selecione um ou mais produtos para adicionar ao agendamento.
+                    </div>
+                    {availableBookingProducts.map((product: any) => {
+                      const productId = String(product?.id || '');
+                      const selected = selectedBookingProductIds.includes(productId);
+                      const imageUrl = String(product?.image_url || '').trim();
+                      return (
+                        <div key={`chat-booking-product-${productId}`} className="space-y-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedBookingProductIds((previous) => (
+                                previous.includes(productId)
+                                  ? previous.filter((id) => id !== productId)
+                                  : [...previous, productId]
+                              ));
+                            }}
+                            className={`w-full text-left px-3 py-2.5 rounded-xl border transition-all ${
+                              selected
+                                ? 'text-white'
+                                : 'bg-white/10 border-white/20 hover:bg-white/15'
+                            }`}
+                            style={
+                              selected
+                                ? {
+                                  background: 'linear-gradient(135deg, rgba(230,199,139,0.32) 0%, rgba(16,185,129,0.45) 100%)',
+                                  borderColor: 'rgba(230,199,139,0.9)',
+                                  boxShadow: '0 8px 22px rgba(0,0,0,0.35)',
+                                }
+                                : undefined
+                            }
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                {imageUrl ? (
+                                  <img
+                                    src={imageUrl}
+                                    alt={String(product?.name || 'Produto')}
+                                    className="h-9 w-9 rounded-lg object-cover border border-white/25 shrink-0"
+                                    loading="lazy"
+                                  />
+                                ) : null}
+                                <div className="font-semibold truncate">{String(product?.name || 'Produto')}</div>
+                              </div>
+                              {selected && <span className="text-[10px] font-black px-2 py-1 rounded-full bg-black/30 shrink-0">SELECIONADO</span>}
+                            </div>
+                            <div className="text-xs text-white/80">+ {toMoney(Number(product?.sale_price || 0))}</div>
+                          </button>
+                          {imageUrl ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedBookingProductImagePreview({
+                                  url: imageUrl,
+                                  name: String(product?.name || 'Produto')
+                                })
+                              }
+                              className="text-[11px] px-2 py-1 rounded-md border border-[#E6C78B]/60 text-[#F5E7C2] hover:bg-[#E6C78B]/15 transition-colors"
+                            >
+                              Ver foto
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                    <div className="text-xs font-semibold text-[#E6C78B]">
+                      Total de produtos: {toMoney(Number(bookingProductsTotal || 0))}
+                    </div>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setStep('confirm')}
+                  className="w-full px-4 py-2.5 rounded-xl bg-[#E6C78B] hover:bg-[#f1ddb0] text-black text-sm font-extrabold transition-colors"
+                >
+                  Continuar para confirmação
+                </button>
+              </div>
+            )}
+
             {step === 'confirm' && (
               <div className="space-y-2 text-sm">
                 <div><strong>Cliente:</strong> {chatClientName}</div>
@@ -1362,6 +1520,13 @@ export function BookingChatFlow({
                 <div><strong>Data:</strong> {format(selectedDate, 'dd/MM/yyyy')} às {selectedTime || '--:--'}</div>
                 <div><strong>Duração:</strong> {formatDuration(computedSelection.duration)}</div>
                 <div><strong>Valor:</strong> {toMoney(computedSelection.price)}</div>
+                {selectedBookingProducts.length > 0 && (
+                  <div>
+                    <strong>Produtos adicionais:</strong>{' '}
+                    {selectedBookingProducts.map((product: any) => String(product?.name || 'Produto')).join(' + ')} ({toMoney(bookingProductsTotal)})
+                  </div>
+                )}
+                <div><strong>Total final:</strong> {toMoney(Number(computedSelection.price || 0) + Number(bookingProductsTotal || 0))}</div>
                 {requireAdvancePayment && !isSubscriberFlow && (
                   <div className="text-amber-300 font-semibold">
                     Pagamento antecipado obrigatório: ao confirmar, abrirá a tela de pagamento.
@@ -1405,6 +1570,36 @@ export function BookingChatFlow({
           </div>
         </div>
       </div>
+
+      {selectedBookingProductImagePreview && (
+        <div
+          className="fixed inset-0 z-[120] bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setSelectedBookingProductImagePreview(null)}
+        >
+          <div
+            className="max-w-2xl w-full rounded-2xl border border-[#E6C78B]/40 bg-[#111] p-3"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-bold text-[#F5E7C2]">
+                {selectedBookingProductImagePreview.name}
+              </h4>
+              <button
+                type="button"
+                onClick={() => setSelectedBookingProductImagePreview(null)}
+                className="text-xs px-2 py-1 rounded bg-white/10 text-white hover:bg-white/20"
+              >
+                Fechar
+              </button>
+            </div>
+            <img
+              src={selectedBookingProductImagePreview.url}
+              alt={selectedBookingProductImagePreview.name}
+              className="w-full max-h-[75vh] object-contain rounded-lg"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

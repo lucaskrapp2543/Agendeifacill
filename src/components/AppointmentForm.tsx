@@ -27,6 +27,15 @@ interface Service {
   excluded_professional_ids?: string[] | null;
 }
 
+interface BookingHighlightedProduct {
+  id: string;
+  name: string;
+  sale_price: number;
+  image_url?: string | null;
+  stock_quantity?: number | null;
+  highlight_for_client_booking?: boolean | null;
+}
+
 interface Professional {
   id: string;
   name: string;
@@ -107,6 +116,7 @@ interface AppointmentFormProps {
   onRequestChangeSubscriberService?: () => void; // Solicita voltar para seleção de serviço da assinatura
   externalCurrentStep?: number; // Controle opcional de etapa por componente pai (modo chat)
   onExternalCurrentStepChange?: (step: number) => void; // Notifica mudança de etapa no modo controlado
+  bookingHighlightedProducts?: BookingHighlightedProduct[];
 }
 
 export function AppointmentForm({
@@ -126,7 +136,8 @@ export function AppointmentForm({
   onSubscriberDetectionDisabledChange,
   onRequestChangeSubscriberService,
   externalCurrentStep,
-  onExternalCurrentStepChange
+  onExternalCurrentStepChange,
+  bookingHighlightedProducts = [],
 }: AppointmentFormProps) {
   const { user } = useAuth();
   const isEstablishmentOwner = user?.id === establishment?.owner_id;
@@ -441,6 +452,8 @@ export function AppointmentForm({
   const [selectedProfessional, setSelectedProfessional] = useState<Professional | undefined>(undefined);
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('');
+  const [selectedBookingProductIds, setSelectedBookingProductIds] = useState<string[]>([]);
+  const [selectedBookingProductImagePreview, setSelectedBookingProductImagePreview] = useState<{ url: string; name: string } | null>(null);
   const [observation, setObservation] = useState<string>('');
   const [isChildService, setIsChildService] = useState<boolean | null>(null);
 
@@ -626,6 +639,22 @@ export function AppointmentForm({
   }, [serviceCategories, selectedProfessional, selectedCategory]);
   const [isLoading, setIsLoading] = useState(false);
 
+  const availableBookingProducts = (bookingHighlightedProducts || []).filter((product: any) => {
+    const highlighted = Boolean(product?.highlight_for_client_booking);
+    const stock = Number(product?.stock_quantity ?? 0);
+    const hasStock = !Number.isFinite(stock) || stock > 0;
+    return highlighted && hasStock;
+  });
+
+  const selectedBookingProducts = availableBookingProducts.filter((product: any) =>
+    selectedBookingProductIds.includes(String(product?.id || ''))
+  );
+
+  useEffect(() => {
+    const validIds = new Set(availableBookingProducts.map((product: any) => String(product?.id || '')));
+    setSelectedBookingProductIds((previous) => previous.filter((id) => validIds.has(String(id))));
+  }, [bookingHighlightedProducts, availableBookingProducts.length]);
+
   const normalizeCupom = (raw: string) =>
     String(raw || '')
       .trim()
@@ -659,6 +688,10 @@ export function AppointmentForm({
   const descontoPercent = cupomAplicado ? Number(cupomAplicado.percent) || 0 : 0;
   const descontoValorAtual = cupomAplicado ? round2((precoBaseAtual * descontoPercent) / 100) : 0;
   const precoFinalAtual = cupomAplicado ? Math.max(0, round2(precoBaseAtual - descontoValorAtual)) : precoBaseAtual;
+  const bookingProductsTotal = round2(
+    selectedBookingProducts.reduce((sum: number, product: any) => sum + (Number(product?.sale_price) || 0), 0)
+  );
+  const precoFinalComProdutos = round2(precoFinalAtual + bookingProductsTotal);
 
   const aplicarCupom = async () => {
     if (!establishment?.id) return;
@@ -1717,6 +1750,18 @@ export function AppointmentForm({
       const appliedPercent = cupomAplicado ? Number(cupomAplicado.percent) || 0 : 0;
       const discountAmount = cupomAplicado ? round2((basePrice * appliedPercent) / 100) : 0;
       const finalPrice = cupomAplicado ? Math.max(0, round2(basePrice - discountAmount)) : basePrice;
+      const selectedBookingProductsForPayload = selectedBookingProducts.map((product: any) => ({
+        product_id: String(product?.id || '').trim(),
+        name: String(product?.name || '').trim() || 'Produto',
+        price: Number(product?.sale_price || 0),
+        duration: 0,
+        quantity: 1,
+        item_type: 'booking_product',
+      })).filter((item: any) => item.product_id && Number.isFinite(item.price) && item.price > 0);
+      const bookingProductsTotalForPayload = round2(
+        selectedBookingProductsForPayload.reduce((sum: number, item: any) => sum + (Number(item?.price) || 0), 0)
+      );
+      const finalPriceWithProducts = round2(finalPrice + bookingProductsTotalForPayload);
 
       const appointmentData = {
         client_name: isSubscriberBooking ? `${clientName} (ASSINANTE)` : clientName, // Adicionar (ASSINANTE) apenas no envio
@@ -1733,7 +1778,9 @@ export function AppointmentForm({
         coupon_code: cupomAplicado ? cupomAplicado.code : null,
         coupon_discount_percent: cupomAplicado ? appliedPercent : null,
         coupon_discount_amount: cupomAplicado ? discountAmount : null,
-        price: isSubscriberBooking && subscriberService ? subscriberExtraPrice : finalPrice, // Assinatura grátis, cobra só extras
+        price: isSubscriberBooking && subscriberService ? subscriberExtraPrice : finalPrice, // Assinatura grátis, cobra só extras/serviço
+        total_price: finalPriceWithProducts,
+        additional_products: selectedBookingProductsForPayload.length > 0 ? selectedBookingProductsForPayload : null,
         payment_method: isSubscriberBooking ? 'assinante' : (requireAdvancePayment ? 'pendente' : selectedPaymentMethod),
         observation: observation.trim() || null, // Adicionar observação (null se vazia)
         is_child_service: isChildService === true, // Adicionar serviço infantil (garantir boolean)
@@ -3529,7 +3576,7 @@ export function AppointmentForm({
                   className="w-full px-4 py-3 rounded-xl transition-colors font-extrabold active:scale-[0.99]"
                   style={{ background: '#E6C78B', color: '#0B0B0B' }}
                 >
-                  ESCOLHER FORMA DE PAGAMENTO →
+                  ESCOLHER PRODUTOS E PAGAMENTO →
                 </button>
               </div>
             )}
@@ -3554,6 +3601,96 @@ export function AppointmentForm({
                 >
                   ← Voltar
                 </button>
+              </div>
+            )}
+            {availableBookingProducts.length > 0 && (
+              <div
+                className="mb-5 p-4 rounded-2xl"
+                style={{
+                  background: 'linear-gradient(160deg, rgba(230,199,139,0.14) 0%, rgba(21,21,21,0.98) 45%, rgba(21,21,21,1) 100%)',
+                  border: '1px solid rgba(230,199,139,0.35)',
+                  boxShadow: '0 14px 36px rgba(0,0,0,0.52)'
+                }}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-black px-2 py-1 rounded-full" style={{ background: 'rgba(230,199,139,0.22)', color: '#F5E7C2' }}>
+                    ✨ Vitrine Premium
+                  </span>
+                </div>
+                <label className="block text-base font-extrabold mb-2" style={{ color: '#F5E7C2' }}>
+                  Quer aproveitar e garantir também?
+                </label>
+                <p className="text-xs mb-3" style={{ color: '#D3D3D3' }}>
+                  Selecione um ou mais produtos adicionais para incluir no seu agendamento.
+                </p>
+                <div className="space-y-2">
+                  {availableBookingProducts.map((product: any) => {
+                    const productId = String(product?.id || '');
+                    const selected = selectedBookingProductIds.includes(productId);
+                    const imageUrl = String(product?.image_url || '').trim();
+                    return (
+                      <div key={`booking-product-${productId}`} className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedBookingProductIds((prev) =>
+                              prev.includes(productId)
+                                ? prev.filter((id) => id !== productId)
+                                : [...prev, productId]
+                            );
+                          }}
+                          className={`w-full text-left px-3 py-2.5 rounded-xl border transition-all ${
+                            selected
+                              ? 'text-white'
+                              : 'bg-white/5 border-white/20 text-white hover:bg-white/10'
+                          }`}
+                          style={
+                            selected
+                              ? {
+                                background: 'linear-gradient(135deg, rgba(230,199,139,0.30) 0%, rgba(16,185,129,0.45) 100%)',
+                                borderColor: 'rgba(230,199,139,0.85)',
+                                boxShadow: '0 8px 22px rgba(0,0,0,0.35)'
+                              }
+                              : undefined
+                          }
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              {imageUrl ? (
+                                <img
+                                  src={imageUrl}
+                                  alt={String(product?.name || 'Produto')}
+                                  className="h-10 w-10 rounded-lg object-cover border border-white/25 shrink-0"
+                                  loading="lazy"
+                                />
+                              ) : null}
+                              <div className="font-semibold truncate">{String(product?.name || 'Produto')}</div>
+                            </div>
+                            {selected && <span className="text-[10px] font-black px-2 py-1 rounded-full bg-black/30 shrink-0">SELECIONADO</span>}
+                          </div>
+                          <div className="text-xs opacity-95 mt-0.5">+ R$ {Number(product?.sale_price || 0).toFixed(2).replace('.', ',')}</div>
+                        </button>
+                        {imageUrl ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedBookingProductImagePreview({
+                                url: imageUrl,
+                                name: String(product?.name || 'Produto')
+                              })
+                            }
+                            className="text-[11px] px-2 py-1 rounded-md border border-[#E6C78B]/60 text-[#F5E7C2] hover:bg-[#E6C78B]/15 transition-colors"
+                          >
+                            Ver foto
+                          </button>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-3 text-xs font-bold" style={{ color: '#F5E7C2' }}>
+                  Total de produtos: R$ {Number(bookingProductsTotal || 0).toFixed(2).replace('.', ',')}
+                </div>
               </div>
             )}
             {requireAdvancePayment ? (
@@ -3801,6 +3938,20 @@ export function AppointmentForm({
                           R$ {Number(precoFinalAtual || 0).toFixed(2).replace('.', ',')}
                         </strong>
                       </span>
+                      {bookingProductsTotal > 0 && (
+                        <span>
+                          + Produtos:{' '}
+                          <strong className="text-white">
+                            R$ {Number(bookingProductsTotal || 0).toFixed(2).replace('.', ',')}
+                          </strong>
+                        </span>
+                      )}
+                      <span>
+                        Total final:{' '}
+                        <strong style={{ color: '#E6C78B' }}>
+                          R$ {Number(precoFinalComProdutos || 0).toFixed(2).replace('.', ',')}
+                        </strong>
+                      </span>
                     </div>
                   </div>
                 )}
@@ -3877,6 +4028,21 @@ export function AppointmentForm({
                         </strong>
                       </div>
                     )}
+                    {selectedBookingProducts.length > 0 && (
+                      <div>
+                        <strong className="text-white">Produtos adicionais:</strong>{' '}
+                        {selectedBookingProducts.map((product: any) => String(product?.name || 'Produto')).join(' + ')} —{' '}
+                        <strong style={{ color: '#E6C78B' }}>
+                          R$ {Number(bookingProductsTotal || 0).toFixed(2).replace('.', ',')}
+                        </strong>
+                      </div>
+                    )}
+                    <div>
+                      <strong className="text-white">Total final do agendamento:</strong>{' '}
+                      <strong style={{ color: '#E6C78B' }}>
+                        R$ {Number(precoFinalComProdutos || 0).toFixed(2).replace('.', ',')}
+                      </strong>
+                    </div>
                   </div>
                 </div>
               )}
@@ -3915,6 +4081,96 @@ export function AppointmentForm({
                 >
                   ← Voltar
                 </button>
+              </div>
+            )}
+            {availableBookingProducts.length > 0 && (
+              <div
+                className="mb-5 p-4 rounded-2xl"
+                style={{
+                  background: 'linear-gradient(160deg, rgba(230,199,139,0.14) 0%, rgba(21,21,21,0.98) 45%, rgba(21,21,21,1) 100%)',
+                  border: '1px solid rgba(230,199,139,0.35)',
+                  boxShadow: '0 14px 36px rgba(0,0,0,0.52)'
+                }}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-black px-2 py-1 rounded-full" style={{ background: 'rgba(230,199,139,0.22)', color: '#F5E7C2' }}>
+                    ✨ Vitrine Premium
+                  </span>
+                </div>
+                <label className="block text-base font-extrabold mb-2" style={{ color: '#F5E7C2' }}>
+                  Quer aproveitar e garantir também?
+                </label>
+                <p className="text-xs mb-3" style={{ color: '#D3D3D3' }}>
+                  Selecione um ou mais produtos adicionais para incluir no seu agendamento.
+                </p>
+                <div className="space-y-2">
+                  {availableBookingProducts.map((product: any) => {
+                    const productId = String(product?.id || '');
+                    const selected = selectedBookingProductIds.includes(productId);
+                    const imageUrl = String(product?.image_url || '').trim();
+                    return (
+                      <div key={`booking-product-subscriber-${productId}`} className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedBookingProductIds((prev) =>
+                              prev.includes(productId)
+                                ? prev.filter((id) => id !== productId)
+                                : [...prev, productId]
+                            );
+                          }}
+                          className={`w-full text-left px-3 py-2.5 rounded-xl border transition-all ${
+                            selected
+                              ? 'text-white'
+                              : 'bg-white/5 border-white/20 text-white hover:bg-white/10'
+                          }`}
+                          style={
+                            selected
+                              ? {
+                                background: 'linear-gradient(135deg, rgba(230,199,139,0.30) 0%, rgba(16,185,129,0.45) 100%)',
+                                borderColor: 'rgba(230,199,139,0.85)',
+                                boxShadow: '0 8px 22px rgba(0,0,0,0.35)'
+                              }
+                              : undefined
+                          }
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              {imageUrl ? (
+                                <img
+                                  src={imageUrl}
+                                  alt={String(product?.name || 'Produto')}
+                                  className="h-10 w-10 rounded-lg object-cover border border-white/25 shrink-0"
+                                  loading="lazy"
+                                />
+                              ) : null}
+                              <div className="font-semibold truncate">{String(product?.name || 'Produto')}</div>
+                            </div>
+                            {selected && <span className="text-[10px] font-black px-2 py-1 rounded-full bg-black/30 shrink-0">SELECIONADO</span>}
+                          </div>
+                          <div className="text-xs opacity-95 mt-0.5">+ R$ {Number(product?.sale_price || 0).toFixed(2).replace('.', ',')}</div>
+                        </button>
+                        {imageUrl ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedBookingProductImagePreview({
+                                url: imageUrl,
+                                name: String(product?.name || 'Produto')
+                              })
+                            }
+                            className="text-[11px] px-2 py-1 rounded-md border border-[#E6C78B]/60 text-[#F5E7C2] hover:bg-[#E6C78B]/15 transition-colors"
+                          >
+                            Ver foto
+                          </button>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-3 text-xs font-bold" style={{ color: '#F5E7C2' }}>
+                  Total de produtos: R$ {Number(bookingProductsTotal || 0).toFixed(2).replace('.', ',')}
+                </div>
               </div>
             )}
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -4071,6 +4327,21 @@ export function AppointmentForm({
                     {selectedProfessional && selectedProfessional.offers_child_service && (
                       <div><strong>Serviço infantil:</strong> {isChildService === null ? 'Não informado' : (isChildService ? 'Sim' : 'Não')}</div>
                     )}
+                    {selectedBookingProducts.length > 0 && (
+                      <div>
+                        <strong>Produtos adicionais:</strong>{' '}
+                        {selectedBookingProducts.map((product: any) => String(product?.name || 'Produto')).join(' + ')} —{' '}
+                        <strong>
+                          R$ {Number(bookingProductsTotal || 0).toFixed(2).replace('.', ',')}
+                        </strong>
+                      </div>
+                    )}
+                    <div>
+                      <strong>Total final do agendamento:</strong>{' '}
+                      <strong>
+                        R$ {Number((getResolvedSubscriberExtraPrice() + bookingProductsTotal) || 0).toFixed(2).replace('.', ',')}
+                      </strong>
+                    </div>
                   </div>
                 </div>
               )}
@@ -4091,6 +4362,36 @@ export function AppointmentForm({
           </div>
         )}
       </form>
+
+      {selectedBookingProductImagePreview && (
+        <div
+          className="fixed inset-0 z-[120] bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setSelectedBookingProductImagePreview(null)}
+        >
+          <div
+            className="max-w-2xl w-full rounded-2xl border border-[#E6C78B]/40 bg-[#111] p-3"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-bold text-[#F5E7C2]">
+                {selectedBookingProductImagePreview.name}
+              </h4>
+              <button
+                type="button"
+                onClick={() => setSelectedBookingProductImagePreview(null)}
+                className="text-xs px-2 py-1 rounded bg-white/10 text-white hover:bg-white/20"
+              >
+                Fechar
+              </button>
+            </div>
+            <img
+              src={selectedBookingProductImagePreview.url}
+              alt={selectedBookingProductImagePreview.name}
+              className="w-full max-h-[75vh] object-contain rounded-lg"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Modal de limite excedido */}
       {limitModalData && (

@@ -199,20 +199,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return Array.from(byNameAndPhone.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   }, [clients, clientSubscriptions]);
 
-  const knownClientNames = useMemo(() => {
-    const names = new Set<string>();
-    for (const c of knownClients) {
-      if (c.name.trim()) names.add(c.name.trim());
-    }
-    return Array.from(names).sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  }, [knownClients]);
-
-  const knownClientPhones = useMemo(() => {
-    const phones = new Set<string>();
-    for (const c of knownClients) {
-      if (c.phone.trim()) phones.add(c.phone.trim());
-    }
-    return Array.from(phones);
+  const knownClientLookupItems = useMemo(() => {
+    return (knownClients || []).map((client) => {
+      const phoneLabel = client.phone?.trim() ? ` • ${client.phone.trim()}` : '';
+      const emailLabel = client.email?.trim() ? ` • ${client.email.trim()}` : '';
+      // Inclui telefone/e-mail na chave para reduzir chance de colisão entre nomes iguais
+      const value = `${client.name.trim() || 'Cliente'}${phoneLabel}${emailLabel}`;
+      return { value, client };
+    });
   }, [knownClients]);
 
   const availablePaymentMethods = useMemo(() => {
@@ -381,32 +375,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     );
   };
 
-  const applyKnownClientSuggestion = (suggestion: KnownClientSuggestion, source: 'name' | 'phone') => {
-    if (source === 'name' && suggestion.phone) {
-      setNewClientPhone(suggestion.phone);
-    }
-    if (source === 'phone' && suggestion.name) {
-      setNewClientName(suggestion.name);
-    }
-    if (!newClientEmail.trim() && suggestion.email) {
-      setNewClientEmail(suggestion.email);
-    }
-  };
+  const tryApplySelectedKnownClient = (lookupValue: string) => {
+    const selected = knownClientLookupItems.find((item) => item.value === lookupValue)?.client;
+    if (!selected) return false;
 
-  const findKnownClientByName = (rawName: string): KnownClientSuggestion | undefined => {
-    const key = normalizeNameKey(rawName);
-    if (!key) return undefined;
-    return knownClients.find((c) => c.nameKey === key);
-  };
-
-  const findKnownClientByPhone = (rawPhone: string): KnownClientSuggestion | undefined => {
-    const digits = normalizePhoneDigits(rawPhone);
-    if (!digits) return undefined;
-    return knownClients.find((c) =>
-      c.phoneDigits === digits ||
-      c.phoneDigits.endsWith(digits) ||
-      digits.endsWith(c.phoneDigits)
-    );
+    setNewClientName(selected.name || '');
+    setNewClientPhone(selected.phone || '');
+    setNewClientEmail(selected.email || '');
+    return true;
   };
 
   // Estado para controlar limitação de agendamentos de assinantes
@@ -467,6 +443,31 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v || 0));
   const toCents = (v: number) => Math.round((Number(v) || 0) * 100);
   const fromCents = (cents: number) => cents / 100;
+  const parseLegacyBoolean = (value: unknown): boolean => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value === 1;
+    const normalized = String(value ?? '').trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 't' || normalized === 'sim' || normalized === 'yes' || normalized === 'on';
+  };
+
+  const divideEnabledByClientSubscriptionId = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    (clientSubscriptions || []).forEach((cs: any) => {
+      const clientSubId = String(cs?.id || '').trim();
+      if (!clientSubId) return;
+      map[clientSubId] = parseLegacyBoolean((cs as any)?.subscriptions?.divide_total_enabled);
+    });
+    return map;
+  }, [clientSubscriptions]);
+
+  const getAttendanceEffectiveRepass = (attendance: any): number => {
+    const clientSubId = String(attendance?.client_subscription_id || '').trim();
+    if (clientSubId && divideEnabledByClientSubscriptionId[clientSubId] === false) {
+      return 0;
+    }
+    const value = Number(attendance?.repass_value || 0);
+    return Number.isFinite(value) ? value : 0;
+  };
 
   // Estado para controlar limitação de 1 agendamento por semana
   const [limitSubscribersOneWeek, setLimitSubscribersOneWeek] = useState(
@@ -1613,7 +1614,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         };
       }
       acc[professional].count++;
-      acc[professional].totalValue += parseFloat(attendance.repass_value) || 0;
+      acc[professional].totalValue += getAttendanceEffectiveRepass(attendance);
       acc[professional].attendances.push(attendance);
       return acc;
     }, {} as { [key: string]: { count: number; totalValue: number; attendances: any[] } });
@@ -1625,8 +1626,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const handleAddAttendance = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!selectedClientForAttendance || !attendanceValue) {
-      toast.error('Informe o valor repassado ao profissional para adicionar o atendimento.');
+    if (!selectedClientForAttendance) {
       return;
     }
     // Data e profissional não são mais escolhidos aqui; use "Atendimento assinatura" na agenda para isso
@@ -1644,16 +1644,26 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     setIsSavingAttendance(true);
     try {
       const sub = subscriptions.find((s: any) => String(s.id) === String((selectedClientForAttendance as any)?.subscription_id));
+      const divideEnabled = Boolean((sub as any)?.divide_total_enabled);
+      if (divideEnabled && !attendanceValue) {
+        toast.error('Informe o valor repassado ao profissional para adicionar o atendimento.');
+        setIsSavingAttendance(false);
+        return;
+      }
       const subscriptionValue = Number((sub as any)?.value || 0);
       const saleData = await resolveSaleCommissionMultiplier(String((selectedClientForAttendance as any)?.id || ''), subscriptionValue);
       const hasSaleDiscount = saleData.hasSaleDiscount;
       const salePercent = saleData.salePercent;
-      let repassValueToSave = Math.round(attendanceValue * saleData.multiplier * 100) / 100;
+      // Compatibilidade de fluxo:
+      // sem "Dividir valor total", o atendimento conta consumo da assinatura,
+      // mas não lança repasse financeiro automático.
+      let repassValueToSave = divideEnabled
+        ? Math.round(attendanceValue * saleData.multiplier * 100) / 100
+        : 0;
 
       // ✅ "Dividir valor total" (configurado NA ASSINATURA)
       // A comissão de venda já foi aplicada no multiplicador. Se dividir estiver ligado,
       // o repasse final vira (repasse_atual / qtd_atendimentos_da_assinatura).
-      const divideEnabled = Boolean((sub as any)?.divide_total_enabled);
       const divideFromSubscription = Number((sub as any)?.divide_total_attendances || 0);
       const divideFallbackFromClientLimit = Number((selectedClientForAttendance as any)?.monthly_limit || 0);
       const divideCount =
@@ -2003,6 +2013,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       // Limpar formulário
       setSelectedSubscriptionToAdd('');
+      setSelectedClientToAdd('');
       setNewClientName('');
       setNewClientPhone('');
       setNewClientEmail('');
@@ -3050,7 +3061,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Inclui atendimentos + comissão de venda de assinatura (não é atendimento)
   const totalRepasses = useMemo(() => {
     const attendancesSum = subscriberAttendances.reduce((sum, attendance) => {
-      return sum + (parseFloat(attendance.repass_value) || 0);
+      return sum + getAttendanceEffectiveRepass(attendance);
     }, 0);
 
     const saleCommissionsSum = subscriptionSaleCommissions.reduce((sum, item) => {
@@ -3058,7 +3069,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }, 0);
 
     return attendancesSum + saleCommissionsSum;
-  }, [subscriberAttendances, subscriptionSaleCommissions]);
+  }, [subscriberAttendances, subscriptionSaleCommissions, divideEnabledByClientSubscriptionId]);
 
   // Líquido = Bruto - taxas de gateway/plataforma (assinaturas ativas)
   const liquidoAtivo = clientSubscriptions.reduce((sum, cs) => {
@@ -3753,7 +3764,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         saleCommissionCount: 0,
                       };
                     }
-                    acc[professional].totalValue += parseFloat(attendance.repass_value) || 0;
+                    acc[professional].totalValue += getAttendanceEffectiveRepass(attendance);
                     acc[professional].attendanceCount += 1;
 
                     const clientSubId = String(attendance.client_subscription_id || '');
@@ -4723,33 +4734,45 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             </select>
           </div>
           <div>
+            <label htmlFor="selectedClientToAdd" className="block text-sm font-medium text-gray-400 mb-1">
+              Clientes da sua lista
+            </label>
+            <input
+              type="text"
+              id="selectedClientToAdd"
+              value={selectedClientToAdd}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSelectedClientToAdd(value);
+                // Só preenche automaticamente quando o usuário realmente escolhe um item da lista
+                tryApplySelectedKnownClient(value);
+              }}
+              list="knownClientsLookupList"
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
+              placeholder="Pesquisar cliente já cadastrado (opcional)"
+            />
+            <datalist id="knownClientsLookupList">
+              {knownClientLookupItems.map((item) => (
+                <option key={item.value} value={item.value} />
+              ))}
+            </datalist>
+            <p className="text-xs text-gray-500 mt-1">
+              Se selecionar um cliente da lista, nome/telefone/e-mail serão preenchidos automaticamente.
+            </p>
+          </div>
+          <div>
             <label htmlFor="newClientName" className="block text-sm font-medium text-gray-400 mb-1">Nome do Cliente</label>
             <input
               type="text"
               id="newClientName"
               value={newClientName}
-              onChange={(e) => {
-                const value = e.target.value;
-                setNewClientName(value);
-                const suggestion = findKnownClientByName(value);
-                if (suggestion) applyKnownClientSuggestion(suggestion, 'name');
-              }}
-              onBlur={(e) => {
-                const suggestion = findKnownClientByName(e.target.value);
-                if (suggestion) applyKnownClientSuggestion(suggestion, 'name');
-              }}
-              list="knownClientNamesList"
+              onChange={(e) => setNewClientName(e.target.value)}
               className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               placeholder="Digite o nome do cliente"
               required
             />
-            <datalist id="knownClientNamesList">
-              {knownClientNames.map((name) => (
-                <option key={name} value={name} />
-              ))}
-            </datalist>
             <p className="text-xs text-gray-500 mt-1">
-              Ao digitar, sugerimos clientes já cadastrados em Meus Clientes.
+              Campo livre: você pode digitar o nome manualmente.
             </p>
           </div>
           <div>
@@ -4758,44 +4781,30 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               type="tel"
               id="newClientPhone"
               value={newClientPhone}
-              onChange={(e) => {
-                const value = e.target.value;
-                setNewClientPhone(value);
-                const suggestion = findKnownClientByPhone(value);
-                if (suggestion) applyKnownClientSuggestion(suggestion, 'phone');
-              }}
+              onChange={(e) => setNewClientPhone(e.target.value)}
               onBlur={(e) => {
                 const sanitized = normalizePhoneDigits(e.target.value);
                 if (sanitized !== newClientPhone) {
                   setNewClientPhone(sanitized);
                 }
-                const suggestion = findKnownClientByPhone(sanitized);
-                if (suggestion) applyKnownClientSuggestion(suggestion, 'phone');
               }}
-              list="knownClientPhonesList"
               className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
               placeholder="Digite o número de telefone"
               required
             />
-            <datalist id="knownClientPhonesList">
-              {knownClientPhones.map((phone) => (
-                <option key={phone} value={phone} />
-              ))}
-            </datalist>
             <p className="text-xs text-gray-500 mt-1">
-              Se o número já existir, nome e e-mail são preenchidos automaticamente.
+              Campo livre: preencher aqui não altera nome/e-mail automaticamente.
             </p>
           </div>
           <div>
-            <label htmlFor="newClientEmail" className="block text-sm font-medium text-gray-400 mb-1">E-mail</label>
+            <label htmlFor="newClientEmail" className="block text-sm font-medium text-gray-400 mb-1">E-mail (opcional)</label>
             <input
               type="email"
               id="newClientEmail"
               value={newClientEmail}
               onChange={(e) => setNewClientEmail(e.target.value)}
               className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-500"
-              placeholder="Digite o e-mail do cliente"
-              required
+              placeholder="Digite o e-mail do cliente (opcional)"
             />
           </div>
           <div>
@@ -5134,10 +5143,15 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       <button
                         onClick={() => {
                           setSelectedClientForAttendance(cs);
-                          // Preencher automaticamente com valor fixo se disponível
                           const subscription = subscriptions.find(sub => sub.id === cs.subscription_id);
+                          const divideEnabled = Boolean((subscription as any)?.divide_total_enabled);
                           const fixedCommission = subscription?.fixed_commission_value;
-                          setAttendanceValue(fixedCommission && fixedCommission > 0 ? fixedCommission : 0);
+                          // Sem divisão, atendimento é apenas de consumo (repasso fica zerado)
+                          setAttendanceValue(
+                            divideEnabled && fixedCommission && fixedCommission > 0
+                              ? fixedCommission
+                              : 0
+                          );
                           // Carregar comissão de venda (se existir)
                           loadSaleCommissionForClient(cs.id);
                           setSaleCommissionLastSavedAt(null);
@@ -5314,7 +5328,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                               {divideEnabled && finalDividedRepass !== null ? (
                                 <> — com “Dividir valor total”: <strong>{fmtBRL(finalDividedRepass)}</strong> por atendimento</>
                               ) : (
-                                <> (valor que será salvo no atendimento)</>
+                                <> — sem “Dividir valor total”, o atendimento só conta consumo (repasso salvo: <strong>R$ 0,00</strong>)</>
                               )}
                             </p>
                           )}
@@ -5746,7 +5760,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           <div className="flex items-center gap-3">
                             <div className="text-right">
                               <p className="text-sm font-bold text-blue-400">
-                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(attendance.repass_value)}
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(getAttendanceEffectiveRepass(attendance))}
                               </p>
                             </div>
                             <button
@@ -5754,7 +5768,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                                 attendance.id,
                                 attendance.professional_name,
                                 attendance.attendance_date,
-                                attendance.repass_value
+                                getAttendanceEffectiveRepass(attendance)
                               )}
                               className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-200 rounded-lg transition-colors"
                               title="Remover atendimento"

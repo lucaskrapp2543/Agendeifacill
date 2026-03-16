@@ -1169,11 +1169,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
         // Buscar config da assinatura (já veio no loadSubscriberOptions)
         const subCfg: any = (selectedSub as any)?.subscription || null;
+        const divideEnabled = Boolean(subCfg?.divide_total_enabled);
         const subscriptionValue = Number(subCfg?.value || 0);
         const fallbackFromAppointmentPrice = Number((apt as any)?.price || 0);
         const configuredFixed = Number(subCfg?.fixed_commission_value || 0);
-        // Compatibilidade: se a assinatura não tiver repasse configurado, considera 100% do valor.
-        // Se o valor estiver explicitamente 0, respeita 0.
+        // Compatibilidade: quando "Dividir valor total" estiver ativo e sem repasse configurado,
+        // considera 100% do valor da assinatura para evitar quebrar fluxos antigos.
         const baseFixed = Number.isFinite(configuredFixed) && configuredFixed > 0
           ? configuredFixed
           : Number.isFinite(subscriptionValue) && subscriptionValue > 0
@@ -1181,7 +1182,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             : Number.isFinite(fallbackFromAppointmentPrice) && fallbackFromAppointmentPrice > 0
               ? fallbackFromAppointmentPrice
               : 0;
-        if ((!(Number.isFinite(configuredFixed) && configuredFixed > 0)) && baseFixed > 0) {
+        if (divideEnabled && (!(Number.isFinite(configuredFixed) && configuredFixed > 0)) && baseFixed > 0) {
           toast('Repasse não configurado nesta assinatura. Calculando automaticamente como 100% do valor da assinatura.', 'warning');
         }
 
@@ -1212,7 +1213,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
           // ignore
         }
 
-        const divideEnabled = Boolean(subCfg?.divide_total_enabled);
         const divideFromSubscription = Number(subCfg?.divide_total_attendances || 0);
         const divideFallbackFromClientLimit = Number(selectedSub?.monthly_limit || 0);
         const divideCount =
@@ -1227,8 +1227,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
           return;
         }
 
-        let repassValue = round2(baseFixed * multiplier);
+        // Nova regra de negócio:
+        // sem "Dividir valor total", o atendimento só registra consumo da assinatura (repasso = 0).
+        // com divisão ativa, mantém cálculo antigo por atendimento.
+        let repassValue = 0;
         if (divideEnabled) {
+          repassValue = round2(baseFixed * multiplier);
           repassValue = round2(repassValue / divideCount);
         }
 
@@ -2219,6 +2223,74 @@ export const AllProfessionalsAppointmentsView: React.FC<
       });
     };
 
+    const syncBookingProductsToStockOnCompletion = async (appointment: Appointment) => {
+      const extraItems = Array.isArray(appointment?.additional_products) ? appointment.additional_products : [];
+      const bookingProducts = extraItems
+        .map((item: any) => ({
+          product_id: String(item?.product_id || '').trim(),
+          name: String(item?.name || 'Produto').trim() || 'Produto',
+          price: Number(item?.price || 0),
+          item_type: String(item?.item_type || '').trim().toLowerCase(),
+        }))
+        .filter((item: any) => item.item_type === 'booking_product' && item.product_id);
+
+      if (bookingProducts.length === 0) return;
+
+      const { data: existingRows, error: existingError } = await supabase
+        .from('appointment_products')
+        .select('product_id')
+        .eq('appointment_id', appointment.id);
+
+      if (existingError) throw existingError;
+
+      const existingProductIds = new Set(
+        (Array.isArray(existingRows) ? existingRows : []).map((row: any) => String(row?.product_id || '').trim())
+      );
+
+      const toInsert = bookingProducts.filter((item: any) => !existingProductIds.has(item.product_id));
+      if (toInsert.length === 0) return;
+
+      for (const product of toInsert) {
+        const { data: currentProduct, error: productError } = await supabase
+          .from('establishment_products')
+          .select('stock_quantity,sold_quantity')
+          .eq('id', product.product_id)
+          .maybeSingle();
+
+        if (productError) throw productError;
+        if (!currentProduct) continue;
+
+        const currentStock = Number((currentProduct as any)?.stock_quantity || 0);
+        const currentSold = Number((currentProduct as any)?.sold_quantity || 0);
+        if (currentStock <= 0) {
+          toast(`Sem estoque para ${product.name}. Produto não foi baixado no estoque.`, 'warning');
+          continue;
+        }
+
+        const { error: insertError } = await supabase
+          .from('appointment_products')
+          .insert({
+            appointment_id: appointment.id,
+            product_id: product.product_id,
+            quantity: 1,
+            unit_price: Number.isFinite(product.price) && product.price > 0 ? product.price : 0,
+            professional_id: appointment.professional || null,
+          } as any);
+
+        if (insertError) throw insertError;
+
+        const { error: stockError } = await supabase
+          .from('establishment_products')
+          .update({
+            stock_quantity: Math.max(0, currentStock - 1),
+            sold_quantity: currentSold + 1,
+          } as any)
+          .eq('id', product.product_id);
+
+        if (stockError) throw stockError;
+      }
+    };
+
     const handleUpdateAppointmentStatus = async (appointmentId: string, newStatus: 'pending' | 'confirmed' | 'cancelled' | 'completed') => {
       try {
         const appointment = (appointments || []).find((apt) => String(apt.id) === String(appointmentId));
@@ -2229,6 +2301,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
           .eq('id', appointmentId);
 
         if (error) throw error;
+
+        if (appointment && newStatus === 'completed' && previousStatus !== 'completed') {
+          await syncBookingProductsToStockOnCompletion(appointment);
+        }
 
         const actionLabelByStatus: Record<string, string> = {
           pending: 'Botão Pendente',

@@ -22,6 +22,15 @@ type PublicBookingReview = {
   created_at: string;
 };
 
+type BookingHighlightedProduct = {
+  id: string;
+  name: string;
+  sale_price: number;
+  image_url?: string | null;
+  stock_quantity?: number | null;
+  highlight_for_client_booking?: boolean | null;
+};
+
 export default function BookingPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -66,6 +75,7 @@ export default function BookingPage() {
   const [reviewText, setReviewText] = useState('');
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [showReviewSubmittedModal, setShowReviewSubmittedModal] = useState(false);
+  const [bookingHighlightedProducts, setBookingHighlightedProducts] = useState<BookingHighlightedProduct[]>([]);
 
   // Funções para o carrossel duplicado - Filtrar apenas fotos selecionadas
   const duplicatePhotos = [
@@ -722,6 +732,67 @@ export default function BookingPage() {
       bookingFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }, [showBookingForm]);
+
+  useEffect(() => {
+    const loadBookingHighlightedProducts = async () => {
+      const establishmentId = String((establishment as any)?.id || '').trim();
+      if (!establishmentId) {
+        setBookingHighlightedProducts([]);
+        return;
+      }
+
+      try {
+        const modern = await supabase
+          .from('establishment_products')
+          .select('id,name,sale_price,stock_quantity,image_url,highlight_for_client_booking')
+          .eq('establishment_id', establishmentId)
+          .eq('highlight_for_client_booking', true)
+          .gt('stock_quantity', 0)
+          .order('created_at', { ascending: false });
+
+        if (modern.error) {
+          const msg = String(modern.error?.message || '').toLowerCase();
+          const missingHighlightColumn = msg.includes('highlight_for_client_booking') || (msg.includes('column') && msg.includes('exist'));
+          const missingImageColumn = msg.includes('image_url') || (msg.includes('column') && msg.includes('exist'));
+          if (missingImageColumn && !missingHighlightColumn) {
+            const fallback = await supabase
+              .from('establishment_products')
+              .select('id,name,sale_price,stock_quantity,highlight_for_client_booking')
+              .eq('establishment_id', establishmentId)
+              .eq('highlight_for_client_booking', true)
+              .gt('stock_quantity', 0)
+              .order('created_at', { ascending: false });
+
+            if (fallback.error) {
+              console.warn('Erro ao buscar produtos destacados do booking:', fallback.error);
+              setBookingHighlightedProducts([]);
+              return;
+            }
+
+            const normalizedFallback = ((fallback.data as any[]) || []).map((item) => ({
+              ...item,
+              image_url: null,
+            }));
+            setBookingHighlightedProducts(normalizedFallback);
+            return;
+          }
+
+          if (!missingHighlightColumn) {
+            console.warn('Erro ao buscar produtos destacados do booking:', modern.error);
+          }
+          setBookingHighlightedProducts([]);
+          return;
+        }
+
+        setBookingHighlightedProducts((modern.data as any[]) || []);
+      } catch (error) {
+        console.warn('Erro ao carregar produtos destacados para booking:', error);
+        setBookingHighlightedProducts([]);
+      }
+    };
+
+    loadBookingHighlightedProducts();
+  }, [establishment?.id, forceRender]);
 
   // Efeito para fechar o dropdown quando clicar fora dele
   useEffect(() => {
@@ -1509,6 +1580,23 @@ export default function BookingPage() {
       return cleanPayload;
     };
 
+    const removeBookingExtraFieldsByError = (payload: any, error: any) => {
+      const cleanPayload: any = { ...(payload || {}) };
+      const msg = String(error?.message || '').toLowerCase();
+      const missingTotalPrice = msg.includes('total_price') && (msg.includes('column') || msg.includes('schema cache') || msg.includes('could not find'));
+      const missingAdditionalProducts = msg.includes('additional_products') && (msg.includes('column') || msg.includes('schema cache') || msg.includes('could not find'));
+
+      if (missingTotalPrice) {
+        delete cleanPayload.total_price;
+      }
+      if (missingAdditionalProducts) {
+        delete cleanPayload.additional_products;
+        toast.error('Seu banco ainda não tem a coluna additional_products. Rode a migration para salvar produtos extras no agendamento.');
+      }
+
+      return cleanPayload;
+    };
+
     const shouldRetryWithoutSubscriberFields = (error: any) => {
       const msg = String(error?.message || '').toLowerCase();
       return (
@@ -1877,6 +1965,22 @@ export default function BookingPage() {
           );
           inserted = retry.data as any;
           insertError = retry.error as any;
+
+          // Segunda tentativa para bancos legados sem colunas modernas do booking (mantém additional_products quando possível).
+          if (insertError) {
+            const bookingLegacyPayload = removeBookingExtraFieldsByError(legacyPayload, insertError);
+            const retryBookingLegacy = await withTimeout(
+              supabase
+                .from('appointments')
+                .insert([bookingLegacyPayload])
+                .select('id')
+                .single(),
+              20000,
+              'insert appointments (pending_payment fallback booking legacy columns)'
+            );
+            inserted = retryBookingLegacy.data as any;
+            insertError = retryBookingLegacy.error as any;
+          }
         }
 
         if (insertError) throw insertError;
@@ -1980,6 +2084,22 @@ export default function BookingPage() {
         );
         insertedAppointment = retry.data as any;
         error = retry.error as any;
+
+        // Segunda tentativa para bancos legados sem colunas modernas do booking (mantém additional_products quando possível).
+        if (error) {
+          const bookingLegacyPayload = removeBookingExtraFieldsByError(legacyPayload, error);
+          const retryBookingLegacy = await withTimeout(
+            supabase
+              .from('appointments')
+              .insert([bookingLegacyPayload])
+              .select('id')
+              .single(),
+            20000,
+            'insert appointments (normal fallback booking legacy columns)'
+          );
+          insertedAppointment = retryBookingLegacy.data as any;
+          error = retryBookingLegacy.error as any;
+        }
       }
 
       if (error) throw error;
@@ -3577,6 +3697,7 @@ export default function BookingPage() {
                               selectedDate={selectedDate}
                               onSelectDate={setSelectedDate}
                               existingAppointments={existingAppointments}
+                              bookingHighlightedProducts={bookingHighlightedProducts}
                               subscriberService={currentSubscriberServiceForBooking} // Passar o serviço para restringir dias
                               subscriberExtraServices={selectedSubscriberExtraServices}
                               isSubscriberBooking={true} // Indica que é agendamento de assinante
@@ -4031,6 +4152,7 @@ export default function BookingPage() {
                     selectedDate={selectedDate}
                     onSelectDate={setSelectedDate}
                     existingAppointments={existingAppointments}
+                    bookingHighlightedProducts={bookingHighlightedProducts}
                     requireAdvancePayment={bookingRequireAdvancePayment}
                     onConvertToSubscriber={handleConvertToSubscriber}
                     onOpenRenewSubscription={handleOpenRenewSubscription}
@@ -4061,6 +4183,7 @@ export default function BookingPage() {
                   requireAdvancePayment={bookingRequireAdvancePayment}
                   subscriberServices={subscriberServicesForBooking}
                   subscriberExtraServiceCategories={subscriberExtraServiceCategories}
+                  bookingHighlightedProducts={bookingHighlightedProducts}
                 />
               )}
             </div>
@@ -4303,6 +4426,7 @@ export default function BookingPage() {
                           selectedDate={selectedDate}
                           onSelectDate={setSelectedDate}
                           existingAppointments={existingAppointments}
+                          bookingHighlightedProducts={bookingHighlightedProducts}
                           subscriberService={currentSubscriberServiceForBooking} // Passar o serviço para restringir dias
                           subscriberExtraServices={selectedSubscriberExtraServices}
                           isSubscriberBooking={true} // Indica que é agendamento de assinante
