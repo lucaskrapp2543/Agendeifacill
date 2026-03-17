@@ -70,6 +70,7 @@ export interface Database {
           has_wifi?: boolean; // Nova coluna para comodidade Wi-fi
           has_parking?: boolean; // Nova coluna para comodidade Estacionamento
           has_accessibility?: boolean; // Nova coluna para comodidade Acessibilidade
+          custom_amenities?: Array<{ id: string; name: string; icon: string; enabled?: boolean }>; // Comodidades personalizadas com ícone
           wifi_password?: string; // Senha do Wi-Fi disponibilizada pelo estabelecimento
           onboarding_step?: number; // Controla o progresso do onboarding (1=página agendamento, 2=profissional, 3=serviço, 4=completo)
           // ✅ Fila de Espera

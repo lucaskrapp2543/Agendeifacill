@@ -72,6 +72,10 @@ const supabaseAdmin =
         auth: { persistSession: false, autoRefreshToken: false },
       })
     : null;
+const SUPPORT_ADMIN_EMAILS = String(process.env.SUPPORT_ADMIN_EMAILS || 'suporteagendeifacil@gmail.com')
+  .split(',')
+  .map((email) => String(email || '').trim().toLowerCase())
+  .filter(Boolean);
 
 // Middleware
 app.use(cors());
@@ -104,6 +108,128 @@ const getSubscriberPaymentMethodFromProvider = (providerRaw: unknown): string | 
 // Health check
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.post('/api/admin/reset-establishment-password', async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return res.status(500).json({
+        error: 'Supabase admin não configurado no servidor',
+        details: {
+          hasUrl: Boolean(SUPABASE_URL),
+          hasServiceRole: Boolean(SUPABASE_SERVICE_ROLE_KEY),
+        },
+      });
+    }
+
+    const authHeader = String(req.headers.authorization || '');
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    if (!token) {
+      return res.status(401).json({ error: 'Token de autenticação ausente' });
+    }
+
+    const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(token);
+    if (authError || !authData?.user) {
+      return res.status(401).json({
+        error: 'Token inválido ou expirado',
+        details: authError?.message || undefined,
+      });
+    }
+
+    const requesterEmail = String(authData.user.email || '').trim().toLowerCase();
+    if (!SUPPORT_ADMIN_EMAILS.includes(requesterEmail)) {
+      return res.status(403).json({
+        error: 'Apenas contas de suporte podem resetar senha por aqui',
+        details: { requesterEmail },
+      });
+    }
+
+    const establishmentId = String(req.body?.establishmentId || '').trim();
+    const newPassword = String(req.body?.newPassword || '').trim();
+
+    if (!establishmentId || !newPassword) {
+      return res.status(400).json({
+        error: 'Dados incompletos',
+        required: ['establishmentId', 'newPassword'],
+      });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        error: 'A nova senha deve ter no mínimo 6 caracteres',
+      });
+    }
+
+    const { data: establishment, error: estError } = await supabaseAdmin
+      .from('establishments')
+      .select('id,name,code,owner_id')
+      .eq('id', establishmentId)
+      .maybeSingle();
+
+    if (estError) {
+      return res.status(500).json({ error: 'Erro ao buscar estabelecimento', details: estError });
+    }
+    if (!establishment?.owner_id) {
+      return res.status(404).json({ error: 'Estabelecimento não encontrado ou sem owner_id' });
+    }
+
+    const { data: updatedUser, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+      String(establishment.owner_id),
+      { password: newPassword, email_confirm: true }
+    );
+
+    if (updateError) {
+      return res.status(500).json({
+        error: 'Erro ao resetar senha no Auth',
+        details: {
+          message: updateError.message,
+          code: (updateError as any)?.code,
+          status: (updateError as any)?.status,
+        },
+      });
+    }
+
+    // Compatibilidade com o painel admin atual:
+    // o modal "Informações" ainda lê email/senha de registration_forms.
+    // Mantemos os dois sincronizados para não mostrar senha antiga após reset.
+    const ownerEmail = String(updatedUser?.user?.email || '').trim().toLowerCase();
+    let registrationFormPasswordSynced = false;
+    let registrationFormSyncWarning: string | null = null;
+    if (ownerEmail) {
+      const { error: registrationSyncError } = await supabaseAdmin
+        .from('registration_forms')
+        .update({ password: newPassword })
+        .eq('email', ownerEmail);
+
+      if (registrationSyncError) {
+        registrationFormSyncWarning =
+          `Senha do Auth foi resetada, mas falhou sincronização em registration_forms: ${registrationSyncError.message}`;
+      } else {
+        registrationFormPasswordSynced = true;
+      }
+    } else {
+      registrationFormSyncWarning =
+        'Senha do Auth foi resetada, mas não foi possível identificar o email do dono para sincronizar registration_forms.';
+    }
+
+    return res.status(200).json({
+      ok: true,
+      establishment: {
+        id: establishment.id,
+        name: establishment.name,
+        code: establishment.code,
+        owner_id: establishment.owner_id,
+      },
+      updatedAuthUserId: updatedUser?.user?.id || establishment.owner_id,
+      ownerEmail: ownerEmail || null,
+      registrationFormPasswordSynced,
+      registrationFormSyncWarning,
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      error: error?.message || 'Erro ao resetar senha do estabelecimento',
+      details: error?.details || error?.hint || error?.code || undefined,
+    });
+  }
 });
 
 /**

@@ -106,6 +106,8 @@ const AdminDashboard = () => {
   const [selectedEstablishmentForInfo, setSelectedEstablishmentForInfo] = useState<Establishment | null>(null);
   const [establishmentInfo, setEstablishmentInfo] = useState<{ email?: string; password?: string; whatsapp?: string } | null>(null);
   const [isLoadingEstablishmentInfo, setIsLoadingEstablishmentInfo] = useState(false);
+  const [resetOwnerPasswordValue, setResetOwnerPasswordValue] = useState('');
+  const [isResettingOwnerPassword, setIsResettingOwnerPassword] = useState(false);
 
   // Estados para contagem de agendamentos
   const [selectedDateForAppointments, setSelectedDateForAppointments] = useState<Record<string, Date>>({});
@@ -362,6 +364,7 @@ const AdminDashboard = () => {
   // Função para abrir modal de informações
   const handleOpenEstablishmentInfo = async (establishment: Establishment) => {
     setSelectedEstablishmentForInfo(establishment);
+    setResetOwnerPasswordValue('');
     setShowEstablishmentInfoModal(true);
     await fetchEstablishmentInfo(establishment);
   };
@@ -389,6 +392,82 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Erro ao fazer login como estabelecimento:', error);
       toast.error('Erro ao fazer logout');
+    }
+  };
+
+  const handleResetOwnerPassword = async () => {
+    if (!selectedEstablishmentForInfo?.id) {
+      toast.error('Estabelecimento não selecionado');
+      return;
+    }
+    if (!canEditEverything()) {
+      toast.error('Apenas Lucas e Erlon podem resetar senha por aqui.');
+      return;
+    }
+
+    const newPassword = String(resetOwnerPasswordValue || '').trim();
+    if (!newPassword) {
+      toast.error('Digite a nova senha do dono do estabelecimento');
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast.error('A senha deve ter no mínimo 6 caracteres');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Resetar senha do estabelecimento "${selectedEstablishmentForInfo.name}" agora?`
+    );
+    if (!confirmed) return;
+
+    setIsResettingOwnerPassword(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = String(sessionData?.session?.access_token || '').trim();
+      if (!accessToken) {
+        toast.error('Sessão admin inválida. Faça login novamente.');
+        return;
+      }
+
+      const response = await fetch('/api/admin/reset-establishment-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          establishmentId: selectedEstablishmentForInfo.id,
+          newPassword,
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detailsText = [
+          payload?.error,
+          payload?.details?.message,
+          payload?.details?.code,
+          payload?.details?.status,
+        ]
+          .filter(Boolean)
+          .join(' | ');
+        toast.error(detailsText || 'Não foi possível resetar a senha agora');
+        return;
+      }
+
+      setEstablishmentInfo((prev) => (prev ? { ...prev, password: newPassword } : prev));
+      if (payload?.registrationFormPasswordSynced) {
+        toast.success('Senha resetada e sincronizada no painel com sucesso!');
+      } else {
+        const warn = String(payload?.registrationFormSyncWarning || '').trim();
+        toast.success('Senha resetada no Auth com sucesso!');
+        if (warn) toast.error(warn);
+      }
+    } catch (error: any) {
+      const details = [error?.message, error?.code, error?.details, error?.hint].filter(Boolean).join(' | ');
+      toast.error(details || 'Erro ao resetar senha');
+    } finally {
+      setIsResettingOwnerPassword(false);
     }
   };
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -4839,6 +4918,7 @@ const AdminDashboard = () => {
                   setShowEstablishmentInfoModal(false);
                   setSelectedEstablishmentForInfo(null);
                   setEstablishmentInfo(null);
+                  setResetOwnerPasswordValue('');
                 }}
                 className="text-gray-400 hover:text-gray-600"
               >
@@ -4882,6 +4962,31 @@ const AdminDashboard = () => {
                     {establishmentInfo.whatsapp}
                   </div>
                 </div>
+
+                {canEditEverything() && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
+                    <label className="block text-sm font-semibold text-amber-900">
+                      Resetar senha do dono (Auth)
+                    </label>
+                    <input
+                      type="text"
+                      value={resetOwnerPasswordValue}
+                      onChange={(e) => setResetOwnerPasswordValue(e.target.value)}
+                      placeholder="Digite a nova senha"
+                      className="w-full px-3 py-2 border border-amber-300 rounded-lg text-gray-900 bg-white"
+                    />
+                    <button
+                      onClick={handleResetOwnerPassword}
+                      disabled={isResettingOwnerPassword}
+                      className="w-full px-3 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {isResettingOwnerPassword ? 'Resetando senha...' : 'Resetar senha agora'}
+                    </button>
+                    <p className="text-xs text-amber-800">
+                      Isso altera a senha de login profissional no Supabase Auth.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-gray-600 text-center py-4">Não foi possível carregar as informações.</p>
@@ -4893,6 +4998,7 @@ const AdminDashboard = () => {
                   setShowEstablishmentInfoModal(false);
                   setSelectedEstablishmentForInfo(null);
                   setEstablishmentInfo(null);
+                  setResetOwnerPasswordValue('');
                 }}
                 className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors"
               >

@@ -1,6 +1,6 @@
 import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { AlertTriangle, Bell, Building2, Calendar, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy, CreditCard, Crown, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Package, Phone, Plus, Receipt, Shuffle, Star, Tag, Trash2, TrendingUp, User, Users, X } from 'lucide-react';
+import { Accessibility, AlertTriangle, Armchair, Bell, Building2, Calendar, CarFront, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Coffee, Copy, CreditCard, Crown, CupSoda, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Music2, Package, Phone, Plus, Receipt, Shuffle, Snowflake, Star, Tag, Trash2, TrendingUp, Tv, type LucideIcon, User, Users, UtensilsCrossed, Wifi, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast as hotToast } from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -87,6 +87,13 @@ interface Service {
   duration: number;
 }
 
+interface CustomAmenity {
+  id: string;
+  name: string;
+  icon: string;
+  enabled?: boolean;
+}
+
 interface Establishment {
   id: string;
   name: string;
@@ -154,6 +161,7 @@ interface Establishment {
   plan_prata_active?: boolean; // ✅ ativado via botão PRATA no Admin (limites de recursos)
   hide_from_top10_ranking?: boolean; // Se true, estabelecimento não participa do TOP 10 global
   hide_booking_reviews?: boolean; // Se true, avaliações ficam ocultas no booking público
+  custom_amenities?: CustomAmenity[]; // Comodidades personalizadas para o booking
 }
 
 type TabType =
@@ -415,6 +423,45 @@ interface BlockedHourHistoryEvent {
 
 const TOP10_SOCIAL_PROOF_MIN_OUTSIDE = 2367;
 const TOP_LEADERBOARD_SIZE = 5;
+const CUSTOM_AMENITY_ICON_OPTIONS: Array<{ id: string; label: string; Icon: LucideIcon }> = [
+  { id: 'star', label: 'Geral', Icon: Star },
+  { id: 'snowflake', label: 'Ar gelado', Icon: Snowflake },
+  { id: 'coffee', label: 'Café', Icon: Coffee },
+  { id: 'cup_soda', label: 'Comes e bebes', Icon: CupSoda },
+  { id: 'armchair', label: 'Cadeira de massagem', Icon: Armchair },
+  { id: 'utensils', label: 'Lanchinho', Icon: UtensilsCrossed },
+  { id: 'tv', label: 'TV', Icon: Tv },
+  { id: 'music', label: 'Música', Icon: Music2 },
+  { id: 'wifi', label: 'Wi-Fi', Icon: Wifi },
+  { id: 'parking', label: 'Estacionamento', Icon: CarFront },
+  { id: 'accessibility', label: 'Acessibilidade', Icon: Accessibility },
+];
+const CUSTOM_AMENITY_ICON_FALLBACK = 'star';
+
+const sanitizeCustomAmenities = (value: any): CustomAmenity[] => {
+  if (!Array.isArray(value)) return [];
+  const validIconIds = new Set(CUSTOM_AMENITY_ICON_OPTIONS.map((item) => item.id));
+  const unique = new Set<string>();
+  const result: CustomAmenity[] = [];
+
+  value.forEach((rawItem: any) => {
+    const name = String(rawItem?.name || '').trim();
+    if (!name) return;
+
+    const rawId = String(rawItem?.id || '').trim();
+    const id = rawId || uuidv4();
+    if (unique.has(id)) return;
+    unique.add(id);
+
+    const iconCandidate = String(rawItem?.icon || '').trim();
+    const icon = validIconIds.has(iconCandidate) ? iconCandidate : CUSTOM_AMENITY_ICON_FALLBACK;
+    const enabled = rawItem?.enabled !== false;
+
+    result.push({ id, name, icon, enabled });
+  });
+
+  return result.slice(0, 20);
+};
 
 const EstablishmentDashboard = () => {
   const { user, signOut } = useAuth();
@@ -715,6 +762,9 @@ const EstablishmentDashboard = () => {
   const [hasAirConditioning, setHasAirConditioning] = useState(false); // Novo estado para Ar-Condicionado
   const [wifiPassword, setWifiPassword] = useState(''); // Senha do Wi-Fi
   const [wifiNetworkName, setWifiNetworkName] = useState(''); // Nome da rede Wi-Fi
+  const [customAmenities, setCustomAmenities] = useState<CustomAmenity[]>([]);
+  const [newCustomAmenityName, setNewCustomAmenityName] = useState('');
+  const [newCustomAmenityIcon, setNewCustomAmenityIcon] = useState<string>('star');
   const [currentLoginPassword, setCurrentLoginPassword] = useState('');
   const [supportKnowledgePassword, setSupportKnowledgePassword] = useState('');
   const [repeatNewLoginPassword, setRepeatNewLoginPassword] = useState('');
@@ -3963,6 +4013,10 @@ const EstablishmentDashboard = () => {
   const [showAdditionalProductModal, setShowAdditionalProductModal] = useState(false);
   const [selectedAppointmentForProduct, setSelectedAppointmentForProduct] = useState<string | null>(null);
   const [addProductSearchQuery, setAddProductSearchQuery] = useState('');
+  const [showProductDiscountModal, setShowProductDiscountModal] = useState(false);
+  const [pendingProductForAppointment, setPendingProductForAppointment] = useState<EstablishmentProduct | null>(null);
+  const [productDiscountPercent, setProductDiscountPercent] = useState<string>('0');
+  const [productDiscountFinalPrice, setProductDiscountFinalPrice] = useState<string>('');
 
   // Novo estado para controlar o modal do comprovante
   const [showProofModal, setShowProofModal] = useState(false);
@@ -4008,6 +4062,8 @@ const EstablishmentDashboard = () => {
   // Estado para armazenar vendas de produtos por período
   const [productSalesByPeriod, setProductSalesByPeriod] = useState<Record<string, number>>({});
   const [dashboardProductSalesByPeriod, setDashboardProductSalesByPeriod] = useState<Record<string, number>>({});
+  const [productRevenueByPeriod, setProductRevenueByPeriod] = useState<Record<string, number>>({});
+  const [dashboardProductRevenueByPeriod, setDashboardProductRevenueByPeriod] = useState<Record<string, number>>({});
   const [productPayoutByPeriod, setProductPayoutByPeriod] = useState<Record<string, number>>({});
   const [dashboardProductPayoutByPeriod, setDashboardProductPayoutByPeriod] = useState<Record<string, number>>({});
   const [subscribersFinancialSummary, setSubscribersFinancialSummary] = useState<{
@@ -4614,6 +4670,7 @@ const EstablishmentDashboard = () => {
       const start = startOfMonth(month);
       const end = endOfMonth(month);
       const salesByProduct: Record<string, number> = {};
+      const revenueByProduct: Record<string, number> = {};
       const payoutByProduct: Record<string, number> = {};
       const professionalIdToName: Record<string, string> = {};
       (establishment.professionals || []).forEach((p: any) => {
@@ -4640,9 +4697,11 @@ const EstablishmentDashboard = () => {
           console.error('Erro ao buscar appointments do período:', appointmentsError);
           if (target === 'dashboard') {
             setDashboardProductSalesByPeriod({});
+              setDashboardProductRevenueByPeriod({});
             setDashboardProductPayoutByPeriod({});
           } else {
             setProductSalesByPeriod({});
+              setProductRevenueByPeriod({});
             setProductPayoutByPeriod({});
           }
           return;
@@ -4686,6 +4745,7 @@ const EstablishmentDashboard = () => {
             const unit = Number(row?.unit_price || 0);
             if (!Number.isFinite(unit) || unit <= 0) return;
             const saleValue = Math.max(0, qty * unit);
+            revenueByProduct[pid] = Math.round(((revenueByProduct[pid] || 0) + saleValue) * 100) / 100;
 
             const directProfessionalId = String(row?.professional_id || '').trim();
             const appointmentId = String(row?.appointment_id || '').trim();
@@ -4727,6 +4787,7 @@ const EstablishmentDashboard = () => {
           const unit = Number(s?.unit_price || 0);
           if (!Number.isFinite(unit) || unit <= 0) return;
           const saleValue = Math.max(0, qty * unit);
+          revenueByProduct[pid] = Math.round(((revenueByProduct[pid] || 0) + saleValue) * 100) / 100;
           const rawProfessionalId = String(s?.professional_id || '').trim();
           const rawProfessionalName = String(s?.professional_name || '').trim();
           const professionalName = professionalIdToName[rawProfessionalId] || rawProfessionalName || '';
@@ -4748,18 +4809,22 @@ const EstablishmentDashboard = () => {
 
       if (target === 'dashboard') {
         setDashboardProductSalesByPeriod(salesByProduct);
+        setDashboardProductRevenueByPeriod(revenueByProduct);
         setDashboardProductPayoutByPeriod(payoutByProduct);
       } else {
         setProductSalesByPeriod(salesByProduct);
+        setProductRevenueByPeriod(revenueByProduct);
         setProductPayoutByPeriod(payoutByProduct);
       }
     } catch (error) {
       console.error('Erro ao buscar vendas por período:', error);
       if (target === 'dashboard') {
         setDashboardProductSalesByPeriod({});
+        setDashboardProductRevenueByPeriod({});
         setDashboardProductPayoutByPeriod({});
       } else {
         setProductSalesByPeriod({});
+        setProductRevenueByPeriod({});
         setProductPayoutByPeriod({});
       }
     }
@@ -5384,13 +5449,85 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  const handleAddProductToAppointment = async (product: EstablishmentProduct) => {
-    if (!selectedAppointmentForProduct || !establishment) return;
-
+  const handleSelectProductForAppointment = (product: EstablishmentProduct) => {
     if (product.stock_quantity <= 0) {
       toast('Produto sem estoque disponível', 'error');
       return;
     }
+
+    const basePrice = Number(product.sale_price || 0);
+    const safeBasePrice = Number.isFinite(basePrice) ? Math.max(0, basePrice) : 0;
+    setPendingProductForAppointment(product);
+    setProductDiscountPercent('0');
+    setProductDiscountFinalPrice(safeBasePrice.toFixed(2).replace('.', ','));
+    setShowProductDiscountModal(true);
+  };
+
+  const handleProductDiscountPercentChange = (rawValue: string) => {
+    if (!pendingProductForAppointment) return;
+    const normalized = String(rawValue || '').replace(',', '.');
+    const numeric = Number(normalized);
+    if (!Number.isFinite(numeric)) {
+      setProductDiscountPercent(rawValue);
+      return;
+    }
+
+    const clamped = Math.min(100, Math.max(0, numeric));
+    const basePrice = Math.max(0, Number(pendingProductForAppointment.sale_price || 0));
+    const discountedPrice = Math.max(0, basePrice * (1 - clamped / 100));
+
+    setProductDiscountPercent(String(clamped));
+    setProductDiscountFinalPrice(discountedPrice.toFixed(2).replace('.', ','));
+  };
+
+  const handleProductDiscountFinalPriceChange = (rawValue: string) => {
+    setProductDiscountFinalPrice(rawValue);
+    if (!pendingProductForAppointment) return;
+
+    const finalPrice = parseValorBR(rawValue);
+    const basePrice = Math.max(0, Number(pendingProductForAppointment.sale_price || 0));
+    if (basePrice <= 0) {
+      setProductDiscountPercent('0');
+      return;
+    }
+
+    const clampedFinal = Math.min(basePrice, Math.max(0, finalPrice));
+    const pct = ((basePrice - clampedFinal) / basePrice) * 100;
+    setProductDiscountPercent((Math.round(pct * 100) / 100).toString());
+  };
+
+  const closeProductDiscountModal = () => {
+    setShowProductDiscountModal(false);
+    setPendingProductForAppointment(null);
+    setProductDiscountPercent('0');
+    setProductDiscountFinalPrice('');
+  };
+
+  const handleConfirmProductWithDiscount = async () => {
+    if (!pendingProductForAppointment) return;
+    const basePrice = Math.max(0, Number(pendingProductForAppointment.sale_price || 0));
+    const finalPrice = parseValorBR(productDiscountFinalPrice);
+    const clampedFinalPrice = Math.min(basePrice, Math.max(0, finalPrice));
+
+    const success = await handleAddProductToAppointment(pendingProductForAppointment, clampedFinalPrice);
+    if (success) {
+      closeProductDiscountModal();
+    }
+  };
+
+  const handleAddProductToAppointment = async (product: EstablishmentProduct, customUnitPrice?: number): Promise<boolean> => {
+    if (!selectedAppointmentForProduct || !establishment) return false;
+
+    if (product.stock_quantity <= 0) {
+      toast('Produto sem estoque disponível', 'error');
+      return false;
+    }
+
+    const basePrice = Math.max(0, Number(product.sale_price || 0));
+    const hasCustomUnitPrice = Number.isFinite(customUnitPrice);
+    const unitPrice = hasCustomUnitPrice
+      ? Math.min(basePrice, Math.max(0, Number(customUnitPrice)))
+      : basePrice;
 
     try {
       // Buscar o profissional do agendamento para associar à venda do produto
@@ -5407,14 +5544,14 @@ const EstablishmentDashboard = () => {
           appointment_id: selectedAppointmentForProduct,
           product_id: product.id,
           quantity: 1,
-          unit_price: product.sale_price,
+          unit_price: unitPrice,
           professional_id: appointmentData?.professional
         });
 
       if (appointmentProductError) {
         console.error('Erro ao adicionar produto ao agendamento:', appointmentProductError);
         toast('Erro ao adicionar produto ao agendamento', 'error');
-        return;
+        return false;
       }
 
       // Atualizar estoque do produto
@@ -5429,13 +5566,13 @@ const EstablishmentDashboard = () => {
       if (stockError) {
         console.error('Erro ao atualizar estoque:', stockError);
         toast('Erro ao atualizar estoque do produto', 'error');
-        return;
+        return false;
       }
 
       // Atualizar valor total do agendamento
       const appointment = appointments.find(apt => apt.id === selectedAppointmentForProduct);
       if (appointment) {
-        const newTotal = (appointment.total_price || appointment.price || 0) + product.sale_price;
+        const newTotal = (appointment.total_price || appointment.price || 0) + unitPrice;
 
         const { error: updateError } = await supabase
           .from('appointments')
@@ -5450,12 +5587,23 @@ const EstablishmentDashboard = () => {
       // Fechar modal e atualizar dados
       setShowAddProductToAppointmentModal(false);
       setSelectedAppointmentForProduct(null);
+      setPendingProductForAppointment(null);
+      setProductDiscountPercent('0');
+      setProductDiscountFinalPrice('');
+      setShowProductDiscountModal(false);
       fetchProducts();
       fetchAppointments();
-      toast(`Produto "${product.name}" adicionado ao agendamento!`, 'success');
+      const discountValue = Math.max(0, basePrice - unitPrice);
+      if (discountValue > 0) {
+        toast(`Produto "${product.name}" adicionado com desconto de ${formatCurrency(discountValue)}!`, 'success');
+      } else {
+        toast(`Produto "${product.name}" adicionado ao agendamento!`, 'success');
+      }
+      return true;
     } catch (error) {
       console.error('Erro ao adicionar produto:', error);
       toast('Erro ao adicionar produto', 'error');
+      return false;
     }
   };
 
@@ -9196,6 +9344,7 @@ Estamos te aguardando! 😎✂️`;
         setHasAirConditioning(establishmentData.has_air_conditioning ?? false);
         setWifiPassword(establishmentData.wifi_password || ''); // Senha do Wi-Fi
         setWifiNetworkName(establishmentData.wifi_network_name || ''); // Nome da rede Wi-Fi
+        setCustomAmenities(sanitizeCustomAmenities((establishmentData as any).custom_amenities));
         setRequireCancellationRequest(establishmentData.require_cancellation_request ?? false); // Exigir solicitação de cancelamento
         setPreventSameDayReschedule(establishmentData.prevent_same_day_reschedule ?? false); // Impedir remarcação no mesmo dia
         setRequireCpf(establishmentData.require_cpf ?? false); // Solicitar CPF no agendamento
@@ -9662,7 +9811,13 @@ Estamos te aguardando! 😎✂️`;
 
       case 4: // Comodidades
         {
-          const hasAnyAmenity = hasWifi || hasParking || hasAccessibility || hasAirConditioning || wizardOtherAmenity;
+          const hasAnyAmenity =
+            hasWifi ||
+            hasParking ||
+            hasAccessibility ||
+            hasAirConditioning ||
+            customAmenities.some((item) => item.enabled !== false) ||
+            wizardOtherAmenity;
           return {
             isValid: hasAnyAmenity,
             message: 'Selecione ao menos 1 comodidade para continuar.'
@@ -15017,28 +15172,50 @@ Estamos te aguardando! 😎✂️`;
       overrides?.exigirPagamentoAntecipadoMercadoPago ?? exigirPagamentoAntecipadoMercadoPago;
     const nextOpcionalMP =
       overrides?.pagamentoAdiantadoOpcionalMercadoPago ?? pagamentoAdiantadoOpcionalMercadoPago;
+    const sanitizedAmenities = sanitizeCustomAmenities(customAmenities);
 
     try {
-      const { error } = await supabase
+      const payload: Record<string, any> = {
+        has_wifi: hasWifi,
+        has_parking: hasParking,
+        has_accessibility: hasAccessibility,
+        has_air_conditioning: hasAirConditioning,
+        wifi_password: wifiPassword.trim(),
+        wifi_network_name: wifiNetworkName.trim(),
+        custom_amenities: sanitizedAmenities,
+        require_cancellation_request: requireCancellationRequest,
+        prevent_same_day_reschedule: preventSameDayReschedule,
+        require_cpf: requireCpf,
+        exigir_pagamento_antecipado: exigirPagamentoAntecipado,
+        pagamento_adiantado_opcional: pagamentoAdiantadoOpcional,
+        exigir_pagamento_antecipado_mercadopago: nextExigirMP,
+        pagamento_adiantado_opcional_mercadopago: nextOpcionalMP,
+        enable_whatsapp_notifications: enableWhatsAppNotifications
+        // require_cancel_password é salvo imediatamente quando o checkbox muda, não precisa do auto-save
+      };
+
+      let { error } = await supabase
         .from('establishments')
-        .update({
-          has_wifi: hasWifi,
-          has_parking: hasParking,
-          has_accessibility: hasAccessibility,
-          has_air_conditioning: hasAirConditioning,
-          wifi_password: wifiPassword.trim(),
-          wifi_network_name: wifiNetworkName.trim(),
-          require_cancellation_request: requireCancellationRequest,
-          prevent_same_day_reschedule: preventSameDayReschedule,
-          require_cpf: requireCpf,
-          exigir_pagamento_antecipado: exigirPagamentoAntecipado,
-          pagamento_adiantado_opcional: pagamentoAdiantadoOpcional,
-          exigir_pagamento_antecipado_mercadopago: nextExigirMP,
-          pagamento_adiantado_opcional_mercadopago: nextOpcionalMP,
-          enable_whatsapp_notifications: enableWhatsAppNotifications
-          // require_cancel_password é salvo imediatamente quando o checkbox muda, não precisa do auto-save
-        })
+        .update(payload)
         .eq('id', establishment.id);
+
+      if (error) {
+        const errorText = `${String(error?.message || '')} ${String(error?.details || '')}`.toLowerCase();
+        const customAmenitiesMissingColumn = error?.code === '42703' && errorText.includes('custom_amenities');
+        if (customAmenitiesMissingColumn) {
+          const fallbackPayload = { ...payload };
+          delete fallbackPayload.custom_amenities;
+          const fallback = await supabase
+            .from('establishments')
+            .update(fallbackPayload)
+            .eq('id', establishment.id);
+          error = fallback.error;
+
+          if (!error) {
+            toast('Comodidades personalizadas foram ignoradas porque a coluna custom_amenities ainda não existe. Aplique a migration.', 'error');
+          }
+        }
+      }
 
       if (error) {
         console.error('❌ Erro ao salvar comodidades automaticamente:', error);
@@ -15067,6 +15244,7 @@ Estamos te aguardando! 😎✂️`;
             has_air_conditioning: hasAirConditioning,
             wifi_password: wifiPassword.trim(),
             wifi_network_name: wifiNetworkName.trim(),
+            custom_amenities: sanitizedAmenities,
             require_cancellation_request: requireCancellationRequest,
             prevent_same_day_reschedule: preventSameDayReschedule,
             require_cpf: requireCpf,
@@ -15090,6 +15268,7 @@ Estamos te aguardando! 😎✂️`;
     hasAirConditioning,
     wifiPassword,
     wifiNetworkName,
+    customAmenities,
     requireCancellationRequest,
     preventSameDayReschedule,
     requireCpf,
@@ -15099,6 +15278,54 @@ Estamos te aguardando! 😎✂️`;
     pagamentoAdiantadoOpcionalMercadoPago,
     enableWhatsAppNotifications,
   ]);
+
+  const scheduleAmenitiesAutoSave = useCallback(() => {
+    if (amenitiesAutoSaveTimeoutRef.current) {
+      clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+    }
+    amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+      autoSaveAmenities();
+    }, 1000);
+  }, [autoSaveAmenities]);
+
+  const handleAddCustomAmenity = () => {
+    const normalizedName = String(newCustomAmenityName || '').trim();
+    if (!normalizedName) {
+      toast('Informe o nome da comodidade personalizada', 'error');
+      return;
+    }
+    if (customAmenities.length >= 20) {
+      toast('Limite de 20 comodidades personalizadas atingido', 'error');
+      return;
+    }
+
+    const exists = customAmenities.some(
+      (item) => String(item?.name || '').trim().toLowerCase() === normalizedName.toLowerCase()
+    );
+    if (exists) {
+      toast('Essa comodidade personalizada já foi adicionada', 'error');
+      return;
+    }
+
+    const validIconIds = new Set(CUSTOM_AMENITY_ICON_OPTIONS.map((item) => item.id));
+    const safeIcon = validIconIds.has(newCustomAmenityIcon) ? newCustomAmenityIcon : CUSTOM_AMENITY_ICON_FALLBACK;
+    setCustomAmenities((prev) => [...prev, { id: uuidv4(), name: normalizedName, icon: safeIcon, enabled: true }]);
+    setNewCustomAmenityName('');
+    setNewCustomAmenityIcon(CUSTOM_AMENITY_ICON_FALLBACK);
+    scheduleAmenitiesAutoSave();
+  };
+
+  const handleToggleCustomAmenity = (amenityId: string, checked: boolean) => {
+    setCustomAmenities((prev) =>
+      prev.map((item) => (item.id === amenityId ? { ...item, enabled: checked } : item))
+    );
+    scheduleAmenitiesAutoSave();
+  };
+
+  const handleRemoveCustomAmenity = (amenityId: string) => {
+    setCustomAmenities((prev) => prev.filter((item) => item.id !== amenityId));
+    scheduleAmenitiesAutoSave();
+  };
 
   const handleSaveBankData = useCallback(async () => {
     if (!establishment?.id) return;
@@ -17359,13 +17586,14 @@ Estamos te aguardando! 😎✂️`;
       };
 
       const productsGrossRevenue = products.reduce((total, product) => {
-        const periodQuantity = dashboardProductSalesByPeriod[product.id] || 0;
-        return total + (product.sale_price * periodQuantity);
+        const periodRevenue = dashboardProductRevenueByPeriod[product.id] || 0;
+        return total + periodRevenue;
       }, 0);
       const productsNetProfit = products.reduce((total, product) => {
         const periodQuantity = dashboardProductSalesByPeriod[product.id] || 0;
+        const periodRevenue = dashboardProductRevenueByPeriod[product.id] || 0;
         const payout = dashboardProductPayoutByPeriod[product.id] || 0;
-        return total + (((product.sale_price - product.cost_price) * periodQuantity) - payout);
+        return total + (periodRevenue - (product.cost_price * periodQuantity) - payout);
       }, 0);
       const productsTotalUnits = products.reduce((total, product) => total + (dashboardProductSalesByPeriod[product.id] || 0), 0);
       const totalProductsWithSales = products.filter(product => (dashboardProductSalesByPeriod[product.id] || 0) > 0).length;
@@ -22873,6 +23101,79 @@ Estamos te aguardando! 😎✂️`;
                           />
                           <span className="text-white">Ar-condicionado (local climatizado)</span>
                         </label>
+                        <div className="ml-7 space-y-3 rounded-lg border border-gray-700 bg-[#141516] p-3">
+                          <p className="text-xs text-gray-300">
+                            Comodidades personalizadas (ex.: café, cadeira massageadora, comes e bebes)
+                          </p>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {CUSTOM_AMENITY_ICON_OPTIONS.map((option) => {
+                              const IconComponent = option.Icon;
+                              const selected = newCustomAmenityIcon === option.id;
+                              return (
+                                <button
+                                  key={`amenity-icon-${option.id}`}
+                                  type="button"
+                                  onClick={() => setNewCustomAmenityIcon(option.id)}
+                                  className={`flex items-center gap-2 px-2 py-2 rounded-md border text-xs transition-colors ${selected
+                                    ? 'border-primary bg-primary/20 text-white'
+                                    : 'border-gray-700 bg-[#1e1f20] text-gray-300 hover:border-gray-500'
+                                    }`}
+                                >
+                                  <IconComponent className="h-4 w-4" />
+                                  <span className="truncate">{option.label}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input
+                              type="text"
+                              placeholder="Nome da comodidade"
+                              value={newCustomAmenityName}
+                              onChange={(e) => setNewCustomAmenityName(e.target.value)}
+                              className="bg-[#2a2b2c] border border-gray-600 text-white rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleAddCustomAmenity}
+                              className="px-3 py-2 bg-primary text-white rounded hover:opacity-90 transition-colors whitespace-nowrap"
+                            >
+                              Adicionar
+                            </button>
+                          </div>
+
+                          {customAmenities.length > 0 && (
+                            <div className="space-y-2">
+                              {customAmenities.map((item) => {
+                                const iconOption = CUSTOM_AMENITY_ICON_OPTIONS.find((option) => option.id === item.icon);
+                                const IconComponent = iconOption?.Icon || Star;
+                                return (
+                                  <div key={item.id} className="flex items-center justify-between gap-2 rounded-md border border-gray-700 bg-[#1e1f20] px-2 py-2">
+                                    <label className="flex items-center gap-2 flex-1 min-w-0">
+                                      <input
+                                        type="checkbox"
+                                        checked={item.enabled !== false}
+                                        onChange={(e) => handleToggleCustomAmenity(item.id, e.target.checked)}
+                                        className="form-checkbox h-4 w-4 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                                      />
+                                      <IconComponent className="h-4 w-4 text-gray-200 shrink-0" />
+                                      <span className="text-sm text-white truncate">{item.name}</span>
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveCustomAmenity(item.id)}
+                                      className="text-xs text-red-300 hover:text-red-200 transition-colors"
+                                    >
+                                      Remover
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                         {isNewUser && (
                           <label className="flex items-center space-x-2">
                             <input
@@ -25591,7 +25892,7 @@ Estamos te aguardando! 😎✂️`;
                         </p>
                         <div className="space-y-3 text-white">
                           <div className="flex items-center gap-2">
-                            {hasWifi || hasParking || hasAccessibility || hasAirConditioning ? (
+                            {hasWifi || hasParking || hasAccessibility || hasAirConditioning || customAmenities.some((item) => item.enabled !== false) ? (
                               <CheckCircle className="h-5 w-5 text-green-300" />
                             ) : (
                               <X className="h-5 w-5 text-red-300" />
@@ -26053,13 +26354,14 @@ Estamos te aguardando! 😎✂️`;
                     {/* Espelho financeiro de Assinantes e Produtos */}
                     {(() => {
                       const productsGrossRevenue = products.reduce((total, product) => {
-                        const periodQuantity = dashboardProductSalesByPeriod[product.id] || 0;
-                        return total + (product.sale_price * periodQuantity);
+                        const periodRevenue = dashboardProductRevenueByPeriod[product.id] || 0;
+                        return total + periodRevenue;
                       }, 0);
                       const productsNetProfit = products.reduce((total, product) => {
                         const periodQuantity = dashboardProductSalesByPeriod[product.id] || 0;
+                        const periodRevenue = dashboardProductRevenueByPeriod[product.id] || 0;
                         const payout = dashboardProductPayoutByPeriod[product.id] || 0;
-                        return total + (((product.sale_price - product.cost_price) * periodQuantity) - payout);
+                        return total + (periodRevenue - (product.cost_price * periodQuantity) - payout);
                       }, 0);
                       const productsTotalUnits = products.reduce((total, product) => {
                         const periodQuantity = dashboardProductSalesByPeriod[product.id] || 0;
@@ -30278,8 +30580,8 @@ Estamos te aguardando! 😎✂️`;
                           <p className="text-sm text-gray-600">Faturamento Bruto</p>
                           <p className="text-2xl font-bold text-gray-800">
                             {formatCurrency(products.reduce((total, product) => {
-                              const periodQuantity = productSalesByPeriod[product.id] || 0;
-                              return total + (product.sale_price * periodQuantity);
+                              const periodRevenue = productRevenueByPeriod[product.id] || 0;
+                              return total + periodRevenue;
                             }, 0))}
                           </p>
                           <p className="text-xs text-gray-500">Total vendido no período</p>
@@ -30297,8 +30599,9 @@ Estamos te aguardando! 😎✂️`;
                           <p className="text-2xl font-bold text-gray-800">
                             {formatCurrency(products.reduce((total, product) => {
                               const periodQuantity = productSalesByPeriod[product.id] || 0;
+                              const periodRevenue = productRevenueByPeriod[product.id] || 0;
                               const payout = productPayoutByPeriod[product.id] || 0;
-                              return total + (((product.sale_price - product.cost_price) * periodQuantity) - payout);
+                              return total + (periodRevenue - (product.cost_price * periodQuantity) - payout);
                             }, 0))}
                           </p>
                           <p className="text-xs text-gray-500">Lucro real do período</p>
@@ -30345,8 +30648,8 @@ Estamos te aguardando! 😎✂️`;
                             return total + periodQuantity;
                           }, 0);
                           const totalRevenue = products.reduce((total, product) => {
-                            const periodQuantity = productSalesByPeriod[product.id] || 0;
-                            return total + (product.sale_price * periodQuantity);
+                            const periodRevenue = productRevenueByPeriod[product.id] || 0;
+                            return total + periodRevenue;
                           }, 0);
                           return totalQuantity > 0 ? formatCurrency(totalRevenue / totalQuantity) : formatCurrency(0);
                         })()}
@@ -30397,8 +30700,8 @@ Estamos te aguardando! 😎✂️`;
                     const periodSoldQuantity = productSalesByPeriod[product.id] || 0;
                     const totalProfit = (product.sale_price - product.cost_price) * product.stock_quantity;
                     const productPayoutInPeriod = productPayoutByPeriod[product.id] || 0;
-                    const currentProfit = ((product.sale_price - product.cost_price) * periodSoldQuantity) - productPayoutInPeriod;
-                    const periodRevenue = product.sale_price * periodSoldQuantity;
+                    const periodRevenue = productRevenueByPeriod[product.id] || 0;
+                    const currentProfit = periodRevenue - (product.cost_price * periodSoldQuantity) - productPayoutInPeriod;
 
                         return (
                           <div key={product.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative group">
@@ -31840,6 +32143,7 @@ Estamos te aguardando! 😎✂️`;
                     setShowAddProductToAppointmentModal(false);
                     setSelectedAppointmentForProduct(null);
                     setAddProductSearchQuery('');
+                    closeProductDiscountModal();
                   }}
                   className="text-gray-400 hover:text-gray-600"
                 >
@@ -31881,7 +32185,7 @@ Estamos te aguardando! 😎✂️`;
                     ) : filteredProducts.map((product) => (
                       <div
                         key={product.id}
-                        onClick={() => handleAddProductToAppointment(product)}
+                        onClick={() => handleSelectProductForAppointment(product)}
                         className={`p-3 border rounded-lg cursor-pointer transition-colors ${product.stock_quantity > 0
                           ? 'border-gray-200 hover:border-blue-500 hover:bg-blue-50'
                           : 'border-gray-300 bg-gray-100 cursor-not-allowed opacity-50'
@@ -31911,6 +32215,94 @@ Estamos te aguardando! 😎✂️`;
                   </div>
                   );
                 })()}
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {
+        showProductDiscountModal && pendingProductForAppointment && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Desconto no produto</h3>
+                <button
+                  onClick={closeProductDiscountModal}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-sm text-gray-700">
+                  Deseja dar desconto nesse produto?
+                </p>
+
+                <div className="rounded-lg border border-gray-200 p-3 bg-gray-50">
+                  <p className="text-sm font-semibold text-gray-900">{pendingProductForAppointment.name}</p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    Valor original: {formatCurrency(pendingProductForAppointment.sale_price)}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Desconto (%)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    value={productDiscountPercent}
+                    onChange={(e) => handleProductDiscountPercentChange(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    A quanto deseja vender este produto?
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={productDiscountFinalPrice}
+                    onChange={(e) => handleProductDiscountFinalPriceChange(e.target.value)}
+                    placeholder="0,00"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="rounded-lg bg-blue-50 border border-blue-100 p-3">
+                  <p className="text-sm text-blue-900">
+                    Valor final: <span className="font-semibold">{formatCurrency(
+                      Math.min(
+                        Math.max(0, parseValorBR(productDiscountFinalPrice)),
+                        Math.max(0, Number(pendingProductForAppointment.sale_price || 0))
+                      )
+                    )}</span>
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={closeProductDiscountModal}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmProductWithDiscount}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Confirmar e adicionar
+                  </button>
+                </div>
               </div>
             </div>
           </div>

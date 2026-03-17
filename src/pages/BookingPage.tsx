@@ -1,5 +1,5 @@
 import { format } from 'date-fns';
-import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, Download, Home, LogOut, ThumbsUp, Users } from 'lucide-react';
+import { Accessibility, AlertCircle, Armchair, CarFront, ChevronDown, ChevronLeft, ChevronRight, Coffee, CupSoda, Download, Home, LogOut, Music2, Snowflake, Star, ThumbsUp, Tv, type LucideIcon, Users, UtensilsCrossed, Wifi } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -29,6 +29,49 @@ type BookingHighlightedProduct = {
   image_url?: string | null;
   stock_quantity?: number | null;
   highlight_for_client_booking?: boolean | null;
+};
+
+type BookingCustomAmenity = {
+  id: string;
+  name: string;
+  icon: string;
+  enabled?: boolean;
+};
+
+const BOOKING_CUSTOM_AMENITY_ICONS: Record<string, LucideIcon> = {
+  star: Star,
+  snowflake: Snowflake,
+  coffee: Coffee,
+  cup_soda: CupSoda,
+  armchair: Armchair,
+  utensils: UtensilsCrossed,
+  tv: Tv,
+  music: Music2,
+  wifi: Wifi,
+  parking: CarFront,
+  accessibility: Accessibility,
+};
+
+const sanitizeBookingCustomAmenities = (value: any): BookingCustomAmenity[] => {
+  if (!Array.isArray(value)) return [];
+  const result: BookingCustomAmenity[] = [];
+  const unique = new Set<string>();
+
+  value.forEach((item: any) => {
+    const name = String(item?.name || '').trim();
+    if (!name) return;
+
+    const id = String(item?.id || '').trim() || `${name.toLowerCase().replace(/\s+/g, '-')}-${result.length}`;
+    if (unique.has(id)) return;
+    unique.add(id);
+
+    const iconId = String(item?.icon || 'star').trim();
+    const icon = BOOKING_CUSTOM_AMENITY_ICONS[iconId] ? iconId : 'star';
+    const enabled = item?.enabled !== false;
+    result.push({ id, name, icon, enabled });
+  });
+
+  return result.slice(0, 20);
 };
 
 export default function BookingPage() {
@@ -88,6 +131,8 @@ export default function BookingPage() {
     establishment?.custom_photo_7_url,
   ].filter(Boolean); // Remove valores undefined/null
   const hasCarouselPhotos = duplicatePhotos.length > 0;
+  const customAmenities = sanitizeBookingCustomAmenities(establishment?.custom_amenities);
+  const enabledCustomAmenities = customAmenities.filter((item) => item.enabled !== false);
 
   // Debug: verificar se as fotos estão sendo carregadas
   console.log('🔍 DEBUG FOTOS:');
@@ -3837,7 +3882,7 @@ export default function BookingPage() {
               )}
 
               {/* Seção de Comodidades - Só mostra se houver pelo menos 1 ativa */}
-              {(establishment?.has_wifi || establishment?.has_parking || establishment?.has_accessibility || establishment?.has_air_conditioning) && (
+              {(establishment?.has_wifi || establishment?.has_parking || establishment?.has_accessibility || establishment?.has_air_conditioning || enabledCustomAmenities.length > 0) && (
                 <div
                   className="mt-8 mb-6 p-6"
                   style={{
@@ -3955,6 +4000,27 @@ export default function BookingPage() {
                         </span>
                       </div>
                     )}
+
+                    {enabledCustomAmenities.map((amenity) => {
+                      const AmenityIcon = BOOKING_CUSTOM_AMENITY_ICONS[amenity.icon] || Star;
+                      return (
+                        <div
+                          key={amenity.id}
+                          className="flex flex-col items-center justify-center py-6 px-4"
+                          style={{
+                            background: '#151515',
+                            borderRadius: '16px',
+                            border: '1px solid rgba(255,255,255,0.06)',
+                            boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+                          }}
+                        >
+                          <AmenityIcon className="amenity-icon-gold h-8 w-8" />
+                          <span className="mt-3 text-base font-semibold text-center" style={{ color: '#A1A1A1' }}>
+                            {amenity.name}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

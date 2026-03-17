@@ -1,5 +1,5 @@
 import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -17,6 +17,7 @@ const Login = () => {
   const location = useLocation();
   const { signIn, user, isLoading: authLoading } = useAuth();
   const [hasNavigated, setHasNavigated] = useState(false);
+  const loginInFlightRef = useRef(false);
 
   // Função para ler cookies
   const getCookie = (name: string) => {
@@ -179,14 +180,19 @@ const Login = () => {
     e.stopPropagation();
 
     // Prevenir múltiplos submits
-    if (isLoading || hasNavigated) {
+    if (isLoading || hasNavigated || loginInFlightRef.current) {
       return;
     }
 
+    loginInFlightRef.current = true;
     setIsLoading(true);
 
     try {
-      const { user: loggedUser } = await signIn(email, password);
+      const normalizedEmail = String(email || '').trim().toLowerCase();
+      const rawPassword = String(password || '');
+      const safePassword = rawPassword;
+
+      const { user: loggedUser } = await signIn(normalizedEmail, safePassword);
 
       if (!loggedUser) {
         throw new Error('Falha ao fazer login');
@@ -223,9 +229,20 @@ const Login = () => {
 
     } catch (error: any) {
       console.error('Erro ao fazer login:', error);
-      toast.error(error.message || 'Email ou senha incorretos');
-      setIsLoading(false);
+      const rawMessage = String(error?.message || '');
+      const lowerMessage = rawMessage.toLowerCase();
+      if (lowerMessage.includes('invalid login credentials')) {
+        toast.error('Não foi possível entrar. Confira email/senha e remova espaços extras no início/fim.', { id: 'login-error' });
+      } else {
+        const details = [error?.message, error?.code, error?.details, error?.hint]
+          .filter(Boolean)
+          .join(' | ');
+        toast.error(details || 'Email ou senha incorretos', { id: 'login-error' });
+      }
       setHasNavigated(false); // Permitir tentar novamente em caso de erro
+    } finally {
+      setIsLoading(false);
+      loginInFlightRef.current = false;
     }
   };
 

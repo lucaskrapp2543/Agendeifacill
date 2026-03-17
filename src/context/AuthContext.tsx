@@ -270,10 +270,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signIn = async (email: string, password: string) => {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const normalizedEmail = String(email || '').trim().toLowerCase();
+      const rawPassword = String(password || '');
+      const trimmedPassword = rawPassword.trim();
+      const hasEdgeSpacesInPassword = rawPassword !== trimmedPassword;
+
+      let { data, error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password: rawPassword,
       });
+
+      // Fallback de compatibilidade: alguns preenchimentos automáticos adicionam espaço nas bordas.
+      if (
+        error &&
+        String(error?.message || '').toLowerCase().includes('invalid login credentials') &&
+        hasEdgeSpacesInPassword
+      ) {
+        const retry = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password: trimmedPassword,
+        });
+        data = retry.data;
+        error = retry.error;
+      }
 
       if (error) throw error;
 
