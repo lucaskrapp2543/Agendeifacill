@@ -461,12 +461,18 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   }, [clientSubscriptions]);
 
   const getAttendanceEffectiveRepass = (attendance: any): number => {
+    // Compatibilidade: se já existe repasse salvo no atendimento, ele deve prevalecer.
+    // Isso evita "sumir" com o controle por profissional ao mudar config da assinatura.
+    const storedValue = Number(attendance?.repass_value || 0);
+    if (Number.isFinite(storedValue) && storedValue > 0) {
+      return storedValue;
+    }
+
     const clientSubId = String(attendance?.client_subscription_id || '').trim();
     if (clientSubId && divideEnabledByClientSubscriptionId[clientSubId] === false) {
       return 0;
     }
-    const value = Number(attendance?.repass_value || 0);
-    return Number.isFinite(value) ? value : 0;
+    return Number.isFinite(storedValue) ? storedValue : 0;
   };
 
   // Estado para controlar limitação de 1 agendamento por semana
