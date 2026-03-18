@@ -3906,6 +3906,11 @@ const EstablishmentDashboard = () => {
 
   // Estados para filtro de pagamento nos serviços individuais
   const [paymentFilter, setPaymentFilter] = useState<string>('todos');
+  const [professionalRevenueRangeStart, setProfessionalRevenueRangeStart] = useState<string>(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [professionalRevenueRangeEnd, setProfessionalRevenueRangeEnd] = useState<string>(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [professionalRevenueAppointments, setProfessionalRevenueAppointments] = useState<Appointment[]>([]);
+  const [isLoadingProfessionalRevenueAppointments, setIsLoadingProfessionalRevenueAppointments] = useState(false);
+  const [professionalRevenueRangeError, setProfessionalRevenueRangeError] = useState('');
   const [showDetailedAttendancesPanel, setShowDetailedAttendancesPanel] = useState(false);
   const [detailedRevenueFilter, setDetailedRevenueFilter] = useState<string>('todos');
   const [detailedRangeStart, setDetailedRangeStart] = useState<string>(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
@@ -10412,6 +10417,8 @@ Estamos te aguardando! 😎✂️`;
     // Mantém o novo painel detalhado sincronizado com o mês selecionado no financeiro.
     setDetailedRangeStart(format(startOfMonth(selectedMonth), 'yyyy-MM-dd'));
     setDetailedRangeEnd(format(endOfMonth(selectedMonth), 'yyyy-MM-dd'));
+    setProfessionalRevenueRangeStart(format(startOfMonth(selectedMonth), 'yyyy-MM-dd'));
+    setProfessionalRevenueRangeEnd(format(endOfMonth(selectedMonth), 'yyyy-MM-dd'));
     setHighlightMonthCursor(selectedMonth);
   }, [selectedMonth]);
 
@@ -10454,6 +10461,57 @@ Estamos te aguardando! 😎✂️`;
 
     void loadDetailedAttendances();
   }, [activeTab, establishment?.id, detailedRangeStart, detailedRangeEnd]);
+
+  useEffect(() => {
+    const loadProfessionalRevenueAppointments = async () => {
+      if (activeTab !== 'financial-dashboard') return;
+      if (!establishment?.id) return;
+
+      const startDate = String(professionalRevenueRangeStart || '').trim();
+      const endDate = String(professionalRevenueRangeEnd || '').trim();
+
+      if (!startDate || !endDate) {
+        setProfessionalRevenueAppointments([]);
+        setProfessionalRevenueRangeError('');
+        return;
+      }
+      if (startDate > endDate) {
+        setProfessionalRevenueAppointments([]);
+        setProfessionalRevenueRangeError('Período inválido: a data inicial é maior que a final.');
+        return;
+      }
+
+      setIsLoadingProfessionalRevenueAppointments(true);
+      setProfessionalRevenueRangeError('');
+      try {
+        const { data, error } = await supabase
+          .from('appointments')
+          .select('*')
+          .eq('establishment_id', establishment.id)
+          .gte('appointment_date', startDate)
+          .lte('appointment_date', endDate)
+          .eq('status', 'completed')
+          .order('appointment_date', { ascending: true })
+          .order('appointment_time', { ascending: true });
+
+        if (error) throw error;
+        const normalRows = ((data || []) as any[]).filter((apt) => !isWaitlistAppointment(apt));
+        setProfessionalRevenueAppointments(normalRows as Appointment[]);
+      } catch (err: any) {
+        console.error('Erro ao carregar período da Receita por Profissional:', err);
+        setProfessionalRevenueAppointments([]);
+        const message = [err?.message, err?.code, err?.details, err?.hint]
+          .filter(Boolean)
+          .map((part) => String(part))
+          .join(' | ');
+        setProfessionalRevenueRangeError(message || 'Erro ao carregar agendamentos do período selecionado.');
+      } finally {
+        setIsLoadingProfessionalRevenueAppointments(false);
+      }
+    };
+
+    void loadProfessionalRevenueAppointments();
+  }, [activeTab, establishment?.id, professionalRevenueRangeStart, professionalRevenueRangeEnd]);
 
   useEffect(() => {
     const loadHighlightMonthAttendances = async () => {
@@ -24885,8 +24943,16 @@ Estamos te aguardando! 😎✂️`;
                         <h3 className="text-lg font-extrabold text-white">
                           {isNewUser && quizStep === 6 ? '6. Horários e dias de funcionamento' : 'Horários e dias de funcionamento'}
                         </h3>
-                        <div className="mt-2 rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">
-                          <span className="font-extrabold">Preencha quais dias e horários seu estabelecimento abre.</span> Marque os dias que abre e ajuste os horários.
+                        <div className="mt-2 rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">
+                          <p className="font-extrabold">
+                            Aqui são os horários que aparecem para seu cliente: abertura e fechamento do estabelecimento.
+                          </p>
+                          <p className="mt-1 text-blue-100/90">
+                            Horário do estabelecimento é uma coisa. Horário do profissional é outra (ajuste em <strong>Profissionais &gt; Horário de trabalho</strong>).
+                          </p>
+                          <p className="mt-1 text-blue-100/90">
+                            Se você é único profissional e não tem horário diferente, pode manter os mesmos horários.
+                          </p>
                         </div>
                       </div>
 
@@ -24894,7 +24960,7 @@ Estamos te aguardando! 😎✂️`;
                       <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-700 rounded-lg">
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                           <p className="text-sm text-yellow-200">
-                            <span className="font-semibold">⚠️ Não tira intervalo?</span> Ative a opção para remover o 2º período (Reabertura/Fechamento).
+                            <span className="font-semibold">⚠️ Não tira intervalo?</span> Ative para usar só Abertura e Fechamento (sem pausa no meio do dia).
                           </p>
                           <label className="inline-flex items-center gap-2 cursor-pointer select-none">
                             <input
@@ -24909,9 +24975,9 @@ Estamos te aguardando! 😎✂️`;
                           </label>
                         </div>
                         <div className="mt-2 text-xs text-yellow-100/90">
-                          Quando ativado, use apenas <strong>Abertura</strong> e <strong>Fechamento do estabelecimento</strong>.
+                          Ative esta opção somente se você trabalha direto, sem intervalo.
                           <span className="block mt-1">
-                            Ative esta opção <strong>apenas</strong> se você <strong>não tira intervalo</strong> e trabalha direto.
+                            Se você para para almoço/pausa, deixe desativado e preencha os dois períodos.
                           </span>
                         </div>
                       </div>
@@ -27395,25 +27461,53 @@ Estamos te aguardando! 😎✂️`;
                   )}
 
                   {/* Receita por Profissional */}
-                  <div className="bg-gradient-to-br from-gray-50 via-gray-100 to-gray-200 rounded-xl shadow-lg border border-gray-300/50 p-6">
-                    <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-                      <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                        <span className="text-2xl">💼</span>
-                        <span>Receita por Profissional</span>
-                      </h3>
-                      <button
-                        type="button"
-                        onClick={() => setShowDeletedProfessionalsModal(true)}
-                        className="px-3 py-2 text-sm bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors flex items-center gap-2"
-                      >
-                        Histórico de profissionais
-                      </button>
+                  <div className="bg-gradient-to-br from-[#0f1115] via-[#12151c] to-[#171b24] rounded-xl shadow-2xl border border-gray-700 p-6">
+                    <div className="flex flex-col gap-3 mb-5">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <h3 className="text-xl font-bold text-gray-100 flex items-center gap-2">
+                          <span className="text-2xl">💼</span>
+                          <span>Receita por Profissional</span>
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={() => setShowDeletedProfessionalsModal(true)}
+                          className="px-3 py-2 text-sm bg-[#0b0e13] text-gray-200 rounded-lg border border-gray-600 hover:bg-[#121621] transition-colors flex items-center gap-2"
+                        >
+                          Histórico de profissionais
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-gray-200 font-medium">Período:</span>
+                        <input
+                          type="date"
+                          value={professionalRevenueRangeStart}
+                          onChange={(e) => setProfessionalRevenueRangeStart(e.target.value)}
+                          className="px-3 py-1.5 text-xs border border-gray-600 rounded-lg bg-[#0b0e13] text-gray-100"
+                        />
+                        <span className="text-xs text-gray-300">até</span>
+                        <input
+                          type="date"
+                          value={professionalRevenueRangeEnd}
+                          onChange={(e) => setProfessionalRevenueRangeEnd(e.target.value)}
+                          className="px-3 py-1.5 text-xs border border-gray-600 rounded-lg bg-[#0b0e13] text-gray-100"
+                        />
+                        <span className="text-[11px] text-gray-400">
+                          {isLoadingProfessionalRevenueAppointments
+                            ? 'Carregando período...'
+                            : `${professionalRevenueAppointments.length} atendimento(s) concluído(s) no período`}
+                        </span>
+                      </div>
+                      {professionalRevenueRangeError && (
+                        <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                          {professionalRevenueRangeError}
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-5">
                       {professionals.map(professional => {
                         // Matching seguro: cada agendamento conta só para um profissional (evita colisão id/nome).
-                        const professionalAppointments = monthlyAppointments.filter(
+                        const professionalAppointments = professionalRevenueAppointments.filter(
                           (apt) =>
                             appointmentBelongsToProfessional(apt, professional) &&
                             apt.status === 'completed'
@@ -27452,7 +27546,7 @@ Estamos te aguardando! 😎✂️`;
                           return products;
                         }, []);
 
-                        const paymentValidation = buildValidatedProfessionalPaymentData(professional, monthlyAppointments);
+                        const paymentValidation = buildValidatedProfessionalPaymentData(professional, professionalRevenueAppointments);
                         const subscriberProfessionalFinancial = subscriberFinancialByProfessional[professional.name] || {
                           totalAccumulated: 0,
                           totalPaid: 0,
@@ -27462,32 +27556,32 @@ Estamos te aguardando! 😎✂️`;
                           saleCommissionCount: 0,
                         };
                         const totalProfessionalLiquidWithSubscribers =
-                          calculateProfessionalNetValue(professional.name, monthlyAppointments) +
+                          calculateProfessionalNetValue(professional.name, professionalRevenueAppointments) +
                           subscriberProfessionalFinancial.pending;
 
                         console.log(`✅ ${professional.name}: R$ ${professionalRevenue} - ${extraProductsSold} produtos extras`);
 
                         return (
-                          <div key={professional.id} className="p-6 bg-gradient-to-r from-white to-gray-50/30 rounded-xl border border-gray-300/40 shadow-md hover:shadow-xl hover:border-gray-400/60 transition-all duration-300 space-y-4 backdrop-blur-sm">
+                          <div key={professional.id} className="p-6 bg-gradient-to-r from-[#121722] to-[#171b24] rounded-xl border border-gray-700/70 shadow-lg hover:shadow-2xl hover:border-gray-600 transition-all duration-300 space-y-4 backdrop-blur-sm">
                             {/* Header do Profissional */}
                             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                               <div className="flex-1">
-                                <p className="font-bold text-gray-800 text-lg mb-2 flex items-center gap-2">
-                                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                                <p className="font-bold text-gray-100 text-lg mb-2 flex items-center gap-2">
+                                  <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
                                   {professional.name}
                                 </p>
-                                <div className="text-sm text-gray-600 mt-1 bg-blue-50/50 rounded-lg px-3 py-2 inline-block">
+                                <div className="text-sm text-gray-300 mt-1 bg-[#0b0e13]/80 border border-gray-700 rounded-lg px-3 py-2 inline-block">
                                   <p className="flex items-center gap-2">
                                     <span className="font-medium">{professionalAppointments.length} agendamento(s)</span>
-                                    <span className="text-gray-400">•</span>
+                                    <span className="text-gray-500">•</span>
                                     {isOwnerProfessional(professional) ? (
-                                      <span className="text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md">Dono (100%)</span>
+                                      <span className="text-emerald-300 font-semibold bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-md">Dono (100%)</span>
                                     ) : (
-                                      <span className="text-blue-600 font-medium bg-blue-50 px-2 py-0.5 rounded-md">{normalizeProfessionalPercentage(professional.percentage)}%</span>
+                                      <span className="text-cyan-300 font-medium bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 rounded-md">{normalizeProfessionalPercentage(professional.percentage)}%</span>
                                     )}
                                   </p>
                                   {(subscriberProfessionalFinancial.totalAccumulated > 0 || subscriberProfessionalFinancial.totalPaid > 0) && (
-                                    <p className="mt-2 text-xs text-purple-700">
+                                    <p className="mt-2 text-xs text-purple-300">
                                       Assinaturas no mês: <span className="font-semibold">{formatCurrency(subscriberProfessionalFinancial.totalAccumulated)}</span>
                                       {' '}• Pago: <span className="font-semibold">{formatCurrency(subscriberProfessionalFinancial.totalPaid)}</span>
                                       {' '}• Pendente: <span className="font-semibold">{formatCurrency(subscriberProfessionalFinancial.pending)}</span>
@@ -27499,7 +27593,7 @@ Estamos te aguardando! 😎✂️`;
                                         onClick={() => setOpenExtraProductsDropdown(
                                           openExtraProductsDropdown === professional.id ? null : professional.id
                                         )}
-                                        className="text-orange-600 hover:text-orange-700 cursor-pointer flex items-center gap-1"
+                                        className="text-amber-300 hover:text-amber-200 cursor-pointer flex items-center gap-1"
                                       >
                                         + {extraProductsSold} produto(s) extra
                                         <ChevronDown className={`h-4 w-4 transition-transform ${openExtraProductsDropdown === professional.id ? 'rotate-180' : ''
@@ -27508,25 +27602,25 @@ Estamos te aguardando! 😎✂️`;
 
                                       {/* Dropdown com detalhes dos produtos extras */}
                                       {openExtraProductsDropdown === professional.id && (
-                                        <div className="absolute top-full left-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-10 w-full max-w-sm sm:max-w-md">
-                                          <div className="p-3 border-b border-gray-200">
-                                            <h4 className="font-medium text-gray-900">Produtos Extras Vendidos</h4>
+                                        <div className="absolute top-full left-0 mt-2 bg-[#0b0e13] border border-gray-700 rounded-lg shadow-2xl z-10 w-full max-w-sm sm:max-w-md">
+                                          <div className="p-3 border-b border-gray-700">
+                                            <h4 className="font-medium text-gray-100">Produtos Extras Vendidos</h4>
                                           </div>
                                           <div className="max-h-60 overflow-y-auto">
                                             {allExtraProducts.map((product, index) => (
-                                              <div key={index} className="p-3 border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
+                                              <div key={index} className="p-3 border-b border-gray-800 last:border-b-0 hover:bg-[#121722]">
                                                 <div className="flex justify-between items-start">
                                                   <div className="flex-1">
-                                                    <p className="font-medium text-gray-900">{product.name}</p>
-                                                    <p className="text-sm text-gray-600">
+                                                    <p className="font-medium text-gray-100">{product.name}</p>
+                                                    <p className="text-sm text-gray-300">
                                                       Cliente: {product.clientName}
                                                     </p>
-                                                    <p className="text-xs text-gray-500">
+                                                    <p className="text-xs text-gray-400">
                                                       {new Date(product.appointmentDate).toLocaleDateString('pt-BR')}
                                                     </p>
                                                   </div>
                                                   <div className="text-right">
-                                                    <p className="font-bold text-green-600">
+                                                    <p className="font-bold text-emerald-300">
                                                       {formatCurrency(product.price)}
                                                     </p>
                                                   </div>
@@ -27534,10 +27628,10 @@ Estamos te aguardando! 😎✂️`;
                                               </div>
                                             ))}
                                           </div>
-                                          <div className="p-3 bg-gray-50 border-t border-gray-200">
+                                          <div className="p-3 bg-[#121722] border-t border-gray-700">
                                             <div className="flex justify-between items-center">
-                                              <span className="font-medium text-gray-900">Total Produtos Extras:</span>
-                                              <span className="font-bold text-green-600">
+                                              <span className="font-medium text-gray-100">Total Produtos Extras:</span>
+                                              <span className="font-bold text-emerald-300">
                                                 {formatCurrency(allExtraProducts.reduce((total, product) => total + product.price, 0))}
                                               </span>
                                             </div>
@@ -27550,35 +27644,35 @@ Estamos te aguardando! 😎✂️`;
                               </div>
 
                               {/* Valores - Layout Mobile */}
-                              <div className="text-right sm:text-right bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-300/50">
-                                <p className="text-2xl font-bold text-emerald-700 mb-1">
+                              <div className="text-right sm:text-right bg-gradient-to-br from-[#0b0e13] to-[#121722] rounded-lg p-4 border border-gray-700/70">
+                                <p className="text-2xl font-bold text-emerald-300 mb-1">
                                   {formatCurrency(professionalRevenue)}
                                 </p>
-                                <div className="text-sm text-blue-700 font-medium">
+                                <div className="text-sm text-cyan-300 font-medium">
                                   {isOwnerProfessional(professional) ? (
-                                    <span>Líquido: <span className="font-bold">{formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span></span>
+                                    <span>Líquido: <span className="font-bold">{formatCurrency(calculateProfessionalNetValue(professional.name, professionalRevenueAppointments))}</span></span>
                                   ) : (
-                                    <span>Líquido: <span className="font-bold">{formatCurrency(calculateProfessionalNetValue(professional.name, monthlyAppointments))}</span></span>
+                                    <span>Líquido: <span className="font-bold">{formatCurrency(calculateProfessionalNetValue(professional.name, professionalRevenueAppointments))}</span></span>
                                   )}
                                 </div>
                                 {(subscriberProfessionalFinancial.totalAccumulated > 0 || subscriberProfessionalFinancial.totalPaid > 0) && (
-                                  <div className="mt-2 text-xs text-purple-700 font-medium">
+                                  <div className="mt-2 text-xs text-purple-300 font-medium">
                                     Assinaturas (pendente): <span className="font-bold">{formatCurrency(subscriberProfessionalFinancial.pending)}</span>
                                   </div>
                                 )}
                                 {(subscriberProfessionalFinancial.totalAccumulated > 0 || subscriberProfessionalFinancial.totalPaid > 0) && (
-                                  <div className="mt-1 text-xs text-gray-600">
+                                  <div className="mt-1 text-xs text-gray-400">
                                     Total no financeiro do profissional (serviços + assinaturas pendentes):{' '}
-                                    <span className="font-bold text-gray-800">{formatCurrency(totalProfessionalLiquidWithSubscribers)}</span>
+                                    <span className="font-bold text-gray-200">{formatCurrency(totalProfessionalLiquidWithSubscribers)}</span>
                                   </div>
                                 )}
                               </div>
                             </div>
 
                             {/* Controle de Pagamentos - Dono não se paga, o líquido já é do estabelecimento */}
-                            <div className="border-t border-gray-300/60 pt-4 mt-5 bg-gradient-to-r from-gray-50/30 to-gray-100/30 rounded-lg p-3 -mx-3 -mb-3">
+                            <div className="border-t border-gray-700 pt-4 mt-5 bg-gradient-to-r from-[#0b0e13]/40 to-[#121722]/40 rounded-lg p-3 -mx-3 -mb-3">
                               {isOwnerProfessional(professional) ? (
-                                <p className="text-sm text-gray-600 italic">
+                                <p className="text-sm text-gray-300 italic">
                                   Dono (100%): este valor já está incluído no <strong>Líquido Estabelecimento</strong> acima. Não é necessário registrar pagamento para si mesmo.
                                 </p>
                               ) : (
@@ -27586,7 +27680,7 @@ Estamos te aguardando! 😎✂️`;
                                   establishmentId={establishment?.id || ''}
                                   professionalId={professional.id}
                                   professionalName={professional.name}
-                                  currentLiquidValue={calculateProfessionalNetValue(professional.name, monthlyAppointments)}
+                                  currentLiquidValue={calculateProfessionalNetValue(professional.name, professionalRevenueAppointments)}
                                   // Regra global anti-adiantamento:
                                   // só libera pagamento sobre vendas já realizadas até a data do pagamento.
                                   newSalesValue={paymentValidation.newSalesSinceLastValid}
@@ -27618,7 +27712,7 @@ Estamos te aguardando! 😎✂️`;
                                       <span className="text-xs font-bold group-open:rotate-180 transition-transform">▼</span>
                                     </div>
                                   </summary>
-                                  <div className="mt-3 space-y-4 bg-gray-100 p-4 rounded-lg">
+                                  <div className="mt-3 space-y-4 bg-[#0b0e13] p-4 rounded-lg border border-gray-700">
                                     {/* Filtros de pagamento */}
                                     <div className="mb-4">
                                       <div className="flex flex-wrap gap-2 mb-4">
@@ -27635,7 +27729,7 @@ Estamos te aguardando! 😎✂️`;
                                             onClick={() => setPaymentFilter(filter.key)}
                                             className={`px-4 py-2 text-sm rounded-lg transition-colors font-medium ${paymentFilter === filter.key
                                               ? 'bg-blue-600 text-white'
-                                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                              : 'bg-[#121722] text-gray-200 border border-gray-700 hover:bg-[#1a2233]'
                                               }`}
                                           >
                                             {filter.label}
@@ -27722,42 +27816,42 @@ Estamos te aguardando! 😎✂️`;
                                           : Math.max(0, netTotal - paymentValidation.validPaid);
 
                                         return (
-                                          <div className="bg-white p-4 rounded-lg border border-gray-200 mb-4">
-                                            <h4 className="font-semibold text-gray-800 mb-3">
+                                          <div className="bg-[#121722] p-4 rounded-lg border border-gray-700 mb-4">
+                                            <h4 className="font-semibold text-gray-100 mb-3">
                                               Resumo - {filterLabel} ({filteredAppointments.length} serviços)
                                             </h4>
                                             <div className="space-y-2 text-sm">
                                               <div className="flex justify-between items-center">
-                                                <span className="text-gray-600">Vendas Brutas:</span>
-                                                <span className="font-semibold text-green-600">
+                                                <span className="text-gray-300">Vendas Brutas:</span>
+                                                <span className="font-semibold text-emerald-300">
                                                   {formatCurrency(grossTotal)}
                                                 </span>
                                               </div>
                                               <div className="flex justify-between items-center">
-                                                <span className="text-gray-600">Vendas Líquidas:</span>
-                                                <span className="font-semibold text-blue-600">
+                                                <span className="text-gray-300">Vendas Líquidas:</span>
+                                                <span className="font-semibold text-cyan-300">
                                                   {formatCurrency(netTotal)}
                                                 </span>
                                               </div>
                                               {paymentFilter !== 'servicos_mais_feitos' ? (
-                                                <div className="flex justify-between items-center border-t border-gray-200 pt-2">
-                                                  <span className="text-gray-600 font-medium">Novas Vendas:</span>
-                                                  <span className="font-bold text-purple-600">
+                                                <div className="flex justify-between items-center border-t border-gray-700 pt-2">
+                                                  <span className="text-gray-300 font-medium">Novas Vendas:</span>
+                                                  <span className="font-bold text-purple-300">
                                                     {formatCurrency(displayNewSales)}
                                                   </span>
                                                 </div>
                                               ) : (
-                                                <div className="flex justify-between items-center border-t border-gray-200 pt-2">
-                                                  <span className="text-gray-600 font-medium">Serviço mais feito:</span>
-                                                  <span className="font-bold text-purple-600">
+                                                <div className="flex justify-between items-center border-t border-gray-700 pt-2">
+                                                  <span className="text-gray-300 font-medium">Serviço mais feito:</span>
+                                                  <span className="font-bold text-purple-300">
                                                     {mostDoneServices[0] ? `${mostDoneServices[0].name} (${mostDoneServices[0].count})` : 'Sem dados'}
                                                   </span>
                                                 </div>
                                               )}
                                               {paymentFilter === 'todos' && paymentValidation.ignoredAdvance > 0 && (
                                                 <div className="flex justify-between items-center">
-                                                  <span className="text-amber-700 font-medium">Adiantamentos ignorados:</span>
-                                                  <span className="font-bold text-amber-700">
+                                                  <span className="text-amber-300 font-medium">Adiantamentos ignorados:</span>
+                                                  <span className="font-bold text-amber-300">
                                                     {formatCurrency(paymentValidation.ignoredAdvance)}
                                                   </span>
                                                 </div>
@@ -27793,7 +27887,7 @@ Estamos te aguardando! 😎✂️`;
 
                                         if (ranking.length === 0) {
                                           return (
-                                            <div className="bg-white border border-gray-200 rounded-lg p-4 text-sm text-gray-600">
+                                            <div className="bg-[#121722] border border-gray-700 rounded-lg p-4 text-sm text-gray-300">
                                               Nenhum serviço concluído para gerar o ranking.
                                             </div>
                                           );
@@ -27803,24 +27897,24 @@ Estamos te aguardando! 😎✂️`;
                                         return (
                                           <div className="space-y-2">
                                             {ranking.map((item, idx) => (
-                                              <div key={`${item.name}-${idx}`} className="bg-white border border-gray-200 rounded-lg p-3">
+                                              <div key={`${item.name}-${idx}`} className="bg-[#121722] border border-gray-700 rounded-lg p-3">
                                                 <div className="flex items-center justify-between gap-2">
-                                                  <span className="text-sm font-semibold text-gray-800">
+                                                  <span className="text-sm font-semibold text-gray-100">
                                                     {idx + 1}. {item.name}
                                                   </span>
-                                                  <span className="text-xs font-bold text-blue-700">
+                                                  <span className="text-xs font-bold text-cyan-300">
                                                     {item.count}x
                                                   </span>
                                                 </div>
-                                                <div className="mt-2 h-2 rounded bg-gray-200 overflow-hidden">
+                                                <div className="mt-2 h-2 rounded bg-gray-800 overflow-hidden">
                                                   <div
                                                     className="h-2 rounded bg-gradient-to-r from-blue-500 to-indigo-500"
                                                     style={{ width: `${Math.max(8, (item.count / topCount) * 100)}%` }}
                                                   />
                                                 </div>
                                                 <div className="mt-2 flex items-center justify-between text-xs">
-                                                  <span className="text-gray-600">Faturamento bruto do serviço</span>
-                                                  <span className="font-semibold text-emerald-700">{formatCurrency(item.gross)}</span>
+                                                  <span className="text-gray-400">Faturamento bruto do serviço</span>
+                                                  <span className="font-semibold text-emerald-300">{formatCurrency(item.gross)}</span>
                                                 </div>
                                               </div>
                                             ))}
@@ -27878,13 +27972,13 @@ Estamos te aguardando! 😎✂️`;
                                         const paymentMethodLabel = paymentMethodMap[apt.payment_method || 'pendente'] || apt.payment_method || 'Pendente';
 
                                         return (
-                                          <div key={index} className="bg-white border border-gray-200 rounded-lg p-3 mb-3 last:mb-0">
+                                          <div key={index} className="bg-[#121722] border border-gray-700 rounded-lg p-3 mb-3 last:mb-0">
                                             {/* Header do cliente */}
                                             <div className="flex justify-between items-start mb-2">
-                                              <span className="text-gray-800 font-medium text-sm">
+                                              <span className="text-gray-100 font-medium text-sm">
                                                 {apt.client_name}
                                               </span>
-                                              <span className="text-blue-600 font-semibold text-sm">
+                                              <span className="text-cyan-300 font-semibold text-sm">
                                                 → {formatCurrency(netValue)}
                                               </span>
                                             </div>
@@ -27892,28 +27986,28 @@ Estamos te aguardando! 😎✂️`;
                                             {/* Informações do serviço */}
                                             <div className="space-y-2">
                                               <div className="flex justify-between items-center">
-                                                <span className="text-gray-600 text-xs">
+                                                <span className="text-gray-400 text-xs">
                                                   💰 Valor bruto
                                                 </span>
-                                                <span className="text-gray-700 font-medium text-xs">
+                                                <span className="text-gray-200 font-medium text-xs">
                                                   {formatCurrency(baseValue)}
                                                 </span>
                                               </div>
 
                                               <div className="flex justify-between items-center">
-                                                <span className="text-gray-600 text-xs">
+                                                <span className="text-gray-400 text-xs">
                                                   💳 Pagamento
                                                 </span>
-                                                <span className="text-purple-600 font-medium text-xs">
+                                                <span className="text-purple-300 font-medium text-xs">
                                                   {paymentMethodLabel}
                                                 </span>
                                               </div>
 
                                               <div className="flex justify-between items-center">
-                                                <span className="text-gray-600 text-xs">
+                                                <span className="text-gray-400 text-xs">
                                                   📅 Data/Hora
                                                 </span>
-                                                <span className="text-gray-500 text-xs">
+                                                <span className="text-gray-300 text-xs">
                                                   {formattedDate} às {formattedTime}
                                                 </span>
                                               </div>

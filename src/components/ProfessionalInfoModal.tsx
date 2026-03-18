@@ -1,5 +1,6 @@
 import { DollarSign, Eye, EyeOff, TrendingUp, X } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { supabase } from '../lib/supabase';
 
 interface ProfessionalInfoModalProps {
   professional: {
@@ -22,7 +23,17 @@ interface ProfessionalInfoModalProps {
   subscriberAttendanceCount?: number;
   subscriberClientsCount?: number;
   subscriberSalesCount?: number;
+  establishmentId?: string;
+  selectedMonth?: Date;
   onClose: () => void;
+}
+
+interface ProfessionalPaymentHistoryItem {
+  id: string;
+  amount: number;
+  payment_date: string;
+  payment_source?: string | null;
+  for_month?: string | null;
 }
 
 export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
@@ -40,6 +51,8 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   subscriberAttendanceCount = 0,
   subscriberClientsCount = 0,
   subscriberSalesCount = 0,
+  establishmentId,
+  selectedMonth,
   onClose,
 }) => {
   const [pinInput, setPinInput] = useState('');
@@ -48,6 +61,9 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   const [isAuthenticated, setIsAuthenticated] = useState(hasNoPin);
   const [showError, setShowError] = useState(false);
   const [showValues, setShowValues] = useState(true);
+  const [isLoadingPayments, setIsLoadingPayments] = useState(false);
+  const [paymentHistory, setPaymentHistory] = useState<ProfessionalPaymentHistoryItem[]>([]);
+  const [showPaymentHistory, setShowPaymentHistory] = useState(true);
 
   const handlePinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,6 +88,95 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   const hasSubscriberFinancial =
     subscriberMonthlyAccumulated > 0 || subscriberMonthlyPaid > 0 || subscriberMonthlyPending > 0;
   const hideGrossInFinancial = professional.hide_gross_in_financial === true;
+
+  const selectedMonthKey = useMemo(() => {
+    const base = selectedMonth || new Date();
+    return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}`;
+  }, [selectedMonth]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let intervalRef: number | null = null;
+
+    const loadPaymentHistory = async () => {
+      if (!establishmentId || !professional.id) {
+        if (!cancelled) setPaymentHistory([]);
+        return;
+      }
+
+      setIsLoadingPayments(true);
+      try {
+        const { data, error } = await supabase
+          .from('professional_payments')
+          .select('id, amount, payment_date, payment_source, for_month')
+          .eq('establishment_id', establishmentId)
+          .eq('professional_id', professional.id)
+          .order('payment_date', { ascending: false });
+
+        if (error) throw error;
+
+        const rows = ((data || []) as ProfessionalPaymentHistoryItem[])
+          .filter((row) => {
+            const source = String(row.payment_source || '').trim().toLowerCase();
+            if (source && source !== 'normal') return false;
+
+            const forMonth = String(row.for_month || '').trim();
+            if (forMonth) return forMonth === selectedMonthKey;
+
+            const dt = new Date(row.payment_date);
+            if (Number.isNaN(dt.getTime())) return false;
+            const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+            return key === selectedMonthKey;
+          })
+          .map((row) => ({
+            id: String(row.id || ''),
+            amount: Number(row.amount || 0),
+            payment_date: String(row.payment_date || ''),
+            payment_source: row.payment_source || null,
+            for_month: row.for_month || null,
+          }));
+
+        if (!cancelled) setPaymentHistory(rows);
+      } catch (err) {
+        console.error('Erro ao carregar histórico financeiro do profissional:', err);
+        if (!cancelled) setPaymentHistory([]);
+      } finally {
+        if (!cancelled) setIsLoadingPayments(false);
+      }
+    };
+
+    void loadPaymentHistory();
+    intervalRef = window.setInterval(() => {
+      void loadPaymentHistory();
+    }, 15000);
+
+    return () => {
+      cancelled = true;
+      if (intervalRef) window.clearInterval(intervalRef);
+    };
+  }, [establishmentId, professional.id, selectedMonthKey]);
+
+  const totalPaid = paymentHistory
+    .filter((row) => row.amount > 0)
+    .reduce((sum, row) => sum + row.amount, 0);
+  const totalWithdrawn = paymentHistory
+    .filter((row) => row.amount < 0)
+    .reduce((sum, row) => sum + Math.abs(row.amount), 0);
+  const paymentCount = paymentHistory.filter((row) => row.amount > 0).length;
+  const lastPaymentDate = paymentHistory.find((row) => row.amount > 0)?.payment_date || null;
+  const pendingToReceive = Math.max(0, monthlyNet - totalPaid);
+
+  const formatDateTime = (value: string) => {
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return value;
+    return dt.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
 
   if (!isAuthenticated) {
     return (
@@ -297,6 +402,72 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                   {' '}• Assinantes atendidos: <strong>{subscriberClientsCount}</strong>
                   {subscriberSalesCount > 0 ? <> • Vendas (bonus): <strong>{subscriberSalesCount}</strong></> : null}
                 </p>
+              </div>
+            )}
+          </div>
+
+          {/* Histórico financeiro do colaborador (igual ao financeiro) */}
+          <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-5 rounded-xl border-2 border-blue-200">
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <h3 className="text-lg font-semibold text-blue-800">Histórico de pagamentos do mês</h3>
+              <button
+                onClick={() => setShowPaymentHistory((prev) => !prev)}
+                className="px-3 py-1.5 rounded-lg bg-white/80 text-blue-700 text-xs font-semibold border border-blue-200 hover:bg-white"
+              >
+                {showPaymentHistory ? 'Ocultar histórico' : 'Mostrar histórico'}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+              <div className="bg-white rounded-lg p-3 border border-blue-100">
+                <p className="text-xs text-gray-600">Total pago</p>
+                <p className="text-xl font-bold text-green-700">
+                  {showValues ? formatCurrency(totalPaid) : '••••••'}
+                </p>
+              </div>
+              <div className="bg-white rounded-lg p-3 border border-blue-100">
+                <p className="text-xs text-gray-600">Pendente para receber</p>
+                <p className="text-xl font-bold text-blue-800">
+                  {showValues ? formatCurrency(pendingToReceive) : '••••••'}
+                </p>
+              </div>
+              <div className="bg-white rounded-lg p-3 border border-blue-100">
+                <p className="text-xs text-gray-600">Status</p>
+                <p className={`text-xl font-bold ${pendingToReceive > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                  {pendingToReceive > 0 ? 'Pendente' : 'Em dia'}
+                </p>
+              </div>
+            </div>
+
+            <div className="text-xs text-blue-800 mb-3">
+              {paymentCount} pagamento(s) no mês
+              {lastPaymentDate ? ` • Último pagamento: ${formatDateTime(lastPaymentDate)}` : ''}
+              {totalWithdrawn > 0 ? ` • Retirado: ${showValues ? formatCurrency(totalWithdrawn) : '••••••'}` : ''}
+            </div>
+
+            {showPaymentHistory && (
+              <div className="bg-white rounded-lg border border-blue-100 p-3 max-h-56 overflow-y-auto space-y-2">
+                {isLoadingPayments ? (
+                  <p className="text-sm text-gray-500">Carregando histórico...</p>
+                ) : paymentHistory.length === 0 ? (
+                  <p className="text-sm text-gray-500">Nenhum pagamento registrado neste mês.</p>
+                ) : (
+                  paymentHistory.map((row) => (
+                    <div key={row.id} className="flex items-center justify-between gap-2 p-2 rounded border border-gray-100 bg-gray-50">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-800">
+                          {showValues
+                            ? formatCurrency(Math.abs(row.amount))
+                            : '••••••'}
+                        </p>
+                        <p className="text-xs text-gray-500">{formatDateTime(row.payment_date)}</p>
+                      </div>
+                      <span className={`text-xs font-semibold ${row.amount >= 0 ? 'text-green-600' : 'text-orange-600'}`}>
+                        {row.amount >= 0 ? 'Pago' : 'Retirado'}
+                      </span>
+                    </div>
+                  ))
+                )}
               </div>
             )}
           </div>

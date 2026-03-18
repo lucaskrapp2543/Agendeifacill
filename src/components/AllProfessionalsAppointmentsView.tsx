@@ -5640,6 +5640,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
               professionalPins.find((pin) => pin.professional_id === selectedProfessionalForInfo)
                 ?.pin
             }
+            establishmentId={establishment?.id}
+            selectedMonth={selectedDate}
             {...calculateProfessionalValues(selectedProfessionalForInfo)}
             onClose={() => setSelectedProfessionalForInfo(null)}
           />

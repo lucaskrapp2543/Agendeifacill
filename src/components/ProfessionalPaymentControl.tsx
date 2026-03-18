@@ -345,27 +345,27 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   return (
     <div className="space-y-2">
       {/* Controles de Pagamento - Layout Mobile Responsivo */}
-      <div className="bg-gray-50 rounded-lg p-3 space-y-3">
+      <div className="bg-[#0b0e13] border border-gray-700 rounded-lg p-3 space-y-3">
         {/* Informações Financeiras */}
         <div className="space-y-2">
           <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-            <span className="text-sm font-medium text-gray-700">
+            <span className="text-sm font-medium text-gray-200">
               Líquido: {formatCurrency(totalLiquidValue)}
             </span>
             {totalPaidEffective > 0 && (
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-gray-400">
                 (Pago: {formatCurrency(totalPaidEffective)})
               </span>
             )}
           </div>
 
           {pendingToPay > 0 && (
-            <div className="text-sm text-blue-600 font-medium">
+            <div className="text-sm text-cyan-300 font-medium">
               Pendente: {formatCurrency(pendingToPay)}
             </div>
           )}
           {ignoredAdvanceAmount > 0 && (
-            <div className="text-xs text-amber-700 font-medium">
+            <div className="text-xs text-amber-300 font-medium">
               Adiantamentos ignorados: {formatCurrency(ignoredAdvanceAmount)}
             </div>
           )}
@@ -402,7 +402,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           {/* Mensagem quando não há valor pendente */}
           {pendingToPay <= 0 && !isProcessing && (
             <div
-              className={`w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 text-sm rounded ${overpaidAmount > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
+              className={`w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 text-sm rounded ${overpaidAmount > 0 ? 'bg-amber-500/20 text-amber-200 border border-amber-500/40' : 'bg-gray-800/80 text-gray-200 border border-gray-700'
                 }`}
               title={
                 overpaidAmount > 0
@@ -430,14 +430,14 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
       {/* Opções de Pagamento */}
       {showPaymentOptions && pendingToPay > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="bg-[#121722] border border-blue-500/30 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
-            <h4 className="text-sm font-medium text-blue-700">
+            <h4 className="text-sm font-medium text-blue-300">
               Opções de Pagamento - {professionalName}
             </h4>
             <button
               onClick={() => setShowPaymentOptions(false)}
-              className="text-blue-400 hover:text-blue-600"
+              className="text-blue-300 hover:text-blue-200"
             >
               ✕
             </button>
@@ -470,7 +470,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                     value={customAmount}
                     onChange={(e) => setCustomAmount(e.target.value)}
                     placeholder={`Máximo: ${formatCurrency(pendingToPay)}`}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-600 rounded-lg text-sm text-gray-100 bg-[#0b0e13] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                   <div className="flex space-x-2">
                     <button
@@ -499,19 +499,19 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
       {/* Histórico de Pagamentos */}
       {showHistory && professionalPayments.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div className="bg-[#121722] border border-gray-700 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
-            <h4 className="text-sm font-medium text-gray-700">
+            <h4 className="text-sm font-medium text-gray-200">
               Histórico de Pagamentos - {professionalName}
               {selectedMonth && (
-                <span className="text-xs text-gray-500 ml-2">
+                <span className="text-xs text-gray-400 ml-2">
                   ({selectedMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })})
                 </span>
               )}
             </h4>
             <button
               onClick={() => setShowHistory(false)}
-              className="text-gray-400 hover:text-gray-600"
+              className="text-gray-400 hover:text-gray-200"
             >
               <EyeOff className="w-4 h-4" />
             </button>
@@ -521,13 +521,13 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             {professionalPayments.map((payment) => (
               <div
                 key={payment.id}
-                className="flex items-center justify-between bg-gray-50 rounded-lg p-2 hover:bg-gray-100 transition-colors"
+                className="flex items-center justify-between bg-[#0b0e13] border border-gray-700 rounded-lg p-2 hover:bg-[#101622] transition-colors"
               >
                 <div className="flex-1">
-                  <div className={`text-sm font-medium ${payment.amount > 0 ? 'text-gray-700' : 'text-orange-600'}`}>
+                  <div className={`text-sm font-medium ${payment.amount > 0 ? 'text-gray-100' : 'text-orange-300'}`}>
                     {payment.amount > 0 ? formatCurrency(payment.amount) : formatCurrency(Math.abs(payment.amount))}
                   </div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-gray-400">
                     {formatDate(payment.payment_date)}
                   </div>
                 </div>
@@ -538,7 +538,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                   <button
                     onClick={() => handleDeletePayment(payment.id, payment.amount)}
                     disabled={isProcessing}
-                    className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Deletar este pagamento"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -549,31 +549,31 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           </div>
 
           {/* Resumo */}
-          <div className="mt-3 pt-3 border-t border-gray-200">
+          <div className="mt-3 pt-3 border-t border-gray-700">
             <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Total Pago:</span>
+              <span className="text-gray-300">Total Pago:</span>
               <span className="font-medium text-green-600">
                 {formatCurrency(totalPaidEffective)}
               </span>
             </div>
             {ignoredAdvanceAmount > 0 && (
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Adiantamentos ignorados:</span>
+                <span className="text-gray-300">Adiantamentos ignorados:</span>
                 <span className="font-medium text-amber-700">
                   {formatCurrency(ignoredAdvanceAmount)}
                 </span>
               </div>
             )}
             <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Pagamentos:</span>
-              <span className="font-medium text-gray-700">
+              <span className="text-gray-300">Pagamentos:</span>
+              <span className="font-medium text-gray-100">
                 {paymentSummary.paymentCount}
               </span>
             </div>
             {paymentSummary.lastPaymentDate && (
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Último Pagamento:</span>
-                <span className="font-medium text-gray-700">
+                <span className="text-gray-300">Último Pagamento:</span>
+                <span className="font-medium text-gray-100">
                   {formatDate(paymentSummary.lastPaymentDate)}
                 </span>
               </div>
@@ -584,7 +584,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
       {/* Status quando não há pagamentos */}
       {!showHistory && professionalPayments.length === 0 && (
-        <div className="text-xs text-gray-500 text-center py-2">
+        <div className="text-xs text-gray-400 text-center py-2">
           {selectedMonth ?
             `Nenhum pagamento registrado em ${selectedMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}` :
             'Nenhum pagamento registrado ainda'
