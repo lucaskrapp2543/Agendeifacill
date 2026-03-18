@@ -2,7 +2,7 @@ import { format } from 'date-fns';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
-import { checkMonthlyServiceLimit, checkWhatsAppSubscriber as checkLegacySubscriber } from '../lib/supabase';
+import { checkWhatsAppSubscriber as checkLegacySubscriber, checkMonthlyServiceLimit } from '../lib/supabase';
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { TimeSlotSelector } from './TimeSlotSelector';
 
@@ -830,7 +830,16 @@ export function BookingChatFlow({
   }, [chatClientPhone, detectedSubscriber, establishment?.establishment_id, establishment?.id, selectedDate, subscriberServiceOptions]);
 
   const goNext = async () => {
-    if (!canProceedFromStep()) return;
+    if (!canProceedFromStep()) {
+      if (step === 'service') {
+        if (isSubscriberFlow) {
+          toast.error('Selecione sua assinatura antes de prosseguir.');
+        } else {
+          toast.error('Selecione pelo menos um serviço antes de prosseguir.');
+        }
+      }
+      return;
+    }
     if (step === 'name') {
       setChatClientName(String(draftInput || '').trim());
       setDraftInput(formatPhoneChat(chatClientPhone || ''));
@@ -991,7 +1000,7 @@ export function BookingChatFlow({
     });
     if (chatClientName) {
       messages.push({ id: 'user-name', role: 'user', text: chatClientName });
-      messages.push({ id: 'bot-phone', role: 'bot', text: 'Perfeito! Agora me informe seu número de telefone para realizarmos seu agendamento.' });
+      messages.push({ id: 'bot-phone', role: 'bot', text: 'Perfeito! Agora me informe seu número de telefone para realizarmos o agendamento.' });
     }
     if (chatClientPhone) {
       messages.push({ id: 'user-phone', role: 'user', text: chatClientPhone });
@@ -1039,7 +1048,7 @@ export function BookingChatFlow({
         id: 'bot-professional',
         role: 'bot',
         text: isSubscriberFlow
-          ? 'Pronto, assinatura ativada. Qual profissional deseja agendar?'
+          ? 'Pronto, assinatura ativada. Qual profissional você deseja agendar?'
           : 'Maravilha! Agora me diga qual profissional você deseja para o seu agendamento.'
       });
     }
@@ -1050,7 +1059,7 @@ export function BookingChatFlow({
         id: 'bot-service',
         role: 'bot',
         text: isSubscriberFlow
-          ? 'Perfeito! Escolha seu serviço da assinatura e os extras (se houver).'
+          ? 'Perfeito! Escolha os serviços da assinatura e os extras (se houver).'
           : 'Perfeito! Agora me diga quais desses serviços você deseja fazer. Você pode selecionar um ou mais.'
       });
     }
@@ -1280,11 +1289,10 @@ export function BookingChatFlow({
                           }
                           setSelectedSubscriberServiceId(serviceId);
                         }}
-                        className={`w-full text-left px-3 py-2 rounded-lg border ${
-                          blockedByLimit
+                        className={`w-full text-left px-3 py-2 rounded-lg border ${blockedByLimit
                             ? 'bg-red-500/10 border-red-500/40 opacity-80'
                             : (selected ? 'bg-emerald-600 border-emerald-500' : 'bg-white/10 border-white/20')
-                        }`}
+                          }`}
                       >
                         <div className="font-semibold">{service.name}</div>
                         <div className="text-xs text-white/80">Duração: {formatDuration(parseDurationMinutes(service?.service_duration ?? service?.duration, 30))}</div>
@@ -1448,11 +1456,10 @@ export function BookingChatFlow({
                                   : [...previous, productId]
                               ));
                             }}
-                            className={`w-full text-left px-3 py-2.5 rounded-xl border transition-all ${
-                              selected
+                            className={`w-full text-left px-3 py-2.5 rounded-xl border transition-all ${selected
                                 ? 'text-white'
                                 : 'bg-white/10 border-white/20 hover:bg-white/15'
-                            }`}
+                              }`}
                             style={
                               selected
                                 ? {
@@ -1552,7 +1559,6 @@ export function BookingChatFlow({
                 type="button"
                 onClick={() => void goNext()}
                 className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold"
-                disabled={!canProceedFromStep()}
               >
                 Próximo
               </button>
