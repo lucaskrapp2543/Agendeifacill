@@ -4874,6 +4874,9 @@ const EstablishmentDashboard = () => {
     }
 
     const now = new Date();
+    const hasMercadoPagoConnected = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+    const hasPagarmeConnected = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
+    const hasAnySubscriptionGatewayConnected = hasMercadoPagoConnected || hasPagarmeConnected;
     const start = startOfMonth(referenceMonth);
     const end = endOfMonth(referenceMonth);
     let hasSubscriptionValueColumn = true;
@@ -5049,25 +5052,28 @@ const EstablishmentDashboard = () => {
 
     const assinantesNaoPagos = subscriptionsRows.filter((cs: any) => cs?.payment_status === 'unpaid').length;
 
-    const saldoAssinantes = subscriptionsRows.reduce((sum, cs: any) => {
-      if (!wasPaidInReferenceMonth(cs)) return sum;
-      const provider = String(cs?.subscription_payment_provider || '').toLowerCase();
-      if (!provider.includes('pix')) return sum;
+    const saldoAssinantes = !hasAnySubscriptionGatewayConnected
+      ? 0
+      : subscriptionsRows.reduce((sum, cs: any) => {
+        if (!wasPaidInReferenceMonth(cs)) return sum;
+        const provider = String(cs?.subscription_payment_provider || '').toLowerCase().trim();
+        const isIntegratedProvider = provider.includes('pagarme') || provider.includes('mercadopago');
+        if (!provider.includes('pix') || !isIntegratedProvider) return sum;
 
-      const rawSubscription = cs?.subscriptions;
-      const subscriptionValueFromRelation = Array.isArray(rawSubscription)
-        ? Number(rawSubscription[0]?.value || 0)
-        : Number(rawSubscription?.value || 0);
-      const fallbackSubscriptionValue = hasSubscriptionValueColumn ? Number(cs?.subscription_value || 0) : 0;
-      const bruto =
-        Number.isFinite(subscriptionValueFromRelation) && subscriptionValueFromRelation > 0
-          ? subscriptionValueFromRelation
-          : fallbackSubscriptionValue;
-      if (!Number.isFinite(bruto) || bruto <= 0) return sum;
+        const rawSubscription = cs?.subscriptions;
+        const subscriptionValueFromRelation = Array.isArray(rawSubscription)
+          ? Number(rawSubscription[0]?.value || 0)
+          : Number(rawSubscription?.value || 0);
+        const fallbackSubscriptionValue = hasSubscriptionValueColumn ? Number(cs?.subscription_value || 0) : 0;
+        const bruto =
+          Number.isFinite(subscriptionValueFromRelation) && subscriptionValueFromRelation > 0
+            ? subscriptionValueFromRelation
+            : fallbackSubscriptionValue;
+        if (!Number.isFinite(bruto) || bruto <= 0) return sum;
 
-      const liquido = getSubscriptionNetValue(bruto, provider);
-      return sum + liquido;
-    }, 0);
+        const liquido = getSubscriptionNetValue(bruto, provider);
+        return sum + liquido;
+      }, 0);
 
     return {
       totalArrecadado,
@@ -26738,9 +26744,7 @@ Estamos te aguardando! 😎✂️`;
                       const hasMercadoPagoConnected = !!String((establishment as any)?.mercadopago_access_token || '').trim();
                       const hasPagarmeConnected = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
                       const shouldShowSubscribersBalanceCard =
-                        hasMercadoPagoConnected ||
-                        hasPagarmeConnected ||
-                        subscribersFinancialSummary.saldoAssinantes > 0;
+                        hasMercadoPagoConnected || hasPagarmeConnected;
 
                       return (
                         <div className="space-y-4 mb-6">
@@ -26829,7 +26833,7 @@ Estamos te aguardando! 😎✂️`;
                                   </div>
                                   {shouldShowSubscribersBalanceCard && (
                                     <div className="bg-white border border-gray-200 rounded-lg p-3 col-span-2">
-                                      <p className="text-xs text-gray-600">Saldo (assinantes PIX Pagar.me)</p>
+                                      <p className="text-xs text-gray-600">Saldo (assinantes PIX integrado)</p>
                                       <p className="text-xl font-bold text-gray-900">{formatCurrency(subscribersFinancialSummary.saldoAssinantes)}</p>
                                     </div>
                                   )}

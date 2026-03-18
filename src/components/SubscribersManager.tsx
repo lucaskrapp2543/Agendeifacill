@@ -3279,7 +3279,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   // Saldo (assinantes): entradas PIX líquidas do mês selecionado - pagamentos do mês.
   // O desconto (taxa + R$0,50) é aplicado por pagamento individual.
+  const hasPagarmeConnectedForSubscribers = !!String(establishment?.pagarme_recipient_id || '').trim();
+  const hasMercadoPagoConnectedForSubscribers = !!String(establishment?.mercadopago_access_token || '').trim();
+  const hasAnySubscriptionGatewayConnected = hasPagarmeConnectedForSubscribers || hasMercadoPagoConnectedForSubscribers;
   const pixEntradasLiquidasMesCents = clientSubscriptions.reduce((sum, cs) => {
+    if (!hasAnySubscriptionGatewayConnected) return sum;
     if (String(cs.payment_status || '').toLowerCase() !== 'paid') return sum;
 
     const rawPaymentDate = String((cs as any)?.last_payment_date || '').trim();
@@ -3294,6 +3298,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     const paymentMethod = String((cs as any)?.subscriber_payment_method || '').toLowerCase().trim();
     if (paymentMethod !== 'pix') return sum;
     const provider = String((cs as any)?.subscription_payment_provider || '').toLowerCase();
+    const isIntegratedProvider = provider.includes('pagarme') || provider.includes('mercadopago');
+    if (!isIntegratedProvider) return sum;
 
     const bruto = Number(getSubscriptionValue(cs));
     if (!Number.isFinite(bruto) || bruto <= 0) return sum;
@@ -3308,7 +3314,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   }, 0);
 
   const saldoAssinantes = fromCents(Math.max(0, pixEntradasLiquidasMesCents - emContaSaidasCents));
-  const shouldShowSubscribersBalanceCard = !useMercadoPagoSubscriptionPix;
+  const shouldShowSubscribersBalanceCard = hasAnySubscriptionGatewayConnected;
 
   const [isRefreshingSaldoAssinantes, setIsRefreshingSaldoAssinantes] = useState(false);
   const handleRefreshSaldoAssinantes = async () => {
