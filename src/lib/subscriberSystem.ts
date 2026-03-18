@@ -39,6 +39,36 @@ const normalizeSubscriberWhatsapp = (value: string): string => {
   return digits;
 };
 
+const findExistingSubscriberByPhone = async (establishmentId: string, normalizedWhatsapp: string) => {
+  const estId = String(establishmentId || '').trim();
+  const phone = String(normalizedWhatsapp || '').trim();
+  if (!estId || !phone) return { data: null, error: null };
+
+  const attempts: Array<'subscriber_whatsapp' | 'client_whatsapp'> = ['subscriber_whatsapp', 'client_whatsapp'];
+  let lastError: any = null;
+
+  for (const column of attempts) {
+    const { data, error } = await supabase
+      .from('client_subscriptions')
+      .select('id, subscription_id, created_at')
+      .eq('establishment_id', estId)
+      // @ts-expect-error colunas legadas podem não existir no tipo
+      .eq(column, phone)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data?.id) {
+      return { data, error: null };
+    }
+    if (error) {
+      lastError = error;
+    }
+  }
+
+  return { data: null, error: lastError };
+};
+
 /**
  * Criar um novo assinante independente
  */
@@ -47,7 +77,7 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
     console.log('🆕 Criando assinante independente:', data);
     const normalizedWhatsapp = normalizeSubscriberWhatsapp(data.whatsapp);
     const normalizedObservation = String(data.observation || '').trim().slice(0, 150);
-    const payload: any = {
+    const basePayload: any = {
       client_id: uuidv4(), // Gerar UUID válido para assinantes
       subscription_id: data.subscription_id,
       establishment_id: data.establishment_id,
@@ -62,29 +92,69 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
       subscriber_payment_method: String(data.payment_method || '').trim() || null,
       subscriber_observation: normalizedObservation || null,
     };
+    const updatePayload: any = { ...basePayload };
+    delete updatePayload.client_id;
 
-    let { data: result, error } = await supabase
-      .from('client_subscriptions')
-      .insert([payload])
-      .select(`
-        *,
-        subscriptions (name, value, duration_months)
-      `)
-      .single();
+    const { data: existing, error: existingLookupError } = await findExistingSubscriberByPhone(
+      data.establishment_id,
+      normalizedWhatsapp
+    );
+    if (existingLookupError) {
+      console.warn('⚠️ Não foi possível checar assinante existente antes de salvar:', existingLookupError);
+    }
 
-    const errMsg = String(error?.message || '').toLowerCase();
-    if (error && (errMsg.includes('subscriber_payment_method') || errMsg.includes('subscriber_observation'))) {
-      const fallbackPayload: any = { ...payload };
-      delete fallbackPayload.subscriber_payment_method;
-      delete fallbackPayload.subscriber_observation;
+    let result: any = null;
+    let error: any = null;
+
+    if (existing?.id) {
       ({ data: result, error } = await supabase
         .from('client_subscriptions')
-        .insert([fallbackPayload])
+        .update(updatePayload)
+        .eq('id', String(existing.id))
         .select(`
           *,
           subscriptions (name, value, duration_months)
         `)
         .single());
+    } else {
+      ({ data: result, error } = await supabase
+        .from('client_subscriptions')
+        .insert([basePayload])
+        .select(`
+          *,
+          subscriptions (name, value, duration_months)
+        `)
+        .single());
+    }
+
+    const errMsg = String(error?.message || '').toLowerCase();
+    if (error && (errMsg.includes('subscriber_payment_method') || errMsg.includes('subscriber_observation'))) {
+      const fallbackBasePayload: any = { ...basePayload };
+      const fallbackUpdatePayload: any = { ...updatePayload };
+      delete fallbackBasePayload.subscriber_payment_method;
+      delete fallbackBasePayload.subscriber_observation;
+      delete fallbackUpdatePayload.subscriber_payment_method;
+      delete fallbackUpdatePayload.subscriber_observation;
+      if (existing?.id) {
+        ({ data: result, error } = await supabase
+          .from('client_subscriptions')
+          .update(fallbackUpdatePayload)
+          .eq('id', String(existing.id))
+          .select(`
+            *,
+            subscriptions (name, value, duration_months)
+          `)
+          .single());
+      } else {
+        ({ data: result, error } = await supabase
+          .from('client_subscriptions')
+          .insert([fallbackBasePayload])
+          .select(`
+            *,
+            subscriptions (name, value, duration_months)
+          `)
+          .single());
+      }
     }
 
     if (error) {

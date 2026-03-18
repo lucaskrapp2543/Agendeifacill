@@ -15,6 +15,8 @@ interface Professional {
   percentage?: number;
   goal?: number;
   hide_gross_in_financial?: boolean;
+  lock_appointments_with_owner_pin?: boolean;
+  lock_financial_with_owner_pin?: boolean;
 }
 
 interface ProfessionalPin {
@@ -153,6 +155,10 @@ interface AllProfessionalsAppointmentsViewProps {
   onConsumePendingOpenBarbershopCash?: () => void;
   onRequestBarbershopCashAccess?: () => void;
   serviceSubcategories?: ServiceSubcategoryLabel[];
+  unlockedAppointmentsByProfessional?: Record<string, boolean>;
+  unlockedFinancialByProfessional?: Record<string, boolean>;
+  onRequestAppointmentsUnlock?: (professionalId: string) => void;
+  onRequestFinancialUnlock?: (professionalId: string) => void;
 }
 
 export const AllProfessionalsAppointmentsView: React.FC<
@@ -190,6 +196,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onConsumePendingOpenBarbershopCash,
   onRequestBarbershopCashAccess,
   serviceSubcategories = [],
+  unlockedAppointmentsByProfessional = {},
+  unlockedFinancialByProfessional = {},
+  onRequestAppointmentsUnlock,
+  onRequestFinancialUnlock,
 }) => {
     console.log('📋 AllProfessionalsAppointmentsView - Total de appointments recebidos:', appointments.length);
     console.log('📅 Data selecionada:', selectedDate.toISOString());
@@ -1586,6 +1596,24 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [availabilityProfessionalId, setAvailabilityProfessionalId] = useState<string | null>(null);
     const [availabilityProfessionalName, setAvailabilityProfessionalName] = useState<string>('');
     const [availabilitySlots, setAvailabilitySlots] = useState<TimeSlot[]>([]);
+
+    const hasOwnerConfigPin = Boolean(
+      establishment?.pin_password &&
+      String(establishment.pin_password || '').trim().length > 0 &&
+      String(establishment.pin_password || '').trim() !== '0000'
+    );
+
+    const isAppointmentsLockedForProfessional = (professional: Professional): boolean => {
+      if (!hasOwnerConfigPin) return false;
+      if (!Boolean((professional as any)?.lock_appointments_with_owner_pin)) return false;
+      return !Boolean(unlockedAppointmentsByProfessional[String(professional.id)]);
+    };
+
+    const isFinancialLockedForProfessional = (professional: Professional): boolean => {
+      if (!hasOwnerConfigPin) return false;
+      if (!Boolean((professional as any)?.lock_financial_with_owner_pin)) return false;
+      return !Boolean(unlockedFinancialByProfessional[String(professional.id)]);
+    };
 
     const formatCurrency = (value: number) => {
       return new Intl.NumberFormat('pt-BR', {
@@ -3821,6 +3849,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
           <div className="scroll-container-top mobile-scroll-container">
             <div className="flex gap-0 min-w-max scroll-content-flip">
               {professionals.map((professional, index) => {
+                const appointmentsLocked = isAppointmentsLockedForProfessional(professional);
+                const financialLocked = isFinancialLockedForProfessional(professional);
                 const timeSlots = generateTimeSlotsWithAppointments(professional);
                 const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
                 const isProfessionalAbsentOnSelectedDate = ((professional as any)?.absences as string[] | undefined)?.includes(selectedDateStr) ?? false;
@@ -3926,19 +3956,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
                         </h3>
                         <p className={`text-xs ${useLightLayout ? 'text-gray-600' : 'text-gray-300'
                           }`}>
-                          {professionalAppointmentsCount} agend.
+                          {appointmentsLocked ? '🔒 agenda protegida' : `${professionalAppointmentsCount} agend.`}
                         </p>
                         <div className="space-y-1 mt-1">
                           <div className="flex gap-1">
                             <button
-                              onClick={() => setSelectedProfessionalForInfo(professional.id)}
+                              onClick={() => {
+                                if (financialLocked) {
+                                  onRequestFinancialUnlock?.(professional.id);
+                                  return;
+                                }
+                                setSelectedProfessionalForInfo(professional.id);
+                              }}
                               data-tutorial-id="appointments-financeiro"
                               className={`flex-1 px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
                                 ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
                                 : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
                                 }`}
                             >
-                              💰 Financeiro
+                              {financialLocked ? '🔒 Financeiro' : '💰 Financeiro'}
                             </button>
                             {onGoToProfessionalConfig && (
                               <button
@@ -3963,8 +3999,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
                                 }`}
                               title="Bloquear horários deste profissional"
+                              disabled={appointmentsLocked}
                             >
-                              🔒 Bloquear horários
+                              {appointmentsLocked ? '🔒 Agenda protegida' : '🔒 Bloquear horários'}
                             </button>
                           )}
                           {onOpenAbsenceModal && (
@@ -3976,8 +4013,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
                                 }`}
                               title="Configurar dias de ausência deste profissional"
+                              disabled={appointmentsLocked}
                             >
-                              📅 Ausência
+                              {appointmentsLocked ? '🔒 Agenda protegida' : '📅 Ausência'}
                             </button>
                           )}
                           {onGoToClients && (
@@ -3995,6 +4033,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           )}
                           <button
                             onClick={() => {
+                              if (appointmentsLocked) {
+                                onRequestAppointmentsUnlock?.(professional.id);
+                                return;
+                              }
                               setSelectedProfessionalForSqueeze(professional.id);
                               setShowSqueezeServiceModal(true);
                             }}
@@ -4004,12 +4046,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
                               }`}
                             title="Criar Encaixe"
+                            disabled={appointmentsLocked}
                           >
-                            🟣 Criar Encaixe
+                            {appointmentsLocked ? '🔒 Agenda protegida' : '🟣 Criar Encaixe'}
                           </button>
 
                           <button
                             onClick={() => {
+                              if (appointmentsLocked) {
+                                onRequestAppointmentsUnlock?.(professional.id);
+                                return;
+                              }
                               setAvailabilityProfessionalId(professional.id);
                               setAvailabilityProfessionalName(professional.name);
                               setAvailabilitySlots(timeSlots);
@@ -4020,10 +4067,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
                               }`}
                             title="Ver horários disponíveis (somente visualização)"
+                            disabled={appointmentsLocked}
                           >
                             <span className="inline-flex items-center justify-center gap-2">
                               <Calendar className="h-4 w-4" />
-                              Horários disponíveis
+                              {appointmentsLocked ? 'Agenda protegida' : 'Horários disponíveis'}
                             </span>
                           </button>
                         </div>
@@ -4033,6 +4081,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           <button
                             type="button"
                             onClick={() => {
+                              if (appointmentsLocked) {
+                                onRequestAppointmentsUnlock?.(professional.id);
+                                return;
+                              }
                               setCancelledHistoryRows(cancelledAppointments);
                               setCancelledHistoryProfessionalName(professional.name);
                               setCancelledHistoryDate(selectedDateStr);
@@ -4041,13 +4093,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             className="px-2 py-1 bg-red-600/80 text-white rounded border border-red-700 hover:bg-red-700 transition-colors"
                             title="Ver histórico de cancelados deste profissional no dia"
                           >
-                            ❌ {cancelledCount}
+                            {appointmentsLocked ? '🔒' : `❌ ${cancelledCount}`}
                           </button>
                           <span className="px-2 py-1 bg-yellow-600/80 text-white rounded border border-yellow-700">
-                            ⏳ {pendingCount}
+                            {appointmentsLocked ? '🔒' : `⏳ ${pendingCount}`}
                           </span>
                           <span className="px-2 py-1 bg-green-600/80 text-white rounded border border-green-700">
-                            ✅ {completedCount}
+                            {appointmentsLocked ? '🔒' : `✅ ${completedCount}`}
                           </span>
                         </div>
 
@@ -4066,7 +4118,24 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     {/* Todos os Horários (Livres e Ocupados) */}
                     <div className={`p-2 min-h-[500px] ${useLightLayout ? 'bg-gray-100' : 'bg-gray-100'
                       }`}>
-                      <div className="space-y-1">
+                      {appointmentsLocked ? (
+                        <div className="rounded-lg border-2 border-amber-500/60 bg-amber-100 p-3 mb-2">
+                          <p className="text-sm font-semibold text-amber-800 text-center">
+                            Agenda protegida por senha do dono.
+                          </p>
+                          <p className="text-xs text-amber-700 text-center mt-1">
+                            Desbloqueie para ver, transferir ou cancelar agendamentos deste profissional.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => onRequestAppointmentsUnlock?.(professional.id)}
+                            className="mt-3 w-full px-3 py-2 rounded-md bg-black text-white text-xs font-semibold hover:bg-gray-800 transition-colors"
+                          >
+                            Desbloquear agenda
+                          </button>
+                        </div>
+                      ) : null}
+                      <div className={`space-y-1 ${appointmentsLocked ? 'hidden' : ''}`}>
                         {timeSlots.length > 0 ? (
                           timeSlots.map((slot, slotIndex) => {
                             const slotColor = getSlotColor(slot);
@@ -5557,7 +5626,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
         )}
 
         {/* Modal de Informações do Profissional */}
-        {selectedProfessionalForInfo && (
+        {selectedProfessionalForInfo && !isFinancialLockedForProfessional(
+          professionals.find((p) => p.id === selectedProfessionalForInfo) || { id: '', name: '' }
+        ) && (
           <ProfessionalInfoModal
             professional={
               professionals.find((p) => p.id === selectedProfessionalForInfo) || {

@@ -58,6 +58,8 @@ interface Professional {
   offers_child_service?: boolean; // Campo para indicar se oferece serviço infantil
   hidden_from_booking?: boolean; // Campo para ocultar profissional do booking público
   hide_gross_in_financial?: boolean; // Oculta bruto no financeiro (Meus Agendamentos)
+  lock_appointments_with_owner_pin?: boolean; // Exige senha do dono para ver/editar agenda
+  lock_financial_with_owner_pin?: boolean; // Exige senha do dono para abrir financeiro
   work_hours?: {
     [key: string]: {
       enabled: boolean;
@@ -3904,6 +3906,15 @@ const EstablishmentDashboard = () => {
 
   // Estados para filtro de pagamento nos serviços individuais
   const [paymentFilter, setPaymentFilter] = useState<string>('todos');
+  const [showDetailedAttendancesPanel, setShowDetailedAttendancesPanel] = useState(false);
+  const [detailedRevenueFilter, setDetailedRevenueFilter] = useState<string>('todos');
+  const [detailedRangeStart, setDetailedRangeStart] = useState<string>(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [detailedRangeEnd, setDetailedRangeEnd] = useState<string>(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [detailedAttendances, setDetailedAttendances] = useState<Appointment[]>([]);
+  const [isLoadingDetailedAttendances, setIsLoadingDetailedAttendances] = useState(false);
+  const [highlightMonthCursor, setHighlightMonthCursor] = useState<Date>(new Date());
+  const [highlightMonthAttendances, setHighlightMonthAttendances] = useState<Appointment[]>([]);
+  const [isLoadingHighlightMonthAttendances, setIsLoadingHighlightMonthAttendances] = useState(false);
 
   // Estados para relatório de taxas
   const [taxesReport, setTaxesReport] = useState<any>(null);
@@ -3996,11 +4007,22 @@ const EstablishmentDashboard = () => {
   const [showConfigPasswordModal, setShowConfigPasswordModal] = useState(false);
   const [configPasswordVerified, setConfigPasswordVerified] = useState(false);
   const [pendingAction, setPendingAction] = useState<{
-    type: 'percentage' | 'password' | 'goal' | 'barbershop_cash' | 'hide_gross';
+    type:
+    | 'percentage'
+    | 'password'
+    | 'goal'
+    | 'barbershop_cash'
+    | 'hide_gross'
+    | 'lock_appointments_view'
+    | 'lock_financial_view'
+    | 'unlock_appointments_view'
+    | 'unlock_financial_view';
     professionalId: string;
     data?: any;
   } | null>(null);
   const [pendingOpenBarbershopCashAfterPin, setPendingOpenBarbershopCashAfterPin] = useState(false);
+  const [unlockedAppointmentsByProfessional, setUnlockedAppointmentsByProfessional] = useState<Record<string, boolean>>({});
+  const [unlockedFinancialByProfessional, setUnlockedFinancialByProfessional] = useState<Record<string, boolean>>({});
 
   // Estados para controlar visibilidade de senhas dos profissionais
   const [professionalPasswordVisible, setProfessionalPasswordVisible] = useState<Record<string, boolean>>({});
@@ -7661,6 +7683,96 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  const handleToggleLockAppointmentsWithOwnerPin = async (professionalId: string, lockAppointmentsWithOwnerPin: boolean) => {
+    if (!establishment) return;
+
+    try {
+      const updatedProfessionals = professionals.map((p) =>
+        p.id === professionalId ? { ...p, lock_appointments_with_owner_pin: lockAppointmentsWithOwnerPin } : p
+      );
+
+      setProfessionals(updatedProfessionals);
+
+      const { error, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
+
+      if (error) {
+        toast('Erro ao salvar trava de agenda por senha', 'error');
+        setProfessionals((prev) => prev.map((p) =>
+          p.id === professionalId ? { ...p, lock_appointments_with_owner_pin: !lockAppointmentsWithOwnerPin } : p
+        ));
+        return;
+      }
+
+      setProfessionals(safeProfessionals);
+      setEstablishment({
+        ...establishment,
+        professionals: safeProfessionals
+      });
+
+      if (!lockAppointmentsWithOwnerPin) {
+        setUnlockedAppointmentsByProfessional((prev) => {
+          const next = { ...prev };
+          delete next[professionalId];
+          return next;
+        });
+      }
+
+      toast.success(
+        lockAppointmentsWithOwnerPin
+          ? 'Agenda deste profissional protegida por senha do dono'
+          : 'Agenda deste profissional liberada sem senha'
+      );
+    } catch (error) {
+      console.error('❌ Erro ao alternar trava de agenda do profissional:', error);
+      toast('Erro ao atualizar configuração', 'error');
+    }
+  };
+
+  const handleToggleLockFinancialWithOwnerPin = async (professionalId: string, lockFinancialWithOwnerPin: boolean) => {
+    if (!establishment) return;
+
+    try {
+      const updatedProfessionals = professionals.map((p) =>
+        p.id === professionalId ? { ...p, lock_financial_with_owner_pin: lockFinancialWithOwnerPin } : p
+      );
+
+      setProfessionals(updatedProfessionals);
+
+      const { error, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
+
+      if (error) {
+        toast('Erro ao salvar trava de financeiro por senha', 'error');
+        setProfessionals((prev) => prev.map((p) =>
+          p.id === professionalId ? { ...p, lock_financial_with_owner_pin: !lockFinancialWithOwnerPin } : p
+        ));
+        return;
+      }
+
+      setProfessionals(safeProfessionals);
+      setEstablishment({
+        ...establishment,
+        professionals: safeProfessionals
+      });
+
+      if (!lockFinancialWithOwnerPin) {
+        setUnlockedFinancialByProfessional((prev) => {
+          const next = { ...prev };
+          delete next[professionalId];
+          return next;
+        });
+      }
+
+      toast.success(
+        lockFinancialWithOwnerPin
+          ? 'Financeiro deste profissional protegido por senha do dono'
+          : 'Financeiro deste profissional liberado sem senha'
+      );
+    } catch (error) {
+      console.error('❌ Erro ao alternar trava de financeiro do profissional:', error);
+      toast('Erro ao atualizar configuração', 'error');
+    }
+  };
+
   // Função para salvar profissionais no banco de dados
   const saveProfessionalsToDatabase = async () => {
     if (!establishment) return;
@@ -7800,6 +7912,12 @@ const EstablishmentDashboard = () => {
           hide_gross_in_financial: (localProfessional as any).hide_gross_in_financial !== undefined
             ? Boolean((localProfessional as any).hide_gross_in_financial)
             : Boolean((dbProfessional as any).hide_gross_in_financial),
+          lock_appointments_with_owner_pin: (localProfessional as any).lock_appointments_with_owner_pin !== undefined
+            ? Boolean((localProfessional as any).lock_appointments_with_owner_pin)
+            : Boolean((dbProfessional as any).lock_appointments_with_owner_pin),
+          lock_financial_with_owner_pin: (localProfessional as any).lock_financial_with_owner_pin !== undefined
+            ? Boolean((localProfessional as any).lock_financial_with_owner_pin)
+            : Boolean((dbProfessional as any).lock_financial_with_owner_pin),
           hidden_from_booking: (localProfessional as any).hidden_from_booking !== undefined
             ? (localProfessional as any).hidden_from_booking
             : (dbProfessional.hidden_from_booking !== undefined ? dbProfessional.hidden_from_booking : false),
@@ -8170,6 +8288,8 @@ const EstablishmentDashboard = () => {
           photo_url: (p as any).photo_url, // Preservar a foto do profissional
           whatsapp: p.whatsapp || null, // ✅ PRESERVAR WHATSAPP!
           hide_gross_in_financial: Boolean((p as any).hide_gross_in_financial), // ✅ PRESERVAR ocultar bruto no financeiro
+          lock_appointments_with_owner_pin: Boolean((p as any).lock_appointments_with_owner_pin), // ✅ trava agenda por senha do dono
+          lock_financial_with_owner_pin: Boolean((p as any).lock_financial_with_owner_pin), // ✅ trava financeiro por senha do dono
           specific_services: Array.isArray((p as any).specific_services) ? (p as any).specific_services : [], // ✅ PRESERVAR SERVIÇOS ESPECÍFICOS!
           offers_child_service: p.offers_child_service || false, // PRESERVAR configuração de serviço infantil
           work_hours: p.work_hours || null, // PRESERVAR horários de trabalho personalizados
@@ -10287,6 +10407,87 @@ Estamos te aguardando! 😎✂️`;
       // Cleanup do sistema de notificações internas
     };
   }, [establishment, selectedDate, selectedMonth]);
+
+  useEffect(() => {
+    // Mantém o novo painel detalhado sincronizado com o mês selecionado no financeiro.
+    setDetailedRangeStart(format(startOfMonth(selectedMonth), 'yyyy-MM-dd'));
+    setDetailedRangeEnd(format(endOfMonth(selectedMonth), 'yyyy-MM-dd'));
+    setHighlightMonthCursor(selectedMonth);
+  }, [selectedMonth]);
+
+  useEffect(() => {
+    const loadDetailedAttendances = async () => {
+      if (activeTab !== 'financial-dashboard') return;
+      if (!establishment?.id) return;
+      if (!detailedRangeStart || !detailedRangeEnd) return;
+      if (detailedRangeStart > detailedRangeEnd) {
+        setDetailedAttendances([]);
+        return;
+      }
+
+      setIsLoadingDetailedAttendances(true);
+      try {
+        const { data, error } = await supabase
+          .from('appointments')
+          .select('id,client_id,client_name,client_whatsapp,service,professional,appointment_date,appointment_time,status,price,total_price,payment_method,card_brand,additional_products')
+          .eq('establishment_id', establishment.id)
+          .gte('appointment_date', detailedRangeStart)
+          .lte('appointment_date', detailedRangeEnd)
+          .in('status', ['completed', 'cancelled'])
+          .order('appointment_date', { ascending: true })
+          .order('appointment_time', { ascending: true });
+
+        if (error) {
+          console.error('Erro ao carregar faturamento detalhado:', error);
+          setDetailedAttendances([]);
+          return;
+        }
+
+        setDetailedAttendances((data || []) as Appointment[]);
+      } catch (e) {
+        console.error('Erro inesperado ao carregar faturamento detalhado:', e);
+        setDetailedAttendances([]);
+      } finally {
+        setIsLoadingDetailedAttendances(false);
+      }
+    };
+
+    void loadDetailedAttendances();
+  }, [activeTab, establishment?.id, detailedRangeStart, detailedRangeEnd]);
+
+  useEffect(() => {
+    const loadHighlightMonthAttendances = async () => {
+      if (activeTab !== 'financial-dashboard') return;
+      if (!establishment?.id) return;
+
+      const monthStart = format(startOfMonth(highlightMonthCursor), 'yyyy-MM-dd');
+      const monthEnd = format(endOfMonth(highlightMonthCursor), 'yyyy-MM-dd');
+      setIsLoadingHighlightMonthAttendances(true);
+      try {
+        const { data, error } = await supabase
+          .from('appointments')
+          .select('id,client_id,client_name,client_whatsapp,service,professional,appointment_date,appointment_time,status,price,total_price,payment_method,card_brand,additional_products')
+          .eq('establishment_id', establishment.id)
+          .gte('appointment_date', monthStart)
+          .lte('appointment_date', monthEnd)
+          .eq('status', 'completed');
+
+        if (error) {
+          console.error('Erro ao carregar destaque por profissional do mês:', error);
+          setHighlightMonthAttendances([]);
+          return;
+        }
+        setHighlightMonthAttendances((data || []) as Appointment[]);
+      } catch (e) {
+        console.error('Erro inesperado ao carregar destaque por profissional:', e);
+        setHighlightMonthAttendances([]);
+      } finally {
+        setIsLoadingHighlightMonthAttendances(false);
+      }
+    };
+
+    void loadHighlightMonthAttendances();
+  }, [activeTab, establishment?.id, highlightMonthCursor]);
 
   // Atualização automática a cada 10 segundos COM PROTEÇÃO PARA EXCLUSÕES
   useEffect(() => {
@@ -13207,7 +13408,20 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
-  const handleProtectedAction = (type: 'percentage' | 'password' | 'goal' | 'barbershop_cash' | 'hide_gross', professionalId: string, data?: any) => {
+  const handleProtectedAction = (
+    type:
+    | 'percentage'
+    | 'password'
+    | 'goal'
+    | 'barbershop_cash'
+    | 'hide_gross'
+    | 'lock_appointments_view'
+    | 'lock_financial_view'
+    | 'unlock_appointments_view'
+    | 'unlock_financial_view',
+    professionalId: string,
+    data?: any
+  ) => {
     // Verificar se há senha configurada
     const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
 
@@ -13235,7 +13449,20 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
-  const executeProtectedAction = (type: 'percentage' | 'password' | 'goal' | 'barbershop_cash' | 'hide_gross', professionalId: string, data?: any) => {
+  const executeProtectedAction = (
+    type:
+    | 'percentage'
+    | 'password'
+    | 'goal'
+    | 'barbershop_cash'
+    | 'hide_gross'
+    | 'lock_appointments_view'
+    | 'lock_financial_view'
+    | 'unlock_appointments_view'
+    | 'unlock_financial_view',
+    professionalId: string,
+    data?: any
+  ) => {
     switch (type) {
       case 'percentage':
         if (data?.percentage !== undefined) {
@@ -13260,6 +13487,22 @@ Estamos te aguardando! 😎✂️`;
           handleToggleHideGrossInFinancial(professionalId, Boolean(data.hideGrossInFinancial));
         }
         break;
+      case 'lock_appointments_view':
+        if (data?.lockAppointmentsWithOwnerPin !== undefined) {
+          void handleToggleLockAppointmentsWithOwnerPin(professionalId, Boolean(data.lockAppointmentsWithOwnerPin));
+        }
+        break;
+      case 'lock_financial_view':
+        if (data?.lockFinancialWithOwnerPin !== undefined) {
+          void handleToggleLockFinancialWithOwnerPin(professionalId, Boolean(data.lockFinancialWithOwnerPin));
+        }
+        break;
+      case 'unlock_appointments_view':
+        setUnlockedAppointmentsByProfessional((prev) => ({ ...prev, [professionalId]: true }));
+        break;
+      case 'unlock_financial_view':
+        setUnlockedFinancialByProfessional((prev) => ({ ...prev, [professionalId]: true }));
+        break;
     }
   };
 
@@ -13272,6 +13515,50 @@ Estamos te aguardando! 😎✂️`;
     }
 
     setPendingAction({ type: 'hide_gross', professionalId, data: { hideGrossInFinancial } });
+    setShowConfigPasswordModal(true);
+  };
+
+  const handleRequestLockAppointmentsToggle = (professionalId: string, lockAppointmentsWithOwnerPin: boolean) => {
+    const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
+
+    if (!hasPassword || configPasswordVerified) {
+      void handleToggleLockAppointmentsWithOwnerPin(professionalId, lockAppointmentsWithOwnerPin);
+      return;
+    }
+
+    setPendingAction({ type: 'lock_appointments_view', professionalId, data: { lockAppointmentsWithOwnerPin } });
+    setShowConfigPasswordModal(true);
+  };
+
+  const handleRequestLockFinancialToggle = (professionalId: string, lockFinancialWithOwnerPin: boolean) => {
+    const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
+
+    if (!hasPassword || configPasswordVerified) {
+      void handleToggleLockFinancialWithOwnerPin(professionalId, lockFinancialWithOwnerPin);
+      return;
+    }
+
+    setPendingAction({ type: 'lock_financial_view', professionalId, data: { lockFinancialWithOwnerPin } });
+    setShowConfigPasswordModal(true);
+  };
+
+  const handleRequestAppointmentsUnlock = (professionalId: string) => {
+    const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
+    if (!hasPassword || configPasswordVerified) {
+      setUnlockedAppointmentsByProfessional((prev) => ({ ...prev, [professionalId]: true }));
+      return;
+    }
+    setPendingAction({ type: 'unlock_appointments_view', professionalId });
+    setShowConfigPasswordModal(true);
+  };
+
+  const handleRequestFinancialUnlock = (professionalId: string) => {
+    const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
+    if (!hasPassword || configPasswordVerified) {
+      setUnlockedFinancialByProfessional((prev) => ({ ...prev, [professionalId]: true }));
+      return;
+    }
+    setPendingAction({ type: 'unlock_financial_view', professionalId });
     setShowConfigPasswordModal(true);
   };
 
@@ -19769,6 +20056,10 @@ Estamos te aguardando! 😎✂️`;
                       pendingOpenBarbershopCash={pendingOpenBarbershopCashAfterPin}
                       onConsumePendingOpenBarbershopCash={() => setPendingOpenBarbershopCashAfterPin(false)}
                       onRequestBarbershopCashAccess={handleRequestBarbershopCashAccess}
+                      unlockedAppointmentsByProfessional={unlockedAppointmentsByProfessional}
+                      unlockedFinancialByProfessional={unlockedFinancialByProfessional}
+                      onRequestAppointmentsUnlock={handleRequestAppointmentsUnlock}
+                      onRequestFinancialUnlock={handleRequestFinancialUnlock}
                     />
                   </div>
 
@@ -26722,6 +27013,387 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   </div>
 
+                  <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowDetailedAttendancesPanel((prev) => !prev)}
+                      className="px-4 py-2 rounded-lg bg-gray-900 text-white hover:bg-black transition-colors text-sm font-semibold"
+                    >
+                      {showDetailedAttendancesPanel
+                        ? 'Ocultar faturamento detalhado dos atendimentos'
+                        : 'Ver faturamento detalhado dos atendimentos'}
+                    </button>
+                  </div>
+
+                  {showDetailedAttendancesPanel && (
+                    (() => {
+                      const rangeRows = detailedAttendances.filter((apt) => !isClientPaidSubscriber(apt.client_whatsapp));
+                      const completedRows = rangeRows.filter((apt) => apt.status === 'completed');
+                      const cancelledRows = rangeRows.filter((apt) => apt.status === 'cancelled');
+                      const isCancelledView = detailedRevenueFilter === 'servicos_cancelados';
+
+                      const filteredRows = rangeRows.filter((apt) => {
+                        if (detailedRevenueFilter === 'servicos_cancelados') {
+                          return apt.status === 'cancelled';
+                        }
+                        if (detailedRevenueFilter === 'todos' || detailedRevenueFilter === 'servicos_mais_feitos') {
+                          return apt.status === 'completed';
+                        }
+                        if (apt.status !== 'completed') return false;
+                        return String(apt.payment_method || '').trim() === detailedRevenueFilter;
+                      });
+
+                      const detailedGross = filteredRows.reduce((sum, apt) => sum + getAppointmentRevenueBase(apt), 0);
+                      const detailedLiquid = filteredRows.reduce((sum, apt) => {
+                        const professional = professionals.find((p) => appointmentBelongsToProfessional(apt, p));
+                        if (!professional) return sum;
+                        const baseValue = getAppointmentRevenueBase(apt);
+                        const cardTax = getCardTaxAmountFromAppointment(apt, baseValue);
+                        const professionalNet = calculateProfessionalNetForAppointment(professional, apt);
+                        if (isOwnerProfessional(professional)) {
+                          return sum + Math.max(0, professionalNet);
+                        }
+                        return sum + Math.max(0, (baseValue - cardTax) - professionalNet);
+                      }, 0);
+
+                      const serviceRanking = Array.from(
+                        filteredRows.reduce((acc, apt) => {
+                          const key = String(apt.service || '').trim() || 'Serviço sem nome';
+                          const current = acc.get(key) || { count: 0, gross: 0 };
+                          acc.set(key, {
+                            count: current.count + 1,
+                            gross: current.gross + getAppointmentRevenueBase(apt),
+                          });
+                          return acc;
+                        }, new Map<string, { count: number; gross: number }>())
+                      )
+                        .map(([name, stats]) => ({ name, ...stats }))
+                        .sort((a, b) => {
+                          if (b.count !== a.count) return b.count - a.count;
+                          return b.gross - a.gross;
+                        });
+
+                      const cancelledLossByService = Array.from(
+                        cancelledRows.reduce((acc, apt) => {
+                          const key = String(apt.service || '').trim() || 'Serviço sem nome';
+                          const current = acc.get(key) || { count: 0, gross: 0 };
+                          acc.set(key, {
+                            count: current.count + 1,
+                            gross: current.gross + getAppointmentRevenueBase(apt),
+                          });
+                          return acc;
+                        }, new Map<string, { count: number; gross: number }>())
+                      )
+                        .map(([name, stats]) => ({ name, ...stats }))
+                        .sort((a, b) => {
+                          if (b.gross !== a.gross) return b.gross - a.gross;
+                          return b.count - a.count;
+                        });
+
+                      const cancelledLossByProfessional = Array.from(
+                        cancelledRows.reduce((acc, apt) => {
+                          const matchedProfessional = professionals.find((p) => appointmentBelongsToProfessional(apt, p));
+                          const professionalName = matchedProfessional?.name || getProfessionalName(apt.professional) || 'Profissional não identificado';
+                          const key = matchedProfessional?.id || `legacy:${String(apt.professional || '').trim()}:${professionalName}`;
+                          const current = acc.get(key) || { name: professionalName, count: 0, gross: 0 };
+                          acc.set(key, {
+                            name: professionalName,
+                            count: current.count + 1,
+                            gross: current.gross + getAppointmentRevenueBase(apt),
+                          });
+                          return acc;
+                        }, new Map<string, { name: string; count: number; gross: number }>())
+                      )
+                        .map(([, stats]) => stats)
+                        .sort((a, b) => {
+                          if (b.count !== a.count) return b.count - a.count;
+                          return b.gross - a.gross;
+                        });
+                      const cancelledTopProfessional = cancelledLossByProfessional[0] || null;
+
+                      const monthRowsForHighlight = highlightMonthAttendances.filter((apt) => !isClientPaidSubscriber(apt.client_whatsapp));
+                      const highlightRanking = professionals
+                        .map((professional) => {
+                          const proRows = monthRowsForHighlight.filter((apt) => appointmentBelongsToProfessional(apt, professional));
+                          const gross = proRows.reduce((sum, apt) => sum + getAppointmentRevenueBase(apt), 0);
+                          return {
+                            id: professional.id,
+                            name: professional.name,
+                            count: proRows.length,
+                            gross,
+                          };
+                        })
+                        .filter((row) => row.count > 0)
+                        .sort((a, b) => {
+                          if (b.count !== a.count) return b.count - a.count;
+                          return b.gross - a.gross;
+                        });
+
+                      const topThreeHighlights = [0, 1, 2].map((idx) => highlightRanking[idx] || null);
+                      const topServiceCount = serviceRanking[0]?.count || 1;
+
+                      return (
+                        <div className="mb-6 rounded-2xl border border-gray-700 bg-gradient-to-br from-[#0f1115] via-[#12151c] to-[#171b24] p-5 shadow-2xl">
+                          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
+                            <div>
+                              <h3 className="text-lg font-bold text-white">Faturamento detalhado dos atendimentos</h3>
+                              <p className="text-xs text-gray-300 mt-1">
+                                Visão apenas de atendimentos concluídos (sem produtos e sem assinaturas pagas).
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input
+                                type="date"
+                                value={detailedRangeStart}
+                                onChange={(e) => setDetailedRangeStart(e.target.value)}
+                                className="px-3 py-2 rounded-lg bg-[#0b0e13] border border-gray-600 text-gray-100 text-sm"
+                              />
+                              <span className="text-gray-300 text-sm">até</span>
+                              <input
+                                type="date"
+                                value={detailedRangeEnd}
+                                onChange={(e) => setDetailedRangeEnd(e.target.value)}
+                                className="px-3 py-2 rounded-lg bg-[#0b0e13] border border-gray-600 text-gray-100 text-sm"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2 mb-4">
+                            {[
+                              { key: 'todos', label: 'Todos' },
+                              { key: 'pix', label: 'PIX' },
+                              { key: 'dinheiro', label: 'Dinheiro' },
+                              { key: 'debito', label: 'Débito' },
+                              { key: 'credito', label: 'Crédito' },
+                              { key: 'servicos_mais_feitos', label: 'Serviços mais feitos' },
+                              { key: 'servicos_cancelados', label: 'Serviços cancelados' },
+                            ].map((filter) => (
+                              <button
+                                key={filter.key}
+                                type="button"
+                                onClick={() => setDetailedRevenueFilter(filter.key)}
+                                className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${detailedRevenueFilter === filter.key
+                                  ? 'bg-indigo-600 text-white border-indigo-500'
+                                  : 'bg-[#0b0e13] text-gray-200 border-gray-600 hover:bg-[#121621]'
+                                  }`}
+                              >
+                                {filter.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                            <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4">
+                              <p className="text-xs text-emerald-300">
+                                {isCancelledView ? 'Perda bruta por cancelamentos' : 'Bruto dos atendimentos'}
+                              </p>
+                              <p className="text-2xl font-extrabold text-emerald-100 mt-1">{formatCurrency(detailedGross)}</p>
+                            </div>
+                            <div className="rounded-xl border border-sky-500/40 bg-sky-500/10 p-4">
+                              <p className="text-xs text-sky-300">
+                                {isCancelledView ? 'Perda líquida estimada (estabelecimento)' : 'Líquido do estabelecimento (atendimentos)'}
+                              </p>
+                              <p className="text-2xl font-extrabold text-sky-100 mt-1">{formatCurrency(detailedLiquid)}</p>
+                            </div>
+                            <div className="rounded-xl border border-violet-500/40 bg-violet-500/10 p-4">
+                              <p className="text-xs text-violet-300">
+                                {isCancelledView ? 'Atendimentos cancelados no período' : 'Atendimentos concluídos no período'}
+                              </p>
+                              <p className="text-2xl font-extrabold text-violet-100 mt-1">{filteredRows.length}</p>
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 mb-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <h4 className="text-sm font-bold text-amber-200">Profissional destaque</h4>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setHighlightMonthCursor((prev) => addMonths(prev, -1))}
+                                  className="px-2 py-1 rounded bg-[#0b0e13] border border-amber-500/40 text-amber-200 hover:bg-[#131826]"
+                                >
+                                  ‹
+                                </button>
+                                <span className="text-xs text-amber-100 font-semibold min-w-[110px] text-center">
+                                  {format(highlightMonthCursor, 'MMMM/yyyy', { locale: ptBR })}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setHighlightMonthCursor((prev) => addMonths(prev, 1))}
+                                  className="px-2 py-1 rounded bg-[#0b0e13] border border-amber-500/40 text-amber-200 hover:bg-[#131826]"
+                                >
+                                  ›
+                                </button>
+                              </div>
+                            </div>
+                            {isLoadingHighlightMonthAttendances ? (
+                              <p className="text-xs text-amber-100 mt-2">Carregando destaque do mês...</p>
+                            ) : (
+                              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                                {topThreeHighlights.map((item, idx) => (
+                                  <div key={`highlight-top-${idx}`} className="rounded-lg border border-amber-400/50 bg-black/20 p-3 min-h-[108px]">
+                                    {item ? (
+                                      <>
+                                        <p className="text-sm font-bold text-amber-300">
+                                          {idx === 0 ? '🏆 Top 1' : idx === 1 ? '🥈 Top 2' : '🥉 Top 3'}
+                                        </p>
+                                        <p className="text-base font-extrabold text-amber-100 mt-1">{item.name}</p>
+                                        <p className="text-xs text-amber-200 mt-1">
+                                          {item.count} agendamento(s) concluído(s)
+                                        </p>
+                                        <p className="text-xs text-amber-300 mt-1">
+                                          Bruto: <span className="font-bold text-amber-100">{formatCurrency(item.gross)}</span>
+                                        </p>
+                                      </>
+                                    ) : (
+                                      <div className="h-full w-full" />
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="rounded-xl border border-gray-700 bg-[#0b0e13] p-4">
+                            {isLoadingDetailedAttendances ? (
+                              <p className="text-sm text-gray-300">Carregando atendimentos detalhados...</p>
+                            ) : detailedRevenueFilter === 'servicos_cancelados' ? (
+                              cancelledLossByService.length === 0 ? (
+                                <p className="text-sm text-gray-400">Nenhum serviço cancelado no período.</p>
+                              ) : (
+                                <div className="space-y-2">
+                                  <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3">
+                                    <p className="text-xs text-red-200">Total perdido por cancelamentos</p>
+                                    <p className="text-xl font-extrabold text-red-100 mt-1">
+                                      {formatCurrency(cancelledRows.reduce((sum, apt) => sum + getAppointmentRevenueBase(apt), 0))}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg border border-orange-500/40 bg-orange-500/10 p-3">
+                                    <p className="text-xs text-orange-200">Profissional com mais cancelamentos</p>
+                                    {cancelledTopProfessional ? (
+                                      <>
+                                        <p className="text-base font-extrabold text-orange-100 mt-1">
+                                          {cancelledTopProfessional.name}
+                                        </p>
+                                        <p className="text-xs text-orange-200 mt-1">
+                                          {cancelledTopProfessional.count} cancelamento(s) • Perda: {formatCurrency(cancelledTopProfessional.gross)}
+                                        </p>
+                                      </>
+                                    ) : (
+                                      <p className="text-sm text-orange-100 mt-1">Sem cancelamentos no período</p>
+                                    )}
+                                  </div>
+                                  {cancelledLossByProfessional.length > 0 && (
+                                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                                      <p className="text-xs font-semibold text-amber-200 mb-2">Ranking de cancelamentos por profissional</p>
+                                      <div className="space-y-2">
+                                        {cancelledLossByProfessional.slice(0, 5).map((item, idx) => (
+                                          <div key={`${item.name}-${idx}`} className="flex items-center justify-between gap-2 text-xs">
+                                            <span className="text-amber-100">
+                                              {idx + 1}. {item.name} ({item.count})
+                                            </span>
+                                            <span className="font-semibold text-red-300">{formatCurrency(item.gross)}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {cancelledLossByService.map((item, idx) => (
+                                    <div key={`${item.name}-${idx}`} className="rounded-lg border border-gray-700 bg-[#121722] p-3">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="text-sm font-semibold text-gray-100">
+                                          {idx + 1}. {item.name}
+                                        </span>
+                                        <span className="text-xs font-bold text-red-300">{item.count} cancelado(s)</span>
+                                      </div>
+                                      <div className="mt-2 flex items-center justify-between text-xs">
+                                        <span className="text-gray-400">Perda bruta estimada</span>
+                                        <span className="font-semibold text-red-300">{formatCurrency(item.gross)}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            ) : detailedRevenueFilter === 'servicos_mais_feitos' ? (
+                              serviceRanking.length === 0 ? (
+                                <p className="text-sm text-gray-400">Nenhum serviço encontrado para este período.</p>
+                              ) : (
+                                <div className="space-y-2">
+                                  {serviceRanking.map((item, idx) => (
+                                    <div key={`${item.name}-${idx}`} className="rounded-lg border border-gray-700 bg-[#121722] p-3">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="text-sm font-semibold text-gray-100">
+                                          {idx + 1}. {item.name}
+                                        </span>
+                                        <span className="text-xs font-bold text-indigo-300">{item.count}x</span>
+                                      </div>
+                                      <div className="mt-2 h-2 rounded bg-gray-800 overflow-hidden">
+                                        <div
+                                          className="h-2 rounded bg-gradient-to-r from-indigo-500 to-cyan-500"
+                                          style={{ width: `${Math.max(8, (item.count / topServiceCount) * 100)}%` }}
+                                        />
+                                      </div>
+                                      <div className="mt-2 flex items-center justify-between text-xs">
+                                        <span className="text-gray-400">Bruto</span>
+                                        <span className="font-semibold text-emerald-300">{formatCurrency(item.gross)}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            ) : (
+                              <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                                {filteredRows.length === 0 ? (
+                                  <p className="text-sm text-gray-400">Nenhum atendimento encontrado nesse filtro.</p>
+                                ) : (
+                                  filteredRows.map((apt) => {
+                                    const professional = professionals.find((p) => appointmentBelongsToProfessional(apt, p));
+                                    const baseValue = getAppointmentRevenueBase(apt);
+                                    const cardTax = getCardTaxAmountFromAppointment(apt, baseValue);
+                                    const professionalNet = professional ? calculateProfessionalNetForAppointment(professional, apt) : 0;
+                                    const establishmentNet = professional
+                                      ? (isOwnerProfessional(professional)
+                                        ? Math.max(0, professionalNet)
+                                        : Math.max(0, (baseValue - cardTax) - professionalNet))
+                                      : 0;
+                                    return (
+                                      <div key={apt.id} className="rounded-lg border border-gray-700 bg-[#121722] p-3">
+                                        <div className="flex flex-wrap items-start justify-between gap-2">
+                                          <div>
+                                            <p className="text-sm font-semibold text-gray-100">{apt.client_name || 'Cliente'}</p>
+                                            <p className="text-xs text-gray-400">
+                                              {String(apt.service || 'Serviço')} • {getProfessionalName(apt.professional)}
+                                            </p>
+                                          </div>
+                                          <div className="text-right">
+                                            <p className="text-sm font-bold text-emerald-300">{formatCurrency(baseValue)}</p>
+                                            <p className="text-[11px] text-sky-300">Líquido estab.: {formatCurrency(establishmentNet)}</p>
+                                          </div>
+                                        </div>
+                                        <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-gray-400">
+                                          <span>💳 {String(apt.payment_method || 'pendente')}</span>
+                                          <span>
+                                            📅 {(() => {
+                                              const datePart = String(apt.appointment_date || '').split('T')[0] || '';
+                                              const timePart = String(apt.appointment_time || '').trim() || '00:00';
+                                              const dt = new Date(`${datePart}T${timePart}`);
+                                              if (Number.isNaN(dt.getTime())) return `${datePart} ${timePart}`;
+                                              return format(dt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
+                                            })()}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
+
                   {/* Receita por Profissional */}
                   <div className="bg-gradient-to-br from-gray-50 via-gray-100 to-gray-200 rounded-xl shadow-lg border border-gray-300/50 p-6">
                     <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
@@ -26955,7 +27627,8 @@ Estamos te aguardando! 😎✂️`;
                                           { key: 'pix', label: 'PIX' },
                                           { key: 'dinheiro', label: 'Dinheiro' },
                                           { key: 'debito', label: 'Débito' },
-                                          { key: 'credito', label: 'Crédito' }
+                                          { key: 'credito', label: 'Crédito' },
+                                          { key: 'servicos_mais_feitos', label: 'Serviços mais feitos' }
                                         ].map(filter => (
                                           <button
                                             key={filter.key}
@@ -26974,7 +27647,29 @@ Estamos te aguardando! 😎✂️`;
                                       {(() => {
                                         const filteredAppointments = professionalAppointments
                                           .filter(apt => apt.status === 'completed')
-                                          .filter(apt => paymentFilter === 'todos' || apt.payment_method === paymentFilter);
+                                          .filter(apt =>
+                                            paymentFilter === 'todos' ||
+                                            paymentFilter === 'servicos_mais_feitos' ||
+                                            apt.payment_method === paymentFilter
+                                          );
+
+                                        const mostDoneServices = Array.from(
+                                          filteredAppointments.reduce((acc, apt) => {
+                                            const key = String(apt.service || '').trim() || 'Serviço sem nome';
+                                            const baseValue = getAppointmentRevenueBase(apt);
+                                            const current = acc.get(key) || { count: 0, gross: 0 };
+                                            acc.set(key, {
+                                              count: current.count + 1,
+                                              gross: current.gross + baseValue,
+                                            });
+                                            return acc;
+                                          }, new Map<string, { count: number; gross: number }>())
+                                        )
+                                          .map(([name, stats]) => ({ name, ...stats }))
+                                          .sort((a, b) => {
+                                            if (b.count !== a.count) return b.count - a.count;
+                                            return b.gross - a.gross;
+                                          });
 
                                         const grossTotal = filteredAppointments.reduce((total, apt) => {
                                           const baseValue = getAppointmentRevenueBase(apt);
@@ -27018,7 +27713,8 @@ Estamos te aguardando! 😎✂️`;
                                           paymentFilter === 'pix' ? 'PIX' :
                                             paymentFilter === 'dinheiro' ? 'Dinheiro' :
                                               paymentFilter === 'debito' ? 'Débito' :
-                                                paymentFilter === 'credito' ? 'Crédito' : 'Todos';
+                                                paymentFilter === 'credito' ? 'Crédito' :
+                                                  paymentFilter === 'servicos_mais_feitos' ? 'Serviços mais feitos' : 'Todos';
 
                                         // "Novas Vendas" no resumo segue regra anti-adiantamento.
                                         const displayNewSales = paymentFilter === 'todos'
@@ -27043,12 +27739,21 @@ Estamos te aguardando! 😎✂️`;
                                                   {formatCurrency(netTotal)}
                                                 </span>
                                               </div>
-                                              <div className="flex justify-between items-center border-t border-gray-200 pt-2">
-                                                <span className="text-gray-600 font-medium">Novas Vendas:</span>
-                                                <span className="font-bold text-purple-600">
-                                                  {formatCurrency(displayNewSales)}
-                                                </span>
-                                              </div>
+                                              {paymentFilter !== 'servicos_mais_feitos' ? (
+                                                <div className="flex justify-between items-center border-t border-gray-200 pt-2">
+                                                  <span className="text-gray-600 font-medium">Novas Vendas:</span>
+                                                  <span className="font-bold text-purple-600">
+                                                    {formatCurrency(displayNewSales)}
+                                                  </span>
+                                                </div>
+                                              ) : (
+                                                <div className="flex justify-between items-center border-t border-gray-200 pt-2">
+                                                  <span className="text-gray-600 font-medium">Serviço mais feito:</span>
+                                                  <span className="font-bold text-purple-600">
+                                                    {mostDoneServices[0] ? `${mostDoneServices[0].name} (${mostDoneServices[0].count})` : 'Sem dados'}
+                                                  </span>
+                                                </div>
+                                              )}
                                               {paymentFilter === 'todos' && paymentValidation.ignoredAdvance > 0 && (
                                                 <div className="flex justify-between items-center">
                                                   <span className="text-amber-700 font-medium">Adiantamentos ignorados:</span>
@@ -27064,10 +27769,69 @@ Estamos te aguardando! 😎✂️`;
                                     </div>
 
                                     {/* Lista de serviços filtrados */}
-                                    {professionalAppointments
-                                      .filter(apt => apt.status === 'completed')
-                                      .filter(apt => paymentFilter === 'todos' || apt.payment_method === paymentFilter)
-                                      .map((apt, index) => {
+                                    {paymentFilter === 'servicos_mais_feitos' ? (
+                                      (() => {
+                                        const ranking = Array.from(
+                                          professionalAppointments
+                                            .filter((apt) => apt.status === 'completed')
+                                            .reduce((acc, apt) => {
+                                              const key = String(apt.service || '').trim() || 'Serviço sem nome';
+                                              const baseValue = getAppointmentRevenueBase(apt);
+                                              const current = acc.get(key) || { count: 0, gross: 0 };
+                                              acc.set(key, {
+                                                count: current.count + 1,
+                                                gross: current.gross + baseValue,
+                                              });
+                                              return acc;
+                                            }, new Map<string, { count: number; gross: number }>())
+                                        )
+                                          .map(([name, stats]) => ({ name, ...stats }))
+                                          .sort((a, b) => {
+                                            if (b.count !== a.count) return b.count - a.count;
+                                            return b.gross - a.gross;
+                                          });
+
+                                        if (ranking.length === 0) {
+                                          return (
+                                            <div className="bg-white border border-gray-200 rounded-lg p-4 text-sm text-gray-600">
+                                              Nenhum serviço concluído para gerar o ranking.
+                                            </div>
+                                          );
+                                        }
+
+                                        const topCount = ranking[0]?.count || 1;
+                                        return (
+                                          <div className="space-y-2">
+                                            {ranking.map((item, idx) => (
+                                              <div key={`${item.name}-${idx}`} className="bg-white border border-gray-200 rounded-lg p-3">
+                                                <div className="flex items-center justify-between gap-2">
+                                                  <span className="text-sm font-semibold text-gray-800">
+                                                    {idx + 1}. {item.name}
+                                                  </span>
+                                                  <span className="text-xs font-bold text-blue-700">
+                                                    {item.count}x
+                                                  </span>
+                                                </div>
+                                                <div className="mt-2 h-2 rounded bg-gray-200 overflow-hidden">
+                                                  <div
+                                                    className="h-2 rounded bg-gradient-to-r from-blue-500 to-indigo-500"
+                                                    style={{ width: `${Math.max(8, (item.count / topCount) * 100)}%` }}
+                                                  />
+                                                </div>
+                                                <div className="mt-2 flex items-center justify-between text-xs">
+                                                  <span className="text-gray-600">Faturamento bruto do serviço</span>
+                                                  <span className="font-semibold text-emerald-700">{formatCurrency(item.gross)}</span>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        );
+                                      })()
+                                    ) : (
+                                      professionalAppointments
+                                        .filter(apt => apt.status === 'completed')
+                                        .filter(apt => paymentFilter === 'todos' || apt.payment_method === paymentFilter)
+                                        .map((apt, index) => {
                                         const baseValue = getAppointmentRevenueBase(apt);
                                         let netValue;
 
@@ -27156,7 +27920,8 @@ Estamos te aguardando! 😎✂️`;
                                             </div>
                                           </div>
                                         );
-                                      })}
+                                      })
+                                    )}
                                   </div>
                                 </details>
                               </div>
@@ -31458,6 +32223,54 @@ Estamos te aguardando! 😎✂️`;
                       </div>
                     </div>
 
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Proteção de agenda</label>
+                      <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span>🔐</span>
+                          <div>
+                            <span className="text-white">Ocultar agendamentos com senha do dono</span>
+                            <p className="text-xs text-gray-500">
+                              Em Meus Agendamentos, só abre a agenda deste profissional após digitar a senha de 4 dígitos.
+                            </p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={Boolean((professional as any).lock_appointments_with_owner_pin)}
+                            onChange={(e) => handleRequestLockAppointmentsToggle(professional.id, e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Proteção de financeiro</label>
+                      <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span>💰</span>
+                          <div>
+                            <span className="text-white">Ocultar financeiro com senha do dono</span>
+                            <p className="text-xs text-gray-500">
+                              No botão Financeiro em Meus Agendamentos, só abre após senha. O profissional continua vendo apenas a agenda do dia quando desbloqueada.
+                            </p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={Boolean((professional as any).lock_financial_with_owner_pin)}
+                            onChange={(e) => handleRequestLockFinancialToggle(professional.id, e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
+                        </label>
+                      </div>
+                    </div>
+
                     {/* ✅ Saldo por produtos (repasse do mês) */}
                     <div className="space-y-2">
                       <label className="block text-sm text-gray-400">Saldo por produtos (mês)</label>
@@ -33354,6 +34167,7 @@ Estamos te aguardando! 😎✂️`;
         onVerify={handleConfigPasswordVerify}
         onSuccess={handleConfigPasswordSuccess}
         title="Verificação de Senha"
+        rememberKey={establishment?.id ? `owner_pin_cache_${establishment.id}_${user?.id || 'anon'}` : undefined}
         description={
           pendingAction?.type === 'password'
             ? "Digite a senha de 4 dígitos para visualizar a senha do profissional"
@@ -33361,6 +34175,14 @@ Estamos te aguardando! 😎✂️`;
               ? "Digite a senha de 4 dígitos para alterar o percentual do profissional"
               : pendingAction?.type === 'hide_gross'
                 ? "Digite a senha de 4 dígitos para alterar a opção de ocultar bruto do profissional"
+              : pendingAction?.type === 'lock_appointments_view'
+                ? "Digite a senha de 4 dígitos para alterar a proteção de agenda deste profissional"
+              : pendingAction?.type === 'lock_financial_view'
+                ? "Digite a senha de 4 dígitos para alterar a proteção de financeiro deste profissional"
+              : pendingAction?.type === 'unlock_appointments_view'
+                ? "Digite a senha de 4 dígitos para desbloquear a agenda deste profissional"
+              : pendingAction?.type === 'unlock_financial_view'
+                ? "Digite a senha de 4 dígitos para desbloquear o financeiro deste profissional"
               : pendingAction?.type === 'barbershop_cash'
                 ? "Digite a senha de 4 dígitos para acessar o caixa da barbearia"
                 : "Digite a senha de 4 dígitos para alterar configurações sensíveis"

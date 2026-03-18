@@ -142,6 +142,55 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return digits;
   };
 
+  const toTime = (value: unknown): number => {
+    const raw = String(value || '').trim();
+    if (!raw) return 0;
+    const timestamp = new Date(raw).getTime();
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  };
+
+  const deduplicateSubscriberRows = (rows: ClientSubscription[]): ClientSubscription[] => {
+    const byKey = new Map<string, ClientSubscription>();
+
+    for (const row of rows || []) {
+      const current = row as any;
+      const phone = normalizePhoneDigits(String(current?.subscriber_whatsapp || current?.client_whatsapp || ''));
+      const nameKey = normalizeNameKey(String(current?.subscriber_name || current?.profiles?.full_name || ''));
+      const key = phone || (nameKey ? `name:${nameKey}` : `id:${String(current?.id || '')}`);
+
+      const previous = byKey.get(key);
+      if (!previous) {
+        byKey.set(key, row);
+        continue;
+      }
+
+      const prevAny = previous as any;
+      const curAny = current;
+
+      const prevEnd = toTime(prevAny?.end_date);
+      const curEnd = toTime(curAny?.end_date);
+      if (curEnd !== prevEnd) {
+        if (curEnd > prevEnd) byKey.set(key, row);
+        continue;
+      }
+
+      const prevPaid = String(prevAny?.payment_status || '').toLowerCase() === 'paid' ? 1 : 0;
+      const curPaid = String(curAny?.payment_status || '').toLowerCase() === 'paid' ? 1 : 0;
+      if (curPaid !== prevPaid) {
+        if (curPaid > prevPaid) byKey.set(key, row);
+        continue;
+      }
+
+      const prevUpdated = toTime(prevAny?.updated_at) || toTime(prevAny?.created_at);
+      const curUpdated = toTime(curAny?.updated_at) || toTime(curAny?.created_at);
+      if (curUpdated > prevUpdated) {
+        byKey.set(key, row);
+      }
+    }
+
+    return Array.from(byKey.values());
+  };
+
   const normalizeProfessionalPercentage = (raw: unknown): number => {
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return 100;
@@ -1821,7 +1870,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           toast.error('Erro ao carregar assinantes.');
           return;
         }
-        setClientSubscriptions(oldData || []);
+        const dedupedOldData = deduplicateSubscriberRows((oldData || []) as ClientSubscription[]);
+        setClientSubscriptions(dedupedOldData);
         return;
       }
 
@@ -1836,8 +1886,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         client_whatsapp: subscriber.subscriber_whatsapp || 'N/A'
       }));
 
-      console.log('📋 Assinantes carregados (novo sistema):', transformedSubscribers.length);
-      setClientSubscriptions(transformedSubscribers);
+      const dedupedSubscribers = deduplicateSubscriberRows(transformedSubscribers as ClientSubscription[]);
+      console.log('📋 Assinantes carregados (novo sistema):', transformedSubscribers.length, '| após dedupe:', dedupedSubscribers.length);
+      setClientSubscriptions(dedupedSubscribers);
     } catch (error) {
       console.error('Erro ao buscar assinantes:', error);
       toast.error('Erro ao carregar assinantes.');

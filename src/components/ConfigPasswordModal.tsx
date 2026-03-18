@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Lock, X, Eye, EyeOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -9,6 +9,7 @@ interface ConfigPasswordModalProps {
   onSuccess?: () => void;
   title: string;
   description: string;
+  rememberKey?: string;
 }
 
 export function ConfigPasswordModal({
@@ -17,27 +18,53 @@ export function ConfigPasswordModal({
   onVerify,
   onSuccess,
   title,
-  description
+  description,
+  rememberKey
 }: ConfigPasswordModalProps) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [rememberPassword, setRememberPassword] = useState(false);
+  const [autoTriedRememberedPassword, setAutoTriedRememberedPassword] = useState(false);
 
-  const handleVerify = async () => {
-    if (password.length !== 4) {
-      toast.error('A senha deve ter 4 dígitos');
+  const persistRememberedPassword = (nextPassword: string, shouldRemember: boolean) => {
+    if (!rememberKey) return;
+    try {
+      if (shouldRemember) {
+        localStorage.setItem(rememberKey, nextPassword);
+      } else {
+        localStorage.removeItem(rememberKey);
+      }
+    } catch {
+      // silencioso: não bloquear fluxo por storage
+    }
+  };
+
+  const handleVerify = async (passwordToCheck?: string, isAutoAttempt = false) => {
+    const candidate = String(passwordToCheck ?? password ?? '').trim();
+    if (candidate.length !== 4) {
+      if (!isAutoAttempt) {
+        toast.error('A senha deve ter 4 dígitos');
+      }
       return;
     }
 
     setIsVerifying(true);
     try {
-      const isValid = await onVerify(password);
+      const isValid = await onVerify(candidate);
       if (isValid) {
+        const shouldRemember = isAutoAttempt ? true : rememberPassword;
+        persistRememberedPassword(candidate, shouldRemember);
         toast.success('Senha verificada com sucesso!');
         onSuccess?.(); // Chama callback de sucesso
         onClose();
         setPassword('');
       } else {
+        if (isAutoAttempt) {
+          // senha salva ficou inválida (ex.: dono alterou) -> limpar
+          persistRememberedPassword('', false);
+          setRememberPassword(false);
+        }
         toast.error('Senha incorreta');
         setPassword('');
       }
@@ -52,8 +79,36 @@ export function ConfigPasswordModal({
     if (!isVerifying) {
       onClose();
       setPassword('');
+      setAutoTriedRememberedPassword(false);
     }
   };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!rememberKey) return;
+    if (autoTriedRememberedPassword) return;
+
+    try {
+      const saved = String(localStorage.getItem(rememberKey) || '').trim();
+      if (saved.length === 4) {
+        setRememberPassword(true);
+        setPassword(saved);
+        setAutoTriedRememberedPassword(true);
+        // Auto verificação para não ficar digitando toda hora.
+        void handleVerify(saved, true);
+      } else {
+        setAutoTriedRememberedPassword(true);
+      }
+    } catch {
+      setAutoTriedRememberedPassword(true);
+    }
+  }, [isOpen, rememberKey, autoTriedRememberedPassword]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setAutoTriedRememberedPassword(false);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -113,6 +168,23 @@ export function ConfigPasswordModal({
             <p className="text-xs text-gray-500 mt-1">
               Digite a senha de 4 dígitos das configurações
             </p>
+            {rememberKey ? (
+              <label className="mt-2 inline-flex items-center gap-2 text-sm text-gray-700 select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberPassword}
+                  onChange={(e) => {
+                    const next = e.target.checked;
+                    setRememberPassword(next);
+                    if (!next) {
+                      persistRememberedPassword('', false);
+                    }
+                  }}
+                  disabled={isVerifying}
+                />
+                Lembrar senha neste aparelho
+              </label>
+            ) : null}
           </div>
 
           {/* Action Buttons */}
@@ -127,7 +199,9 @@ export function ConfigPasswordModal({
             </button>
             <button
               type="button"
-              onClick={handleVerify}
+              onClick={() => {
+                void handleVerify();
+              }}
               className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               disabled={isVerifying || password.length !== 4}
             >

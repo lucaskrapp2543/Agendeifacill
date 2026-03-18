@@ -22,6 +22,52 @@ const getSubscriberPaymentMethodFromProvider = (providerRaw: unknown): string | 
   return null;
 };
 
+const findExistingSubscriberByPhone = async (
+  supabaseAdmin: any,
+  establishmentId: string,
+  subscriptionId: string,
+  customerWhatsapp: string
+) => {
+  const estId = String(establishmentId || '').trim();
+  const subId = String(subscriptionId || '').trim();
+  const phone = String(customerWhatsapp || '').trim();
+  if (!estId || !subId || !phone) return { data: null, error: null };
+
+  const attempts: Array<{ column: 'subscriber_whatsapp' | 'client_whatsapp'; sameSubscriptionFirst: boolean }> = [
+    { column: 'subscriber_whatsapp', sameSubscriptionFirst: true },
+    { column: 'subscriber_whatsapp', sameSubscriptionFirst: false },
+    { column: 'client_whatsapp', sameSubscriptionFirst: true },
+    { column: 'client_whatsapp', sameSubscriptionFirst: false },
+  ];
+
+  let lastError: any = null;
+
+  for (const attempt of attempts) {
+    let query = supabaseAdmin
+      .from('client_subscriptions')
+      .select('id, subscription_id, created_at')
+      .eq('establishment_id', estId)
+      // @ts-expect-error colunas legadas podem não existir no tipo
+      .eq(attempt.column, phone)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (attempt.sameSubscriptionFirst) {
+      query = query.eq('subscription_id', subId);
+    }
+
+    const { data, error } = await query.maybeSingle();
+    if (!error && data?.id) {
+      return { data, error: null };
+    }
+    if (error) {
+      lastError = error;
+    }
+  }
+
+  return { data: null, error: lastError };
+};
+
 export const handler: Handler = async (event) => {
   try {
     if (event.httpMethod !== 'POST') {
@@ -77,15 +123,15 @@ export const handler: Handler = async (event) => {
     const endDate = toISODate(addMonths(today, Number.isFinite(durationMonths) && durationMonths > 0 ? durationMonths : 1));
 
     // Se já existir, atualizar
-    const { data: existing } = await supabaseAdmin
-      .from('client_subscriptions')
-      .select('id')
-      .eq('establishment_id', String(establishmentId))
-      .eq('subscription_id', String(subscriptionId))
-      // @ts-expect-error coluna existe no banco
-      .eq('subscriber_whatsapp', customerWhatsapp)
-      .limit(1)
-      .maybeSingle();
+    const { data: existing, error: existingErr } = await findExistingSubscriberByPhone(
+      supabaseAdmin,
+      String(establishmentId),
+      String(subscriptionId),
+      customerWhatsapp
+    );
+    if (existingErr) {
+      console.warn('⚠️ Não foi possível checar assinatura existente (credit):', existingErr);
+    }
 
     const provider = String(providerKey || 'credit_link').trim() || 'credit_link';
     const subscriberPaymentMethod =
