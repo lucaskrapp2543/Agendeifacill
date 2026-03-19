@@ -4081,6 +4081,10 @@ const EstablishmentDashboard = () => {
   const [editingProduct, setEditingProduct] = useState<EstablishmentProduct | null>(null);
   const [isUploadingNewProductImage, setIsUploadingNewProductImage] = useState(false);
   const [isUploadingEditProductImage, setIsUploadingEditProductImage] = useState(false);
+  const newProductGalleryInputRef = useRef<HTMLInputElement | null>(null);
+  const newProductCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const editProductGalleryInputRef = useRef<HTMLInputElement | null>(null);
+  const editProductCameraInputRef = useRef<HTMLInputElement | null>(null);
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [newProduct, setNewProduct] = useState({
     name: '',
@@ -4602,6 +4606,58 @@ const EstablishmentDashboard = () => {
   const uploadProductImageToStorage = async (file: File): Promise<string | null> => {
     if (!establishment?.id) return null;
 
+    const optimizeImageForUpload = async (inputFile: File): Promise<File> => {
+      try {
+        const type = String(inputFile.type || '').toLowerCase();
+        if (!type.startsWith('image/')) return inputFile;
+        if (inputFile.size <= 4 * 1024 * 1024) return inputFile;
+
+        const objectUrl = URL.createObjectURL(inputFile);
+        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = objectUrl;
+        });
+
+        const maxSide = 1600;
+        const ratio = Math.min(1, maxSide / Math.max(image.width || 1, image.height || 1));
+        const targetWidth = Math.max(1, Math.round((image.width || 1) * ratio));
+        const targetHeight = Math.max(1, Math.round((image.height || 1) * ratio));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          URL.revokeObjectURL(objectUrl);
+          return inputFile;
+        }
+        ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
+        URL.revokeObjectURL(objectUrl);
+
+        let quality = 0.86;
+        let outputBlob: Blob | null = null;
+        for (let i = 0; i < 4; i++) {
+          outputBlob = await new Promise<Blob | null>((resolve) =>
+            canvas.toBlob((blob) => resolve(blob), 'image/jpeg', quality)
+          );
+          if (!outputBlob) break;
+          if (outputBlob.size <= 3 * 1024 * 1024) break;
+          quality = Math.max(0.62, quality - 0.08);
+        }
+
+        if (!outputBlob) return inputFile;
+        const optimizedFile = new File([outputBlob], `${uuidv4()}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        if (optimizedFile.size < inputFile.size) {
+          return optimizedFile;
+        }
+      } catch (error) {
+        console.warn('Falha ao otimizar imagem de produto no cliente:', error);
+      }
+      return inputFile;
+    };
+
     // Validar tamanho do arquivo (máximo 20MB)
     if (file.size > 20 * 1024 * 1024) {
       toast('A imagem deve ter no máximo 20MB', 'error');
@@ -4638,6 +4694,10 @@ const EstablishmentDashboard = () => {
       }
     }
 
+    // Em mobile, imagens de galeria/câmera podem vir muito pesadas.
+    // Reduzimos no cliente para tornar o upload mais rápido e estável.
+    fileToUpload = await optimizeImageForUpload(fileToUpload);
+
     const fileExt = (String(fileToUpload.name || '').split('.').pop() || 'jpg').toLowerCase();
     const fileName = `${uuidv4()}_${Date.now()}.${fileExt}`;
     const filePath = `product-photos/${establishment.id}/${fileName}`;
@@ -4648,7 +4708,22 @@ const EstablishmentDashboard = () => {
 
     if (uploadError) {
       console.error('Erro no upload da foto do produto:', uploadError);
-      toast('Erro ao fazer upload da foto do produto', 'error');
+      const details = formatSupabaseErrorDetails(uploadError);
+      const lower = String(details || '').toLowerCase();
+      let friendlyHint = '';
+      if (lower.includes('row-level security') || lower.includes('permission') || lower.includes('not authorized')) {
+        friendlyHint = 'Sem permissão para gravar no Storage.';
+      } else if (lower.includes('bucket') && lower.includes('not found')) {
+        friendlyHint = 'Bucket de imagens não encontrado.';
+      } else if (lower.includes('payload') || lower.includes('entity too large') || lower.includes('413')) {
+        friendlyHint = 'Arquivo muito grande para upload.';
+      } else if (lower.includes('network') || lower.includes('failed to fetch')) {
+        friendlyHint = 'Falha de conexão durante o upload.';
+      }
+      toast(
+        `Erro ao fazer upload da foto do produto${friendlyHint ? `: ${friendlyHint}` : ''}${details ? ` | ${details}` : ''}`,
+        'error'
+      );
       return null;
     }
 
@@ -4662,6 +4737,11 @@ const EstablishmentDashboard = () => {
   const handleNewProductImageFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !establishment?.id) return;
+    if (file.size <= 0) {
+      toast('Não foi possível ler o arquivo selecionado. Tente escolher a foto novamente.', 'error');
+      event.target.value = '';
+      return;
+    }
 
     setIsUploadingNewProductImage(true);
     try {
@@ -4679,6 +4759,11 @@ const EstablishmentDashboard = () => {
   const handleEditProductImageFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !editingProduct || !establishment?.id) return;
+    if (file.size <= 0) {
+      toast('Não foi possível ler o arquivo selecionado. Tente escolher a foto novamente.', 'error');
+      event.target.value = '';
+      return;
+    }
 
     setIsUploadingEditProductImage(true);
     try {
@@ -33114,18 +33199,46 @@ Estamos te aguardando! 😎✂️`;
                       />
                     </div>
                   ) : null}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => newProductGalleryInputRef.current?.click()}
+                      disabled={isUploadingNewProductImage}
+                      className="px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-800 text-sm font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Escolher da galeria
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => newProductCameraInputRef.current?.click()}
+                      disabled={isUploadingNewProductImage}
+                      className="px-3 py-2 border border-blue-300 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold hover:bg-blue-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Tirar foto
+                    </button>
+                  </div>
                   <input
+                    ref={newProductGalleryInputRef}
                     type="file"
                     accept="image/*,.heic,.heif"
                     onChange={handleNewProductImageFileChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    className="hidden"
+                    disabled={isUploadingNewProductImage}
+                  />
+                  <input
+                    ref={newProductCameraInputRef}
+                    type="file"
+                    accept="image/*,.heic,.heif"
+                    capture="environment"
+                    onChange={handleNewProductImageFileChange}
+                    className="hidden"
                     disabled={isUploadingNewProductImage}
                   />
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <p className="text-xs text-gray-500">
                       {isUploadingNewProductImage
                         ? 'Enviando foto...'
-                        : 'Essa foto também aparecerá no agendamento e no chatbot.'}
+                        : 'A foto será otimizada automaticamente para enviar mais rápido no celular.'}
                     </p>
                     {String(newProduct.image_url || '').trim() ? (
                       <button
@@ -33254,18 +33367,46 @@ Estamos te aguardando! 😎✂️`;
                       />
                     </div>
                   ) : null}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => editProductGalleryInputRef.current?.click()}
+                      disabled={isUploadingEditProductImage}
+                      className="px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-800 text-sm font-semibold hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Escolher da galeria
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => editProductCameraInputRef.current?.click()}
+                      disabled={isUploadingEditProductImage}
+                      className="px-3 py-2 border border-blue-300 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold hover:bg-blue-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Tirar foto
+                    </button>
+                  </div>
                   <input
+                    ref={editProductGalleryInputRef}
                     type="file"
                     accept="image/*,.heic,.heif"
                     onChange={handleEditProductImageFileChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                    className="hidden"
+                    disabled={isUploadingEditProductImage}
+                  />
+                  <input
+                    ref={editProductCameraInputRef}
+                    type="file"
+                    accept="image/*,.heic,.heif"
+                    capture="environment"
+                    onChange={handleEditProductImageFileChange}
+                    className="hidden"
                     disabled={isUploadingEditProductImage}
                   />
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <p className="text-xs text-gray-500">
                       {isUploadingEditProductImage
                         ? 'Enviando foto...'
-                        : 'Essa foto também aparecerá no agendamento e no chatbot.'}
+                        : 'A foto será otimizada automaticamente para enviar mais rápido no celular.'}
                     </p>
                     {String((editingProduct as any)?.image_url || '').trim() ? (
                       <button
