@@ -19063,6 +19063,13 @@ Estamos te aguardando! 😎✂️`;
       return;
     }
 
+    // 🔒 Bloquear "Profissionais" quando existir senha de 4 dígitos (mesma regra das configurações)
+    if (tab === 'professionals' && hasPin && !isSettingsUnlocked) {
+      setPendingTabAfterPin('professionals');
+      setShowPinModal(true);
+      return;
+    }
+
     // Segurança extra: se alguém tentar abrir "Configurações" via onTabChange direto
     if (tab === 'settings' && hasPin && !isSettingsUnlocked) {
       setPendingTabAfterPin('settings');
@@ -23412,6 +23419,7 @@ Estamos te aguardando! 😎✂️`;
                                   '• Entrar em Configurações / Página\n' +
                                   '• Entrar em Meus serviços (criar/editar/excluir serviços)\n' +
                                   '• Entrar em Meus assinantes\n' +
+                                  '• Entrar em Profissionais\n' +
                                   '• Entrar no Financeiro e visualizar/alterar dados (inclusive de outros profissionais)\n' +
                                   '• Alterar dados sensíveis dos profissionais (ex: % comissão e senha)\n' +
                                   '• Cancelar agendamentos quando o sistema exigir senha\n\n' +
@@ -23441,6 +23449,7 @@ Estamos te aguardando! 😎✂️`;
                                         • Entrar em <strong>Configurações / Página</strong><br />
                                         • Entrar em <strong>Meus serviços</strong> (criar/editar/excluir serviços)<br />
                                         • Entrar em <strong>Meus assinantes</strong><br />
+                                        • Entrar em <strong>Profissionais</strong><br />
                                         • Entrar no <strong>Financeiro</strong> e ver/alterar dados (inclusive de outros profissionais)<br />
                                         • Alterar dados dos profissionais (ex: <strong>% comissão</strong> e senha)<br />
                                         • Cancelar agendamentos quando o sistema exigir senha
