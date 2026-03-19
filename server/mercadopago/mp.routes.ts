@@ -252,13 +252,32 @@ router.post('/create-payment', async (req: Request, res: Response) => {
 
     const payment = await createMPPayment(paymentData);
 
+    const returnedFee = Number((payment as any)?.application_fee ?? 0);
+    const expectedFee = Number((paymentData.application_fee || 0) / 100);
+    const feeIsValid = Number.isFinite(returnedFee) && Math.abs(returnedFee - expectedFee) < 0.0001;
+    if (!feeIsValid) {
+      console.warn('⚠️ [MP Routes] Taxa divergente detectada (sem bloquear pagamento):', {
+        establishmentId,
+        paymentId: (payment as any)?.id,
+        expectedFee,
+        returnedFee,
+      });
+    }
+
     console.log('✅ [MP Routes] Pagamento criado:', {
       paymentId: payment.id,
       status: payment.status,
       establishmentId,
     });
 
-    return res.status(200).json(payment);
+    return res.status(200).json({
+      ...payment,
+      fee_expected: expectedFee,
+      fee_returned: returnedFee,
+      fee_validation: feeIsValid ? 'ok' : 'divergent',
+      fee_version: 'R$1,00',
+      application_fee_cents_expected: 100,
+    });
   } catch (error: any) {
     console.error('❌ [MP Routes] Erro ao criar pagamento:', error);
     return res.status(500).json({

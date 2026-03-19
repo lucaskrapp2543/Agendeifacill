@@ -475,7 +475,26 @@ export const PaymentModal = ({
       }
 
       const paymentResult = await paymentResponse.json();
+      const feeExpectedCents = Number((paymentResult as any)?.application_fee_cents_expected ?? 100);
+      const feeReturned = Number((paymentResult as any)?.application_fee ?? 0);
+      const feeReturnedCents = Math.round(feeReturned * 100);
+      const feeValidation = String((paymentResult as any)?.fee_validation || '').trim().toLowerCase();
       console.log('✅ [MP Payment] Pagamento criado:', paymentResult);
+      console.log('🧾 [MP Fee Audit] create-payment:', {
+        payment_id: (paymentResult as any)?.id || null,
+        fee_expected_cents: feeExpectedCents,
+        fee_returned: feeReturned,
+        fee_returned_cents: feeReturnedCents,
+        fee_validation: feeValidation || 'not_provided',
+      });
+      if (feeValidation === 'divergent' || feeReturnedCents !== feeExpectedCents) {
+        console.warn('⚠️ [MP Fee Audit] Divergência detectada no create-payment', {
+          payment_id: (paymentResult as any)?.id || null,
+          fee_expected_cents: feeExpectedCents,
+          fee_returned_cents: feeReturnedCents,
+          raw_fee_returned: feeReturned,
+        });
+      }
 
       if (paymentResult?.id) {
         setCurrentPaymentId(String(paymentResult.id));
@@ -728,6 +747,25 @@ export const PaymentModal = ({
       }
 
       const paymentResult = await paymentResponse.json();
+      const feeExpectedCents = Number((paymentResult as any)?.application_fee_cents_expected ?? 100);
+      const feeReturned = Number((paymentResult as any)?.application_fee ?? 0);
+      const feeReturnedCents = Math.round(feeReturned * 100);
+      const feeValidation = String((paymentResult as any)?.fee_validation || '').trim().toLowerCase();
+      console.log('🧾 [MP Fee Audit] create-payment:', {
+        payment_id: (paymentResult as any)?.id || null,
+        fee_expected_cents: feeExpectedCents,
+        fee_returned: feeReturned,
+        fee_returned_cents: feeReturnedCents,
+        fee_validation: feeValidation || 'not_provided',
+      });
+      if (feeValidation === 'divergent' || feeReturnedCents !== feeExpectedCents) {
+        console.warn('⚠️ [MP Fee Audit] Divergência detectada no create-payment', {
+          payment_id: (paymentResult as any)?.id || null,
+          fee_expected_cents: feeExpectedCents,
+          fee_returned_cents: feeReturnedCents,
+          raw_fee_returned: feeReturned,
+        });
+      }
 
       if (paymentResult?.id) {
         setCurrentPaymentId(String(paymentResult.id));

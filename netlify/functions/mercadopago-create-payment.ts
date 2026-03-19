@@ -215,13 +215,32 @@ export const handler: Handler = async (event) => {
 
     const payment = await createMPPayment(paymentData);
 
+    const returnedFee = Number((payment as any)?.application_fee ?? 0);
+    const expectedFee = Number((paymentData.application_fee || 0) / 100);
+    const feeIsValid = Number.isFinite(returnedFee) && Math.abs(returnedFee - expectedFee) < 0.0001;
+    if (!feeIsValid) {
+      console.warn('⚠️ [MP Create Payment] Taxa divergente detectada (sem bloquear pagamento):', {
+        establishmentId,
+        paymentId: (payment as any)?.id,
+        expectedFee,
+        returnedFee,
+      });
+    }
+
     console.log('✅ [MP Create Payment] Pagamento criado:', {
       paymentId: payment.id,
       status: payment.status,
       establishmentId,
     });
 
-    return json(200, payment);
+    return json(200, {
+      ...payment,
+      fee_expected: expectedFee,
+      fee_returned: returnedFee,
+      fee_validation: feeIsValid ? 'ok' : 'divergent',
+      fee_version: 'R$1,00',
+      application_fee_cents_expected: 100,
+    });
   } catch (error: any) {
     console.error('❌ [MP Create Payment] Erro:', error);
     const rawMsg = String(error?.message || '').trim();

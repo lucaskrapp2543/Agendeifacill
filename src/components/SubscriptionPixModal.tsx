@@ -580,6 +580,25 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         }
 
         const result = await response.json();
+        const feeExpectedCents = Number((result as any)?.application_fee_cents_expected ?? 100);
+        const feeReturned = Number((result as any)?.application_fee ?? 0);
+        const feeReturnedCents = Math.round(feeReturned * 100);
+        const feeValidation = String((result as any)?.fee_validation || '').trim().toLowerCase();
+        console.log('🧾 [MP Fee Audit] subscription create-payment:', {
+          payment_id: (result as any)?.id || null,
+          fee_expected_cents: feeExpectedCents,
+          fee_returned: feeReturned,
+          fee_returned_cents: feeReturnedCents,
+          fee_validation: feeValidation || 'not_provided',
+        });
+        if (feeValidation === 'divergent' || feeReturnedCents !== feeExpectedCents) {
+          console.warn('⚠️ [MP Fee Audit] Divergência detectada no create-payment da assinatura', {
+            payment_id: (result as any)?.id || null,
+            fee_expected_cents: feeExpectedCents,
+            fee_returned_cents: feeReturnedCents,
+            raw_fee_returned: feeReturned,
+          });
+        }
         const pixData = result.point_of_interaction?.transaction_data;
         if (!pixData?.qr_code && !pixData?.qr_code_base64) {
           throw new Error('Não foi possível gerar o QR Code do PIX.');
