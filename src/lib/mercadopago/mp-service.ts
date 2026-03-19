@@ -37,7 +37,7 @@ export interface CreateMPPaymentRequest {
       federal_unit: string;
     };
   };
-  application_fee: number; // Taxa da plataforma em centavos (ex: 50 = R$ 0,50)
+  application_fee: number; // Taxa da plataforma em centavos (ex: 100 = R$ 1,00)
   access_token: string; // Access token do vendedor
   metadata?: Record<string, any>;
   payment_method_id?: string; // 'pix', 'credit_card', 'visa', 'master', etc. (vem do token)
@@ -157,7 +157,7 @@ export async function createMPPayment(
           : {}),
         ...(paymentData.payer.address ? { address: paymentData.payer.address } : {}),
       },
-      application_fee: applicationFeeAmount, // Taxa da plataforma (R$ 0,50)
+      application_fee: applicationFeeAmount, // Taxa da plataforma (R$ 1,00)
       // ✅ CRÍTICO: external_reference é obrigatório para webhook identificar o pagamento
       ...(externalReference ? { external_reference: externalReference } : {}),
       ...(paymentData.metadata ? { metadata: paymentData.metadata } : {}),

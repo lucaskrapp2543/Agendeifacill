@@ -3046,7 +3046,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
     const provider = String(providerRaw || '').toLowerCase().trim();
     const subscriberPaymentMethod = String(subscriberPaymentMethodRaw || '').toLowerCase().trim();
-    const taxaPlataforma = 0.5;
+    const taxaPlataforma = 1;
     const configuredCreditTax = Number(establishment?.credit_card_tax_percentage);
     const configuredDebitTax = Number(establishment?.debit_card_tax_percentage);
     const hasConfiguredCreditTax = Number.isFinite(configuredCreditTax) && configuredCreditTax >= 0;
@@ -3278,7 +3278,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   }, [clientSubscriptions]);
 
   // Saldo (assinantes): entradas PIX líquidas do mês selecionado - pagamentos do mês.
-  // O desconto (taxa + R$0,50) é aplicado por pagamento individual.
+  // O desconto (taxa + R$1,00) é aplicado por pagamento individual.
   const hasPagarmeConnectedForSubscribers = !!String(establishment?.pagarme_recipient_id || '').trim();
   const hasMercadoPagoConnectedForSubscribers = !!String(establishment?.mercadopago_access_token || '').trim();
   const hasAnySubscriptionGatewayConnected = hasPagarmeConnectedForSubscribers || hasMercadoPagoConnectedForSubscribers;
@@ -3314,7 +3314,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   }, 0);
 
   const saldoAssinantes = fromCents(Math.max(0, pixEntradasLiquidasMesCents - emContaSaidasCents));
-  const shouldShowSubscribersBalanceCard = hasAnySubscriptionGatewayConnected;
+  // Regra de exibição:
+  // - Mercado Pago: valor cai direto na conta do estabelecimento, então não mostrar card de "Saldo (assinantes)".
+  // - Pagar.me sem Mercado Pago: mantém card de saldo operacional.
+  const shouldShowSubscribersBalanceCard =
+    hasPagarmeConnectedForSubscribers &&
+    !hasMercadoPagoConnectedForSubscribers &&
+    !useMercadoPagoSubscriptionPix;
 
   const [isRefreshingSaldoAssinantes, setIsRefreshingSaldoAssinantes] = useState(false);
   const handleRefreshSaldoAssinantes = async () => {
@@ -3759,7 +3765,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               <div className="text-xs text-gray-300">Saldo (assinantes)</div>
               <div className="text-xl font-extrabold text-green-200">{fmtBRL(saldoAssinantes)}</div>
               <div className="mt-1 text-[11px] text-gray-300/80">
-                * PIX líquido do mês (R$0,50 + taxa por pagamento) - pagamentos de profissionais no mês.
+                * PIX líquido do mês (R$1,00 + taxa por pagamento) - pagamentos de profissionais no mês.
               </div>
             </div>
             <div className="flex flex-col sm:flex-row gap-2">
@@ -4446,7 +4452,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       </p>
                     </div>
                     <p className="text-sm text-gray-300 mt-1">
-                      As taxas da Pagar.me é baixa apenas <span className="font-semibold">1,19% + R$0,50</span> apenas diferencial,
+                      As taxas da Pagar.me é baixa apenas <span className="font-semibold">1,19% + R$1,00</span> apenas diferencial,
                       não tem cobrança automatica, seu cliente só é lembrado de deixar em dia apenas.
                     </p>
                   </div>
@@ -4514,7 +4520,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     </p>
                   </div>
                   <p className="text-sm text-gray-300 mt-1">
-                    As taxas do Mercado Pago são baixas: <span className="font-semibold">0.99% (PIX) + R$0,50</span> da plataforma,
+                    As taxas do Mercado Pago são baixas: <span className="font-semibold">0.99% (PIX) + R$1,00</span> da plataforma,
                     não tem cobrança automatica, seu cliente só é lembrado de deixar em dia apenas.
                   </p>
                 </div>

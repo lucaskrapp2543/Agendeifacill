@@ -22,7 +22,7 @@ export interface CreateMPPaymentRequest {
       number: string;
     };
   };
-  application_fee: number; // Taxa da plataforma em centavos (ex: 50 = R$ 0,50)
+  application_fee: number; // Taxa da plataforma em centavos (ex: 100 = R$ 1,00)
   access_token: string; // Access token do vendedor
   metadata?: Record<string, any>;
   payment_method_id?: string; // 'pix', 'credit_card', etc.

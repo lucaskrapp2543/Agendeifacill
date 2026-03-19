@@ -79,7 +79,7 @@ Processa o callback do OAuth e salva os tokens no banco de dados.
 
 **POST** `/api/mercadopago/create-payment`
 
-Cria um pagamento no Mercado Pago Marketplace com `application_fee = R$ 0,50`.
+Cria um pagamento no Mercado Pago Marketplace com `application_fee = R$ 1,00`.
 
 **Body:**
 ```json
@@ -115,7 +115,7 @@ Cria um pagamento no Mercado Pago Marketplace com `application_fee = R$ 0,50`.
     "id": "123456789",
     "email": "cliente@example.com"
   },
-  "application_fee": 0.50
+  "application_fee": 1.00
 }
 ```
 
@@ -140,7 +140,7 @@ Verifica o status de um pagamento.
     "id": "123456789",
     "email": "cliente@example.com"
   },
-  "application_fee": 0.50
+  "application_fee": 1.00
 }
 ```
 
@@ -187,7 +187,7 @@ GET http://localhost:3001/api/mercadopago/check-status?paymentId=1234567890&esta
 
 ## 📝 Notas Importantes
 
-1. **Application Fee**: A taxa da plataforma está fixada em **R$ 0,50** (50 centavos) em `mp.routes.ts`. Para alterar, modifique a constante `applicationFee`.
+1. **Application Fee**: A taxa da plataforma está fixada em **R$ 1,00** (100 centavos) em `mp.routes.ts`. Para alterar, modifique a constante `applicationFee`.
 
 2. **Access Token**: O `access_token` do vendedor é salvo no banco de dados após o OAuth. Ele expira em ~6 horas. Para renovar, use `refreshAccessToken()` em `mp.oauth.ts`.
 

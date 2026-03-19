@@ -223,8 +223,8 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       });
     }
 
-    // Taxa da plataforma: R$ 0,50 (50 centavos)
-    const applicationFee = 50;
+    // Taxa da plataforma: R$ 1,00 (100 centavos)
+    const applicationFee = 100;
 
     // Criar pagamento
     const paymentData: CreateMPPaymentRequest = {

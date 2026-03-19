@@ -544,7 +544,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
                   Mercado Pago e usar normalmente (ele também funciona como banco).
                 </div>
                 <div className="mt-2 text-sm text-gray-200 leading-relaxed">
-                  As taxas são baixas: <span className="font-semibold text-white">R$ 0,50 por pagamento</span> + a taxa do próprio Mercado
+                  As taxas são baixas: <span className="font-semibold text-white">R$ 1,00 por pagamento</span> + a taxa do próprio Mercado
                   Pago (geralmente bem menor do que as taxas de maquininha de cartão).
                 </div>
               </div>

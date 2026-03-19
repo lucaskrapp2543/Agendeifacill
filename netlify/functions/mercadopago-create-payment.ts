@@ -135,8 +135,8 @@ export const handler: Handler = async (event) => {
       });
     }
 
-    // Taxa da plataforma: R$ 0,50 (50 centavos)
-    const applicationFee = 50;
+    // Taxa da plataforma: R$ 1,00 (100 centavos)
+    const applicationFee = 100;
 
     // ✅ VALIDAÇÃO CRÍTICA: Se for pagamento com cartão, payment_method_id e issuer_id são OBRIGATÓRIOS
     // ✅ REMOVIDO: Nunca usar 'credit_card' ou inferir valores

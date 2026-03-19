@@ -472,6 +472,7 @@ const EstablishmentDashboard = () => {
   const { toast } = useToast();
   const lastSaldoFetchAtRef = useRef<number>(0);
   const lastSaldoFetchEstIdRef = useRef<string>('');
+  const lastForegroundSyncAtRef = useRef<number>(0);
   const { notifyNewAppointment, notifyCancelledAppointment } = useNotifications();
 
   const formatSupabaseErrorDetails = (error: any): string =>
@@ -974,7 +975,7 @@ const EstablishmentDashboard = () => {
     if (!establishment?.id) return;
 
     // Regras fixas solicitadas
-    const taxaPlataforma = 0.5; // R$ 0,50
+    const taxaPlataforma = 1; // R$ 1,00
     const taxaPixPercent = 1.19 / 100; // 1,19%
 
     // Evitar várias chamadas seguidas durante carregamentos/re-renders
@@ -1104,7 +1105,7 @@ const EstablishmentDashboard = () => {
     }
 
     // Taxas fixas
-    const taxaPlataforma = 0.5; // R$ 0,50
+    const taxaPlataforma = 1; // R$ 1,00
     const taxaPixPercent = 0.99 / 100; // 0,99% (taxa do Mercado Pago para PIX)
     const taxaDebitoPercent = 1.99 / 100; // 1,99% (taxa do Mercado Pago para débito)
     const taxaCreditoPercent = 4.99 / 100; // 4,99% (taxa do Mercado Pago para crédito)
@@ -2346,7 +2347,7 @@ const EstablishmentDashboard = () => {
               </div>
               <div className="flex justify-between items-center pt-2 border-t border-[#009EE3]/20">
                 <span>Taxa da plataforma:</span>
-                <span className="font-semibold text-white">R$ 0,50 fixo</span>
+                <span className="font-semibold text-white">R$ 1,00 fixo</span>
               </div>
             </div>
 
@@ -2360,11 +2361,11 @@ const EstablishmentDashboard = () => {
                 </div>
                 <div className="flex justify-between text-gray-300">
                   <span>Taxa Mercado Pago (PIX 0,99%):</span>
-                  <span className="text-red-300">- R$ 0,50</span>
+                  <span className="text-red-300">- R$ 1,00</span>
                 </div>
                 <div className="flex justify-between text-gray-300">
                   <span>Taxa da plataforma:</span>
-                  <span className="text-red-300">- R$ 0,50</span>
+                  <span className="text-red-300">- R$ 1,00</span>
                 </div>
                 <div className="flex justify-between text-[#009EE3] font-bold pt-2 border-t border-[#009EE3]/20">
                   <span>Você recebe:</span>
@@ -2573,7 +2574,7 @@ const EstablishmentDashboard = () => {
                     {isLoadingSaldoMercadoPago ? 'Calculando...' : fmtBRL(saldoMercadoPago)}
                   </div>
                   <div className="mt-1 text-[11px] text-gray-300/80">
-                    * Valor líquido já com taxas descontadas (Mercado Pago + R$ 0,50 da plataforma). Inclui agendamentos confirmados e assinaturas pagas via Mercado Pago.
+                    * Valor líquido já com taxas descontadas (Mercado Pago + R$ 1,00 da plataforma). Inclui agendamentos confirmados e assinaturas pagas via Mercado Pago.
                   </div>
                   {saldoMercadoPagoErro && <div className="mt-2 text-[11px] text-red-200/90">{saldoMercadoPagoErro}</div>}
                 </div>
@@ -4986,7 +4987,7 @@ const EstablishmentDashboard = () => {
       if (!Number.isFinite(bruto) || bruto <= 0) return 0;
 
       const provider = String(providerRaw || '').toLowerCase().trim();
-      const taxaPlataforma = 0.5;
+      const taxaPlataforma = 1;
       const configuredCreditTax = Number(establishment?.credit_card_tax_percentage);
       const configuredDebitTax = Number(establishment?.debit_card_tax_percentage);
       const hasConfiguredCreditTax = Number.isFinite(configuredCreditTax) && configuredCreditTax >= 0;
@@ -10582,6 +10583,16 @@ Estamos te aguardando! 😎✂️`;
           .abortSignal(new AbortController().signal); // Forçar busca sem cache
 
         if (newAppointments) {
+          const hasUpdatesInExistingAppointments = newAppointments.some((incomingApp: any) => {
+            const previousApp: any = previousAppointments.find((prev: any) => prev.id === incomingApp.id);
+            if (!previousApp) return false;
+            return (
+              String(previousApp.status || '') !== String(incomingApp.status || '') ||
+              String(previousApp.payment_method || '') !== String(incomingApp.payment_method || '') ||
+              Number(previousApp.price || 0) !== Number(incomingApp.price || 0) ||
+              Number(previousApp.total_price || 0) !== Number(incomingApp.total_price || 0)
+            );
+          });
 
 
           // Detectar novos agendamentos
@@ -10616,23 +10627,40 @@ Estamos te aguardando! 😎✂️`;
             }
           });
 
-          // ATUALIZAÇÃO INTELIGENTE: Só adiciona novos, não remove excluídos
+          // ATUALIZAÇÃO INTELIGENTE:
+          // 1) atualiza agendamentos já existentes (status, pagamento, valores, etc)
+          // 2) adiciona novos
+          // 3) não remove os que sumiram da query para preservar o comportamento atual
           setAppointments(currentList => {
-            // Manter agendamentos que já estão na lista (incluindo os que foram excluídos)
-            const currentIds = currentList.map(app => app.id);
+            const incomingById = new Map(newAppointments.map((item: any) => [item.id, item]));
+            const currentIds = new Set(currentList.map((item) => item.id));
 
-            // Adicionar apenas agendamentos novos que não estão na lista atual
-            const newAppointmentsToAdd = newAppointments.filter(newApp =>
-              !currentIds.includes(newApp.id)
-            );
+            // Atualizar os itens que já existiam na lista com os dados mais novos vindos do banco
+            const mergedCurrent = currentList.map((currentItem: any) => {
+              const incomingItem = incomingById.get(currentItem.id);
+              if (!incomingItem) return currentItem;
+              return {
+                ...currentItem,
+                ...incomingItem,
+              };
+            });
 
+            // Adicionar os novos itens que ainda não existiam na lista atual
+            const newAppointmentsToAdd = newAppointments.filter((incomingItem: any) => !currentIds.has(incomingItem.id));
             if (newAppointmentsToAdd.length > 0) {
               console.log('🔄 Adicionando novos agendamentos:', newAppointmentsToAdd.length);
-              return [...currentList, ...newAppointmentsToAdd];
             }
 
-            return currentList; // Não muda nada se não há novos
+            return newAppointmentsToAdd.length > 0
+              ? [...mergedCurrent, ...newAppointmentsToAdd]
+              : mergedCurrent;
           });
+
+          if (hasUpdatesInExistingAppointments) {
+            // Mantém o financeiro e os resumos sincronizados quando houver mudança
+            // de status/forma de pagamento/valor em agendamentos já existentes.
+            void fetchMonthlyAppointments(selectedMonth);
+          }
 
           previousAppointmentsRef.current = newAppointments;
         }
@@ -10680,6 +10708,41 @@ Estamos te aguardando! 😎✂️`;
       navigator.serviceWorker?.removeEventListener('message', handleServiceWorkerMessage);
     };
   }, [establishment]);
+
+  // Reforço de sincronização ao voltar foco/aba (mais crítico no desktop).
+  useEffect(() => {
+    if (!establishment?.id) return;
+
+    const runForegroundSync = () => {
+      const nowMs = Date.now();
+      // Evita rajada de múltiplos eventos (focus + visibilitychange + pageshow)
+      if (nowMs - lastForegroundSyncAtRef.current < 2500) return;
+      lastForegroundSyncAtRef.current = nowMs;
+      void fetchAppointments();
+      void fetchMonthlyAppointments(selectedMonth);
+      void loadSubscribersFinancialSummary();
+      void loadSubscriberProfessionalFinancial();
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) runForegroundSync();
+    };
+    const handleFocus = () => runForegroundSync();
+    const handlePageShow = () => runForegroundSync();
+    const handleOnline = () => runForegroundSync();
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [establishment?.id, selectedMonth, loadSubscribersFinancialSummary, loadSubscriberProfessionalFinancial]);
 
 
 
@@ -23676,7 +23739,7 @@ Estamos te aguardando! 😎✂️`;
                             <div className="mb-4 rounded-lg border border-green-500/20 bg-black/20 p-3">
                               {(() => {
                                 const taxaPixPercent = 1.19;
-                                const taxaPlataforma = 0.5; // R$ 0,50 (AgendeiFácil)
+                                const taxaPlataforma = 1; // R$ 1,00 (AgendeiFácil)
                                 const exemploValor = 10;
                                 const taxaPagarme = Number((exemploValor * (taxaPixPercent / 100)).toFixed(2));
                                 const recebe = Number((exemploValor - taxaPagarme - taxaPlataforma).toFixed(2));
@@ -23718,7 +23781,7 @@ Estamos te aguardando! 😎✂️`;
                                   {isLoadingSaldoEmVendas ? 'Calculando...' : fmtBRL(saldoEmVendas)}
                                 </div>
                                 <div className="mt-1 text-[11px] text-gray-300/80">
-                                  * Soma somente PIX pagos (Pagar.me), já com R$ 0,50 + 1,19% descontados.
+                                  * Soma somente PIX pagos (Pagar.me), já com R$ 1,00 + 1,19% descontados.
                                 </div>
                                 {saldoEmVendasErro && (
                                   <div className="mt-2 text-[11px] text-red-200/90">

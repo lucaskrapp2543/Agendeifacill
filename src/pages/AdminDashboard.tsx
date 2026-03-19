@@ -610,10 +610,10 @@ const AdminDashboard = () => {
     return Math.round(n * 100);
   };
 
-  const TAXA_PLATAFORMA_PIX_POR_VENDA = 0.5; // R$ 0,50 por venda PIX (lucro do app)
+  const TAXA_PLATAFORMA_PIX_POR_VENDA = 1; // R$ 1,00 por venda PIX (lucro do app)
 
   const calcularLiquidoPix = (bruto: number) => {
-    const taxaPlataforma = TAXA_PLATAFORMA_PIX_POR_VENDA; // R$ 0,50
+    const taxaPlataforma = TAXA_PLATAFORMA_PIX_POR_VENDA; // R$ 1,00
     const taxaPixPercent = 1.19 / 100; // 1,19%
     const liquido = bruto - taxaPlataforma - bruto * taxaPixPercent;
     return Math.max(0, Math.round(liquido * 100) / 100);
@@ -706,7 +706,7 @@ const AdminDashboard = () => {
       }
 
       // 3) Assinaturas PIX pagas (client_subscriptions) via Mercado Pago
-      // - Conta também no "Lucro PIX" (R$0,50 por venda) e no saldo (líquido após 1,19% + R$0,50)
+      // - Conta também no "Lucro PIX" (R$1,00 por venda) e no saldo (líquido após 1,19% + R$1,00)
       // - Observação: não temos histórico por renovação; aqui conta a venda/assinatura paga atual.
       try {
         const subsQuery = supabase.from('client_subscriptions') as any;
@@ -3228,7 +3228,7 @@ const AdminDashboard = () => {
         className="max-w-full mx-auto px-2 sm:px-4 lg:px-6 py-6"
         style={isSupportAccount && !canEditEverything() ? { pointerEvents: 'none', userSelect: 'none' } : undefined}
       >
-        {/* Lucro PIX por mês: vendas (serviços + assinaturas) e lucro R$ 0,50, com seletor de mês */}
+        {/* Lucro PIX por mês: vendas (serviços + assinaturas) e lucro R$ 1,00, com seletor de mês */}
         <div className="mb-6">
           <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl shadow-md p-6 max-w-lg">
             <div className="flex items-center justify-between gap-4">
@@ -3740,7 +3740,7 @@ const AdminDashboard = () => {
             <span>
               <strong>Outros:</strong> {planCounts.outros}
             </span>
-            <span title="Lucro do app com PIX via Mercado Pago (R$ 0,50 por venda PIX paga)">
+            <span title="Lucro do app com PIX via Mercado Pago (R$ 1,00 por venda PIX paga)">
               <strong>Lucro PIX:</strong> {isLoadingSaldos ? '...' : fmtBRL(lucroPixFiltrado)}
             </span>
             <button
@@ -4136,7 +4136,7 @@ const AdminDashboard = () => {
                               ? `${qtdPixPagoPorEstabelecimento[establishment.id]} PIX pago(s)`
                               : '—'}
                           </div>
-                          <div className="text-[10px] text-gray-700 font-semibold" title="Lucro do app: R$ 0,50 por venda PIX paga">
+                          <div className="text-[10px] text-gray-700 font-semibold" title="Lucro do app: R$ 1,00 por venda PIX paga">
                             {qtdPixPagoPorEstabelecimento[establishment.id]
                               ? `Lucro: ${fmtBRL(calcularLucroPix(Number(qtdPixPagoPorEstabelecimento[establishment.id] || 0)))}`
                               : 'Lucro: —'}
