@@ -214,10 +214,25 @@ export function TimeSlotSelector({
       return aptDate === selectedDateString && apt.status !== 'cancelled';
     });
 
+    const parseDurationMinutes = (rawDuration: any): number => {
+      if (typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration > 0) {
+        return rawDuration;
+      }
+      const raw = String(rawDuration || '').trim();
+      if (!raw) return 30;
+      const numeric = Number(raw);
+      if (Number.isFinite(numeric) && numeric > 0) return numeric;
+      const match = raw.match(/(\d+)/);
+      if (match) {
+        const parsed = Number(match[1]);
+        if (Number.isFinite(parsed) && parsed > 0) return parsed;
+      }
+      return 30;
+    };
     const getAppointmentDurationMinutes = (apt: Appointment): number => {
-      const base = Number(apt?.duration || 0);
+      const base = parseDurationMinutes(apt?.duration);
       const extra = Array.isArray(apt?.additional_products)
-        ? apt.additional_products.reduce((sum, item) => sum + (Number(item?.duration || 0) || 0), 0)
+        ? apt.additional_products.reduce((sum, item) => sum + parseDurationMinutes(item?.duration), 0)
         : 0;
       return Math.max(1, base + extra);
     };

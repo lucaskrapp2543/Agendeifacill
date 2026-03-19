@@ -758,15 +758,33 @@ export const createAppointment = async (appointmentData: any) => {
     };
 
     const parseDurationMinutes = (rawDuration: any): number => {
-      const parsed = Number(rawDuration);
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+      if (typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration > 0) {
+        return rawDuration;
+      }
+      const raw = String(rawDuration || '').trim();
+      if (!raw) return 30;
+      const numeric = Number(raw);
+      if (Number.isFinite(numeric) && numeric > 0) return numeric;
+      const match = raw.match(/(\d+)/);
+      if (match) {
+        const parsed = Number(match[1]);
+        if (Number.isFinite(parsed) && parsed > 0) return parsed;
+      }
+      return 30;
+    };
+    const getAdditionalProductsDuration = (rawAdditionalProducts: any): number => {
+      if (!Array.isArray(rawAdditionalProducts)) return 0;
+      return rawAdditionalProducts.reduce((sum: number, item: any) => {
+        const duration = parseDurationMinutes(item?.duration);
+        return sum + (Number.isFinite(duration) ? duration : 0);
+      }, 0);
     };
 
     // Buscar agendamentos existentes no mesmo dia (com retry)
     const { data: existingAppointments, error: fetchError } = await retryRequest(async () => {
       return await supabase
         .from('appointments')
-        .select('appointment_time, duration, status, professional')
+        .select('appointment_time, duration, additional_products, status, professional')
         .eq('appointment_date', appointmentData.appointment_date)
         .eq('establishment_id', appointmentData.establishment_id)
         .neq('status', 'cancelled');
@@ -788,7 +806,8 @@ export const createAppointment = async (appointmentData: any) => {
     // alguns registros antigos guardam profissional por NOME em vez de ID.
     const selectedProfessionalRefNorm = normalizeText(appointmentData?.professional);
     let selectedProfessionalNameNorm = normalizeText(appointmentData?.professional_name);
-    if (!selectedProfessionalNameNorm && appointmentData?.establishment_id && selectedProfessionalRefNorm) {
+    let selectedProfessionalIdNorm = '';
+    if (appointmentData?.establishment_id && selectedProfessionalRefNorm) {
       try {
         const { data: establishmentData } = await retryRequest(async () => {
           return await supabase
@@ -802,9 +821,14 @@ export const createAppointment = async (appointmentData: any) => {
           : [];
         const selectedProfessional = professionals.find((professional: any) => {
           const idNorm = normalizeText(professional?.id);
-          return idNorm && idNorm === selectedProfessionalRefNorm;
+          const nameNorm = normalizeText(professional?.name);
+          return (
+            (idNorm && idNorm === selectedProfessionalRefNorm) ||
+            (nameNorm && nameNorm === selectedProfessionalRefNorm)
+          );
         });
-        selectedProfessionalNameNorm = normalizeText(selectedProfessional?.name);
+        selectedProfessionalNameNorm = normalizeText(selectedProfessional?.name) || selectedProfessionalNameNorm;
+        selectedProfessionalIdNorm = normalizeText(selectedProfessional?.id);
       } catch (professionalLookupError) {
         console.warn('⚠️ Falha ao resolver nome do profissional para validação de conflito:', professionalLookupError);
       }
@@ -812,13 +836,20 @@ export const createAppointment = async (appointmentData: any) => {
 
     for (const existing of existingAppointments || []) {
       const existingProfessionalNorm = normalizeText((existing as any)?.professional);
+      const sameByCanonicalId =
+        selectedProfessionalIdNorm.length > 0 &&
+        existingProfessionalNorm.length > 0 &&
+        existingProfessionalNorm === selectedProfessionalIdNorm;
       const sameProfessional =
+        sameByCanonicalId ||
         (selectedProfessionalRefNorm.length > 0 && existingProfessionalNorm === selectedProfessionalRefNorm) ||
         (selectedProfessionalNameNorm.length > 0 && existingProfessionalNorm === selectedProfessionalNameNorm);
       if (!sameProfessional) continue;
 
       const existingStartMinutes = timeToMinutes(normalizeTimeHHmm((existing as any)?.appointment_time));
-      const existingDurationMinutes = parseDurationMinutes((existing as any)?.duration);
+      const existingDurationMinutes =
+        parseDurationMinutes((existing as any)?.duration) +
+        getAdditionalProductsDuration((existing as any)?.additional_products);
       const existingEndMinutes = existingStartMinutes + existingDurationMinutes;
 
       // Verificar sobreposição

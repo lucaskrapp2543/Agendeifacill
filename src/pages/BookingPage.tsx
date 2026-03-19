@@ -1799,8 +1799,26 @@ export default function BookingPage() {
         return `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
       };
       const parseDurationMinutes = (rawDuration: any): number => {
-        const parsed = Number(rawDuration);
-        return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+        if (typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration > 0) {
+          return rawDuration;
+        }
+        const raw = String(rawDuration || '').trim();
+        if (!raw) return 30;
+        const numeric = Number(raw);
+        if (Number.isFinite(numeric) && numeric > 0) return numeric;
+        const match = raw.match(/(\d+)/);
+        if (match) {
+          const parsed = Number(match[1]);
+          if (Number.isFinite(parsed) && parsed > 0) return parsed;
+        }
+        return 30;
+      };
+      const getAdditionalProductsDuration = (rawAdditionalProducts: any): number => {
+        if (!Array.isArray(rawAdditionalProducts)) return 0;
+        return rawAdditionalProducts.reduce((sum: number, item: any) => {
+          const duration = parseDurationMinutes(item?.duration);
+          return sum + (Number.isFinite(duration) ? duration : 0);
+        }, 0);
       };
       const toMinutes = (hhmm: string): number => {
         const [h, m] = String(hhmm || '00:00').split(':').map(Number);
@@ -1833,6 +1851,7 @@ export default function BookingPage() {
         }
 
         let targetProfessionalNameNorm = '';
+        let targetProfessionalIdNorm = '';
         const selectedProfessional = Array.isArray(freshProfessionals)
           ? freshProfessionals.find((professional: any) => {
             const professionalId = String(professional?.id || '').trim();
@@ -1845,6 +1864,9 @@ export default function BookingPage() {
           : null;
         if (selectedProfessional?.name) {
           targetProfessionalNameNorm = normalizeText(selectedProfessional.name);
+        }
+        if (selectedProfessional?.id) {
+          targetProfessionalIdNorm = normalizeText(selectedProfessional.id);
         }
 
         if (selectedProfessional) {
@@ -1911,7 +1933,7 @@ export default function BookingPage() {
 
         const { data: sameDayAppointments, error: sameDayAppointmentsError } = await supabase
           .from('appointments')
-          .select('id, appointment_time, duration, status, professional')
+          .select('id, appointment_time, duration, additional_products, status, professional')
           .eq('establishment_id', establishment.id)
           .eq('appointment_date', targetDate)
           .neq('status', 'cancelled');
@@ -1922,13 +1944,20 @@ export default function BookingPage() {
 
         const hasConflict = (sameDayAppointments || []).some((existing: any) => {
           const existingProfessionalNorm = normalizeText(existing?.professional);
+          const sameByCanonicalId =
+            targetProfessionalIdNorm.length > 0 &&
+            existingProfessionalNorm.length > 0 &&
+            existingProfessionalNorm === targetProfessionalIdNorm;
           const sameProfessional =
+            sameByCanonicalId ||
             (targetProfessionalRefNorm.length > 0 && existingProfessionalNorm === targetProfessionalRefNorm) ||
             (targetProfessionalNameNorm.length > 0 && existingProfessionalNorm === targetProfessionalNameNorm);
           if (!sameProfessional) return false;
 
           const existingStart = toMinutes(normalizeTimeHHmm(existing?.appointment_time));
-          const existingDuration = parseDurationMinutes(existing?.duration);
+          const existingDuration =
+            parseDurationMinutes(existing?.duration) +
+            getAdditionalProductsDuration(existing?.additional_products);
           const existingEnd = existingStart + existingDuration;
           return !(targetEnd <= existingStart || targetStart >= existingEnd);
         });
