@@ -4121,7 +4121,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                       {appointmentsLocked ? (
                         <div className="rounded-lg border-2 border-amber-500/60 bg-amber-100 p-3 mb-2">
                           <p className="text-sm font-semibold text-amber-800 text-center">
-                            Agenda protegida por senha do dono.
+                            Agenda protegida por senha do profissional.
                           </p>
                           <p className="text-xs text-amber-700 text-center mt-1">
                             Desbloqueie para ver, transferir ou cancelar agendamentos deste profissional.
