@@ -78,6 +78,7 @@ const AdminDashboard = () => {
   const [totalVendasLiquidasPorEstabelecimento, setTotalVendasLiquidasPorEstabelecimento] = useState<Record<string, number>>({});
   const [totalPagoAdminPorEstabelecimento, setTotalPagoAdminPorEstabelecimento] = useState<Record<string, number>>({});
   const [qtdPixPagoPorEstabelecimento, setQtdPixPagoPorEstabelecimento] = useState<Record<string, number>>({});
+  const [lucroPixPorEstabelecimento, setLucroPixPorEstabelecimento] = useState<Record<string, number>>({});
   const [isPayingByEstablishment, setIsPayingByEstablishment] = useState<Record<string, boolean>>({});
   const [showPayoutHistoryModal, setShowPayoutHistoryModal] = useState(false);
   const [showClientesPagosHistoryModal, setShowClientesPagosHistoryModal] = useState(false);
@@ -610,19 +611,32 @@ const AdminDashboard = () => {
     return Math.round(n * 100);
   };
 
-  const TAXA_PLATAFORMA_PIX_POR_VENDA = 1; // R$ 1,00 por venda PIX (lucro do app)
+  // Sem retroatividade: vendas antigas continuam com R$ 0,50.
+  const TAXA_PLATAFORMA_PIX_LEGADA = 0.5;
+  const TAXA_PLATAFORMA_PIX_ATUAL = 1;
+  const DATA_VIRADA_TAXA_PIX = new Date('2026-03-18T00:00:00-03:00');
 
-  const calcularLiquidoPix = (bruto: number) => {
-    const taxaPlataforma = TAXA_PLATAFORMA_PIX_POR_VENDA; // R$ 1,00
+  const getTaxaPlataformaPixPorData = (dateLike?: string | Date | null) => {
+    if (!dateLike) return TAXA_PLATAFORMA_PIX_ATUAL;
+    const dt = dateLike instanceof Date ? dateLike : new Date(dateLike);
+    if (!Number.isFinite(dt.getTime())) return TAXA_PLATAFORMA_PIX_ATUAL;
+    return dt.getTime() >= DATA_VIRADA_TAXA_PIX.getTime()
+      ? TAXA_PLATAFORMA_PIX_ATUAL
+      : TAXA_PLATAFORMA_PIX_LEGADA;
+  };
+
+  const calcularLiquidoPix = (bruto: number, dateLike?: string | Date | null) => {
+    const taxaPlataforma = getTaxaPlataformaPixPorData(dateLike);
     const taxaPixPercent = 1.19 / 100; // 1,19%
     const liquido = bruto - taxaPlataforma - bruto * taxaPixPercent;
     return Math.max(0, Math.round(liquido * 100) / 100);
   };
 
-  const calcularLucroPix = (qtdPixPago: number) => {
+  const calcularLucroPix = (qtdPixPago: number, dateLike?: string | Date | null) => {
     const q = Number(qtdPixPago || 0);
     if (!Number.isFinite(q) || q <= 0) return 0;
-    return Math.round(q * TAXA_PLATAFORMA_PIX_POR_VENDA * 100) / 100;
+    const taxaPlataforma = getTaxaPlataformaPixPorData(dateLike);
+    return Math.round(q * taxaPlataforma * 100) / 100;
   };
 
   // (removido) carregarCostMetrics
@@ -661,7 +675,7 @@ const AdminDashboard = () => {
       const { data: appts, error: apptsError } = await supabase
         .from('appointments')
         // ✅ No Supabase de produção pode não existir service_price; usar apenas price
-        .select('id,establishment_id,price,payment_status,pix_payment_status,payment_method,payment_transaction_id,status')
+        .select('id,establishment_id,price,payment_status,pix_payment_status,payment_method,payment_transaction_id,status,created_at,appointment_date')
         .in('establishment_id', ids)
         .or('payment_status.eq.paid,pix_payment_status.eq.confirmado');
 
@@ -669,6 +683,7 @@ const AdminDashboard = () => {
 
       const totalLiquidoMap: Record<string, number> = {};
       const qtdMap: Record<string, number> = {};
+      const lucroMap: Record<string, number> = {};
       const seenByEst = new Map<string, Set<string>>();
 
       for (const row of (appts as any[]) || []) {
@@ -701,18 +716,20 @@ const AdminDashboard = () => {
         const bruto = Number(row?.price ?? 0);
         if (!Number.isFinite(bruto) || bruto <= 0) continue;
 
-        totalLiquidoMap[estId] = Math.round(((totalLiquidoMap[estId] || 0) + calcularLiquidoPix(bruto)) * 100) / 100;
+        const rowDate = row?.created_at || row?.appointment_date || null;
+        totalLiquidoMap[estId] = Math.round(((totalLiquidoMap[estId] || 0) + calcularLiquidoPix(bruto, rowDate)) * 100) / 100;
         qtdMap[estId] = (qtdMap[estId] || 0) + 1;
+        lucroMap[estId] = Math.round(((lucroMap[estId] || 0) + calcularLucroPix(1, rowDate)) * 100) / 100;
       }
 
       // 3) Assinaturas PIX pagas (client_subscriptions) via Mercado Pago
-      // - Conta também no "Lucro PIX" (R$1,00 por venda) e no saldo (líquido após 1,19% + R$1,00)
+      // - Conta também no "Lucro PIX" (regra por data: R$0,50 antigo / R$1,00 atual) e no saldo líquido.
       // - Observação: não temos histórico por renovação; aqui conta a venda/assinatura paga atual.
       try {
         const subsQuery = supabase.from('client_subscriptions') as any;
         const { data: subsData, error: subsError } = await subsQuery
           .select(
-            'id,establishment_id,payment_status,subscription_payment_provider,subscription_payment_order_id,subscriptions(value)'
+            'id,establishment_id,payment_status,subscription_payment_provider,subscription_payment_order_id,created_at,subscriptions(value)'
           )
           .in('establishment_id', ids)
           .eq('payment_status', 'paid');
@@ -741,8 +758,10 @@ const AdminDashboard = () => {
           const bruto = Number((sub as any)?.subscriptions?.value ?? 0);
           if (!Number.isFinite(bruto) || bruto <= 0) continue;
 
-          totalLiquidoMap[estId] = Math.round(((totalLiquidoMap[estId] || 0) + calcularLiquidoPix(bruto)) * 100) / 100;
+          const rowDate = sub?.created_at || null;
+          totalLiquidoMap[estId] = Math.round(((totalLiquidoMap[estId] || 0) + calcularLiquidoPix(bruto, rowDate)) * 100) / 100;
           qtdMap[estId] = (qtdMap[estId] || 0) + 1;
+          lucroMap[estId] = Math.round(((lucroMap[estId] || 0) + calcularLucroPix(1, rowDate)) * 100) / 100;
         }
       } catch (e: any) {
         // Fallback seguro: se o banco não tiver as colunas (schema antigo), ignora sem quebrar o admin
@@ -767,6 +786,7 @@ const AdminDashboard = () => {
       setTotalVendasLiquidasPorEstabelecimento(totalLiquidoMap);
       setTotalPagoAdminPorEstabelecimento(pagoMap);
       setQtdPixPagoPorEstabelecimento(qtdMap);
+      setLucroPixPorEstabelecimento(lucroMap);
       setSaldosPorEstabelecimento(saldoMap);
     } catch (e: any) {
       console.error('Erro ao carregar saldos em vendas (admin):', e);
@@ -1470,8 +1490,8 @@ const AdminDashboard = () => {
       // (saldo = vendas líquidas - pagamentos já feitos)
       await carregarSaldosEmVendas(establishmentsWithEmails);
 
-      // Verificar e atualizar status vencidos automaticamente
-      await checkAndUpdateExpiredStatus();
+      // Verificar e atualizar status vencidos automaticamente (usa lista recém-buscada).
+      await checkAndUpdateExpiredStatus(establishmentsWithEmails);
     } catch (error) {
       console.error('Erro ao buscar estabelecimentos:', error);
       toast.error('Erro ao carregar estabelecimentos');
@@ -1843,10 +1863,25 @@ const AdminDashboard = () => {
     toast.success('Movido de volta para a lixeira normal.');
   };
 
+  const parseDateOnlySafe = (value?: string | null): number => {
+    const raw = String(value || '').trim();
+    if (!raw) return NaN;
+    const onlyDate = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+    if (onlyDate) {
+      const y = Number(onlyDate[1]);
+      const m = Number(onlyDate[2]) - 1;
+      const d = Number(onlyDate[3]);
+      return new Date(y, m, d, 12, 0, 0, 0).getTime();
+    }
+    const t = new Date(raw).getTime();
+    return Number.isFinite(t) ? t : NaN;
+  };
+
   const isExpired = (dueDate: string) => {
-    const today = new Date();
-    const due = new Date(dueDate);
-    return due < today;
+    const dueAt = parseDateOnlySafe(dueDate);
+    if (!Number.isFinite(dueAt)) return false;
+    const dueEndOfDay = endOfDay(new Date(dueAt)).getTime();
+    return dueEndOfDay < Date.now();
   };
 
   const isSameMonthYear = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
@@ -1896,9 +1931,10 @@ const AdminDashboard = () => {
       const monthEndStr = format(monthEnd, 'yyyy-MM-dd');
 
       let countAppts = 0;
+      let lucroAppts = 0;
       const { data: appts, error: apptsError } = await supabase
         .from('appointments')
-        .select('id,establishment_id,payment_status,pix_payment_status,payment_method,payment_transaction_id,status')
+        .select('id,establishment_id,payment_status,pix_payment_status,payment_method,payment_transaction_id,status,appointment_date,created_at')
         .in('establishment_id', ids)
         .gte('appointment_date', monthStartStr)
         .lte('appointment_date', monthEndStr)
@@ -1926,10 +1962,13 @@ const AdminDashboard = () => {
           if (String(row?.status || '').toLowerCase() !== 'confirmed') continue;
           seen.add(id);
           countAppts++;
+          const rowDate = row?.created_at || row?.appointment_date || null;
+          lucroAppts = Math.round((lucroAppts + calcularLucroPix(1, rowDate)) * 100) / 100;
         }
       }
 
       let countSubs = 0;
+      let lucroSubs = 0;
       try {
         const subsQuery = supabase.from('client_subscriptions') as any;
         const { data: subsData, error: subsError } = await subsQuery
@@ -1943,6 +1982,7 @@ const AdminDashboard = () => {
           for (const sub of subsData as any[]) {
             if (String(sub?.subscription_payment_provider || '').toLowerCase().trim() !== 'mercadopago_pix') continue;
             countSubs++;
+            lucroSubs = Math.round((lucroSubs + calcularLucroPix(1, sub?.created_at || null)) * 100) / 100;
           }
         }
       } catch {
@@ -1950,7 +1990,7 @@ const AdminDashboard = () => {
       }
 
       const totalVendas = countAppts + countSubs;
-      const lucro = Math.round(totalVendas * TAXA_PLATAFORMA_PIX_POR_VENDA * 100) / 100;
+      const lucro = Math.round((lucroAppts + lucroSubs) * 100) / 100;
       setQtdVendasPixMes(totalVendas);
       setLucroPixMesTotal(lucro);
     } catch (e) {
@@ -2364,22 +2404,27 @@ const AdminDashboard = () => {
   };
 
   // Função para verificar e atualizar status vencidos automaticamente
-  const checkAndUpdateExpiredStatus = async () => {
+  const checkAndUpdateExpiredStatus = async (sourceEstablishments?: Establishment[]) => {
     try {
-      const today = new Date();
+      const list = sourceEstablishments || establishments;
 
       // 1. Verificar estabelecimentos que venceu (não pagos)
-      const expiredEstablishments = establishments.filter(est => {
+      const expiredEstablishments = list.filter(est => {
         if (est.payment_status === 'paid') return false; // Pulos não podem estar vencidos
-        const dueDate = new Date(est.payment_due_date);
-        return dueDate < today;
+        return isExpired(est.payment_due_date);
       });
 
       // 2. Verificar estabelecimentos PAGOS que venceu (deve voltar para unpaid)
-      const paidExpiredEstablishments = establishments.filter(est => {
+      const paidExpiredEstablishments = list.filter(est => {
         if (est.payment_status !== 'paid') return false; // Só verificar pagos
-        const dueDate = new Date(est.payment_due_date);
-        return dueDate < today;
+        return isExpired(est.payment_due_date);
+      });
+
+      // 3. Corrigir estabelecimentos marcados como "expired" indevidamente
+      // (quando o vencimento ainda não passou).
+      const wronglyExpiredEstablishments = list.filter(est => {
+        if (est.payment_status !== 'expired') return false;
+        return !isExpired(est.payment_due_date);
       });
 
       // Atualizar status para vencido no banco (não pagos)
@@ -2398,15 +2443,24 @@ const AdminDashboard = () => {
           .eq('id', est.id);
       }
 
+      // Corrigir expired indevido → unpaid
+      for (const est of wronglyExpiredEstablishments) {
+        await supabase
+          .from('establishments')
+          .update({ payment_status: 'unpaid' })
+          .eq('id', est.id);
+      }
+
       // Atualizar estado local
       setEstablishments(prev =>
         prev.map(est => {
-          const dueDate = new Date(est.payment_due_date);
-
-          if (est.payment_status === 'paid' && dueDate < today) {
+          if (est.payment_status === 'paid' && isExpired(est.payment_due_date)) {
             // Pagos que venceu → voltar para unpaid
             return { ...est, payment_status: 'unpaid' };
-          } else if (est.payment_status !== 'paid' && dueDate < today) {
+          } else if (est.payment_status === 'expired' && !isExpired(est.payment_due_date)) {
+            // Corrige "expired" indevido (vencimento ainda não passou)
+            return { ...est, payment_status: 'unpaid' };
+          } else if (est.payment_status !== 'paid' && isExpired(est.payment_due_date)) {
             // Não pagos que venceu → marcar como expired
             return { ...est, payment_status: 'expired' };
           }
@@ -2415,9 +2469,16 @@ const AdminDashboard = () => {
         })
       );
 
-      const totalUpdated = expiredEstablishments.length + paidExpiredEstablishments.length;
+      const totalUpdated =
+        expiredEstablishments.length +
+        paidExpiredEstablishments.length +
+        wronglyExpiredEstablishments.length;
       if (totalUpdated > 0) {
-        console.log(`🔄 ${expiredEstablishments.length} vencidos, ${paidExpiredEstablishments.length} pagos vencidos = ${totalUpdated} total atualizados`);
+        console.log(
+          `🔄 ${expiredEstablishments.length} vencidos, ` +
+          `${paidExpiredEstablishments.length} pagos vencidos, ` +
+          `${wronglyExpiredEstablishments.length} expired corrigidos = ${totalUpdated} total atualizados`
+        );
       }
     } catch (error) {
       console.error('Erro ao verificar status vencidos:', error);
@@ -2624,8 +2685,8 @@ const AdminDashboard = () => {
     });
 
   const lucroPixFiltrado = filteredEstablishments.reduce((sum, est) => {
-    const qtd = Number(qtdPixPagoPorEstabelecimento[String(est.id)] || 0);
-    return sum + calcularLucroPix(qtd);
+    const lucro = Number(lucroPixPorEstabelecimento[String(est.id)] || 0);
+    return sum + (Number.isFinite(lucro) ? lucro : 0);
   }, 0);
 
   // Filtrar estabelecimentos da lixeira (respeitando período global dos cards, quando ativo)
@@ -3228,7 +3289,7 @@ const AdminDashboard = () => {
         className="max-w-full mx-auto px-2 sm:px-4 lg:px-6 py-6"
         style={isSupportAccount && !canEditEverything() ? { pointerEvents: 'none', userSelect: 'none' } : undefined}
       >
-        {/* Lucro PIX por mês: vendas (serviços + assinaturas) e lucro R$ 1,00, com seletor de mês */}
+        {/* Lucro PIX por mês: vendas (serviços + assinaturas) com regra por data, com seletor de mês */}
         <div className="mb-6">
           <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl shadow-md p-6 max-w-lg">
             <div className="flex items-center justify-between gap-4">
@@ -3740,7 +3801,7 @@ const AdminDashboard = () => {
             <span>
               <strong>Outros:</strong> {planCounts.outros}
             </span>
-            <span title="Lucro do app com PIX via Mercado Pago (R$ 1,00 por venda PIX paga)">
+            <span title="Lucro do app com PIX via Mercado Pago (R$0,50 até 17/03/2026 e R$1,00 a partir de 18/03/2026)">
               <strong>Lucro PIX:</strong> {isLoadingSaldos ? '...' : fmtBRL(lucroPixFiltrado)}
             </span>
             <button
@@ -4136,9 +4197,9 @@ const AdminDashboard = () => {
                               ? `${qtdPixPagoPorEstabelecimento[establishment.id]} PIX pago(s)`
                               : '—'}
                           </div>
-                          <div className="text-[10px] text-gray-700 font-semibold" title="Lucro do app: R$ 1,00 por venda PIX paga">
+                          <div className="text-[10px] text-gray-700 font-semibold" title="Lucro do app com regra por data (R$0,50 antigo e R$1,00 atual)">
                             {qtdPixPagoPorEstabelecimento[establishment.id]
-                              ? `Lucro: ${fmtBRL(calcularLucroPix(Number(qtdPixPagoPorEstabelecimento[establishment.id] || 0)))}`
+                              ? `Lucro: ${fmtBRL(Number(lucroPixPorEstabelecimento[establishment.id] || 0))}`
                               : 'Lucro: —'}
                           </div>
                         </td>

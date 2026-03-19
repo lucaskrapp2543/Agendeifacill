@@ -3236,8 +3236,9 @@ export default function BookingPage() {
                             </div>
                             {subscription.weekdays && subscription.weekdays.length > 0 && (
                               <div className="text-xs text-[#e6d7b1] mt-1 break-words">
-                                📅 {subscription.weekdays.map((day: string) => {
-                                  const dayNames = {
+                                📅 {(() => {
+                                  const weekdayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+                                  const weekdayLabels: Record<string, string> = {
                                     monday: 'Seg',
                                     tuesday: 'Ter',
                                     wednesday: 'Qua',
@@ -3245,9 +3246,53 @@ export default function BookingPage() {
                                     friday: 'Sex',
                                     saturday: 'Sáb',
                                     sunday: 'Dom',
-                                  } as const;
-                                  return dayNames[day as keyof typeof dayNames] || day;
-                                }).join(', ')}
+                                  };
+                                  const weekdayAlias: Record<string, string> = {
+                                    monday: 'monday',
+                                    segunda: 'monday',
+                                    seg: 'monday',
+                                    tuesday: 'tuesday',
+                                    terca: 'tuesday',
+                                    terça: 'tuesday',
+                                    ter: 'tuesday',
+                                    wednesday: 'wednesday',
+                                    quarta: 'wednesday',
+                                    qua: 'wednesday',
+                                    thursday: 'thursday',
+                                    quinta: 'thursday',
+                                    qui: 'thursday',
+                                    friday: 'friday',
+                                    sexta: 'friday',
+                                    sex: 'friday',
+                                    saturday: 'saturday',
+                                    sabado: 'saturday',
+                                    sábado: 'saturday',
+                                    sab: 'saturday',
+                                    sáb: 'saturday',
+                                    sunday: 'sunday',
+                                    domingo: 'sunday',
+                                    dom: 'sunday',
+                                  };
+
+                                  const toCanonical = (rawDay: string) => {
+                                    const normalized = String(rawDay || '').trim().toLowerCase();
+                                    return weekdayAlias[normalized] || normalized;
+                                  };
+
+                                  const orderedLabels = subscription.weekdays
+                                    .map((rawDay: string) => toCanonical(rawDay))
+                                    .sort((a: string, b: string) => {
+                                      const aIndex = weekdayOrder.indexOf(a);
+                                      const bIndex = weekdayOrder.indexOf(b);
+                                      if (aIndex === -1 && bIndex === -1) return a.localeCompare(b, 'pt-BR');
+                                      if (aIndex === -1) return 1;
+                                      if (bIndex === -1) return -1;
+                                      return aIndex - bIndex;
+                                    })
+                                    .map((day: string) => weekdayLabels[day] || day);
+
+                                  return orderedLabels.join(', ');
+                                })()}
                               </div>
                             )}
                           </div>
