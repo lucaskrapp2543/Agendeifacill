@@ -158,12 +158,12 @@ export function DiscountCouponsModal({ isOpen, onClose, establishmentId }: Disco
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[90] bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[2147483000] bg-black/60 flex items-center justify-center p-3 sm:p-4" onClick={onClose}>
       <div
-        className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden"
+        className="w-full max-w-2xl max-h-[92vh] bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+        <div className="flex items-center justify-between px-4 sm:px-5 py-4 border-b border-gray-200 shrink-0">
           <div>
             <div className="text-lg font-bold text-gray-900">Cupons de desconto</div>
             <div className="text-xs text-gray-600">
@@ -185,14 +185,20 @@ export function DiscountCouponsModal({ isOpen, onClose, establishmentId }: Disco
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-4 sm:p-5 space-y-4 overflow-y-auto overscroll-contain">
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
             <div className="text-sm font-extrabold text-amber-900">Como funciona</div>
-            <div className="mt-1 text-sm text-amber-900/90 leading-relaxed">
-              - **Você cria o cupom** (ex: <strong>NEY1</strong>) e escolhe o desconto (ex: <strong>5%</strong>)<br />
-              - **Você envia o código** para o cliente<br />
-              - **O cliente aplica no final do agendamento**, antes de pagar/confirmar — e o valor final já aparece com o desconto
-            </div>
+            <ul className="mt-1 text-sm text-amber-900/90 leading-relaxed list-disc pl-5 space-y-1">
+              <li>
+                <strong>Você cria o cupom</strong> (ex: <strong>NEY1</strong>) e escolhe o desconto (ex: <strong>5%</strong>)
+              </li>
+              <li>
+                <strong>Você envia o código</strong> para o cliente
+              </li>
+              <li>
+                <strong>O cliente aplica no final do agendamento</strong>, antes de pagar/confirmar e o valor final já aparece com o desconto
+              </li>
+            </ul>
           </div>
 
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
@@ -268,7 +274,7 @@ export function DiscountCouponsModal({ isOpen, onClose, establishmentId }: Disco
                         <strong>{c.usage_count ?? 0}</strong>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         type="button"
                         disabled={loading}
