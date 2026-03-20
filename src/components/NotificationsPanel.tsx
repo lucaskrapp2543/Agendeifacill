@@ -14,6 +14,18 @@ interface Notification {
   created_at: string;
 }
 
+interface AppointmentNotificationSnapshot {
+  id: string;
+  created_at?: string | null;
+  client_name?: string | null;
+  service_name?: string | null;
+  appointment_date?: string | null;
+  appointment_time?: string | null;
+  professional_name?: string | null;
+  professional?: string | null;
+  is_waitlist?: boolean | null;
+}
+
 interface NotificationsPanelProps {
   establishmentId: string;
   onUnreadCountChange?: (count: number) => void;
@@ -24,9 +36,130 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
   const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [appointmentDetailsMap, setAppointmentDetailsMap] = useState<Record<string, AppointmentNotificationSnapshot>>({});
+  const [professionalNameById, setProfessionalNameById] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<'all' | 'new_appointment' | 'cancelled_appointment'>('all');
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+
+  const isUuid = (value?: string | null) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+
+  const resolveProfessionalName = (snapshot?: AppointmentNotificationSnapshot) => {
+    if (!snapshot) return '';
+    const byName = String(snapshot.professional_name || '').trim();
+    if (byName && !isUuid(byName)) return byName;
+
+    const byProfessionalId = String(snapshot.professional || '').trim();
+    if (byProfessionalId && professionalNameById[byProfessionalId]) return professionalNameById[byProfessionalId];
+    if (byProfessionalId && !isUuid(byProfessionalId)) return byProfessionalId;
+
+    return '';
+  };
+
+  const toMinutes = (hhmm: string) => {
+    const [h, m] = String(hhmm || '').split(':').map((n) => Number(n));
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return (h * 60) + m;
+  };
+
+  const isLikelyLegacyWaitlist = (snapshot?: AppointmentNotificationSnapshot) => {
+    if (!snapshot) return false;
+    if (snapshot.is_waitlist === true) return true;
+
+    const appointmentDate = String(snapshot.appointment_date || '').trim();
+    const appointmentTime = String(snapshot.appointment_time || '').trim().slice(0, 5);
+    const createdAtRaw = String(snapshot.created_at || '').trim();
+    if (!appointmentDate || !appointmentTime || !createdAtRaw) return false;
+
+    const createdAt = new Date(createdAtRaw);
+    if (Number.isNaN(createdAt.getTime())) return false;
+
+    const createdDate = `${createdAt.getFullYear()}-${String(createdAt.getMonth() + 1).padStart(2, '0')}-${String(createdAt.getDate()).padStart(2, '0')}`;
+    const createdTime = `${String(createdAt.getHours()).padStart(2, '0')}:${String(createdAt.getMinutes()).padStart(2, '0')}`;
+
+    if (appointmentDate !== createdDate) return false;
+
+    const appointmentMinutes = toMinutes(appointmentTime);
+    const createdMinutes = toMinutes(createdTime);
+    if (appointmentMinutes === null || createdMinutes === null) return false;
+
+    // Na fila antiga, horário do "atendimento" costuma ser igual ao momento de criação.
+    const closeToCreation = Math.abs(appointmentMinutes - createdMinutes) <= 2;
+    return closeToCreation;
+  };
+
+  const buildNotificationMessage = (notification: Notification) => {
+    const snapshot = notification.appointment_id ? appointmentDetailsMap[notification.appointment_id] : undefined;
+    if (snapshot) {
+      const clientName = String(snapshot.client_name || '').trim() || 'Cliente';
+      const serviceName = String(snapshot.service_name || '').trim() || 'serviço';
+      const date = String(snapshot.appointment_date || '').trim();
+      const time = String(snapshot.appointment_time || '').trim();
+      const professionalName = resolveProfessionalName(snapshot);
+      const withProfessional = professionalName ? ` com ${professionalName}` : '';
+      if (snapshot.is_waitlist) {
+        return `${clientName} entrou na fila de espera para ${serviceName} em ${date} às ${time}${withProfessional}`;
+      }
+      return `${clientName} agendou ${serviceName} para ${date} às ${time}${withProfessional}`;
+    }
+
+    // Fallback: corrige mensagens antigas que tenham UUID visível após "com ".
+    const raw = String(notification.message || '');
+    return raw.replace(/\bcom\s+([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\b/gi, (_match, id) => {
+      const name = professionalNameById[String(id)];
+      return name ? `com ${name}` : 'com Profissional';
+    });
+  };
+
+  const fetchAppointmentDetails = async (items: Notification[]) => {
+    const appointmentIds = Array.from(
+      new Set(
+        (items || [])
+          .map((n) => String(n?.appointment_id || '').trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (appointmentIds.length === 0) {
+      setAppointmentDetailsMap({});
+      return {};
+    }
+
+    try {
+      let { data, error } = await supabase
+        .from('appointments')
+        .select('id, created_at, client_name, service_name, appointment_date, appointment_time, professional_name, professional, is_waitlist')
+        .in('id', appointmentIds);
+
+      // Fallback para bancos legados sem coluna is_waitlist
+      if (error && String((error as any)?.message || '').includes('is_waitlist')) {
+        const retry = await supabase
+          .from('appointments')
+          .select('id, created_at, client_name, service_name, appointment_date, appointment_time, professional_name, professional')
+          .in('id', appointmentIds);
+        data = retry.data as any;
+        error = retry.error as any;
+      }
+
+      if (error) {
+        console.error('❌ Erro ao buscar detalhes dos agendamentos das notificações:', error);
+        return {};
+      }
+
+      const nextMap: Record<string, AppointmentNotificationSnapshot> = {};
+      (data || []).forEach((row: any) => {
+        if (!row?.id) return;
+        nextMap[String(row.id)] = row as AppointmentNotificationSnapshot;
+      });
+
+      setAppointmentDetailsMap(nextMap);
+      return nextMap;
+    } catch (error) {
+      console.error('❌ Erro inesperado ao buscar agendamentos das notificações:', error);
+      return {};
+    }
+  };
 
   // Buscar notificações
   const fetchNotifications = async () => {
@@ -48,10 +181,18 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       dlog('📋 Notificações encontradas:', data?.length || 0);
       dlog('📋 Notificações:', data);
 
-      setNotifications(data || []);
+      const detailsMap = await fetchAppointmentDetails((data || []) as Notification[]);
+      const visibleNotifications = (data || []).filter((n: any) => {
+        const appointmentId = String(n?.appointment_id || '').trim();
+        if (!appointmentId) return true;
+        const snapshot = (detailsMap as Record<string, AppointmentNotificationSnapshot>)[appointmentId];
+        return !isLikelyLegacyWaitlist(snapshot);
+      });
+
+      setNotifications(visibleNotifications as any);
       
       // Contar não lidas
-      const unread = (data || []).filter(n => !n.read).length;
+      const unread = (visibleNotifications || []).filter((n: any) => !n.read).length;
       setUnreadCount(unread);
       
       // Notificar o componente pai sobre a mudança
@@ -63,7 +204,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
 
       // Enviar notificação para o celular se houver novas não lidas
       if (unread > 0 && 'Notification' in window && notificationPermission === 'granted') {
-        const newNotifications = data?.filter(n => !n.read) || [];
+        const newNotifications = (visibleNotifications || []).filter((n: any) => !n.read);
         dlog('📱 Enviando notificações para celular:', newNotifications.length);
         newNotifications.forEach(notification => {
           sendMobileNotification(notification);
@@ -72,6 +213,34 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       
     } catch (error) {
       console.error('❌ Erro ao buscar notificações:', error);
+    }
+  };
+
+  const fetchProfessionalNames = async () => {
+    if (!establishmentId) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('establishments')
+        .select('professionals')
+        .eq('id', establishmentId)
+        .maybeSingle();
+
+      if (error) {
+        console.error('❌ Erro ao buscar profissionais do estabelecimento:', error);
+        return;
+      }
+
+      const professionals = Array.isArray((data as any)?.professionals) ? (data as any).professionals : [];
+      const nextMap: Record<string, string> = {};
+      professionals.forEach((professional: any) => {
+        const id = String(professional?.id || '').trim();
+        const name = String(professional?.name || '').trim();
+        if (id && name) nextMap[id] = name;
+      });
+      setProfessionalNameById(nextMap);
+    } catch (error) {
+      console.error('❌ Erro inesperado ao buscar profissionais:', error);
     }
   };
 
@@ -193,6 +362,10 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       setNotificationPermission(Notification.permission);
     }
   }, []);
+
+  useEffect(() => {
+    fetchProfessionalNames();
+  }, [establishmentId]);
 
   // Filtrar notificações
   const filteredNotifications = notifications.filter(notification => {
@@ -360,7 +533,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
                            )}
                          </div>
                         <p className="text-sm text-gray-600 mt-1">
-                          {notification.message}
+                          {buildNotificationMessage(notification)}
                         </p>
                         <p className="text-xs text-gray-400 mt-2">
                           {new Date(notification.created_at).toLocaleString('pt-BR')}
