@@ -135,8 +135,15 @@ export const handler: Handler = async (event) => {
       });
     }
 
-    // Taxa da plataforma: R$ 1,00 (100 centavos)
-    const applicationFee = 100;
+    // Taxa da plataforma (centavos) para Mercado Pago.
+    // Compat: usa MERCADOPAGO_PLATFORM_FEE_CENTS e, se não existir, cai em PLATFORM_FEE_CENTS.
+    const applicationFee = Number(
+      String(
+        process.env.MERCADOPAGO_PLATFORM_FEE_CENTS ||
+        process.env.PLATFORM_FEE_CENTS ||
+        '100'
+      ).trim()
+    );
 
     // ✅ VALIDAÇÃO CRÍTICA: Se for pagamento com cartão, payment_method_id e issuer_id são OBRIGATÓRIOS
     // ✅ REMOVIDO: Nunca usar 'credit_card' ou inferir valores
@@ -238,8 +245,8 @@ export const handler: Handler = async (event) => {
       fee_expected: expectedFee,
       fee_returned: returnedFee,
       fee_validation: feeIsValid ? 'ok' : 'divergent',
-      fee_version: 'R$1,00',
-      application_fee_cents_expected: 100,
+      fee_version: `R$${(applicationFee / 100).toFixed(2).replace('.', ',')}`,
+      application_fee_cents_expected: applicationFee,
     });
   } catch (error: any) {
     console.error('❌ [MP Create Payment] Erro:', error);

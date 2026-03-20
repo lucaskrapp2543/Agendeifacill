@@ -1884,6 +1884,42 @@ const AdminDashboard = () => {
     return dueEndOfDay < Date.now();
   };
 
+  const isDueToday = (dueDate: string) => {
+    const dueAt = parseDateOnlySafe(dueDate);
+    if (!Number.isFinite(dueAt)) return false;
+    const dueDateLocal = new Date(dueAt);
+    const now = new Date();
+    return (
+      dueDateLocal.getFullYear() === now.getFullYear() &&
+      dueDateLocal.getMonth() === now.getMonth() &&
+      dueDateLocal.getDate() === now.getDate()
+    );
+  };
+
+  const getDisplayPaymentState = (establishment: Establishment): 'expired' | 'due_today' | 'paid' | 'pending' => {
+    if (establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date)) {
+      return 'expired';
+    }
+    if (isDueToday(establishment.payment_due_date)) {
+      return 'due_today';
+    }
+
+    const dueAt = parseDateOnlySafe(establishment.payment_due_date);
+    if (Number.isFinite(dueAt)) {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+      if (dueAt >= todayStart) {
+        return 'paid';
+      }
+    }
+
+    if (establishment.payment_status === 'paid') {
+      return 'paid';
+    }
+
+    return 'pending';
+  };
+
   const isSameMonthYear = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
   const isSameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -2486,20 +2522,26 @@ const AdminDashboard = () => {
   };
 
   const getStatusColor = (establishment: Establishment) => {
+    const displayState = getDisplayPaymentState(establishment);
     if (establishment.is_blocked) return 'text-red-600';
-    if (establishment.payment_status === 'paid') return 'text-green-600';
-    if (establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date)) {
+    if (displayState === 'expired') {
       return 'text-red-600';
     }
+    if (displayState === 'due_today') return 'text-orange-700';
+    if (displayState === 'paid') return 'text-green-600';
     return 'text-yellow-600';
   };
 
   const getStatusIcon = (establishment: Establishment) => {
+    const displayState = getDisplayPaymentState(establishment);
     if (establishment.is_blocked) return <Lock className="h-5 w-5 text-red-600" />;
-    if (establishment.payment_status === 'paid') return <CheckCircle className="h-5 w-5 text-green-600" />;
-    if (establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date)) {
+    if (displayState === 'expired') {
       return <XCircle className="h-5 w-5 text-red-600" />;
     }
+    if (displayState === 'due_today') {
+      return <AlertTriangle className="h-5 w-5 text-orange-700" />;
+    }
+    if (displayState === 'paid') return <CheckCircle className="h-5 w-5 text-green-600" />;
     return <AlertTriangle className="h-5 w-5 text-yellow-600" />;
   };
 
@@ -3980,12 +4022,17 @@ const AdminDashboard = () => {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-300">
                   {filteredEstablishments.map((establishment, idx) => {
-                    const isRowExpired = isExpired(establishment.payment_due_date) || establishment.payment_status === 'expired';
+                    const displayState = getDisplayPaymentState(establishment);
+                    const isRowExpired = displayState === 'expired';
+                    const isRowDueToday = displayState === 'due_today';
+                    const isRowPaid = displayState === 'paid';
                     const rowAccent = establishment.is_blocked
                       ? 'border-l-rose-700'
                       : isRowExpired
                         ? 'border-l-red-600'
-                        : establishment.payment_status === 'paid'
+                        : isRowDueToday
+                          ? 'border-l-orange-600'
+                        : isRowPaid
                           ? 'border-l-emerald-600'
                           : 'border-l-amber-500';
 
@@ -3994,7 +4041,9 @@ const AdminDashboard = () => {
                       ? 'bg-rose-300'
                       : isRowExpired
                         ? 'bg-red-300'
-                        : establishment.payment_status === 'paid'
+                        : isRowDueToday
+                          ? 'bg-orange-200'
+                        : isRowPaid
                           ? 'bg-emerald-300'
                           : 'bg-amber-300';
 
@@ -4152,8 +4201,10 @@ const AdminDashboard = () => {
                             {getStatusIcon(establishment)}
                             <span className={`ml-1 text-xs font-medium ${getStatusColor(establishment)}`}>
                               {establishment.is_blocked ? 'Bloqueado' :
-                                establishment.payment_status === 'paid' ? 'Pago' :
-                                  establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date) ? 'Vencido' : 'Pendente'}
+                                displayState === 'expired' ? 'Vencido' :
+                                  displayState === 'due_today' ? 'Vence hoje' :
+                                    displayState === 'paid' ? 'Pago' :
+                                      'Pendente'}
                             </span>
                           </div>
                         </td>
