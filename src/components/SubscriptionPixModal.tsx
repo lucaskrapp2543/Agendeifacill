@@ -764,8 +764,24 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       ? '/.netlify/functions/mercadopago-create-subscription-checkout'
       : '/api/mercadopago/create-subscription-checkout';
 
-    const origin = String(window.location.origin || '').trim();
-    const backUrl = /^https:\/\//i.test(origin) ? origin : undefined;
+    const currentUrl = new URL(window.location.href);
+    // Remove params de retorno do próprio Mercado Pago para evitar URL "poluída" em reaberturas.
+    [
+      'collection_id',
+      'collection_status',
+      'payment_id',
+      'status',
+      'external_reference',
+      'payment_type',
+      'merchant_order_id',
+      'preference_id',
+      'site_id',
+      'processing_mode',
+      'merchant_account_id',
+    ].forEach((key) => currentUrl.searchParams.delete(key));
+
+    const backUrlCandidate = currentUrl.toString();
+    const backUrl = /^https:\/\//i.test(backUrlCandidate) ? backUrlCandidate : undefined;
 
     const resp = await fetch(createCheckoutUrl, {
       method: 'POST',
@@ -906,44 +922,43 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     };
   };
 
-  const handleOpenCreditPaymentLink = () => {
-    const open = async () => {
-      try {
-        if (hasMercadoPago) {
-          const existingCheckoutUrl = String(mpSubscriptionCheckoutUrl || '').trim();
-          const existingExternalReference = String(mpSubscriptionExternalReference || '').trim();
-          const checkout =
-            existingCheckoutUrl && existingExternalReference
-              ? { checkoutUrl: existingCheckoutUrl, externalReference: existingExternalReference }
-              : await createExternalMercadoPagoSubscriptionCheckout();
-          if (!checkout) return;
+  const handleOpenCreditPaymentLink = async (): Promise<boolean> => {
+    try {
+      if (hasMercadoPago) {
+        const existingCheckoutUrl = String(mpSubscriptionCheckoutUrl || '').trim();
+        const existingExternalReference = String(mpSubscriptionExternalReference || '').trim();
+        const checkout =
+          existingCheckoutUrl && existingExternalReference
+            ? { checkoutUrl: existingCheckoutUrl, externalReference: existingExternalReference }
+            : await createExternalMercadoPagoSubscriptionCheckout();
+        if (!checkout) return false;
 
-          // Pré-cria em "Meus Assinantes" como pendente já na abertura do checkout externo.
-          await createPendingSubscription(checkout.externalReference, 'mercadopago_card');
-          setHasOpenedCreditLink(true);
-          setSelectedMethod('credit_card');
-          window.open(checkout.checkoutUrl, '_blank', 'noopener,noreferrer');
-          return;
-        }
-
-        const customer = getCustomerForManualCredit();
-        if (!customer) return;
-
-        const link = String(creditCardLink || '').trim();
-        if (!link) {
-          toast.error(
-            'O dono do estabelecimento não utiliza pagamento no cartão de crédito. Por favor, realize o pagamento via Pix.'
-          );
-          return;
-        }
-
+        // Pré-cria em "Meus Assinantes" como pendente já na abertura do checkout externo.
+        await createPendingSubscription(checkout.externalReference, 'mercadopago_card');
         setHasOpenedCreditLink(true);
-        window.open(link, '_blank', 'noopener,noreferrer');
-      } catch (error: any) {
-        toast.error(String(error?.message || 'Erro ao abrir checkout de cartão'));
+        setSelectedMethod('credit_card');
+        window.open(checkout.checkoutUrl, '_blank', 'noopener,noreferrer');
+        return true;
       }
-    };
-    void open();
+
+      const customer = getCustomerForManualCredit();
+      if (!customer) return false;
+
+      const link = String(creditCardLink || '').trim();
+      if (!link) {
+        toast.error(
+          'O dono do estabelecimento não utiliza pagamento no cartão de crédito. Por favor, realize o pagamento via Pix.'
+        );
+        return false;
+      }
+
+      setHasOpenedCreditLink(true);
+      window.open(link, '_blank', 'noopener,noreferrer');
+      return true;
+    } catch (error: any) {
+      toast.error(String(error?.message || 'Erro ao abrir checkout de cartão'));
+      return false;
+    }
   };
 
   const handleCreditNotSucceeded = () => {
@@ -1114,10 +1129,14 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
   };
 
-  const handleCreditConfirmYes = () => {
+  const handleCreditConfirmYes = async () => {
     setShowCreditConfirm(false);
     setShowCreditInstructions(true);
     setHasOpenedCreditLink(false);
+    const opened = await handleOpenCreditPaymentLink();
+    if (!opened) {
+      setShowCreditInstructions(false);
+    }
   };
 
   const handleCreditConfirmNo = () => {
