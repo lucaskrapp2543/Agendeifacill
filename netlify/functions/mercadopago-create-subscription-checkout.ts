@@ -97,6 +97,14 @@ export const handler: Handler = async (event) => {
     if (!Number.isFinite(amount) || amount <= 0) {
       return json(400, { error: 'Valor da assinatura inválido' });
     }
+    const applicationFeeCentsRaw =
+      process.env.MERCADOPAGO_CREDIT_PLATFORM_FEE_CENTS ||
+      process.env.PLATFORM_CREDIT_FEE_CENTS ||
+      '100';
+    const applicationFeeCents = Number(String(applicationFeeCentsRaw).trim());
+    const applicationFee = Number.isFinite(applicationFeeCents)
+      ? Number((applicationFeeCents / 100).toFixed(2))
+      : 1;
 
     const accessToken = await getValidMercadoPagoAccessToken(establishmentId);
     const now = Date.now();
@@ -115,6 +123,8 @@ export const handler: Handler = async (event) => {
         transaction_amount: Number(amount.toFixed(2)),
         currency_id: 'BRL',
       },
+      // Fatia da plataforma em recorrência (R$ 1,00 por padrão no crédito)
+      application_fee: applicationFee,
       metadata: {
         type: 'subscription_preapproval',
         establishment_id: establishmentId,
@@ -154,6 +164,8 @@ export const handler: Handler = async (event) => {
       subscription_status: String(preapproval?.status || 'pending'),
       amount_brl_used: amount,
       amount_cents_used: Math.round(amount * 100),
+      application_fee_brl_used: applicationFee,
+      application_fee_cents_used: Math.round(applicationFee * 100),
     });
   } catch (error: any) {
     const message =

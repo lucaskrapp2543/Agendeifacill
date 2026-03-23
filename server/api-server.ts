@@ -422,15 +422,6 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
     let statusDetail: string | undefined;
 
     if (providerFinal.startsWith('mercadopago')) {
-      // Mercado Pago: orderId é paymentId (numérico)
-      const paymentId = Number(orderId);
-      if (!Number.isFinite(paymentId) || paymentId <= 0) {
-        return res.status(400).json({
-          error: 'paymentId inválido para Mercado Pago',
-          details: { orderId },
-        });
-      }
-
       // Buscar access_token do estabelecimento
       const { data: est, error: estErr } = await supabaseAdmin
         .from('establishments')
@@ -450,16 +441,38 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
         });
       }
 
-      const mpStatus = await checkMPPaymentStatus(paymentId, accessToken);
-      normalizedStatus = String((mpStatus as any)?.status || '').toLowerCase();
-      statusDetail = String((mpStatus as any)?.status_detail || '').trim() || undefined;
+      const paymentId = Number(orderId);
+      if (Number.isFinite(paymentId) && paymentId > 0) {
+        const mpStatus = await checkMPPaymentStatus(paymentId, accessToken);
+        normalizedStatus = String((mpStatus as any)?.status || '').toLowerCase();
+        statusDetail = String((mpStatus as any)?.status_detail || '').trim() || undefined;
 
-      // Mercado Pago: pago pode vir como "approved" (ou "authorized" em alguns fluxos)
-      if (normalizedStatus !== 'approved' && normalizedStatus !== 'authorized') {
-        return res.status(400).json({
-          error: 'Pagamento ainda não confirmado',
-          details: { status: normalizedStatus, status_detail: statusDetail },
-        });
+        // Mercado Pago: pago pode vir como "approved" (ou "authorized" em alguns fluxos)
+        if (normalizedStatus !== 'approved' && normalizedStatus !== 'authorized') {
+          return res.status(400).json({
+            error: 'Pagamento ainda não confirmado',
+            details: { status: normalizedStatus, status_detail: statusDetail },
+          });
+        }
+      } else {
+        // Recorrência real (preapproval): orderId é preapproval_id
+        const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+        const preapprovalResp = await axios.get(
+          `${MP_API_BASE_URL}/preapproval/${encodeURIComponent(String(orderId))}`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        normalizedStatus = String((preapprovalResp.data as any)?.status || '').toLowerCase();
+        if (normalizedStatus !== 'authorized') {
+          return res.status(400).json({
+            error: 'Assinatura recorrente ainda não autorizada',
+            details: { status: normalizedStatus },
+          });
+        }
       }
     } else {
       // Pagar.me

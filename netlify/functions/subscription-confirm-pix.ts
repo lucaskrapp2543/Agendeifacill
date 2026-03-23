@@ -1,4 +1,5 @@
 import type { Handler } from '@netlify/functions';
+import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
@@ -167,14 +168,39 @@ export const handler: Handler = async (event) => {
         }
       }
 
-      const statusResult = await checkMPPaymentStatus(Number(orderId), String(accessToken));
-      normalizedStatus = String(statusResult.status || '').toLowerCase();
+      const paymentId = Number(orderId);
+      if (Number.isFinite(paymentId) && paymentId > 0) {
+        const statusResult = await checkMPPaymentStatus(paymentId, String(accessToken));
+        normalizedStatus = String(statusResult.status || '').toLowerCase();
 
-      if (normalizedStatus !== 'approved' && normalizedStatus !== 'authorized') {
-        return {
-          statusCode: 400,
-          body: JSON.stringify({ error: 'Pagamento ainda não confirmado', details: { status: normalizedStatus } }),
-        };
+        if (normalizedStatus !== 'approved' && normalizedStatus !== 'authorized') {
+          return {
+            statusCode: 400,
+            body: JSON.stringify({ error: 'Pagamento ainda não confirmado', details: { status: normalizedStatus } }),
+          };
+        }
+      } else {
+        // Recorrência real (preapproval): orderId é preapproval_id
+        const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+        const preapprovalResp = await axios.get(
+          `${MP_API_BASE_URL}/preapproval/${encodeURIComponent(String(orderId))}`,
+          {
+            headers: {
+              Authorization: `Bearer ${String(accessToken)}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        normalizedStatus = String((preapprovalResp.data as any)?.status || '').toLowerCase();
+        if (normalizedStatus !== 'authorized') {
+          return {
+            statusCode: 400,
+            body: JSON.stringify({
+              error: 'Assinatura recorrente ainda não autorizada',
+              details: { status: normalizedStatus },
+            }),
+          };
+        }
       }
     } else {
       // Validar pagamento Pagar.me

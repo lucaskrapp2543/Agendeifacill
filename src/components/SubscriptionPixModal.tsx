@@ -1040,9 +1040,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         }
 
         if (payment.status === 'approved' || payment.status === 'authorized' || payment.status === 'paid') {
-          if (!payment.isPreapproval) {
-            await confirmSubscription(payment.paymentId, 'mercadopago_card');
-          }
+          await confirmSubscription(payment.paymentId, 'mercadopago_card');
           setIsPaid(true);
           setCurrentPaymentId(payment.paymentId);
           setCurrentPaymentProvider('mercadopago_card');
