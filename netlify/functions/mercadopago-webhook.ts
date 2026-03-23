@@ -59,8 +59,6 @@ const normalizeSubscriptionPaymentStatus = (raw: unknown): 'paid' | 'pending' | 
   return 'pending';
 };
 
-const toISODate = (d: Date): string => d.toISOString().slice(0, 10);
-
 export const handler: Handler = async (event) => {
   // Webhooks do Mercado Pago podem ser GET (verificação) ou POST (notificação)
   if (event.httpMethod === 'GET') {
