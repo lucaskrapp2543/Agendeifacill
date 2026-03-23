@@ -31,6 +31,16 @@ function getSupabaseAdmin() {
   });
 }
 
+const normalizeSubscriptionPaymentStatus = (raw: unknown): 'paid' | 'pending' | 'failed' | 'cancelled' => {
+  const status = String(raw || '').toLowerCase().trim();
+  if (status === 'approved' || status === 'authorized' || status === 'paid') return 'paid';
+  if (status === 'cancelled' || status === 'canceled') return 'cancelled';
+  if (status === 'rejected' || status === 'refused' || status === 'failed') return 'failed';
+  return 'pending';
+};
+
+const toISODate = (d: Date): string => d.toISOString().slice(0, 10);
+
 /**
  * GET /api/mercadopago/oauth/authorize
  * Inicia o fluxo OAuth do Mercado Pago
@@ -610,6 +620,203 @@ router.post('/create-establishment-billing-subscription', async (req: Request, r
 });
 
 /**
+ * POST /api/mercadopago/create-subscription-checkout
+ * Cria checkout externo do Mercado Pago para assinatura de cliente.
+ */
+router.post('/create-subscription-checkout', async (req: Request, res: Response) => {
+  try {
+    const { establishmentId, subscriptionId, payer, backUrl } = req.body || {};
+    const payerEmail = String(payer?.email || '').trim();
+    const payerName = String(payer?.name || '').trim();
+    const backUrlCandidate = String(backUrl || '').trim();
+
+    if (!establishmentId || !subscriptionId || !payerEmail) {
+      return res.status(400).json({
+        error: 'Dados incompletos',
+        required: ['establishmentId', 'subscriptionId', 'payer.email'],
+      });
+    }
+
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: 'Supabase admin não configurado' });
+    }
+
+    const { data: establishment, error: estError } = await supabaseAdmin
+      .from('establishments')
+      .select('id, mercadopago_access_token')
+      .eq('id', String(establishmentId))
+      .single();
+    if (estError || !establishment) {
+      return res.status(404).json({ error: 'Estabelecimento não encontrado' });
+    }
+
+    const accessToken = String((establishment as any)?.mercadopago_access_token || '').trim();
+    if (!accessToken) {
+      return res.status(400).json({ error: 'Estabelecimento sem Mercado Pago conectado' });
+    }
+
+    const { data: subscription, error: subError } = await supabaseAdmin
+      .from('subscriptions')
+      .select('id, name, value')
+      .eq('id', String(subscriptionId))
+      .single();
+    if (subError || !subscription) {
+      return res.status(404).json({ error: 'Assinatura não encontrada' });
+    }
+
+    const amount = Number((subscription as any)?.value || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'Valor da assinatura inválido' });
+    }
+
+    const applicationFeeRaw =
+      process.env.MERCADOPAGO_CREDIT_PLATFORM_FEE_CENTS ||
+      process.env.PLATFORM_CREDIT_FEE_CENTS ||
+      '100';
+    const applicationFeeCents = Number(String(applicationFeeRaw).trim());
+    const marketplaceFee = Number.isFinite(applicationFeeCents) ? applicationFeeCents / 100 : 1;
+    const externalReference = `subscription_checkout:${String(establishmentId)}:${String(subscriptionId)}:${Date.now()}`;
+    const title = String((subscription as any)?.name || 'Assinatura').trim();
+    const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+
+    const payload: any = {
+      items: [
+        {
+          id: String(subscriptionId),
+          title,
+          quantity: 1,
+          currency_id: 'BRL',
+          unit_price: Number(amount.toFixed(2)),
+        },
+      ],
+      payer: {
+        email: payerEmail,
+        ...(payerName ? { name: payerName } : {}),
+      },
+      marketplace_fee: marketplaceFee,
+      external_reference: externalReference,
+      metadata: {
+        type: 'subscription_checkout',
+        establishment_id: String(establishmentId),
+        subscription_id: String(subscriptionId),
+      },
+    };
+
+    if (/^https:\/\//i.test(backUrlCandidate)) {
+      payload.back_urls = {
+        success: backUrlCandidate,
+        failure: backUrlCandidate,
+        pending: backUrlCandidate,
+      };
+      payload.auto_return = 'approved';
+    }
+
+    const mpResponse = await axios.post(`${MP_API_BASE_URL}/checkout/preferences`, payload, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'X-Idempotency-Key': `sub_pref_${externalReference}`,
+      },
+    });
+
+    const preference = mpResponse.data || {};
+    return res.status(200).json({
+      preference_id: String(preference?.id || ''),
+      init_point: preference?.init_point || null,
+      sandbox_init_point: preference?.sandbox_init_point || null,
+      external_reference: externalReference,
+      amount_brl_used: amount,
+      amount_cents_used: Math.round(amount * 100),
+      marketplace_fee_cents: applicationFeeCents,
+      marketplace_fee_brl: marketplaceFee,
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      error:
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message ||
+        'Erro ao criar checkout externo da assinatura',
+    });
+  }
+});
+
+/**
+ * POST /api/mercadopago/get-payment-by-external-reference
+ * Busca o pagamento mais recente por external_reference.
+ */
+router.post('/get-payment-by-external-reference', async (req: Request, res: Response) => {
+  try {
+    const { establishmentId, externalReference } = req.body || {};
+    if (!establishmentId || !externalReference) {
+      return res.status(400).json({
+        error: 'Dados incompletos',
+        required: ['establishmentId', 'externalReference'],
+      });
+    }
+
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: 'Supabase admin não configurado' });
+    }
+
+    const { data: establishment, error: estError } = await supabaseAdmin
+      .from('establishments')
+      .select('id, mercadopago_access_token')
+      .eq('id', String(establishmentId))
+      .single();
+    if (estError || !establishment) {
+      return res.status(404).json({ error: 'Estabelecimento não encontrado' });
+    }
+
+    const accessToken = String((establishment as any)?.mercadopago_access_token || '').trim();
+    if (!accessToken) {
+      return res.status(400).json({ error: 'Estabelecimento sem Mercado Pago conectado' });
+    }
+
+    const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+    const mpResponse = await axios.get(`${MP_API_BASE_URL}/v1/payments/search`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      params: {
+        external_reference: String(externalReference),
+        sort: 'date_created',
+        criteria: 'desc',
+        limit: 1,
+      },
+    });
+
+    const results = Array.isArray(mpResponse?.data?.results) ? mpResponse.data.results : [];
+    const payment = results[0] || null;
+    if (!payment) {
+      return res.status(200).json({ found: false, payment: null });
+    }
+
+    return res.status(200).json({
+      found: true,
+      payment: {
+        id: String(payment?.id || ''),
+        status: String(payment?.status || ''),
+        status_detail: String(payment?.status_detail || ''),
+        date_approved: payment?.date_approved || null,
+        transaction_amount: payment?.transaction_amount || null,
+      },
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      error:
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message ||
+        'Erro ao buscar pagamento no Mercado Pago',
+    });
+  }
+});
+
+/**
  * GET /api/mercadopago/recent-establishment-billing-payments
  * Lista pagamentos automáticos (regularização) recentes por estabelecimento.
  */
@@ -784,6 +991,75 @@ router.post('/webhook', async (req: Request, res: Response) => {
         .limit(1);
 
       if (!appointments || appointments.length === 0) {
+        const platformAccessToken = String(process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim();
+        if (platformAccessToken) {
+          try {
+            const payment = await checkMPPaymentStatus(Number(paymentId), platformAccessToken);
+            const externalReference = String((payment as any)?.external_reference || '').trim();
+            const subscriptionCheckoutPrefix = 'subscription_checkout:';
+
+            if (externalReference.startsWith(subscriptionCheckoutPrefix)) {
+              const parts = externalReference.split(':');
+              const establishmentId = String(parts[1] || '').trim();
+              const subscriptionId = String(parts[2] || '').trim();
+              const subscriptionStatus = normalizeSubscriptionPaymentStatus((payment as any)?.status);
+
+              if (establishmentId && subscriptionId) {
+                const lookupOrderIds = [externalReference, String(paymentId)].filter(Boolean);
+                const { data: subscriberRows, error: subscriberFetchError } = await supabaseAdmin
+                  .from('client_subscriptions')
+                  .select('id, payment_status, subscription_payment_order_id')
+                  .eq('establishment_id', establishmentId)
+                  .eq('subscription_id', subscriptionId)
+                  .in('subscription_payment_order_id', lookupOrderIds)
+                  .order('created_at', { ascending: false })
+                  .limit(20);
+
+                if (subscriberFetchError) {
+                  console.error('❌ [MP Webhook] Erro ao buscar assinatura pendente (checkout externo):', subscriberFetchError);
+                } else if (Array.isArray(subscriberRows) && subscriberRows.length > 0) {
+                  if (subscriptionStatus === 'paid') {
+                    const ids = subscriberRows.map((r: any) => String(r.id)).filter(Boolean);
+                    if (ids.length > 0) {
+                      const { error: subscriberUpdateError } = await supabaseAdmin
+                        .from('client_subscriptions')
+                        .update({
+                          payment_status: 'paid',
+                          last_payment_date: toISODate(new Date()),
+                          subscriber_payment_method: 'credito',
+                          subscription_payment_provider: 'mercadopago_card',
+                          subscription_payment_order_id: String(paymentId),
+                        } as any)
+                        .in('id', ids);
+
+                      if (!subscriberUpdateError) {
+                        return res.status(200).json({
+                          message: 'Webhook de assinatura externa processado automaticamente',
+                          establishmentId,
+                          subscriptionId,
+                          paymentId: String(paymentId),
+                          paymentStatus: String((payment as any)?.status || ''),
+                          updatedSubscribers: ids.length,
+                        });
+                      }
+                    }
+                  } else {
+                    return res.status(200).json({
+                      message: 'Webhook de assinatura externa recebido (ainda não aprovado)',
+                      establishmentId,
+                      subscriptionId,
+                      paymentId: String(paymentId),
+                      paymentStatus: String((payment as any)?.status || ''),
+                    });
+                  }
+                }
+              }
+            }
+          } catch (externalErr) {
+            console.warn('⚠️ [MP Webhook] Falha ao processar assinatura externa automática:', externalErr);
+          }
+        }
+
         return res.status(200).json({ message: 'Webhook recebido, mas agendamento não encontrado' });
       }
 

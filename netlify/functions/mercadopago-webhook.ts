@@ -40,6 +40,16 @@ const getNextDueDate = (planTypeRaw: unknown): string => {
   return next.toISOString().split('T')[0];
 };
 
+const normalizeSubscriptionPaymentStatus = (raw: unknown): 'paid' | 'pending' | 'failed' | 'cancelled' => {
+  const status = String(raw || '').toLowerCase().trim();
+  if (status === 'approved' || status === 'authorized' || status === 'paid') return 'paid';
+  if (status === 'cancelled' || status === 'canceled') return 'cancelled';
+  if (status === 'rejected' || status === 'refused' || status === 'failed') return 'failed';
+  return 'pending';
+};
+
+const toISODate = (d: Date): string => d.toISOString().slice(0, 10);
+
 export const handler: Handler = async (event) => {
   // Webhooks do Mercado Pago podem ser GET (verificação) ou POST (notificação)
   if (event.httpMethod === 'GET') {
@@ -145,6 +155,7 @@ export const handler: Handler = async (event) => {
         // Fluxo de cobrança recorrente por assinatura no cartão:
         // quando o pagamento não pertence a appointments nem à cobrança PIX avulsa,
         // tentamos identificar pelo external_reference do pagamento.
+        let maybeSubscriptionCheckoutHandled = false;
         if (PLATFORM_MP_ACCESS_TOKEN) {
           try {
             const payment = await checkMPPaymentStatus(Number(paymentId), PLATFORM_MP_ACCESS_TOKEN);
@@ -230,12 +241,79 @@ export const handler: Handler = async (event) => {
                 });
               }
             }
+
+            const subscriptionCheckoutPrefix = 'subscription_checkout:';
+            const isSubscriptionCheckoutPayment = externalReference.startsWith(subscriptionCheckoutPrefix);
+            if (isSubscriptionCheckoutPayment) {
+              const parts = externalReference.split(':');
+              const establishmentId = String(parts[1] || '').trim();
+              const subscriptionId = String(parts[2] || '').trim();
+              const subscriptionStatus = normalizeSubscriptionPaymentStatus((payment as any)?.status);
+
+              if (establishmentId && subscriptionId) {
+                const lookupOrderIds = [externalReference, String(paymentId)].filter(Boolean);
+                const { data: subscriberRows, error: subscriberFetchError } = await supabaseAdmin
+                  .from('client_subscriptions')
+                  .select('id, payment_status, subscription_payment_order_id')
+                  .eq('establishment_id', establishmentId)
+                  .eq('subscription_id', subscriptionId)
+                  .in('subscription_payment_order_id', lookupOrderIds)
+                  .order('created_at', { ascending: false })
+                  .limit(20);
+
+                if (subscriberFetchError) {
+                  console.error('❌ [MP Webhook] Erro ao buscar assinaturas pendentes (checkout externo):', subscriberFetchError);
+                } else if (Array.isArray(subscriberRows) && subscriberRows.length > 0) {
+                  if (subscriptionStatus === 'paid') {
+                    const ids = subscriberRows.map((r: any) => String(r.id)).filter(Boolean);
+                    if (ids.length > 0) {
+                      const { error: subscriberUpdateError } = await supabaseAdmin
+                        .from('client_subscriptions')
+                        .update({
+                          payment_status: 'paid',
+                          last_payment_date: toISODate(new Date()),
+                          subscriber_payment_method: 'credito',
+                          subscription_payment_provider: 'mercadopago_card',
+                          subscription_payment_order_id: String(paymentId),
+                        } as any)
+                        .in('id', ids);
+
+                      if (subscriberUpdateError) {
+                        console.error('❌ [MP Webhook] Erro ao marcar assinante como pago automaticamente:', subscriberUpdateError);
+                      } else {
+                        maybeSubscriptionCheckoutHandled = true;
+                        return json(200, {
+                          message: 'Webhook de assinatura externa processado automaticamente',
+                          establishmentId,
+                          subscriptionId,
+                          paymentId: String(paymentId),
+                          paymentStatus: String((payment as any)?.status || ''),
+                          updatedSubscribers: ids.length,
+                        });
+                      }
+                    }
+                  } else {
+                    maybeSubscriptionCheckoutHandled = true;
+                    return json(200, {
+                      message: 'Webhook de assinatura externa recebido (ainda não aprovado)',
+                      establishmentId,
+                      subscriptionId,
+                      paymentId: String(paymentId),
+                      paymentStatus: String((payment as any)?.status || ''),
+                    });
+                  }
+                }
+              }
+            }
           } catch (err) {
             console.warn('⚠️ [MP Webhook] Falha ao tentar identificar cobrança recorrente:', err);
           }
         }
 
-        console.warn('⚠️ [MP Webhook] Nenhum registro encontrado para payment_id:', paymentId);
+        if (!maybeSubscriptionCheckoutHandled) {
+          console.warn('⚠️ [MP Webhook] Nenhum registro encontrado para payment_id:', paymentId);
+        }
+
         return json(200, { message: 'Webhook recebido, mas registro não encontrado' });
       }
 

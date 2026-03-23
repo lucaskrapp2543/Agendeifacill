@@ -104,6 +104,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const [hasOpenedCreditLink, setHasOpenedCreditLink] = useState(false);
   const [creditCardLink, setCreditCardLink] = useState<string>('');
   const [isCreditClaimed, setIsCreditClaimed] = useState(false);
+  const [mpSubscriptionExternalReference, setMpSubscriptionExternalReference] = useState('');
+  const [mpSubscriptionCheckoutUrl, setMpSubscriptionCheckoutUrl] = useState('');
 
   // 🔗 Link externo (custom_link): estados do fluxo
   const [showExternalInstructions, setShowExternalInstructions] = useState(false);
@@ -195,14 +197,6 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
   }, [isOpen, establishmentId, paymentProvider]);
 
-  // 🔒 Regra de segurança: quando for Mercado Pago, permitir somente PIX (sem cartão)
-  useEffect(() => {
-    if (!hasMercadoPago) return;
-    if (selectedMethod === 'credit_card') {
-      setSelectedMethod(null);
-    }
-  }, [hasMercadoPago, selectedMethod]);
-
   useEffect(() => {
     if (!isOpen) return;
     // reset básico ao abrir
@@ -222,6 +216,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setShowCreditInstructions(false);
     setHasOpenedCreditLink(false);
     setIsCreditClaimed(false);
+    setMpSubscriptionExternalReference('');
+    setMpSubscriptionCheckoutUrl('');
     setShowExternalInstructions(false);
     setHasOpenedExternalLink(false);
     setIsExternalClaimed(false);
@@ -760,9 +756,85 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
   };
 
+  const createExternalMercadoPagoSubscriptionCheckout = async () => {
+    const customer = getCustomerForManualCredit();
+    if (!customer) return null;
+
+    const createCheckoutUrl = import.meta.env.PROD
+      ? '/.netlify/functions/mercadopago-create-subscription-checkout'
+      : '/api/mercadopago/create-subscription-checkout';
+
+    const origin = String(window.location.origin || '').trim();
+    const backUrl = /^https:\/\//i.test(origin) ? origin : undefined;
+
+    const resp = await fetch(createCheckoutUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        establishmentId,
+        subscriptionId: subscription.id,
+        payer: {
+          email: customer.email,
+          name: customer.name,
+          document: customer.document,
+        },
+        ...(backUrl ? { backUrl } : {}),
+      }),
+    });
+
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const errMsg = String(data?.error || data?.message || `Erro ${resp.status}`);
+      const details = String(data?.userMessage || data?.details || '').trim();
+      throw new Error(details ? `${errMsg} (${details})` : errMsg);
+    }
+
+    const checkoutUrl = String(data?.init_point || data?.sandbox_init_point || '').trim();
+    const externalReference = String(data?.external_reference || '').trim();
+    if (!checkoutUrl || !externalReference) {
+      throw new Error('Mercado Pago não retornou link externo da assinatura.');
+    }
+
+    setMpSubscriptionCheckoutUrl(checkoutUrl);
+    setMpSubscriptionExternalReference(externalReference);
+    return { checkoutUrl, externalReference };
+  };
+
+  const verifyExternalMercadoPagoSubscriptionPayment = async () => {
+    const externalReference = String(mpSubscriptionExternalReference || '').trim();
+    if (!externalReference) {
+      throw new Error('Nenhuma cobrança externa encontrada. Clique em "Pagar agora" para abrir o Mercado Pago.');
+    }
+
+    const checkUrl = import.meta.env.PROD
+      ? '/.netlify/functions/mercadopago-get-payment-by-external-reference'
+      : '/api/mercadopago/get-payment-by-external-reference';
+
+    const response = await fetch(checkUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        establishmentId,
+        externalReference,
+      }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const errMsg = String(data?.error || data?.message || `Erro ${response.status}`);
+      throw new Error(errMsg);
+    }
+
+    return {
+      paymentId: String(data?.payment?.id || '').trim(),
+      status: String(data?.payment?.status || '').toLowerCase().trim(),
+      statusDetail: String(data?.payment?.status_detail || '').trim(),
+    };
+  };
+
   const createPendingSubscription = async (
     orderId: string,
-    providerKey: 'pagarme_pix' | 'mercadopago_pix'
+    providerKey: 'pagarme_pix' | 'mercadopago_pix' | 'mercadopago_card'
   ) => {
     const url = import.meta.env.PROD
       ? '/.netlify/functions/subscription-create-pending'
@@ -835,19 +907,43 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   };
 
   const handleOpenCreditPaymentLink = () => {
-    const customer = getCustomerForManualCredit();
-    if (!customer) return;
+    const open = async () => {
+      try {
+        if (hasMercadoPago) {
+          const existingCheckoutUrl = String(mpSubscriptionCheckoutUrl || '').trim();
+          const existingExternalReference = String(mpSubscriptionExternalReference || '').trim();
+          const checkout =
+            existingCheckoutUrl && existingExternalReference
+              ? { checkoutUrl: existingCheckoutUrl, externalReference: existingExternalReference }
+              : await createExternalMercadoPagoSubscriptionCheckout();
+          if (!checkout) return;
 
-    const link = String(creditCardLink || '').trim();
-    if (!link) {
-      toast.error(
-        'O dono do estabelecimento não utiliza pagamento no cartão de crédito. Por favor, realize o pagamento via Pix.'
-      );
-      return;
-    }
+          // Pré-cria em "Meus Assinantes" como pendente já na abertura do checkout externo.
+          await createPendingSubscription(checkout.externalReference, 'mercadopago_card');
+          setHasOpenedCreditLink(true);
+          setSelectedMethod('credit_card');
+          window.open(checkout.checkoutUrl, '_blank', 'noopener,noreferrer');
+          return;
+        }
 
-    setHasOpenedCreditLink(true);
-    window.open(link, '_blank', 'noopener,noreferrer');
+        const customer = getCustomerForManualCredit();
+        if (!customer) return;
+
+        const link = String(creditCardLink || '').trim();
+        if (!link) {
+          toast.error(
+            'O dono do estabelecimento não utiliza pagamento no cartão de crédito. Por favor, realize o pagamento via Pix.'
+          );
+          return;
+        }
+
+        setHasOpenedCreditLink(true);
+        window.open(link, '_blank', 'noopener,noreferrer');
+      } catch (error: any) {
+        toast.error(String(error?.message || 'Erro ao abrir checkout de cartão'));
+      }
+    };
+    void open();
   };
 
   const handleCreditNotSucceeded = () => {
@@ -859,6 +955,49 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const handleCreditPaid = async () => {
     const customer = getCustomerForManualCredit();
     if (!customer) return;
+
+    if (hasMercadoPago) {
+      setIsProcessing(true);
+      try {
+        const payment = await verifyExternalMercadoPagoSubscriptionPayment();
+        if (!payment.paymentId) {
+          toast.error('Ainda não encontramos o pagamento no Mercado Pago. Aguarde alguns segundos e clique em "Paguei" novamente.');
+          return;
+        }
+
+        if (payment.status === 'approved' || payment.status === 'authorized' || payment.status === 'paid') {
+          await confirmSubscription(payment.paymentId, 'mercadopago_card');
+          setIsPaid(true);
+          setCurrentPaymentId(payment.paymentId);
+          setCurrentPaymentProvider('mercadopago_card');
+          setShowCreditInstructions(false);
+          setHasOpenedCreditLink(false);
+          toast.success('Pagamento confirmado! Sua assinatura foi ativada.');
+          return;
+        }
+
+        if (
+          payment.status === 'rejected' ||
+          payment.status === 'refused' ||
+          payment.status === 'cancelled' ||
+          payment.status === 'canceled'
+        ) {
+          toast.error(
+            payment.statusDetail
+              ? `Pagamento não aprovado: ${payment.statusDetail}`
+              : 'Pagamento não aprovado no Mercado Pago.'
+          );
+          return;
+        }
+
+        toast.error('Pagamento ainda pendente no Mercado Pago. Finalize o checkout e tente novamente.');
+      } catch (e: any) {
+        toast.error(String(e?.message || 'Erro ao verificar pagamento no Mercado Pago'));
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
 
     const claimUrl = import.meta.env.PROD
       ? '/.netlify/functions/subscription-claim-credit'
@@ -1243,8 +1382,20 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                   </button>
                 )}
 
-                {/* Cartão só aparece se existir link configurado para cartão */}
-                {creditCardLink ? (
+                {/* Cartão: Mercado Pago externo ou link manual legado */}
+                {hasMercadoPago ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreditConfirm(true);
+                    }}
+                    disabled={isProcessing || isCheckingPayment}
+                    className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-gray-700"
+                  >
+                    <CreditCard className="h-5 w-5" />
+                    Cartão de crédito
+                  </button>
+                ) : creditCardLink ? (
                   <button
                     type="button"
                     onClick={() => setShowCreditConfirm(true)}
@@ -1307,7 +1458,18 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                       Após pagar, volte nesta página para concluir e ativar.
                     </p>
                     <p className="text-xs text-yellow-200/90 mt-2">
-                      Atenção: se você pagar e não voltar aqui para clicar em <span className="font-semibold">“Paguei”</span>, mesmo que esteja pago, o sistema não conclui sua conta automaticamente.
+                      {hasMercadoPago
+                        ? (
+                          <>
+                            Você será redirecionado para o checkout oficial do Mercado Pago. Depois do pagamento,
+                            clique em <span className="font-semibold">“Paguei”</span> para validar e ativar aqui.
+                          </>
+                        )
+                        : (
+                          <>
+                            Atenção: se você pagar e não voltar aqui para clicar em <span className="font-semibold">“Paguei”</span>, mesmo que esteja pago, o sistema não conclui sua conta automaticamente.
+                          </>
+                        )}
                     </p>
                   </div>
 
@@ -1317,7 +1479,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                     disabled={isProcessing}
                     className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    Pagar agora
+                    {hasMercadoPago ? 'Abrir checkout Mercado Pago' : 'Pagar agora'}
                   </button>
 
                   {hasOpenedCreditLink && (
