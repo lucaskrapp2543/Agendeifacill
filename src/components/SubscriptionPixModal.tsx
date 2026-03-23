@@ -955,7 +955,17 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     };
   };
 
-  const handleOpenCreditPaymentLink = async (): Promise<boolean> => {
+  const handleOpenCreditPaymentLink = async (preOpenedPopup?: Window | null): Promise<boolean> => {
+    const openTarget = (url: string) => {
+      if (preOpenedPopup && !preOpenedPopup.closed) {
+        preOpenedPopup.location.href = url;
+        preOpenedPopup.focus();
+        return true;
+      }
+      const newWin = window.open(url, '_blank', 'noopener,noreferrer');
+      return Boolean(newWin);
+    };
+
     try {
       if (hasMercadoPago) {
         const existingCheckoutUrl = String(mpSubscriptionCheckoutUrl || '').trim();
@@ -975,7 +985,11 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         await createPendingSubscription(checkout.preapprovalId, 'mercadopago_card');
         setHasOpenedCreditLink(true);
         setSelectedMethod('credit_card');
-        window.open(checkout.checkoutUrl, '_blank', 'noopener,noreferrer');
+        const opened = openTarget(checkout.checkoutUrl);
+        if (!opened) {
+          toast.error('O navegador bloqueou a nova aba. Permita pop-ups para continuar no cartão.');
+          return false;
+        }
         return true;
       }
 
@@ -991,9 +1005,16 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       }
 
       setHasOpenedCreditLink(true);
-      window.open(link, '_blank', 'noopener,noreferrer');
+      const opened = openTarget(link);
+      if (!opened) {
+        toast.error('O navegador bloqueou a nova aba. Permita pop-ups para continuar no cartão.');
+        return false;
+      }
       return true;
     } catch (error: any) {
+      if (preOpenedPopup && !preOpenedPopup.closed) {
+        preOpenedPopup.close();
+      }
       toast.error(String(error?.message || 'Erro ao abrir checkout de cartão'));
       return false;
     }
@@ -1174,11 +1195,18 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   };
 
   const handleCreditConfirmYes = async () => {
+    const popup = window.open('', '_blank');
+    if (!popup) {
+      toast.error('Seu navegador bloqueou pop-up. Libere pop-ups para o agendeifacil.com.');
+      return;
+    }
+
     setShowCreditConfirm(false);
     setShowCreditInstructions(true);
     setHasOpenedCreditLink(false);
-    const opened = await handleOpenCreditPaymentLink();
+    const opened = await handleOpenCreditPaymentLink(popup);
     if (!opened) {
+      if (!popup.closed) popup.close();
       setShowCreditInstructions(false);
     }
   };
