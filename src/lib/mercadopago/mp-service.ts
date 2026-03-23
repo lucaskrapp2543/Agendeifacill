@@ -37,7 +37,7 @@ export interface CreateMPPaymentRequest {
       federal_unit: string;
     };
   };
-  application_fee: number; // Taxa da plataforma em centavos (ex: 100 = R$ 1,00)
+  application_fee?: number; // Taxa da plataforma em centavos (ex: 100 = R$ 1,00). Opcional para cobrança direta da plataforma.
   access_token: string; // Access token do vendedor
   metadata?: Record<string, any>;
   payment_method_id?: string; // 'pix', 'credit_card', 'visa', 'master', etc. (vem do token)
@@ -86,20 +86,24 @@ export async function createMPPayment(
     throw new Error('amount deve ser maior que zero');
   }
 
-  if (application_fee < 0 || application_fee >= amount) {
-    throw new Error('application_fee deve ser entre 0 e o valor do pagamento');
+  const hasApplicationFee = Number.isFinite(Number(application_fee));
+  if (hasApplicationFee) {
+    const feeCents = Number(application_fee);
+    if (feeCents < 0 || feeCents >= amount) {
+      throw new Error('application_fee deve ser entre 0 e o valor do pagamento');
+    }
   }
   
   // Validar que application_fee não é maior que 10% do valor (recomendação do Mercado Pago)
   const maxApplicationFee = Math.floor(amount * 0.1); // Máximo 10%
-  if (application_fee > maxApplicationFee) {
+  if (hasApplicationFee && Number(application_fee) > maxApplicationFee) {
     console.warn(`⚠️ [MP Payment] application_fee (${application_fee}) é maior que 10% do valor (${maxApplicationFee}). Isso pode causar problemas.`);
   }
 
   try {
     console.log('💳 [MP Payment] Criando pagamento:', {
       amount,
-      application_fee,
+      application_fee: hasApplicationFee ? application_fee : 'NÃO ENVIADO',
       description: paymentData.description,
       payerEmail: paymentData.payer.email,
       hasAccessToken: !!access_token,
@@ -109,13 +113,13 @@ export async function createMPPayment(
 
     // Montar payload para a API do Mercado Pago
     const transactionAmount = amount / 100; // Converter centavos para reais
-    const applicationFeeAmount = application_fee / 100; // Converter centavos para reais
+    const applicationFeeAmount = hasApplicationFee ? Number(application_fee) / 100 : undefined; // Converter centavos para reais
     
     console.log('💰 [MP Payment] Valores do split:', {
       transaction_amount: transactionAmount,
-      application_fee: applicationFeeAmount,
-      vendedor_recebe: transactionAmount - applicationFeeAmount,
-      plataforma_recebe: applicationFeeAmount,
+      application_fee: hasApplicationFee ? applicationFeeAmount : 'NÃO ENVIADO',
+      vendedor_recebe: hasApplicationFee && applicationFeeAmount != null ? transactionAmount - applicationFeeAmount : transactionAmount,
+      plataforma_recebe: hasApplicationFee ? applicationFeeAmount : 0,
     });
     
     // ✅ Log detalhado do objeto payer antes de montar o payload (para debug diff_param_bins)
@@ -157,7 +161,7 @@ export async function createMPPayment(
           : {}),
         ...(paymentData.payer.address ? { address: paymentData.payer.address } : {}),
       },
-      application_fee: applicationFeeAmount, // Taxa da plataforma (R$ 1,00)
+      ...(hasApplicationFee && applicationFeeAmount != null ? { application_fee: applicationFeeAmount } : {}),
       // ✅ CRÍTICO: external_reference é obrigatório para webhook identificar o pagamento
       ...(externalReference ? { external_reference: externalReference } : {}),
       ...(paymentData.metadata ? { metadata: paymentData.metadata } : {}),
@@ -273,7 +277,7 @@ export async function createMPPayment(
         id: String(payment.payer?.id || ''),
         email: payment.payer?.email || '',
       },
-      application_fee: payment.application_fee || application_fee / 100,
+      application_fee: payment.application_fee || (hasApplicationFee ? Number(application_fee) / 100 : 0),
       metadata: payment.metadata,
       // Incluir dados do PIX se disponível
       point_of_interaction: payment.point_of_interaction,

@@ -115,7 +115,6 @@ export const handler: Handler = async (event) => {
       amount: amountCents,
       description,
       payer: { email: payerEmail },
-      application_fee: 0,
       access_token: PLATFORM_MP_ACCESS_TOKEN,
       payment_method_id: 'pix',
       metadata,

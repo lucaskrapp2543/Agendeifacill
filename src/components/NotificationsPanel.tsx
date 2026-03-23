@@ -128,19 +128,24 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
     }
 
     try {
-      let { data, error } = await supabase
-        .from('appointments')
-        .select('id, created_at, client_name, service, appointment_date, appointment_time, professional_name, professional, is_waitlist')
-        .in('id', appointmentIds);
+      let data: any[] | null = null;
+      let error: any = null;
 
-      // Fallback para bancos legados sem coluna is_waitlist
-      if (error && String((error as any)?.message || '').includes('is_waitlist')) {
-        const retry = await supabase
+      const selectAttempts = [
+        'id, created_at, client_name, service, appointment_date, appointment_time, professional_name, professional, is_waitlist',
+        'id, created_at, client_name, service, appointment_date, appointment_time, professional_name, professional',
+        'id, created_at, client_name, service, appointment_date, appointment_time, professional, is_waitlist',
+        'id, created_at, client_name, service, appointment_date, appointment_time, professional',
+      ];
+
+      for (const selectClause of selectAttempts) {
+        const result = await supabase
           .from('appointments')
-          .select('id, created_at, client_name, service, appointment_date, appointment_time, professional_name, professional')
+          .select(selectClause)
           .in('id', appointmentIds);
-        data = retry.data as any;
-        error = retry.error as any;
+        data = result.data as any;
+        error = result.error as any;
+        if (!error) break;
       }
 
       if (error) {

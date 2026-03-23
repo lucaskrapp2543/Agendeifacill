@@ -377,7 +377,6 @@ router.post('/create-establishment-billing', async (req: Request, res: Response)
       amount: amountCents,
       description: billingDescription,
       payer: { email: payerEmail },
-      application_fee: 0,
       access_token: platformAccessToken,
       payment_method_id: 'pix',
       metadata: {
