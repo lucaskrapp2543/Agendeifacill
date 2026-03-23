@@ -285,19 +285,30 @@ export default function ReservarCliente({
     try {
       console.log('🔍 Carregando clientes para establishment:', establishmentId);
 
-      // Buscar todos os agendamentos do estabelecimento
+      // Buscar todos os agendamentos do estabelecimento com paginação
       // (Não filtrar is_avulso aqui, senão a lista pode ficar vazia mesmo tendo clientes no "Meus Clientes")
-      const { data: appointments, error } = await supabase
-        .from('appointments')
-        .select('client_id, client_name, client_whatsapp, is_avulso')
-        .eq('establishment_id', establishmentId)
-        .not('client_name', 'is', null)
-        .not('client_whatsapp', 'is', null)
-        .order('created_at', { ascending: false });
+      const appointmentPageSize = 1000;
+      let appointmentFrom = 0;
+      const appointments: any[] = [];
+      while (true) {
+        const { data, error } = await supabase
+          .from('appointments')
+          .select('client_id, client_name, client_whatsapp, is_avulso')
+          .eq('establishment_id', establishmentId)
+          .not('client_name', 'is', null)
+          .not('client_whatsapp', 'is', null)
+          .order('created_at', { ascending: false })
+          .range(appointmentFrom, appointmentFrom + appointmentPageSize - 1);
 
-      if (error) {
-        console.error('❌ Erro ao buscar clientes:', error);
-        throw error;
+        if (error) {
+          console.error('❌ Erro ao buscar clientes:', error);
+          throw error;
+        }
+
+        const rows = Array.isArray(data) ? data : [];
+        appointments.push(...rows);
+        if (rows.length < appointmentPageSize) break;
+        appointmentFrom += appointmentPageSize;
       }
 
       // Agrupar por WhatsApp (chave única para identificar cliente)
@@ -368,15 +379,29 @@ export default function ReservarCliente({
 
       // ✅ NOVO: Buscar clientes manuais salvos no BANCO (mesma fonte da tela "Meus Clientes")
       try {
-        const { data: manualDb, error: manualDbError } = await supabase
-          .from('manual_clients')
-          .select('id,name,whatsapp')
-          .eq('establishment_id', establishmentId)
-          .order('name', { ascending: true });
+        const manualPageSize = 1000;
+        let manualFrom = 0;
+        const manualDb: any[] = [];
+        while (true) {
+          const { data, error: manualDbError } = await supabase
+            .from('manual_clients')
+            .select('id,name,whatsapp')
+            .eq('establishment_id', establishmentId)
+            .order('name', { ascending: true })
+            .range(manualFrom, manualFrom + manualPageSize - 1);
 
-        if (manualDbError) {
-          console.warn('⚠️ Erro ao carregar clientes manuais do banco:', manualDbError);
-        } else if (Array.isArray(manualDb) && manualDb.length > 0) {
+          if (manualDbError) {
+            console.warn('⚠️ Erro ao carregar clientes manuais do banco:', manualDbError);
+            break;
+          }
+
+          const rows = Array.isArray(data) ? data : [];
+          manualDb.push(...rows);
+          if (rows.length < manualPageSize) break;
+          manualFrom += manualPageSize;
+        }
+
+        if (Array.isArray(manualDb) && manualDb.length > 0) {
           console.log('📋 Clientes manuais (banco) encontrados:', manualDb.length);
           manualDb.forEach((mc: any) => {
             const cleanWhatsapp = normalizeWhatsappKey(mc?.whatsapp);

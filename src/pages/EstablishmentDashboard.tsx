@@ -620,6 +620,8 @@ const EstablishmentDashboard = () => {
   const isLoadingEstablishmentReviewsRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showBirthdayFilter, setShowBirthdayFilter] = useState(false);
+  const CLIENTS_PAGE_SIZE = 50;
+  const [clientsCurrentPage, setClientsCurrentPage] = useState(1);
   const [editingClientBirthday, setEditingClientBirthday] = useState<string | null>(null);
   const [newBirthday, setNewBirthday] = useState('');
   const [editingClientAlert, setEditingClientAlert] = useState<string | null>(null);
@@ -12744,17 +12746,27 @@ Estamos te aguardando! 😎✂️`;
     if (!establishment?.id) return {};
 
     try {
-      // Buscar do Supabase primeiro
-      const { data: supabaseClients, error } = await supabase
-        .from('manual_clients')
-        .select('*')
-        .eq('establishment_id', establishment.id);
+      // Buscar do Supabase primeiro, com paginação para não ficar preso no limite de 1000 linhas.
+      const pageSize = 1000;
+      let from = 0;
+      const supabaseClients: any[] = [];
 
-      if (error) {
-        console.warn('⚠️ Erro ao buscar clientes do Supabase, usando localStorage:', error);
-        // Fallback para localStorage
-        const storageKey = `manual_clients_${establishment.id}`;
-        return JSON.parse(localStorage.getItem(storageKey) || '{}');
+      while (true) {
+        const { data, error } = await supabase
+          .from('manual_clients')
+          .select('*')
+          .eq('establishment_id', establishment.id)
+          .order('whatsapp', { ascending: true })
+          .range(from, from + pageSize - 1);
+
+        if (error) {
+          throw error;
+        }
+
+        const rows = Array.isArray(data) ? data : [];
+        supabaseClients.push(...rows);
+        if (rows.length < pageSize) break;
+        from += pageSize;
       }
 
       // Converter array do Supabase para objeto indexado por WhatsApp (garantir que está limpo)
@@ -13484,6 +13496,24 @@ Estamos te aguardando! 😎✂️`;
     const matchesBirthday = showBirthdayFilter ? isBirthdayThisMonth(client.birthday) : true;
     return matchesSearch && matchesBirthday;
   }).sort((a, b) => a.name.localeCompare(b.name)); // Ordenação alfabética
+
+  const totalClientPages = Math.max(1, Math.ceil(filteredClients.length / CLIENTS_PAGE_SIZE));
+  const safeCurrentClientPage = Math.min(clientsCurrentPage, totalClientPages);
+  const clientsPageStartIndex = (safeCurrentClientPage - 1) * CLIENTS_PAGE_SIZE;
+  const paginatedClients = filteredClients.slice(
+    clientsPageStartIndex,
+    clientsPageStartIndex + CLIENTS_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setClientsCurrentPage(1);
+  }, [searchQuery, showBirthdayFilter, clients.length]);
+
+  useEffect(() => {
+    if (clientsCurrentPage > totalClientPages) {
+      setClientsCurrentPage(totalClientPages);
+    }
+  }, [clientsCurrentPage, totalClientPages]);
 
   // Calcular ranking dos clientes (apenas com 9+ agendamentos)
   const rankingClients = clients
@@ -28704,7 +28734,10 @@ Estamos te aguardando! 😎✂️`;
                         type="text"
                         placeholder="Buscar cliente por nome..."
                         value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onChange={(e) => {
+                          setSearchQuery(e.target.value);
+                          setClientsCurrentPage(1);
+                        }}
                         className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500"
                       />
                     </div>
@@ -28712,7 +28745,10 @@ Estamos te aguardando! 😎✂️`;
                     {/* Botões de ação */}
                     <div className="flex flex-wrap items-center gap-2">
                       <button
-                        onClick={() => setShowBirthdayFilter(!showBirthdayFilter)}
+                        onClick={() => {
+                          setShowBirthdayFilter(!showBirthdayFilter);
+                          setClientsCurrentPage(1);
+                        }}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${showBirthdayFilter
                           ? 'bg-black text-white'
                           : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -28765,6 +28801,40 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   </div>
 
+                  {filteredClients.length > 0 && (
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                      <p className="text-sm text-gray-700">
+                        Exibindo {clientsPageStartIndex + 1}-
+                        {Math.min(clientsPageStartIndex + CLIENTS_PAGE_SIZE, filteredClients.length)} de {filteredClients.length} cliente(s)
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setClientsCurrentPage((prev) => Math.max(1, prev - 1))}
+                          disabled={safeCurrentClientPage <= 1}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${safeCurrentClientPage <= 1
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-black text-white hover:bg-gray-800'
+                            }`}
+                        >
+                          Anterior
+                        </button>
+                        <span className="text-sm text-gray-700">
+                          Página {safeCurrentClientPage} de {totalClientPages}
+                        </span>
+                        <button
+                          onClick={() => setClientsCurrentPage((prev) => Math.min(totalClientPages, prev + 1))}
+                          disabled={safeCurrentClientPage >= totalClientPages}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${safeCurrentClientPage >= totalClientPages
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-black text-white hover:bg-gray-800'
+                            }`}
+                        >
+                          Próxima
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {filteredClients.length === 0 ? (
                       <div className="col-span-full text-center py-8 bg-white rounded-lg border border-gray-300">
@@ -28772,7 +28842,7 @@ Estamos te aguardando! 😎✂️`;
                         <p className="text-gray-500">Nenhum cliente encontrado.</p>
                       </div>
                     ) : (
-                      filteredClients.map((client, index) => {
+                      paginatedClients.map((client, index) => {
                         const chance = getClienteChanceFalta(client);
                         const nivel = getClienteNivel(chance);
                         const nivelUi = getNivelClasses(nivel);
