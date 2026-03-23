@@ -18,6 +18,7 @@ interface AppointmentNotificationSnapshot {
   id: string;
   created_at?: string | null;
   client_name?: string | null;
+  service?: string | null;
   service_name?: string | null;
   appointment_date?: string | null;
   appointment_time?: string | null;
@@ -93,7 +94,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
     const snapshot = notification.appointment_id ? appointmentDetailsMap[notification.appointment_id] : undefined;
     if (snapshot) {
       const clientName = String(snapshot.client_name || '').trim() || 'Cliente';
-      const serviceName = String(snapshot.service_name || '').trim() || 'serviço';
+      const serviceName = String(snapshot.service || snapshot.service_name || '').trim() || 'serviço';
       const date = String(snapshot.appointment_date || '').trim();
       const time = String(snapshot.appointment_time || '').trim();
       const professionalName = resolveProfessionalName(snapshot);
@@ -129,14 +130,14 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
     try {
       let { data, error } = await supabase
         .from('appointments')
-        .select('id, created_at, client_name, service_name, appointment_date, appointment_time, professional_name, professional, is_waitlist')
+        .select('id, created_at, client_name, service, appointment_date, appointment_time, professional_name, professional, is_waitlist')
         .in('id', appointmentIds);
 
       // Fallback para bancos legados sem coluna is_waitlist
       if (error && String((error as any)?.message || '').includes('is_waitlist')) {
         const retry = await supabase
           .from('appointments')
-          .select('id, created_at, client_name, service_name, appointment_date, appointment_time, professional_name, professional')
+          .select('id, created_at, client_name, service, appointment_date, appointment_time, professional_name, professional')
           .in('id', appointmentIds);
         data = retry.data as any;
         error = retry.error as any;

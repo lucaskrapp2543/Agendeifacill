@@ -1,6 +1,6 @@
 import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Accessibility, AlertTriangle, Armchair, Bell, Building2, Calendar, CarFront, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Coffee, Copy, CreditCard, Crown, CupSoda, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Music2, Package, Phone, Plus, Receipt, Shuffle, Snowflake, Star, Tag, Trash2, TrendingUp, Tv, type LucideIcon, User, Users, UtensilsCrossed, Wifi, X } from 'lucide-react';
+import { Accessibility, AlertTriangle, Armchair, Bell, Building2, Calendar, CarFront, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Coffee, Copy, CreditCard, Crown, CupSoda, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Music2, Package, Phone, Plus, Receipt, Shuffle, Snowflake, Star, Tag, Trash2, TrendingUp, Tv, User, Users, UtensilsCrossed, Wifi, X, type LucideIcon } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast as hotToast } from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -969,6 +969,11 @@ const EstablishmentDashboard = () => {
     const isWaitlistFlag = appointment?.is_waitlist === true;
     const hasWaitlistLink = Boolean(String(appointment?.waitlist_entry_id || '').trim());
     return isWaitlistFlag || hasWaitlistLink;
+  }, []);
+
+  const isCompletedAppointmentStatus = useCallback((appointment: any): boolean => {
+    const status = String(appointment?.status || '').trim().toLowerCase();
+    return status === 'completed' || status === 'concluido' || status === 'concluído';
   }, []);
 
   const carregarSaldoEmVendas = useCallback(async () => {
@@ -4816,11 +4821,11 @@ const EstablishmentDashboard = () => {
           console.error('Erro ao buscar appointments do período:', appointmentsError);
           if (target === 'dashboard') {
             setDashboardProductSalesByPeriod({});
-              setDashboardProductRevenueByPeriod({});
+            setDashboardProductRevenueByPeriod({});
             setDashboardProductPayoutByPeriod({});
           } else {
             setProductSalesByPeriod({});
-              setProductRevenueByPeriod({});
+            setProductRevenueByPeriod({});
             setProductPayoutByPeriod({});
           }
           return;
@@ -5394,7 +5399,7 @@ const EstablishmentDashboard = () => {
 
       // Filtrar por establishment e status (só CONCLUÍDO) após buscar
       const filteredAppointments = appointments?.filter(
-        (apt) => apt.establishment_id === establishment.id && apt.status === 'completed'
+        (apt) => apt.establishment_id === establishment.id && isCompletedAppointmentStatus(apt)
       );
       console.log('🔍 DEBUG - Appointments filtrados por establishment:', filteredAppointments);
 
@@ -9465,7 +9470,7 @@ Estamos te aguardando! 😎✂️`;
         const summary = rows.reduce(
           (acc, row: any) => {
             const status = String(row?.status || '').toLowerCase().trim();
-            if (status === 'completed') {
+            if (status === 'completed' || status === 'concluido' || status === 'concluído') {
               acc.completed += 1;
             } else if (status === 'cancelled') {
               acc.cancelled += 1;
@@ -10593,6 +10598,23 @@ Estamos te aguardando! 😎✂️`;
         return;
       }
 
+      const selectedMonthStart = format(startOfMonth(selectedMonth), 'yyyy-MM-dd');
+      const selectedMonthEnd = format(endOfMonth(selectedMonth), 'yyyy-MM-dd');
+      const isExactSelectedMonthRange =
+        startDate === selectedMonthStart && endDate === selectedMonthEnd;
+
+      // Compatibilidade e consistência:
+      // quando o período for o mês selecionado, usar a MESMA base do financeiro mensal.
+      // Isso evita divergência entre "Valores do Mês" e "Atendimentos por profissional".
+      if (isExactSelectedMonthRange) {
+        const sameBaseRows = (monthlyAppointments || [])
+          .filter((apt) => !isWaitlistAppointment(apt))
+          .filter((apt) => isCompletedAppointmentStatus(apt));
+        setProfessionalRevenueAppointments(sameBaseRows as Appointment[]);
+        setProfessionalRevenueRangeError('');
+        return;
+      }
+
       setIsLoadingProfessionalRevenueAppointments(true);
       setProfessionalRevenueRangeError('');
       try {
@@ -10602,13 +10624,14 @@ Estamos te aguardando! 😎✂️`;
           .eq('establishment_id', establishment.id)
           .gte('appointment_date', startDate)
           .lte('appointment_date', endDate)
-          .eq('status', 'completed')
           .order('appointment_date', { ascending: true })
           .order('appointment_time', { ascending: true });
 
         if (error) throw error;
-        const normalRows = ((data || []) as any[]).filter((apt) => !isWaitlistAppointment(apt));
-        setProfessionalRevenueAppointments(normalRows as Appointment[]);
+        const completedRows = ((data || []) as any[])
+          .filter((apt) => !isWaitlistAppointment(apt))
+          .filter((apt) => isCompletedAppointmentStatus(apt));
+        setProfessionalRevenueAppointments(completedRows as Appointment[]);
       } catch (err: any) {
         console.error('Erro ao carregar período da Receita por Profissional:', err);
         setProfessionalRevenueAppointments([]);
@@ -10623,7 +10646,7 @@ Estamos te aguardando! 😎✂️`;
     };
 
     void loadProfessionalRevenueAppointments();
-  }, [activeTab, establishment?.id, professionalRevenueRangeStart, professionalRevenueRangeEnd, showProfessionalRevenueSection]);
+  }, [activeTab, establishment?.id, professionalRevenueRangeStart, professionalRevenueRangeEnd, showProfessionalRevenueSection, isCompletedAppointmentStatus, isWaitlistAppointment, monthlyAppointments, selectedMonth]);
 
   useEffect(() => {
     const loadHighlightMonthAttendances = async () => {
@@ -11275,8 +11298,8 @@ Estamos te aguardando! 😎✂️`;
 
   const calculateDailyBalance = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
-      if (appointment.status === 'completed') {
-        if (isClientPaidSubscriber(appointment.client_whatsapp)) return total;
+      if (isCompletedAppointmentStatus(appointment)) {
+        if (isSubscriberAppointment(appointment)) return total;
         return total + getAppointmentRevenueBase(appointment);
       }
       return total;
@@ -11285,8 +11308,8 @@ Estamos te aguardando! 😎✂️`;
 
   const calculateMonthlyBalance = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
-      if (appointment.status === 'completed') {
-        if (isClientPaidSubscriber(appointment.client_whatsapp)) return total;
+      if (isCompletedAppointmentStatus(appointment)) {
+        if (isSubscriberAppointment(appointment)) return total;
         return total + getAppointmentRevenueBase(appointment);
       }
       return total;
@@ -11308,7 +11331,7 @@ Estamos te aguardando! 😎✂️`;
   // Função para calcular total das taxas de cartão do mês (usa mesma base que receita: serviço + extras, cap total_price)
   const calculateTotalCardTaxes = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
-      if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
+      if (isCompletedAppointmentStatus(appointment) && !isSubscriberAppointment(appointment)) {
         const baseValue = getAppointmentRevenueBase(appointment);
         const taxAmount = getCardTaxAmountFromAppointment(appointment, baseValue);
         return total + taxAmount;
@@ -11370,6 +11393,46 @@ Estamos te aguardando! 😎✂️`;
     return calculateTotalEstablishmentLiquidForMonth(appointments, expenses, selectedMonth);
   };
 
+  const normalizeProfessionalTokenForSelection = (value: unknown): string =>
+    String(value ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
+
+  const appointmentMatchesSelectedProfessional = (appointment: any): boolean => {
+    if (selectedProfessional === 'all') return true;
+    if (!selectedProfessional) return false;
+
+    const selectedId = String(selectedProfessional).trim();
+    const selectedProfessionalObj = professionals.find((p) => String(p?.id || '').trim() === selectedId);
+    const selectedNameNorm = normalizeProfessionalTokenForSelection(selectedProfessionalObj?.name || selectedProfessional);
+
+    const rawProfessional = String(appointment?.professional ?? '').trim();
+    const rawProfessionalId = String((appointment as any)?.professional_id ?? '').trim();
+    const rawProfessionalName = String((appointment as any)?.professional_name ?? '').trim();
+
+    const isUuid = (value: string) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+    const normalizedSelectedId = selectedId.toLowerCase();
+    const idMatches =
+      rawProfessionalId.toLowerCase() === normalizedSelectedId ||
+      rawProfessional.toLowerCase() === normalizedSelectedId ||
+      (isUuid(rawProfessional) && rawProfessional.toLowerCase() === normalizedSelectedId);
+
+    if (idMatches) return true;
+
+    const nameCandidates = [
+      rawProfessionalName,
+      isUuid(rawProfessional) ? '' : rawProfessional,
+    ]
+      .map((name) => normalizeProfessionalTokenForSelection(name))
+      .filter(Boolean);
+
+    return nameCandidates.includes(selectedNameNorm);
+  };
+
   // Função para calcular valor bruto mensal do profissional selecionado
   const calculateMonthlyBalanceForSelectedProfessional = (appointments: Appointment[]): number => {
     const result = appointments.reduce((total, appointment) => {
@@ -11387,16 +11450,16 @@ Estamos te aguardando! 😎✂️`;
       }
 
       // Só incluir no faturamento se o status for 'completed' (verde - FEITO)
-      if (appointment.status === 'completed') {
+      if (isCompletedAppointmentStatus(appointment)) {
         // Excluir do faturamento se for assinante pago (serviço gratuito)
-        if (isClientPaidSubscriber(appointment.client_whatsapp)) {
+        if (isSubscriberAppointment(appointment)) {
           return total; // Não adiciona ao faturamento
         }
 
         if (selectedProfessional === 'all') {
           return total + getAppointmentRevenueBase(appointment);
         } else {
-          if (appointment.professional === selectedProfessional) {
+          if (appointmentMatchesSelectedProfessional(appointment)) {
             return total + getAppointmentRevenueBase(appointment);
           }
         }
@@ -11411,9 +11474,9 @@ Estamos te aguardando! 😎✂️`;
   const calculateDailyNetBalance = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
       // ✅ Só contabilizar quando estiver CONCLUÍDO
-      if (appointment.status === 'completed') {
+      if (isCompletedAppointmentStatus(appointment)) {
         // Excluir do faturamento se for assinante pago (serviço gratuito)
-        if (isClientPaidSubscriber(appointment.client_whatsapp)) {
+        if (isSubscriberAppointment(appointment)) {
           return total; // Não adiciona ao faturamento
         }
 
@@ -11422,7 +11485,7 @@ Estamos te aguardando! 😎✂️`;
           return total + calculateNetValueWithCardTax(appointment);
         } else {
           // Se profissional específico selecionado, soma apenas dele
-          if (appointment.professional === selectedProfessional) {
+          if (appointmentMatchesSelectedProfessional(appointment)) {
             return total + calculateNetValueWithCardTax(appointment);
           }
         }
@@ -11448,9 +11511,9 @@ Estamos te aguardando! 😎✂️`;
       }
 
       // ✅ Só contabilizar quando estiver CONCLUÍDO
-      if (appointment.status === 'completed') {
+      if (isCompletedAppointmentStatus(appointment)) {
         // Excluir do faturamento se for assinante pago (serviço gratuito)
-        if (isClientPaidSubscriber(appointment.client_whatsapp)) {
+        if (isSubscriberAppointment(appointment)) {
           return total; // Não adiciona ao faturamento
         }
         if (selectedProfessional === 'all') {
@@ -11458,7 +11521,7 @@ Estamos te aguardando! 😎✂️`;
           return total + calculateNetValueWithCardTax(appointment);
         } else {
           // Se profissional específico selecionado, soma apenas dele
-          if (appointment.professional === selectedProfessional) {
+          if (appointmentMatchesSelectedProfessional(appointment)) {
             return total + calculateNetValueWithCardTax(appointment);
           }
         }
@@ -11508,12 +11571,12 @@ Estamos te aguardando! 😎✂️`;
       const isSameMonth = appointmentMonth === selectedMonthValue && appointmentYear === selectedYearValue;
 
       // ✅ Só contabilizar quando estiver CONCLUÍDO
-      if (!isSameMonth || appointment.status !== 'completed') {
+      if (!isSameMonth || !isCompletedAppointmentStatus(appointment)) {
         return total;
       }
 
       // Excluir do faturamento se for assinante pago (serviço gratuito)
-      if (isClientPaidSubscriber(appointment.client_whatsapp)) {
+      if (isSubscriberAppointment(appointment)) {
         return total;
       }
 
@@ -11551,7 +11614,7 @@ Estamos te aguardando! 😎✂️`;
     // Se nenhum profissional estiver selecionado, não mostrar agendamentos
     if (selectedProfessional === '') return false;
 
-    const isProfessionalMatch = selectedProfessional === 'all' || appointment.professional === selectedProfessional;
+    const isProfessionalMatch = appointmentMatchesSelectedProfessional(appointment);
     const isPaymentMethodMatch = selectedPaymentMethod === 'todos' || (appointment.payment_method || 'pendente') === selectedPaymentMethod;
     return isProfessionalMatch && isPaymentMethodMatch;
   });
@@ -11578,7 +11641,7 @@ Estamos te aguardando! 😎✂️`;
     const dayKey = dayMapping[dayName] || dayName as keyof typeof businessHours;
     const hoursForDay = businessHours[dayKey];
 
-    
+
 
     if (!hoursForDay?.enabled) {
       return filteredAppointments;
@@ -11697,7 +11760,7 @@ Estamos te aguardando! 😎✂️`;
       addPeriodSlots(hoursForDay.open2, hoursForDay.close2);
     }
 
-    
+
 
     return slots;
   }, [filteredAppointments, selectedProfessional, selectedDate, businessHours, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, showTimeSlotsWithGaps]);
@@ -12716,6 +12779,16 @@ Estamos te aguardando! 😎✂️`;
   // Estado para armazenar assinantes pagos
   const [paidSubscribers, setPaidSubscribers] = useState<Set<string>>(new Set());
 
+  const isSubscriberAppointment = (appointment?: Partial<Appointment> | null) => {
+    if (!appointment) return false;
+    if ((appointment as any).is_subscriber === true) return true;
+    const paymentMethod = String((appointment as any).payment_method || '').trim().toLowerCase();
+    if (paymentMethod === 'assinante') return true;
+    const subscriberServiceId = String((appointment as any).subscriber_service_id || '').trim();
+    const subscriberServiceName = String((appointment as any).subscriber_service_name || '').trim();
+    return subscriberServiceId.length > 0 || subscriberServiceName.length > 0;
+  };
+
   // Função SIMPLES para verificar se um WhatsApp é de assinante pago
   const isClientPaidSubscriber = (clientWhatsapp?: string) => {
     if (!clientWhatsapp) return false;
@@ -13286,23 +13359,23 @@ Estamos te aguardando! 😎✂️`;
       const payload: any =
         action === 'approved'
           ? {
-              moderation_status: 'approved',
-              is_approved: true,
-              approved_at: nowIso,
-              approved_by: user?.id || null,
-              rejected_at: null,
-              rejected_by: null,
-              updated_at: nowIso,
-            }
+            moderation_status: 'approved',
+            is_approved: true,
+            approved_at: nowIso,
+            approved_by: user?.id || null,
+            rejected_at: null,
+            rejected_by: null,
+            updated_at: nowIso,
+          }
           : {
-              moderation_status: 'rejected',
-              is_approved: false,
-              rejected_at: nowIso,
-              rejected_by: user?.id || null,
-              approved_at: null,
-              approved_by: null,
-              updated_at: nowIso,
-            };
+            moderation_status: 'rejected',
+            is_approved: false,
+            rejected_at: nowIso,
+            rejected_by: user?.id || null,
+            approved_at: null,
+            approved_by: null,
+            updated_at: nowIso,
+          };
 
       const { error } = await supabase
         .from('establishment_reviews')
@@ -13656,15 +13729,15 @@ Estamos te aguardando! 😎✂️`;
 
   const handleProtectedAction = (
     type:
-    | 'percentage'
-    | 'password'
-    | 'goal'
-    | 'barbershop_cash'
-    | 'hide_gross'
-    | 'lock_appointments_view'
-    | 'lock_financial_view'
-    | 'unlock_appointments_view'
-    | 'unlock_financial_view',
+      | 'percentage'
+      | 'password'
+      | 'goal'
+      | 'barbershop_cash'
+      | 'hide_gross'
+      | 'lock_appointments_view'
+      | 'lock_financial_view'
+      | 'unlock_appointments_view'
+      | 'unlock_financial_view',
     professionalId: string,
     data?: any
   ) => {
@@ -13697,15 +13770,15 @@ Estamos te aguardando! 😎✂️`;
 
   const executeProtectedAction = (
     type:
-    | 'percentage'
-    | 'password'
-    | 'goal'
-    | 'barbershop_cash'
-    | 'hide_gross'
-    | 'lock_appointments_view'
-    | 'lock_financial_view'
-    | 'unlock_appointments_view'
-    | 'unlock_financial_view',
+      | 'percentage'
+      | 'password'
+      | 'goal'
+      | 'barbershop_cash'
+      | 'hide_gross'
+      | 'lock_appointments_view'
+      | 'lock_financial_view'
+      | 'unlock_appointments_view'
+      | 'unlock_financial_view',
     professionalId: string,
     data?: any
   ) => {
@@ -17729,7 +17802,7 @@ Estamos te aguardando! 😎✂️`;
     });
 
     const totalNet = professionalAppointments.reduce((total, appointment) => {
-      if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
+      if (isCompletedAppointmentStatus(appointment) && !isSubscriberAppointment(appointment)) {
         const baseValue = getAppointmentRevenueBase(appointment);
         const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
 
@@ -17779,7 +17852,7 @@ Estamos te aguardando! 😎✂️`;
 
     // Calcular o líquido total (profissionais recebem % do valor após descontar taxa de cartão: serviço + serviços extra, SEM produtos V2)
     const totalNet = professionalAppointments.reduce((total, appointment) => {
-      if (appointment.status === 'completed' && !isClientPaidSubscriber(appointment.client_whatsapp)) {
+      if (isCompletedAppointmentStatus(appointment) && !isSubscriberAppointment(appointment)) {
         const baseValue = getAppointmentRevenueBase(appointment);
         const cardTaxAmount = getCardTaxAmountFromAppointment(appointment, baseValue);
         const netBase = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
@@ -17898,13 +17971,47 @@ Estamos te aguardando! 😎✂️`;
     return raw;
   };
 
-  // Evita que o mesmo agendamento conte para dois profissionais (id vs nome).
-  // Se professional no appointment for UUID, só bate com professional.id; senão só com professional.name.
+  const normalizeProfessionalToken = (value: unknown): string =>
+    String(value ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
+
+  // Evita que o mesmo agendamento conte para dois profissionais (id vs nome)
+  // e cobre variações de schema legado (professional/professional_id/professional_name).
   const appointmentBelongsToProfessional = (apt: Appointment, professional: { id: string; name: string }): boolean => {
-    const p = String(apt.professional ?? '').trim();
-    if (!p) return false;
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(p);
-    return isUuid ? p === professional.id : p === professional.name;
+    const professionalId = String(professional.id || '').trim().toLowerCase();
+    const professionalNameNorm = normalizeProfessionalToken(professional.name);
+
+    const isUuid = (value: string) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+    const idCandidates = [
+      String((apt as any).professional_id || '').trim(),
+      String((apt as any).professional_profile_id || '').trim(),
+      String((apt as any).collaborator_id || '').trim(),
+      String((apt as any).professional || '').trim(),
+    ]
+      .filter(Boolean)
+      .filter((value, index, list) => list.indexOf(value) === index)
+      .map((value) => value.toLowerCase());
+
+    if (idCandidates.some((candidate) => candidate === professionalId)) {
+      return true;
+    }
+
+    const nameCandidates = [
+      String((apt as any).professional_name || '').trim(),
+      String((apt as any).professional_display_name || '').trim(),
+      String((apt as any).professional || '').trim(),
+    ]
+      .filter(Boolean)
+      .filter((value, index, list) => list.indexOf(value) === index)
+      .filter((value) => !isUuid(value))
+      .map((value) => normalizeProfessionalToken(value));
+
+    return professionalNameNorm.length > 0 && nameCandidates.includes(professionalNameNorm);
   };
 
   const getAppointmentCompletedAtMs = (apt: Appointment): number => {
@@ -17952,7 +18059,7 @@ Estamos te aguardando! 😎✂️`;
 
   const buildValidatedProfessionalPaymentData = (professional: any, appointmentsInMonth: Appointment[]) => {
     const appointmentRows = appointmentsInMonth
-      .filter((apt) => appointmentBelongsToProfessional(apt, professional) && apt.status === 'completed')
+      .filter((apt) => appointmentBelongsToProfessional(apt, professional) && isCompletedAppointmentStatus(apt))
       .map((apt) => ({
         completedAt: getAppointmentCompletedAtMs(apt),
         net: calculateProfessionalNetForAppointment(professional, apt),
@@ -18223,10 +18330,10 @@ Estamos te aguardando! 😎✂️`;
 
       const professionalRows = professionals.map((professional) => {
         const completedApts = monthlyAppointments.filter((apt) =>
-          appointmentBelongsToProfessional(apt, professional) && apt.status === 'completed'
+          appointmentBelongsToProfessional(apt, professional) && isCompletedAppointmentStatus(apt)
         );
         const gross = completedApts.reduce((sum, apt) => {
-          if (isClientPaidSubscriber(apt.client_whatsapp)) return sum;
+          if (isSubscriberAppointment(apt)) return sum;
           return sum + getAppointmentRevenueBase(apt);
         }, 0);
         const net = calculateProfessionalNetValue(professional.name, monthlyAppointments);
@@ -18276,7 +18383,7 @@ Estamos te aguardando! 😎✂️`;
 
       if (isDetailed) {
         const detailedRows = monthlyAppointments
-          .filter((apt) => apt.status === 'completed')
+          .filter((apt) => isCompletedAppointmentStatus(apt))
           .sort((a, b) => {
             const ad = `${a.appointment_date} ${a.appointment_time}`;
             const bd = `${b.appointment_date} ${b.appointment_time}`;
@@ -18289,7 +18396,7 @@ Estamos te aguardando! 😎✂️`;
             const baseRevenue = getAppointmentRevenueBase(apt);
             const grossService = Number(apt.price || 0);
             const professionalPercent = Number(prof?.percentage ?? getProfessionalPercentageByName(apt.professional) ?? 0);
-            const netForProfessional = isClientPaidSubscriber(apt.client_whatsapp) ? 0 : calculateNetValueWithCardTax(apt);
+            const netForProfessional = isSubscriberAppointment(apt) ? 0 : calculateNetValueWithCardTax(apt);
             const taxPercent = (apt.payment_method === 'credito' || apt.payment_method === 'debito')
               ? getPaymentMethodTax(apt.payment_method || '', apt.card_brand)
               : 0;
@@ -18313,7 +18420,7 @@ Estamos te aguardando! 😎✂️`;
               'Líquido profissional estimado (R$)': formatMoneyForExcel(netForProfessional),
               'Total cobrado cliente (R$)': formatMoneyForExcel(calculateClientTotalPayment(apt)),
               'Total cliente líquido pós taxa (R$)': formatMoneyForExcel(calculateClientNetPayment(apt)),
-              'Assinante pago': isClientPaidSubscriber(apt.client_whatsapp) ? 'SIM' : 'NAO',
+              'Assinante pago': isSubscriberAppointment(apt) ? 'SIM' : 'NAO',
             };
           });
 
@@ -19638,7 +19745,7 @@ Estamos te aguardando! 😎✂️`;
       const phone = cleanPhone((apt as any)?.client_whatsapp);
       if (phone && paidSet.has(phone)) continue;
       rangeRows.push(apt);
-      if (apt.status === 'completed') completedRows.push(apt);
+      if (isCompletedAppointmentStatus(apt)) completedRows.push(apt);
       if (apt.status === 'cancelled') cancelledRows.push(apt);
     }
 
@@ -20324,12 +20431,12 @@ Estamos te aguardando! 😎✂️`;
                             <button
                               onClick={() => {
                                 const whatsappNumber = '5548991265320';
-                                const message = encodeURIComponent('Olá quero indicar um barbeiro e ganhar 1 mês gratis');
+                                const message = encodeURIComponent('Quero pagar adiantado e ganhar 5 dias grátis');
                                 window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
                               }}
                               className="w-full px-4 py-3 md:px-6 md:py-4 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-medium md:text-lg flex items-center justify-center gap-2"
                             >
-                              Indicar
+                              Pagar agora
                             </button>
 
                             <div className="flex gap-3 md:gap-4">
@@ -21055,12 +21162,9 @@ Estamos te aguardando! 😎✂️`;
                                         {appointment.appointment_time}
                                       </span>
                                       <span className="text-white font-medium text-sm">
-                                        {isClientPaidSubscriber(appointment.client_whatsapp)
-                                          ? "GRATUITO"
-                                          : appointment.is_subscriber
-                                            ? 'GRATUITO'
-                                            : formatCurrency(appointment.total_price || appointment.price)
-                                        }
+                                        {isSubscriberAppointment(appointment)
+                                          ? 'GRATUITO'
+                                          : formatCurrency(appointment.total_price || appointment.price)}
                                       </span>
                                     </div>
                                   </div>
@@ -21092,7 +21196,7 @@ Estamos te aguardando! 😎✂️`;
                                       <div className="flex flex-col gap-1 flex-grow min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
                                           <span className="font-medium text-white truncate">{appointment.client_name}</span>
-                                          {isClientPaidSubscriber(appointment.client_whatsapp) && (
+                                          {isSubscriberAppointment(appointment) && (
                                             <Crown className="h-5 w-5 text-gray-600" />
                                           )}
                                           {appointment.client_id && newClientsInfo[appointment.client_id] && (
@@ -21254,14 +21358,11 @@ Estamos te aguardando! 😎✂️`;
                                             ) : (
                                               <div className="flex items-center gap-2">
                                                 <span className="text-sm text-white">
-                                                  {isClientPaidSubscriber(appointment.client_whatsapp)
-                                                    ? "GRATUITO"
-                                                    : appointment.is_subscriber
-                                                      ? 'R$ 0,00 (GRATUITO)'
-                                                      : formatCurrency(appointment.price)
-                                                  }
+                                                  {isSubscriberAppointment(appointment)
+                                                    ? 'R$ 0,00 (GRATUITO)'
+                                                    : formatCurrency(appointment.price)}
                                                 </span>
-                                                {!isClientPaidSubscriber(appointment.client_whatsapp || '') && !appointment.is_subscriber && (
+                                                {!isSubscriberAppointment(appointment) && (
                                                   <button
                                                     onClick={() => handleEditAppointmentValue(appointment.id, appointment.price || 0)}
                                                     className="text-gray-600 hover:text-gray-500 text-xs"
@@ -21365,12 +21466,9 @@ Estamos te aguardando! 😎✂️`;
                                         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                                           <span className="text-sm text-white/80">Total:</span>
                                           <span className="text-sm font-medium text-white">
-                                            {isClientPaidSubscriber(appointment.client_whatsapp)
-                                              ? "GRATUITO"
-                                              : appointment.is_subscriber
-                                                ? 'R$ 0,00 (GRATUITO)'
-                                                : formatCurrency(calculateClientTotalPayment(appointment))
-                                            }
+                                            {isSubscriberAppointment(appointment)
+                                              ? 'R$ 0,00 (GRATUITO)'
+                                              : formatCurrency(calculateClientTotalPayment(appointment))}
                                           </span>
                                         </div>
 
@@ -21384,12 +21482,9 @@ Estamos te aguardando! 😎✂️`;
                                             <div className="flex items-center justify-between">
                                               <span className="text-sm font-semibold text-gray-200">Total a cobrar:</span>
                                               <span className="text-lg font-bold text-white bg-blue-500/50 px-3 py-1 rounded">
-                                                {isClientPaidSubscriber(appointment.client_whatsapp)
-                                                  ? "GRATUITO"
-                                                  : appointment.is_subscriber
-                                                    ? 'R$ 0,00 (GRATUITO)'
-                                                    : formatCurrency(calculateClientTotalPayment(appointment))
-                                                }
+                                                {isSubscriberAppointment(appointment)
+                                                  ? 'R$ 0,00 (GRATUITO)'
+                                                  : formatCurrency(calculateClientTotalPayment(appointment))}
                                               </span>
                                             </div>
                                             {(appointment.payment_method === 'credito' || appointment.payment_method === 'debito') && (
@@ -21750,8 +21845,8 @@ Estamos te aguardando! 😎✂️`;
                           onClick={handleToggleTop10Visibility}
                           disabled={isUpdatingTop10Visibility}
                           className={`w-full sm:w-auto px-3 py-2 rounded-lg border transition-colors text-sm font-bold disabled:opacity-50 ${Boolean(establishment?.hide_from_top10_ranking)
-                              ? 'border-emerald-400/50 text-emerald-100 hover:bg-emerald-500/10'
-                              : 'border-rose-400/50 text-rose-100 hover:bg-rose-500/10'
+                            ? 'border-emerald-400/50 text-emerald-100 hover:bg-emerald-500/10'
+                            : 'border-rose-400/50 text-rose-100 hover:bg-rose-500/10'
                             }`}
                         >
                           {isUpdatingTop10Visibility
@@ -21818,8 +21913,8 @@ Estamos te aguardando! 😎✂️`;
                             <div
                               key={row.establishmentId}
                               className={`rounded-lg border p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 ${isCurrentEstablishment
-                                  ? 'border-emerald-400 bg-emerald-500/10'
-                                  : 'border-cyan-700/60 bg-white/[0.03]'
+                                ? 'border-emerald-400 bg-emerald-500/10'
+                                : 'border-cyan-700/60 bg-white/[0.03]'
                                 }`}
                             >
                               <div className="min-w-0 w-full">
@@ -22474,11 +22569,10 @@ Estamos te aguardando! 😎✂️`;
                         <button
                           type="button"
                           onClick={toggleHideBookingReviews}
-                          className={`px-4 py-2 rounded-lg transition-colors text-sm font-semibold ${
-                            establishment?.hide_booking_reviews
+                          className={`px-4 py-2 rounded-lg transition-colors text-sm font-semibold ${establishment?.hide_booking_reviews
                               ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                               : 'bg-amber-600 text-white hover:bg-amber-700'
-                          }`}
+                            }`}
                         >
                           {establishment?.hide_booking_reviews ? 'Mostrar avaliações' : 'Ocultar avaliações'}
                         </button>
@@ -22503,11 +22597,10 @@ Estamos te aguardando! 😎✂️`;
                           key={opt.id}
                           type="button"
                           onClick={() => setReviewsStatusFilter(opt.id as any)}
-                          className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
-                            reviewsStatusFilter === opt.id
+                          className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${reviewsStatusFilter === opt.id
                               ? 'bg-black text-white'
                               : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                          }`}
+                            }`}
                         >
                           {opt.label}
                         </button>
@@ -23553,8 +23646,8 @@ Estamos te aguardando! 😎✂️`;
                                     if (establishment?.id) localStorage.setItem(`quiz_prof_count_${establishment.id}`, 'one');
                                   }}
                                   className={`px-3 py-2 rounded-lg border text-sm font-semibold ${wizardProfessionalCount === 'one'
-                                      ? 'bg-blue-600 border-blue-500 text-white'
-                                      : 'bg-[#2a2b2c] border-gray-600 text-gray-200'
+                                    ? 'bg-blue-600 border-blue-500 text-white'
+                                    : 'bg-[#2a2b2c] border-gray-600 text-gray-200'
                                     }`}
                                 >
                                   Apenas 1
@@ -23566,8 +23659,8 @@ Estamos te aguardando! 😎✂️`;
                                     if (establishment?.id) localStorage.setItem(`quiz_prof_count_${establishment.id}`, 'multiple');
                                   }}
                                   className={`px-3 py-2 rounded-lg border text-sm font-semibold ${wizardProfessionalCount === 'multiple'
-                                      ? 'bg-blue-600 border-blue-500 text-white'
-                                      : 'bg-[#2a2b2c] border-gray-600 text-gray-200'
+                                    ? 'bg-blue-600 border-blue-500 text-white'
+                                    : 'bg-[#2a2b2c] border-gray-600 text-gray-200'
                                     }`}
                                 >
                                   Mais de 1
@@ -25106,8 +25199,8 @@ Estamos te aguardando! 😎✂️`;
                                   }, 1000);
                                 }}
                                 className={`px-4 py-2 rounded-md border text-sm font-semibold transition-colors ${bookingMinAdvanceMinutes === option.minutes
-                                    ? 'bg-blue-600 border-blue-500 text-white'
-                                    : 'bg-[#1a1b1c] border-gray-600 text-gray-300 hover:border-gray-500'
+                                  ? 'bg-blue-600 border-blue-500 text-white'
+                                  : 'bg-[#1a1b1c] border-gray-600 text-gray-300 hover:border-gray-500'
                                   }`}
                                 aria-pressed={bookingMinAdvanceMinutes === option.minutes}
                               >
@@ -27146,7 +27239,7 @@ Estamos te aguardando! 😎✂️`;
                               <div className="mt-2 rounded-lg border border-violet-300/70 bg-white/45 p-2 space-y-1">
                                 <p className="text-[11px] font-semibold text-violet-800">Origem dos descontos:</p>
                                 <div className="flex items-center justify-between text-[11px] text-gray-700">
-                                  <span>Agendamentos/serviços</span>
+                                  <span>Agendamentos/serviços + Despesas</span>
                                   <span className="font-bold">{formatCurrency(descontosAgendamentos)}</span>
                                 </div>
                                 <div className="flex items-center justify-between text-[11px] text-gray-700">
@@ -27457,16 +27550,25 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   </div>
 
-                  <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowDetailedAttendancesPanel((prev) => !prev)}
-                      className="px-4 py-2 rounded-lg bg-gray-900 text-white hover:bg-black transition-colors text-sm font-semibold"
-                    >
-                      {showDetailedAttendancesPanel
-                        ? 'Ocultar faturamento detalhado dos atendimentos'
-                        : 'Ver faturamento detalhado dos atendimentos'}
-                    </button>
+                  <div className="mb-4 bg-gradient-to-br from-[#0f1115] via-[#12151c] to-[#171b24] rounded-xl shadow-2xl border border-gray-700 p-6">
+                    <div className="flex flex-col gap-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <h3 className="text-xl font-bold text-gray-100 flex items-center gap-2">
+                          <span className="text-2xl">📊</span>
+                          <span>Ver faturamento detalhado dos atendimentos</span>
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={() => setShowDetailedAttendancesPanel((prev) => !prev)}
+                          className="px-5 py-3 text-base font-extrabold rounded-lg bg-indigo-600 text-white border border-indigo-500 hover:bg-indigo-700 transition-colors"
+                        >
+                          {showDetailedAttendancesPanel ? 'Ocultar seção' : 'Abrir seção'}
+                        </button>
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        aqui voce pode ver detalhado os atendimentos em geral da barbearia
+                      </div>
+                    </div>
                   </div>
 
                   {showDetailedAttendancesPanel && (
@@ -27621,159 +27723,159 @@ Estamos te aguardando! 😎✂️`;
                               {isLoadingDetailedAttendances ? (
                                 <p className="text-sm text-gray-300">Carregando atendimentos detalhados...</p>
                               ) : detailedRevenueFilter === 'servicos_cancelados' ? (
-                              cancelledLossByService.length === 0 ? (
-                                <p className="text-sm text-gray-400">Nenhum serviço cancelado no período.</p>
-                              ) : (
-                                <div className="space-y-2">
-                                  <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3">
-                                    <p className="text-xs text-red-200">Total perdido por cancelamentos</p>
-                                    <p className="text-xl font-extrabold text-red-100 mt-1">
-                                      {formatCurrency(totalCancelledLoss)}
-                                    </p>
-                                  </div>
-                                  <div className="rounded-lg border border-orange-500/40 bg-orange-500/10 p-3">
-                                    <p className="text-xs text-orange-200">Profissional com mais cancelamentos</p>
-                                    {cancelledTopProfessional ? (
-                                      <>
-                                        <p className="text-base font-extrabold text-orange-100 mt-1">
-                                          {cancelledTopProfessional.name}
-                                        </p>
-                                        <p className="text-xs text-orange-200 mt-1">
-                                          {cancelledTopProfessional.count} cancelamento(s) • Perda: {formatCurrency(cancelledTopProfessional.gross)}
-                                        </p>
-                                      </>
-                                    ) : (
-                                      <p className="text-sm text-orange-100 mt-1">Sem cancelamentos no período</p>
-                                    )}
-                                  </div>
-                                  {cancelledLossByProfessional.length > 0 && (
-                                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
-                                      <p className="text-xs font-semibold text-amber-200 mb-2">Ranking de cancelamentos por profissional</p>
-                                      <div className="space-y-2">
-                                        {visibleCancelledProfessionalRows.map((item, idx) => (
-                                          <div key={`${item.name}-${idx}`} className="flex items-center justify-between gap-2 text-xs">
-                                            <span className="text-amber-100">
-                                              {idx + 1}. {item.name} ({item.count})
-                                            </span>
-                                            <span className="font-semibold text-red-300">{formatCurrency(item.gross)}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                      {cancelledLossByProfessional.length > cancelledProfessionalsVisibleCount && (
-                                        <button
-                                          type="button"
-                                          onClick={() => setCancelledProfessionalsVisibleCount((prev) => prev + 5)}
-                                          className="mt-2 text-xs font-semibold text-amber-200 hover:text-amber-100"
-                                        >
-                                          Ver mais profissionais ({cancelledLossByProfessional.length - cancelledProfessionalsVisibleCount} restantes)
-                                        </button>
+                                cancelledLossByService.length === 0 ? (
+                                  <p className="text-sm text-gray-400">Nenhum serviço cancelado no período.</p>
+                                ) : (
+                                  <div className="space-y-2">
+                                    <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3">
+                                      <p className="text-xs text-red-200">Total perdido por cancelamentos</p>
+                                      <p className="text-xl font-extrabold text-red-100 mt-1">
+                                        {formatCurrency(totalCancelledLoss)}
+                                      </p>
+                                    </div>
+                                    <div className="rounded-lg border border-orange-500/40 bg-orange-500/10 p-3">
+                                      <p className="text-xs text-orange-200">Profissional com mais cancelamentos</p>
+                                      {cancelledTopProfessional ? (
+                                        <>
+                                          <p className="text-base font-extrabold text-orange-100 mt-1">
+                                            {cancelledTopProfessional.name}
+                                          </p>
+                                          <p className="text-xs text-orange-200 mt-1">
+                                            {cancelledTopProfessional.count} cancelamento(s) • Perda: {formatCurrency(cancelledTopProfessional.gross)}
+                                          </p>
+                                        </>
+                                      ) : (
+                                        <p className="text-sm text-orange-100 mt-1">Sem cancelamentos no período</p>
                                       )}
                                     </div>
-                                  )}
-                                  {visibleCancelledServiceRows.map((item, idx) => (
-                                    <div key={`${item.name}-${idx}`} className="rounded-lg border border-gray-700 bg-[#121722] p-3">
-                                      <div className="flex items-center justify-between gap-2">
-                                        <span className="text-sm font-semibold text-gray-100">
-                                          {idx + 1}. {item.name}
-                                        </span>
-                                        <span className="text-xs font-bold text-red-300">{item.count} cancelado(s)</span>
-                                      </div>
-                                      <div className="mt-2 flex items-center justify-between text-xs">
-                                        <span className="text-gray-400">Perda bruta estimada</span>
-                                        <span className="font-semibold text-red-300">{formatCurrency(item.gross)}</span>
-                                      </div>
-                                    </div>
-                                  ))}
-                                  {cancelledLossByService.length > cancelledServicesVisibleCount && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setCancelledServicesVisibleCount((prev) => prev + 20)}
-                                      className="mt-1 text-xs font-semibold text-red-200 hover:text-red-100"
-                                    >
-                                      Ver mais serviços cancelados ({cancelledLossByService.length - cancelledServicesVisibleCount} restantes)
-                                    </button>
-                                  )}
-                                </div>
-                              )
-                              ) : detailedRevenueFilter === 'servicos_mais_feitos' ? (
-                              serviceRanking.length === 0 ? (
-                                <p className="text-sm text-gray-400">Nenhum serviço encontrado para este período.</p>
-                              ) : (
-                                <div className="space-y-2">
-                                  {visibleServiceRankingRows.map((item, idx) => (
-                                    <div key={`${item.name}-${idx}`} className="rounded-lg border border-gray-700 bg-[#121722] p-3">
-                                      <div className="flex items-center justify-between gap-2">
-                                        <span className="text-sm font-semibold text-gray-100">
-                                          {idx + 1}. {item.name}
-                                        </span>
-                                        <span className="text-xs font-bold text-indigo-300">{item.count}x</span>
-                                      </div>
-                                      <div className="mt-2 h-2 rounded bg-gray-800 overflow-hidden">
-                                        <div
-                                          className="h-2 rounded bg-gradient-to-r from-indigo-500 to-cyan-500"
-                                          style={{ width: `${Math.max(8, (item.count / topServiceCount) * 100)}%` }}
-                                        />
-                                      </div>
-                                      <div className="mt-2 flex items-center justify-between text-xs">
-                                        <span className="text-gray-400">Bruto</span>
-                                        <span className="font-semibold text-emerald-300">{formatCurrency(item.gross)}</span>
-                                      </div>
-                                    </div>
-                                  ))}
-                                  {serviceRanking.length > serviceRankingVisibleCount && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setServiceRankingVisibleCount((prev) => prev + 20)}
-                                      className="mt-1 text-xs font-semibold text-indigo-200 hover:text-indigo-100"
-                                    >
-                                      Ver mais serviços ({serviceRanking.length - serviceRankingVisibleCount} restantes)
-                                    </button>
-                                  )}
-                                </div>
-                              )
-                              ) : (
-                              <div className="space-y-2">
-                                {serviceRanking.length === 0 ? (
-                                  <p className="text-sm text-gray-400">Nenhum atendimento encontrado nesse filtro.</p>
-                                ) : (
-                                  <>
-                                    {visibleServiceRankingRows.map((item, idx) => {
-                                      const ticketMedio = item.count > 0 ? item.gross / item.count : 0;
-                                      return (
-                                        <div key={`${item.name}-${idx}`} className="rounded-lg border border-gray-700 bg-[#121722] p-3">
-                                          <div className="flex items-center justify-between gap-2">
-                                            <span className="text-sm font-semibold text-gray-100">
-                                              {idx + 1}. {item.name}
-                                            </span>
-                                            <span className="text-xs font-bold text-cyan-300">{item.count}x</span>
-                                          </div>
-                                          <div className="mt-2 flex items-center justify-between text-xs">
-                                            <span className="text-gray-400">Bruto</span>
-                                            <span className="font-semibold text-emerald-300">{formatCurrency(item.gross)}</span>
-                                          </div>
-                                          <div className="mt-1 flex items-center justify-between text-xs">
-                                            <span className="text-gray-400">Ticket médio</span>
-                                            <span className="font-semibold text-sky-300">{formatCurrency(ticketMedio)}</span>
-                                          </div>
+                                    {cancelledLossByProfessional.length > 0 && (
+                                      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                                        <p className="text-xs font-semibold text-amber-200 mb-2">Ranking de cancelamentos por profissional</p>
+                                        <div className="space-y-2">
+                                          {visibleCancelledProfessionalRows.map((item, idx) => (
+                                            <div key={`${item.name}-${idx}`} className="flex items-center justify-between gap-2 text-xs">
+                                              <span className="text-amber-100">
+                                                {idx + 1}. {item.name} ({item.count})
+                                              </span>
+                                              <span className="font-semibold text-red-300">{formatCurrency(item.gross)}</span>
+                                            </div>
+                                          ))}
                                         </div>
-                                      );
-                                    })}
+                                        {cancelledLossByProfessional.length > cancelledProfessionalsVisibleCount && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setCancelledProfessionalsVisibleCount((prev) => prev + 5)}
+                                            className="mt-2 text-xs font-semibold text-amber-200 hover:text-amber-100"
+                                          >
+                                            Ver mais profissionais ({cancelledLossByProfessional.length - cancelledProfessionalsVisibleCount} restantes)
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                    {visibleCancelledServiceRows.map((item, idx) => (
+                                      <div key={`${item.name}-${idx}`} className="rounded-lg border border-gray-700 bg-[#121722] p-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="text-sm font-semibold text-gray-100">
+                                            {idx + 1}. {item.name}
+                                          </span>
+                                          <span className="text-xs font-bold text-red-300">{item.count} cancelado(s)</span>
+                                        </div>
+                                        <div className="mt-2 flex items-center justify-between text-xs">
+                                          <span className="text-gray-400">Perda bruta estimada</span>
+                                          <span className="font-semibold text-red-300">{formatCurrency(item.gross)}</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                    {cancelledLossByService.length > cancelledServicesVisibleCount && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setCancelledServicesVisibleCount((prev) => prev + 20)}
+                                        className="mt-1 text-xs font-semibold text-red-200 hover:text-red-100"
+                                      >
+                                        Ver mais serviços cancelados ({cancelledLossByService.length - cancelledServicesVisibleCount} restantes)
+                                      </button>
+                                    )}
+                                  </div>
+                                )
+                              ) : detailedRevenueFilter === 'servicos_mais_feitos' ? (
+                                serviceRanking.length === 0 ? (
+                                  <p className="text-sm text-gray-400">Nenhum serviço encontrado para este período.</p>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {visibleServiceRankingRows.map((item, idx) => (
+                                      <div key={`${item.name}-${idx}`} className="rounded-lg border border-gray-700 bg-[#121722] p-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="text-sm font-semibold text-gray-100">
+                                            {idx + 1}. {item.name}
+                                          </span>
+                                          <span className="text-xs font-bold text-indigo-300">{item.count}x</span>
+                                        </div>
+                                        <div className="mt-2 h-2 rounded bg-gray-800 overflow-hidden">
+                                          <div
+                                            className="h-2 rounded bg-gradient-to-r from-indigo-500 to-cyan-500"
+                                            style={{ width: `${Math.max(8, (item.count / topServiceCount) * 100)}%` }}
+                                          />
+                                        </div>
+                                        <div className="mt-2 flex items-center justify-between text-xs">
+                                          <span className="text-gray-400">Bruto</span>
+                                          <span className="font-semibold text-emerald-300">{formatCurrency(item.gross)}</span>
+                                        </div>
+                                      </div>
+                                    ))}
                                     {serviceRanking.length > serviceRankingVisibleCount && (
                                       <button
                                         type="button"
                                         onClick={() => setServiceRankingVisibleCount((prev) => prev + 20)}
-                                        className="mt-1 text-xs font-semibold text-cyan-200 hover:text-cyan-100"
+                                        className="mt-1 text-xs font-semibold text-indigo-200 hover:text-indigo-100"
                                       >
                                         Ver mais serviços ({serviceRanking.length - serviceRankingVisibleCount} restantes)
                                       </button>
                                     )}
-                                  </>
-                                )}
-                                <div className="rounded-lg border border-gray-700 bg-[#0d1118] p-3 text-[11px] text-gray-300">
-                                  Para melhorar o desempenho no celular, a lista cliente a cliente foi ocultada aqui. Os valores e contagens
-                                  continuam corretos no resumo por serviço.
+                                  </div>
+                                )
+                              ) : (
+                                <div className="space-y-2">
+                                  {serviceRanking.length === 0 ? (
+                                    <p className="text-sm text-gray-400">Nenhum atendimento encontrado nesse filtro.</p>
+                                  ) : (
+                                    <>
+                                      {visibleServiceRankingRows.map((item, idx) => {
+                                        const ticketMedio = item.count > 0 ? item.gross / item.count : 0;
+                                        return (
+                                          <div key={`${item.name}-${idx}`} className="rounded-lg border border-gray-700 bg-[#121722] p-3">
+                                            <div className="flex items-center justify-between gap-2">
+                                              <span className="text-sm font-semibold text-gray-100">
+                                                {idx + 1}. {item.name}
+                                              </span>
+                                              <span className="text-xs font-bold text-cyan-300">{item.count}x</span>
+                                            </div>
+                                            <div className="mt-2 flex items-center justify-between text-xs">
+                                              <span className="text-gray-400">Bruto</span>
+                                              <span className="font-semibold text-emerald-300">{formatCurrency(item.gross)}</span>
+                                            </div>
+                                            <div className="mt-1 flex items-center justify-between text-xs">
+                                              <span className="text-gray-400">Ticket médio</span>
+                                              <span className="font-semibold text-sky-300">{formatCurrency(ticketMedio)}</span>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                      {serviceRanking.length > serviceRankingVisibleCount && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setServiceRankingVisibleCount((prev) => prev + 20)}
+                                          className="mt-1 text-xs font-semibold text-cyan-200 hover:text-cyan-100"
+                                        >
+                                          Ver mais serviços ({serviceRanking.length - serviceRankingVisibleCount} restantes)
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+                                  <div className="rounded-lg border border-gray-700 bg-[#0d1118] p-3 text-[11px] text-gray-300">
+                                    Para melhorar o desempenho no celular, a lista cliente a cliente foi ocultada aqui. Os valores e contagens
+                                    continuam corretos no resumo por serviço.
+                                  </div>
                                 </div>
-                              </div>
                               )}
                             </div>
                           </div>
@@ -27788,7 +27890,7 @@ Estamos te aguardando! 😎✂️`;
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <h3 className="text-xl font-bold text-gray-100 flex items-center gap-2">
                           <span className="text-2xl">💼</span>
-                          <span>Receita por Profissional</span>
+                          <span>Ver atendimentos detalhado por profissional</span>
                         </h3>
                         <div className="flex items-center gap-2">
                           <button
@@ -27809,25 +27911,25 @@ Estamos te aguardando! 😎✂️`;
                       </div>
                       {showProfessionalRevenueSection ? (
                         <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-gray-200 font-medium">Período:</span>
-                        <input
-                          type="date"
-                          value={professionalRevenueRangeStart}
-                          onChange={(e) => setProfessionalRevenueRangeStart(e.target.value)}
-                          className="px-3 py-1.5 text-xs border border-gray-600 rounded-lg bg-[#0b0e13] text-gray-100"
-                        />
-                        <span className="text-xs text-gray-300">até</span>
-                        <input
-                          type="date"
-                          value={professionalRevenueRangeEnd}
-                          onChange={(e) => setProfessionalRevenueRangeEnd(e.target.value)}
-                          className="px-3 py-1.5 text-xs border border-gray-600 rounded-lg bg-[#0b0e13] text-gray-100"
-                        />
-                        <span className="text-[11px] text-gray-400">
-                          {isLoadingProfessionalRevenueAppointments
-                            ? 'Carregando período...'
-                            : `${professionalRevenueAppointments.length} atendimento(s) concluído(s) no período`}
-                        </span>
+                          <span className="text-xs text-gray-200 font-medium">Período:</span>
+                          <input
+                            type="date"
+                            value={professionalRevenueRangeStart}
+                            onChange={(e) => setProfessionalRevenueRangeStart(e.target.value)}
+                            className="px-3 py-1.5 text-xs border border-gray-600 rounded-lg bg-[#0b0e13] text-gray-100"
+                          />
+                          <span className="text-xs text-gray-300">até</span>
+                          <input
+                            type="date"
+                            value={professionalRevenueRangeEnd}
+                            onChange={(e) => setProfessionalRevenueRangeEnd(e.target.value)}
+                            className="px-3 py-1.5 text-xs border border-gray-600 rounded-lg bg-[#0b0e13] text-gray-100"
+                          />
+                          <span className="text-[11px] text-gray-400">
+                            {isLoadingProfessionalRevenueAppointments
+                              ? 'Carregando período...'
+                              : `${professionalRevenueAppointments.length} atendimento(s) concluído(s) no período`}
+                          </span>
                         </div>
                       ) : (
                         <div className="text-xs text-gray-400">
@@ -27847,14 +27949,14 @@ Estamos te aguardando! 😎✂️`;
                         const professionalAppointments = professionalRevenueAppointments.filter(
                           (apt) =>
                             appointmentBelongsToProfessional(apt, professional) &&
-                            apt.status === 'completed'
+                            isCompletedAppointmentStatus(apt)
                         );
 
                         console.log(`🔍 Profissional: ${professional.name}`);
                         console.log(`📋 Agendamentos encontrados:`, professionalAppointments);
 
                         const professionalRevenue = professionalAppointments.reduce((total, apt) => {
-                          if (isClientPaidSubscriber(apt.client_whatsapp)) {
+                          if (isSubscriberAppointment(apt)) {
                             console.log(`💰 Assinante pago - não contabilizado: ${apt.client_name} - R$ ${apt.total_price || apt.price}`);
                             return total; // Não adiciona ao faturamento se for assinante pago
                           }
@@ -28077,7 +28179,7 @@ Estamos te aguardando! 😎✂️`;
                                       {/* Resumo por filtro */}
                                       {(() => {
                                         const filteredAppointments = professionalAppointments
-                                          .filter(apt => apt.status === 'completed')
+                                          .filter(apt => isCompletedAppointmentStatus(apt))
                                           .filter(apt =>
                                             paymentFilter === 'todos' ||
                                             paymentFilter === 'servicos_mais_feitos' ||
@@ -28204,7 +28306,7 @@ Estamos te aguardando! 😎✂️`;
                                       (() => {
                                         const ranking = Array.from(
                                           professionalAppointments
-                                            .filter((apt) => apt.status === 'completed')
+                                            .filter((apt) => isCompletedAppointmentStatus(apt))
                                             .reduce((acc, apt) => {
                                               const key = String(apt.service || '').trim() || 'Serviço sem nome';
                                               const baseValue = getAppointmentRevenueBase(apt);
@@ -28260,98 +28362,98 @@ Estamos te aguardando! 😎✂️`;
                                       })()
                                     ) : (
                                       professionalAppointments
-                                        .filter(apt => apt.status === 'completed')
+                                        .filter(apt => isCompletedAppointmentStatus(apt))
                                         .filter(apt => paymentFilter === 'todos' || apt.payment_method === paymentFilter)
                                         .map((apt, index) => {
-                                        const baseValue = getAppointmentRevenueBase(apt);
-                                        let netValue;
+                                          const baseValue = getAppointmentRevenueBase(apt);
+                                          let netValue;
 
-                                        if (isOwnerProfessional(professional)) {
-                                          // Para dono: bruto - taxa de cartão (se houver)
-                                          const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-                                          if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
-                                            const cardTax = (baseValue * paymentTax) / 100;
-                                            netValue = baseValue - cardTax;
-                                          } else {
-                                            netValue = baseValue;
-                                          }
-                                        } else {
-                                          // Para outros profissionais: verificar se taxa é descontada do estabelecimento ou do profissional
-                                          const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
-                                          if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
-                                            // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
-                                            if (establishment?.tax_deducted_by_establishment) {
-                                              netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                          if (isOwnerProfessional(professional)) {
+                                            // Para dono: bruto - taxa de cartão (se houver)
+                                            const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                            if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+                                              const cardTax = (baseValue * paymentTax) / 100;
+                                              netValue = baseValue - cardTax;
                                             } else {
-                                              // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
-                                              const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
-                                              netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
+                                              netValue = baseValue;
                                             }
                                           } else {
-                                            // Se não for cartão, apenas aplicar percentual
-                                            netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                            // Para outros profissionais: verificar se taxa é descontada do estabelecimento ou do profissional
+                                            const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                            if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
+                                              // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
+                                              if (establishment?.tax_deducted_by_establishment) {
+                                                netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                              } else {
+                                                // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
+                                                const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
+                                                netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
+                                              }
+                                            } else {
+                                              // Se não for cartão, apenas aplicar percentual
+                                              netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                            }
                                           }
-                                        }
 
-                                        // Formatar data e horário
-                                        const appointmentDate = new Date(apt.appointment_date + 'T' + apt.appointment_time);
-                                        const formattedDate = format(appointmentDate, "dd/MM/yyyy", { locale: ptBR });
-                                        const formattedTime = apt.appointment_time || '00:00';
+                                          // Formatar data e horário
+                                          const appointmentDate = new Date(apt.appointment_date + 'T' + apt.appointment_time);
+                                          const formattedDate = format(appointmentDate, "dd/MM/yyyy", { locale: ptBR });
+                                          const formattedTime = apt.appointment_time || '00:00';
 
-                                        // Mapear forma de pagamento
-                                        const paymentMethodMap: Record<string, string> = {
-                                          'dinheiro': 'Dinheiro',
-                                          'pix': 'PIX',
-                                          'credito': 'Crédito',
-                                          'debito': 'Débito',
-                                          'pendente': 'Pendente'
-                                        };
-                                        const paymentMethodLabel = paymentMethodMap[apt.payment_method || 'pendente'] || apt.payment_method || 'Pendente';
+                                          // Mapear forma de pagamento
+                                          const paymentMethodMap: Record<string, string> = {
+                                            'dinheiro': 'Dinheiro',
+                                            'pix': 'PIX',
+                                            'credito': 'Crédito',
+                                            'debito': 'Débito',
+                                            'pendente': 'Pendente'
+                                          };
+                                          const paymentMethodLabel = paymentMethodMap[apt.payment_method || 'pendente'] || apt.payment_method || 'Pendente';
 
-                                        return (
-                                          <div key={index} className="bg-[#121722] border border-gray-700 rounded-lg p-3 mb-3 last:mb-0">
-                                            {/* Header do cliente */}
-                                            <div className="flex justify-between items-start mb-2">
-                                              <span className="text-gray-100 font-medium text-sm">
-                                                {apt.client_name}
-                                              </span>
-                                              <span className="text-cyan-300 font-semibold text-sm">
-                                                → {formatCurrency(netValue)}
-                                              </span>
+                                          return (
+                                            <div key={index} className="bg-[#121722] border border-gray-700 rounded-lg p-3 mb-3 last:mb-0">
+                                              {/* Header do cliente */}
+                                              <div className="flex justify-between items-start mb-2">
+                                                <span className="text-gray-100 font-medium text-sm">
+                                                  {apt.client_name}
+                                                </span>
+                                                <span className="text-cyan-300 font-semibold text-sm">
+                                                  → {formatCurrency(netValue)}
+                                                </span>
+                                              </div>
+
+                                              {/* Informações do serviço */}
+                                              <div className="space-y-2">
+                                                <div className="flex justify-between items-center">
+                                                  <span className="text-gray-400 text-xs">
+                                                    💰 Valor bruto
+                                                  </span>
+                                                  <span className="text-gray-200 font-medium text-xs">
+                                                    {formatCurrency(baseValue)}
+                                                  </span>
+                                                </div>
+
+                                                <div className="flex justify-between items-center">
+                                                  <span className="text-gray-400 text-xs">
+                                                    💳 Pagamento
+                                                  </span>
+                                                  <span className="text-purple-300 font-medium text-xs">
+                                                    {paymentMethodLabel}
+                                                  </span>
+                                                </div>
+
+                                                <div className="flex justify-between items-center">
+                                                  <span className="text-gray-400 text-xs">
+                                                    📅 Data/Hora
+                                                  </span>
+                                                  <span className="text-gray-300 text-xs">
+                                                    {formattedDate} às {formattedTime}
+                                                  </span>
+                                                </div>
+                                              </div>
                                             </div>
-
-                                            {/* Informações do serviço */}
-                                            <div className="space-y-2">
-                                              <div className="flex justify-between items-center">
-                                                <span className="text-gray-400 text-xs">
-                                                  💰 Valor bruto
-                                                </span>
-                                                <span className="text-gray-200 font-medium text-xs">
-                                                  {formatCurrency(baseValue)}
-                                                </span>
-                                              </div>
-
-                                              <div className="flex justify-between items-center">
-                                                <span className="text-gray-400 text-xs">
-                                                  💳 Pagamento
-                                                </span>
-                                                <span className="text-purple-300 font-medium text-xs">
-                                                  {paymentMethodLabel}
-                                                </span>
-                                              </div>
-
-                                              <div className="flex justify-between items-center">
-                                                <span className="text-gray-400 text-xs">
-                                                  📅 Data/Hora
-                                                </span>
-                                                <span className="text-gray-300 text-xs">
-                                                  {formattedDate} às {formattedTime}
-                                                </span>
-                                              </div>
-                                            </div>
-                                          </div>
-                                        );
-                                      })
+                                          );
+                                        })
                                     )}
                                   </div>
                                 </details>
@@ -28384,7 +28486,7 @@ Estamos te aguardando! 😎✂️`;
                           const day = i + 1;
                           // Filtrar agendamentos do dia específico
                           const dayAppointments = monthlyAppointments.filter(apt => {
-                            if (apt.status !== 'completed') return false;
+                            if (!isCompletedAppointmentStatus(apt)) return false;
                             const aptDateStr = apt.appointment_date?.split('T')[0] || '';
                             if (!aptDateStr) return false;
                             const aptDateParts = aptDateStr.split('-');
@@ -28394,7 +28496,7 @@ Estamos te aguardando! 😎✂️`;
                           });
 
                           const dayRevenue = dayAppointments.reduce((total, apt) => {
-                            if (isClientPaidSubscriber(apt.client_whatsapp)) return total;
+                            if (isSubscriberAppointment(apt)) return total;
                             return total + getAppointmentRevenueBase(apt);
                           }, 0);
 
@@ -28418,7 +28520,7 @@ Estamos te aguardando! 😎✂️`;
                           {Array.from({ length: 31 }, (_, i) => {
                             const day = i + 1;
                             const dayAppointments = monthlyAppointments.filter(apt => {
-                              if (apt.status !== 'completed') return false;
+                              if (!isCompletedAppointmentStatus(apt)) return false;
                               const aptDateStr = apt.appointment_date?.split('T')[0] || '';
                               if (!aptDateStr) return false;
                               const aptDateParts = aptDateStr.split('-');
@@ -28428,7 +28530,7 @@ Estamos te aguardando! 😎✂️`;
                             });
 
                             const dayRevenue = dayAppointments.reduce((total, apt) => {
-                              if (isClientPaidSubscriber(apt.client_whatsapp)) return total;
+                              if (isSubscriberAppointment(apt)) return total;
                               return total + getAppointmentRevenueBase(apt);
                             }, 0);
 
@@ -28882,13 +28984,12 @@ Estamos te aguardando! 😎✂️`;
                                   type="button"
                                   onClick={() => toggleClientMandatoryCharge(client)}
                                   disabled={!canUseClientMandatoryCharge}
-                                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
-                                    !canUseClientMandatoryCharge
+                                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${!canUseClientMandatoryCharge
                                       ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
                                       : client.forceAdvancePayment
                                         ? 'bg-red-600 text-white hover:bg-red-700'
                                         : 'bg-gray-900 text-white hover:bg-black'
-                                  }`}
+                                    }`}
                                   title={
                                     canUseClientMandatoryCharge
                                       ? 'Ativar/desativar cobrança obrigatória para este cliente'
@@ -31892,281 +31993,279 @@ Estamos te aguardando! 😎✂️`;
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {filteredProducts.map((product) => {
-                    // Usar vendas do período selecionado
-                    const periodSoldQuantity = productSalesByPeriod[product.id] || 0;
-                    const totalProfit = (product.sale_price - product.cost_price) * product.stock_quantity;
-                    const productPayoutInPeriod = productPayoutByPeriod[product.id] || 0;
-                    const periodRevenue = productRevenueByPeriod[product.id] || 0;
-                    const currentProfit = periodRevenue - (product.cost_price * periodSoldQuantity) - productPayoutInPeriod;
+                        // Usar vendas do período selecionado
+                        const periodSoldQuantity = productSalesByPeriod[product.id] || 0;
+                        const totalProfit = (product.sale_price - product.cost_price) * product.stock_quantity;
+                        const productPayoutInPeriod = productPayoutByPeriod[product.id] || 0;
+                        const periodRevenue = productRevenueByPeriod[product.id] || 0;
+                        const currentProfit = periodRevenue - (product.cost_price * periodSoldQuantity) - productPayoutInPeriod;
 
                         return (
                           <div key={product.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative group">
-                        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => {
-                              setEditingProduct(product);
-                              setShowEditProductModal(true);
-                            }}
-                            className="p-1 text-blue-600 hover:bg-blue-100 rounded transition-colors"
-                            title="Editar produto"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteProduct(product.id, product.name)}
-                            className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
-                            title="Excluir produto"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-
-                        <div className="flex items-start gap-3 mb-2 pr-16">
-                          <div className="h-14 w-14 rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center shrink-0">
-                            {String((product as any)?.image_url || '').trim() ? (
-                              <img
-                                src={String((product as any)?.image_url || '')}
-                                alt={`Foto do produto ${product.name}`}
-                                className="h-full w-full object-cover"
-                                loading="lazy"
-                              />
-                            ) : (
-                              <span className="text-[10px] text-gray-500 text-center px-1">Sem foto</span>
-                            )}
-                          </div>
-                          <h3 className="text-lg font-semibold text-gray-900">{product.name}</h3>
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="flex justify-between">
-                            <span className="text-sm text-black">Estoque:</span>
-                            <span className="text-sm font-medium text-black">{product.stock_quantity} unidades</span>
-                          </div>
-
-                          <div className="flex justify-between">
-                            <span className="text-sm text-black">Vendidos ({selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })}):</span>
-                            <span className="text-sm font-medium text-black">{periodSoldQuantity} unidades</span>
-                          </div>
-
-                          {product.sold_quantity > 0 && (
-                            <div className="flex justify-between">
-                              <span className="text-xs text-gray-500">Total acumulado:</span>
-                              <span className="text-xs text-gray-500">{product.sold_quantity} unidades</span>
-                            </div>
-                          )}
-
-                          <div className="flex justify-between">
-                            <span className="text-sm text-black">Preço de venda:</span>
-                            <span className="text-sm font-medium text-black">{formatCurrency(product.sale_price)}</span>
-                          </div>
-
-                          <div className="flex justify-between">
-                            <span className="text-sm text-black">Custo:</span>
-                            <span className="text-sm font-medium text-black">{formatCurrency(product.cost_price)}</span>
-                          </div>
-
-                          <div className="border-t pt-2 mt-2">
-                            <div className="flex justify-between">
-                              <span className="text-sm text-black">Lucro total estimado (estoque):</span>
-                              <span className="text-sm font-bold text-green-600">{formatCurrency(totalProfit)}</span>
+                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={() => {
+                                  setEditingProduct(product);
+                                  setShowEditProductModal(true);
+                                }}
+                                className="p-1 text-blue-600 hover:bg-blue-100 rounded transition-colors"
+                                title="Editar produto"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteProduct(product.id, product.name)}
+                                className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
+                                title="Excluir produto"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
                             </div>
 
-                            <div className="flex justify-between">
-                              <span className="text-sm text-black">Faturamento ({selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })}):</span>
-                              <span className="text-sm font-bold text-green-600">{formatCurrency(periodRevenue)}</span>
-                            </div>
-
-                            <div className="flex justify-between">
-                              <span className="text-sm text-black">Lucro do período:</span>
-                              <span className="text-sm font-bold text-blue-600">{formatCurrency(currentProfit)}</span>
-                            </div>
-                            {productPayoutInPeriod > 0 && (
-                              <div className="flex justify-between">
-                                <span className="text-xs text-amber-700">Repasse colaboradores:</span>
-                                <span className="text-xs font-bold text-amber-700">-{formatCurrency(productPayoutInPeriod)}</span>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Botão para ver vendas por funcionário */}
-                          <div className="border-t pt-2 mt-2">
-                            {/* % por colaborador */}
-                            <button
-                              onClick={() => handleToggleCommissionEditor(product)}
-                              className="w-full flex items-center justify-between px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors mb-2"
-                            >
-                              <span className="text-black">💸 % por colaborador</span>
-                              <ChevronDown
-                                className={`h-4 w-4 text-gray-500 transition-transform ${selectedProductForCommission === product.id ? 'rotate-180' : ''
-                                  }`}
-                              />
-                            </button>
-
-                            {selectedProductForCommission === product.id && (
-                              <div className="mb-3 p-3 bg-gray-50 rounded-lg border">
-                                <p className="text-xs text-gray-600 mb-2">
-                                  Defina a porcentagem que cada colaborador recebe por venda deste produto.
-                                </p>
-                                {(establishment?.professionals || []).length === 0 ? (
-                                  <p className="text-sm text-gray-500 text-center py-2">
-                                    Nenhum profissional cadastrado.
-                                  </p>
+                            <div className="flex items-start gap-3 mb-2 pr-16">
+                              <div className="h-14 w-14 rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center shrink-0">
+                                {String((product as any)?.image_url || '').trim() ? (
+                                  <img
+                                    src={String((product as any)?.image_url || '')}
+                                    alt={`Foto do produto ${product.name}`}
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                  />
                                 ) : (
-                                  <div className="space-y-2">
-                                    {(establishment?.professionals || []).map((prof) => {
-                                      const name = String(prof.name || '').trim();
-                                      if (!name) return null;
-                                      return (
-                                        <div key={prof.id || name} className="flex items-center justify-between gap-3">
-                                          <span className="text-sm text-black font-medium">{name}</span>
-                                          <div className="flex items-center gap-2">
-                                            <input
-                                              value={commissionDraft[name] ?? ''}
-                                              onChange={(e) =>
-                                                setCommissionDraft((prev) => ({
-                                                  ...prev,
-                                                  [name]: e.target.value.replace(/[^\d,\.]/g, ''),
-                                                }))
-                                              }
-                                              className="w-20 px-2 py-1 border border-gray-300 rounded text-sm text-gray-900 bg-white"
-                                              placeholder="0"
-                                              inputMode="decimal"
-                                            />
-                                            <span className="text-sm text-gray-600">%</span>
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
+                                  <span className="text-[10px] text-gray-500 text-center px-1">Sem foto</span>
+                                )}
+                              </div>
+                              <h3 className="text-lg font-semibold text-gray-900">{product.name}</h3>
+                            </div>
 
-                                    <div className="pt-2 flex gap-2">
-                                      <button
-                                        onClick={() => {
-                                          setSelectedProductForCommission(null);
-                                          setCommissionDraft({});
-                                        }}
-                                        disabled={isSavingCommission}
-                                        className="flex-1 px-3 py-2 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300 transition-colors text-sm font-semibold disabled:opacity-60"
-                                      >
-                                        Cancelar
-                                      </button>
-                                      <button
-                                        onClick={() => handleSaveCommissionPercentages(product)}
-                                        disabled={isSavingCommission}
-                                        className="flex-1 px-3 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-bold disabled:opacity-60"
-                                      >
-                                        {isSavingCommission ? 'Salvando...' : 'Salvar'}
-                                      </button>
-                                    </div>
+                            <div className="space-y-2">
+                              <div className="flex justify-between">
+                                <span className="text-sm text-black">Estoque:</span>
+                                <span className="text-sm font-medium text-black">{product.stock_quantity} unidades</span>
+                              </div>
+
+                              <div className="flex justify-between">
+                                <span className="text-sm text-black">Vendidos ({selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })}):</span>
+                                <span className="text-sm font-medium text-black">{periodSoldQuantity} unidades</span>
+                              </div>
+
+                              {product.sold_quantity > 0 && (
+                                <div className="flex justify-between">
+                                  <span className="text-xs text-gray-500">Total acumulado:</span>
+                                  <span className="text-xs text-gray-500">{product.sold_quantity} unidades</span>
+                                </div>
+                              )}
+
+                              <div className="flex justify-between">
+                                <span className="text-sm text-black">Preço de venda:</span>
+                                <span className="text-sm font-medium text-black">{formatCurrency(product.sale_price)}</span>
+                              </div>
+
+                              <div className="flex justify-between">
+                                <span className="text-sm text-black">Custo:</span>
+                                <span className="text-sm font-medium text-black">{formatCurrency(product.cost_price)}</span>
+                              </div>
+
+                              <div className="border-t pt-2 mt-2">
+                                <div className="flex justify-between">
+                                  <span className="text-sm text-black">Lucro total estimado (estoque):</span>
+                                  <span className="text-sm font-bold text-green-600">{formatCurrency(totalProfit)}</span>
+                                </div>
+
+                                <div className="flex justify-between">
+                                  <span className="text-sm text-black">Faturamento ({selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })}):</span>
+                                  <span className="text-sm font-bold text-green-600">{formatCurrency(periodRevenue)}</span>
+                                </div>
+
+                                <div className="flex justify-between">
+                                  <span className="text-sm text-black">Lucro do período:</span>
+                                  <span className="text-sm font-bold text-blue-600">{formatCurrency(currentProfit)}</span>
+                                </div>
+                                {productPayoutInPeriod > 0 && (
+                                  <div className="flex justify-between">
+                                    <span className="text-xs text-amber-700">Repasse colaboradores:</span>
+                                    <span className="text-xs font-bold text-amber-700">-{formatCurrency(productPayoutInPeriod)}</span>
                                   </div>
                                 )}
                               </div>
-                            )}
 
-                            <button
-                              onClick={() => handleShowProductSales(product.id)}
-                              className="w-full flex items-center justify-between px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-                            >
-                              <span className="text-black">📊 Vendas por Funcionário</span>
-                              <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${selectedProductForSales === product.id ? 'rotate-180' : ''
-                                }`} />
-                            </button>
+                              {/* Botão para ver vendas por funcionário */}
+                              <div className="border-t pt-2 mt-2">
+                                {/* % por colaborador */}
+                                <button
+                                  onClick={() => handleToggleCommissionEditor(product)}
+                                  className="w-full flex items-center justify-between px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors mb-2"
+                                >
+                                  <span className="text-black">💸 % por colaborador</span>
+                                  <ChevronDown
+                                    className={`h-4 w-4 text-gray-500 transition-transform ${selectedProductForCommission === product.id ? 'rotate-180' : ''
+                                      }`}
+                                  />
+                                </button>
 
-                            {/* Dropdown de vendas por funcionário */}
-                            {selectedProductForSales === product.id && (
-                              <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
-                                <div className="flex items-center justify-between gap-3 mb-2">
-                                  <h4 className="text-sm font-medium text-black">
-                                    Vendas em {selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
-                                  </h4>
-                                  <button
-                                    onClick={() => handleOpenSellProductModal(product)}
-                                    className="px-3 py-1.5 text-xs font-bold bg-black text-white rounded hover:bg-gray-800 transition-colors"
-                                    title="Registrar venda avulsa (sem agendamento)"
-                                  >
-                                    VENDER
-                                  </button>
-                                </div>
-                                {productSalesData[product.id] && productSalesData[product.id].length > 0 ? (
-                                  <div className="space-y-2">
-                                    {productSalesData[product.id].map((sale, index) => (
-                                      <div key={index} className="flex justify-between items-center p-2 bg-white rounded border">
-                                        <div>
-                                          <span className="text-sm font-medium text-black">
-                                            {sale.professional_name || 'Funcionário não identificado'}
-                                          </span>
-                                          <p className="text-xs text-gray-600">{sale.sales_count} vendas</p>
-                                          {(() => {
-                                            const name = String(sale.professional_name || '').trim();
-                                            const map = (product as any)?.commission_percentages || {};
-                                            const pct = Number(map?.[name] ?? 0);
-                                            const safePct = Number.isFinite(pct) ? pct : 0;
-                                            if (!name) return null;
-                                            return (
-                                              <p className="text-[11px] text-gray-500">
-                                                % repasse: <span className="font-semibold">{safePct}%</span>
-                                              </p>
-                                            );
-                                          })()}
-                                        </div>
-                                        <div className="text-right">
-                                          <span className="text-sm font-bold text-green-600">
-                                            {sale.total_quantity} unidades
-                                          </span>
-                                          <p className="text-xs text-blue-600">
-                                            {formatCurrency(sale.total_value)}
-                                          </p>
-                                          {(() => {
-                                            const name = String(sale.professional_name || '').trim();
-                                            const map = (product as any)?.commission_percentages || {};
-                                            const pct = Number(map?.[name] ?? 0);
-                                            const safePct = Number.isFinite(pct) ? pct : 0;
-                                            const payout = Math.max(0, (Number(sale.total_value || 0) * safePct) / 100);
-                                            if (!name) return null;
-                                            return (
-                                              <p className="text-xs text-gray-800 font-bold">
-                                                Recebe: {formatCurrency(payout)}
-                                              </p>
-                                            );
-                                          })()}
+                                {selectedProductForCommission === product.id && (
+                                  <div className="mb-3 p-3 bg-gray-50 rounded-lg border">
+                                    <p className="text-xs text-gray-600 mb-2">
+                                      Defina a porcentagem que cada colaborador recebe por venda deste produto.
+                                    </p>
+                                    {(establishment?.professionals || []).length === 0 ? (
+                                      <p className="text-sm text-gray-500 text-center py-2">
+                                        Nenhum profissional cadastrado.
+                                      </p>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        {(establishment?.professionals || []).map((prof) => {
+                                          const name = String(prof.name || '').trim();
+                                          if (!name) return null;
+                                          return (
+                                            <div key={prof.id || name} className="flex items-center justify-between gap-3">
+                                              <span className="text-sm text-black font-medium">{name}</span>
+                                              <div className="flex items-center gap-2">
+                                                <input
+                                                  value={commissionDraft[name] ?? ''}
+                                                  onChange={(e) =>
+                                                    setCommissionDraft((prev) => ({
+                                                      ...prev,
+                                                      [name]: e.target.value.replace(/[^\d,\.]/g, ''),
+                                                    }))
+                                                  }
+                                                  className="w-20 px-2 py-1 border border-gray-300 rounded text-sm text-gray-900 bg-white"
+                                                  placeholder="0"
+                                                  inputMode="decimal"
+                                                />
+                                                <span className="text-sm text-gray-600">%</span>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+
+                                        <div className="pt-2 flex gap-2">
+                                          <button
+                                            onClick={() => {
+                                              setSelectedProductForCommission(null);
+                                              setCommissionDraft({});
+                                            }}
+                                            disabled={isSavingCommission}
+                                            className="flex-1 px-3 py-2 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300 transition-colors text-sm font-semibold disabled:opacity-60"
+                                          >
+                                            Cancelar
+                                          </button>
+                                          <button
+                                            onClick={() => handleSaveCommissionPercentages(product)}
+                                            disabled={isSavingCommission}
+                                            className="flex-1 px-3 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-bold disabled:opacity-60"
+                                          >
+                                            {isSavingCommission ? 'Salvando...' : 'Salvar'}
+                                          </button>
                                         </div>
                                       </div>
-                                    ))}
+                                    )}
                                   </div>
-                                ) : (
-                                  <p className="text-sm text-gray-500 text-center py-2">
-                                    Nenhuma venda registrada este mês
-                                  </p>
                                 )}
-                              </div>
-                            )}
 
-                            <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
-                              <button
-                                onClick={() => handleToggleProductHighlightForBooking(product)}
-                                className={`w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors ${
-                                  Boolean((product as any)?.highlight_for_client_booking)
-                                    ? 'bg-emerald-100 hover:bg-emerald-200'
-                                    : 'bg-gray-100 hover:bg-gray-200'
-                                }`}
-                              >
-                                <span className="text-black">🛍️ Destacar produto para cliente</span>
-                                <span
-                                  className={`text-xs font-bold px-2 py-1 rounded ${
-                                    Boolean((product as any)?.highlight_for_client_booking)
-                                      ? 'bg-emerald-600 text-white'
-                                      : 'bg-gray-300 text-gray-700'
-                                  }`}
+                                <button
+                                  onClick={() => handleShowProductSales(product.id)}
+                                  className="w-full flex items-center justify-between px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                                 >
-                                  {Boolean((product as any)?.highlight_for_client_booking) ? 'ATIVADO' : 'DESATIVADO'}
-                                </span>
-                              </button>
-                              <p className="text-xs text-gray-600 mt-2">
-                                Quando esta opção estiver ativada, este produto será exibido para o cliente no momento em que ele
-                                estiver finalizando o agendamento, permitindo que ele adicione o produto ao serviço.
-                              </p>
+                                  <span className="text-black">📊 Vendas por Funcionário</span>
+                                  <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${selectedProductForSales === product.id ? 'rotate-180' : ''
+                                    }`} />
+                                </button>
+
+                                {/* Dropdown de vendas por funcionário */}
+                                {selectedProductForSales === product.id && (
+                                  <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
+                                    <div className="flex items-center justify-between gap-3 mb-2">
+                                      <h4 className="text-sm font-medium text-black">
+                                        Vendas em {selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                                      </h4>
+                                      <button
+                                        onClick={() => handleOpenSellProductModal(product)}
+                                        className="px-3 py-1.5 text-xs font-bold bg-black text-white rounded hover:bg-gray-800 transition-colors"
+                                        title="Registrar venda avulsa (sem agendamento)"
+                                      >
+                                        VENDER
+                                      </button>
+                                    </div>
+                                    {productSalesData[product.id] && productSalesData[product.id].length > 0 ? (
+                                      <div className="space-y-2">
+                                        {productSalesData[product.id].map((sale, index) => (
+                                          <div key={index} className="flex justify-between items-center p-2 bg-white rounded border">
+                                            <div>
+                                              <span className="text-sm font-medium text-black">
+                                                {sale.professional_name || 'Funcionário não identificado'}
+                                              </span>
+                                              <p className="text-xs text-gray-600">{sale.sales_count} vendas</p>
+                                              {(() => {
+                                                const name = String(sale.professional_name || '').trim();
+                                                const map = (product as any)?.commission_percentages || {};
+                                                const pct = Number(map?.[name] ?? 0);
+                                                const safePct = Number.isFinite(pct) ? pct : 0;
+                                                if (!name) return null;
+                                                return (
+                                                  <p className="text-[11px] text-gray-500">
+                                                    % repasse: <span className="font-semibold">{safePct}%</span>
+                                                  </p>
+                                                );
+                                              })()}
+                                            </div>
+                                            <div className="text-right">
+                                              <span className="text-sm font-bold text-green-600">
+                                                {sale.total_quantity} unidades
+                                              </span>
+                                              <p className="text-xs text-blue-600">
+                                                {formatCurrency(sale.total_value)}
+                                              </p>
+                                              {(() => {
+                                                const name = String(sale.professional_name || '').trim();
+                                                const map = (product as any)?.commission_percentages || {};
+                                                const pct = Number(map?.[name] ?? 0);
+                                                const safePct = Number.isFinite(pct) ? pct : 0;
+                                                const payout = Math.max(0, (Number(sale.total_value || 0) * safePct) / 100);
+                                                if (!name) return null;
+                                                return (
+                                                  <p className="text-xs text-gray-800 font-bold">
+                                                    Recebe: {formatCurrency(payout)}
+                                                  </p>
+                                                );
+                                              })()}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <p className="text-sm text-gray-500 text-center py-2">
+                                        Nenhuma venda registrada este mês
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+
+                                <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
+                                  <button
+                                    onClick={() => handleToggleProductHighlightForBooking(product)}
+                                    className={`w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors ${Boolean((product as any)?.highlight_for_client_booking)
+                                        ? 'bg-emerald-100 hover:bg-emerald-200'
+                                        : 'bg-gray-100 hover:bg-gray-200'
+                                      }`}
+                                  >
+                                    <span className="text-black">🛍️ Destacar produto para cliente</span>
+                                    <span
+                                      className={`text-xs font-bold px-2 py-1 rounded ${Boolean((product as any)?.highlight_for_client_booking)
+                                          ? 'bg-emerald-600 text-white'
+                                          : 'bg-gray-300 text-gray-700'
+                                        }`}
+                                    >
+                                      {Boolean((product as any)?.highlight_for_client_booking) ? 'ATIVADO' : 'DESATIVADO'}
+                                    </span>
+                                  </button>
+                                  <p className="text-xs text-gray-600 mt-2">
+                                    Quando esta opção estiver ativada, este produto será exibido para o cliente no momento em que ele
+                                    estiver finalizando o agendamento, permitindo que ele adicione o produto ao serviço.
+                                  </p>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
                           </div>
                         );
                       })}
@@ -33491,42 +33590,42 @@ Estamos te aguardando! 😎✂️`;
                     String(product?.name || '').toLowerCase().includes(query)
                   );
                   return (
-                  <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {filteredProducts.length === 0 ? (
-                      <div className="text-center py-4 border border-dashed border-gray-300 rounded-lg">
-                        <p className="text-sm text-gray-600">Nenhum produto encontrado para essa busca.</p>
-                      </div>
-                    ) : filteredProducts.map((product) => (
-                      <div
-                        key={product.id}
-                        onClick={() => handleSelectProductForAppointment(product)}
-                        className={`p-3 border rounded-lg cursor-pointer transition-colors ${product.stock_quantity > 0
-                          ? 'border-gray-200 hover:border-blue-500 hover:bg-blue-50'
-                          : 'border-gray-300 bg-gray-100 cursor-not-allowed opacity-50'
-                          }`}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <h4 className="font-medium text-gray-900">{product.name}</h4>
-                            <p className="text-sm text-gray-600">
-                              Preço: {formatCurrency(product.sale_price)}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              Estoque: {product.stock_quantity} unidades
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-medium text-green-600">
-                              {formatCurrency(product.sale_price)}
-                            </p>
-                            {product.stock_quantity === 0 && (
-                              <p className="text-xs text-red-500">Sem estoque</p>
-                            )}
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {filteredProducts.length === 0 ? (
+                        <div className="text-center py-4 border border-dashed border-gray-300 rounded-lg">
+                          <p className="text-sm text-gray-600">Nenhum produto encontrado para essa busca.</p>
+                        </div>
+                      ) : filteredProducts.map((product) => (
+                        <div
+                          key={product.id}
+                          onClick={() => handleSelectProductForAppointment(product)}
+                          className={`p-3 border rounded-lg cursor-pointer transition-colors ${product.stock_quantity > 0
+                            ? 'border-gray-200 hover:border-blue-500 hover:bg-blue-50'
+                            : 'border-gray-300 bg-gray-100 cursor-not-allowed opacity-50'
+                            }`}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <h4 className="font-medium text-gray-900">{product.name}</h4>
+                              <p className="text-sm text-gray-600">
+                                Preço: {formatCurrency(product.sale_price)}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                Estoque: {product.stock_quantity} unidades
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-medium text-green-600">
+                                {formatCurrency(product.sale_price)}
+                              </p>
+                              {product.stock_quantity === 0 && (
+                                <p className="text-xs text-red-500">Sem estoque</p>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
                   );
                 })()}
               </div>
@@ -34588,8 +34687,8 @@ Estamos te aguardando! 😎✂️`;
 
           <div
             className={`fixed inset-x-0 z-[10022] p-3 sm:p-4 pointer-events-none ${appointmentsTutorialStep === 5 && appointmentsTutorialClientsPreview
-                ? 'top-0'
-                : 'bottom-0'
+              ? 'top-0'
+              : 'bottom-0'
               }`}
           >
             <div className="mx-auto w-full max-w-3xl rounded-2xl border border-gray-300 bg-white shadow-2xl p-4 sm:p-5 pointer-events-auto">
@@ -34682,17 +34781,17 @@ Estamos te aguardando! 😎✂️`;
               ? "Digite a senha de 4 dígitos para alterar o percentual do profissional"
               : pendingAction?.type === 'hide_gross'
                 ? "Digite a senha de 4 dígitos para alterar a opção de ocultar bruto do profissional"
-              : pendingAction?.type === 'lock_appointments_view'
-                ? "Digite a senha de 4 dígitos para alterar a proteção de agenda deste profissional"
-              : pendingAction?.type === 'lock_financial_view'
-                ? "Digite a senha de 4 dígitos para alterar a proteção de financeiro deste profissional"
-              : pendingAction?.type === 'unlock_appointments_view'
-                ? "Digite a senha de 4 dígitos do profissional para desbloquear a agenda"
-              : pendingAction?.type === 'unlock_financial_view'
-                ? "Digite a senha de 4 dígitos para desbloquear o financeiro deste profissional"
-              : pendingAction?.type === 'barbershop_cash'
-                ? "Digite a senha de 4 dígitos para acessar o caixa da barbearia"
-                : "Digite a senha de 4 dígitos para alterar configurações sensíveis"
+                : pendingAction?.type === 'lock_appointments_view'
+                  ? "Digite a senha de 4 dígitos para alterar a proteção de agenda deste profissional"
+                  : pendingAction?.type === 'lock_financial_view'
+                    ? "Digite a senha de 4 dígitos para alterar a proteção de financeiro deste profissional"
+                    : pendingAction?.type === 'unlock_appointments_view'
+                      ? "Digite a senha de 4 dígitos do profissional para desbloquear a agenda"
+                      : pendingAction?.type === 'unlock_financial_view'
+                        ? "Digite a senha de 4 dígitos para desbloquear o financeiro deste profissional"
+                        : pendingAction?.type === 'barbershop_cash'
+                          ? "Digite a senha de 4 dígitos para acessar o caixa da barbearia"
+                          : "Digite a senha de 4 dígitos para alterar configurações sensíveis"
         }
       />
 

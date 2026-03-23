@@ -364,6 +364,7 @@ export function BookingChatFlow({
       return highlighted && hasStock;
     });
   }, [bookingHighlightedProducts]);
+  const hasBookingHighlightedProducts = availableBookingProducts.length > 0;
 
   const selectedBookingProducts = useMemo(
     () => availableBookingProducts.filter((product: any) => selectedBookingProductIds.includes(String(product?.id || ''))),
@@ -883,7 +884,16 @@ export function BookingChatFlow({
   };
 
   const goBack = () => {
-    const sequence: ChatStep[] = ['name', 'phone', ...(detectedSubscriber ? (['subscriberChoice'] as ChatStep[]) : []), 'professional', 'service', 'datetime', 'products', 'confirm'];
+    const sequence: ChatStep[] = [
+      'name',
+      'phone',
+      ...(detectedSubscriber ? (['subscriberChoice'] as ChatStep[]) : []),
+      'professional',
+      'service',
+      'datetime',
+      ...(hasBookingHighlightedProducts ? (['products'] as ChatStep[]) : []),
+      'confirm'
+    ];
     const currentIndex = sequence.indexOf(step);
     if (currentIndex <= 0) {
       if (onCloseChat) onCloseChat();
@@ -1072,20 +1082,22 @@ export function BookingChatFlow({
     }
     if (selectedTime) {
       messages.push({ id: 'user-date-time', role: 'user', text: `${format(selectedDate, 'dd/MM/yyyy')} • ${selectedTime}` });
-      messages.push({ id: 'bot-products', role: 'bot', text: 'Quer aproveitar e garantir também?' });
-      if (selectedBookingProducts.length > 0) {
-        const productsSummary = selectedBookingProducts
-          .map((product: any) => String(product?.name || 'Produto').trim())
-          .filter(Boolean)
-          .join(' + ');
-        messages.push({ id: 'user-products', role: 'user', text: productsSummary });
+      if (hasBookingHighlightedProducts) {
+        messages.push({ id: 'bot-products', role: 'bot', text: 'Quer aproveitar e garantir também?' });
+        if (selectedBookingProducts.length > 0) {
+          const productsSummary = selectedBookingProducts
+            .map((product: any) => String(product?.name || 'Produto').trim())
+            .filter(Boolean)
+            .join(' + ');
+          messages.push({ id: 'user-products', role: 'user', text: productsSummary });
+        }
       }
       if (step === 'confirm') {
         messages.push({ id: 'bot-confirm', role: 'bot', text: 'Perfeito! Revise os dados e confirme seu agendamento.' });
       }
     }
     return messages;
-  }, [chatClientName, chatClientPhone, computedSelection.serviceName, detectedSubscriber, establishment?.name, invalidSubscriberDateMessage, isSubscriberFlow, selectedBookingProducts, selectedDate, selectedProfessional?.name, selectedTime, step, subscriberLimitStatus]);
+  }, [chatClientName, chatClientPhone, computedSelection.serviceName, detectedSubscriber, establishment?.name, hasBookingHighlightedProducts, invalidSubscriberDateMessage, isSubscriberFlow, selectedBookingProducts, selectedDate, selectedProfessional?.name, selectedTime, step, subscriberLimitStatus]);
 
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const serviceIntroRef = useRef<HTMLDivElement | null>(null);
@@ -1375,7 +1387,7 @@ export function BookingChatFlow({
                       onTimeSelect={(value) => {
                         setSelectedTime(value);
                         setInvalidSubscriberDateMessage('');
-                        setStep('products');
+                        setStep(hasBookingHighlightedProducts ? 'products' : 'confirm');
                       }}
                       filterPastTimes={true}
                       businessHours={businessHoursForDate}
@@ -1417,7 +1429,7 @@ export function BookingChatFlow({
               </div>
             )}
 
-            {step === 'products' && (
+            {step === 'products' && hasBookingHighlightedProducts && (
               <div
                 className="space-y-3 rounded-xl border p-3"
                 style={{
