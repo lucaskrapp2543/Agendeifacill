@@ -53,6 +53,7 @@ interface Establishment {
   admin_notes?: string; // Observações privadas do admin
   admin_profit_value?: number | null; // Valor manual de lucro (admin) para somar no saldo geral
   admin_payment_link?: string | null; // Link de pagamento para envio de cobrança (admin)
+  mercadopago_billing_amount?: number | null; // Valor da cobranca PIX por estabelecimento
   whatsapp?: string; // WhatsApp do estabelecimento
   pagamento_adiantado_liberado_admin?: boolean; // Liberação pelo admin para mostrar "Pagamento adiantado" ao barbeiro
 }
@@ -488,6 +489,8 @@ const AdminDashboard = () => {
   // ✅ Link de pagamento por estabelecimento (admin)
   const [paymentLinkInputByEstablishment, setPaymentLinkInputByEstablishment] = useState<Record<string, string>>({});
   const [isSavingPaymentLinkByEstablishment, setIsSavingPaymentLinkByEstablishment] = useState<Record<string, boolean>>({});
+  const [billingAmountInputByEstablishment, setBillingAmountInputByEstablishment] = useState<Record<string, string>>({});
+  const [isSavingBillingAmountByEstablishment, setIsSavingBillingAmountByEstablishment] = useState<Record<string, boolean>>({});
   const paymentLinkSaveTimeoutRef = useRef<Record<string, any>>({});
 
   // ✅ Links globais do Plano Ouro e Diamante (admin) - envio não direcionado (abre seletor do WhatsApp)
@@ -1456,6 +1459,7 @@ const AdminDashboard = () => {
             promotion_enabled: establishment.promotion_enabled || false,
             admin_profit_value: Number(establishment.admin_profit_value ?? 0),
             admin_payment_link: establishment.admin_payment_link || null,
+            mercadopago_billing_amount: Number((establishment as any).mercadopago_billing_amount ?? 0),
             whatsapp: establishment.whatsapp || ''
           };
 
@@ -1479,6 +1483,7 @@ const AdminDashboard = () => {
           promotion_enabled: establishment.promotion_enabled || false,
           admin_profit_value: Number(establishment.admin_profit_value ?? 0),
           admin_payment_link: establishment.admin_payment_link || null,
+          mercadopago_billing_amount: Number((establishment as any).mercadopago_billing_amount ?? 0),
           whatsapp: establishment.whatsapp || ''
         };
       });
@@ -2084,6 +2089,19 @@ const AdminDashboard = () => {
     });
   }, [establishments]);
 
+  useEffect(() => {
+    setBillingAmountInputByEstablishment(prev => {
+      const next = { ...prev };
+      for (const est of establishments) {
+        if (next[est.id] === undefined) {
+          const v = Number((est as any)?.mercadopago_billing_amount ?? 0);
+          next[est.id] = Number.isFinite(v) && v > 0 ? String(v).replace('.', ',') : '';
+        }
+      }
+      return next;
+    });
+  }, [establishments]);
+
   // Pré-preencher input do link (sem sobrescrever quem estiver digitando)
   useEffect(() => {
     setPaymentLinkInputByEstablishment(prev => {
@@ -2274,6 +2292,53 @@ const AdminDashboard = () => {
       toast.error('Erro ao salvar valor.');
     } finally {
       setIsSavingProfitByEstablishment(prev => ({ ...prev, [establishment.id]: false }));
+    }
+  };
+
+  const saveBillingAmountByEstablishment = async (establishment: Establishment) => {
+    const valueRaw = String(billingAmountInputByEstablishment[establishment.id] ?? '').trim();
+    const value = parseBRLNumberInput(valueRaw);
+
+    if (!Number.isFinite(value) || value <= 0) {
+      toast.error('Informe um valor válido (> 0) para a cobrança PIX desta barbearia.');
+      return;
+    }
+
+    setIsSavingBillingAmountByEstablishment(prev => ({ ...prev, [establishment.id]: true }));
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ mercadopago_billing_amount: Math.round(value * 100) / 100 } as any)
+        .eq('id', establishment.id);
+
+      if (error) {
+        const msg = String((error as any)?.message || '');
+        if (/mercadopago_billing_amount/i.test(msg) || /column/i.test(msg)) {
+          toast.error('Campo mercadopago_billing_amount não existe no banco. Aplique a migration no Supabase.');
+        } else {
+          toast.error('Erro ao salvar valor da cobrança PIX.');
+        }
+        console.error(error);
+        return;
+      }
+
+      setEstablishments(prev =>
+        prev.map(e =>
+          e.id === establishment.id
+            ? { ...e, mercadopago_billing_amount: Math.round(value * 100) / 100 }
+            : e
+        )
+      );
+      setBillingAmountInputByEstablishment(prev => ({
+        ...prev,
+        [establishment.id]: String(Math.round(value * 100) / 100).replace('.', ','),
+      }));
+      toast.success('Valor de cobrança PIX salvo para este estabelecimento.');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao salvar valor da cobrança PIX.');
+    } finally {
+      setIsSavingBillingAmountByEstablishment(prev => ({ ...prev, [establishment.id]: false }));
     }
   };
 
@@ -4140,6 +4205,32 @@ const AdminDashboard = () => {
                               title="Salvar valor"
                             >
                               {isSavingProfitByEstablishment[establishment.id] ? 'Salvando...' : 'Salvar'}
+                            </button>
+                          </div>
+
+                          <div className="mt-2 flex items-center gap-2">
+                            <span className="inline-flex items-center px-2 py-1 text-[11px] font-bold rounded bg-cyan-600 text-white">
+                              COBRANÇA MP
+                            </span>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={billingAmountInputByEstablishment[establishment.id] ?? ''}
+                              onChange={(e) =>
+                                setBillingAmountInputByEstablishment(prev => ({ ...prev, [establishment.id]: e.target.value }))
+                              }
+                              className="w-24 px-2 py-1 text-xs border border-gray-300 rounded bg-white text-gray-900"
+                              placeholder="79,90"
+                              title="Valor da cobrança PIX desta barbearia"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => saveBillingAmountByEstablishment(establishment)}
+                              disabled={Boolean(isSavingBillingAmountByEstablishment[establishment.id])}
+                              className="px-2 py-1 text-xs rounded border border-cyan-300 text-cyan-700 bg-cyan-50 hover:bg-cyan-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Salvar valor da cobrança PIX"
+                            >
+                              {isSavingBillingAmountByEstablishment[establishment.id] ? 'Salvando...' : 'Salvar'}
                             </button>
                           </div>
 

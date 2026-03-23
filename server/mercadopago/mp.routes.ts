@@ -294,6 +294,154 @@ router.post('/create-payment', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/mercadopago/create-establishment-billing
+ * Cria PIX de regularizacao da barbearia (100% para a plataforma, sem split).
+ */
+router.post('/create-establishment-billing', async (req: Request, res: Response) => {
+  try {
+    const { establishmentId, description, payer } = req.body || {};
+    if (!establishmentId) {
+      return res.status(400).json({
+        error: 'establishmentId é obrigatório',
+      });
+    }
+
+    const platformAccessToken = String(process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim();
+    if (!platformAccessToken) {
+      return res.status(500).json({
+        error: 'MERCADOPAGO_ACCESS_TOKEN não configurado',
+      });
+    }
+
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) {
+      return res.status(500).json({
+        error: 'Supabase admin não configurado',
+      });
+    }
+
+    let establishment: any = null;
+    let amountCents = 0;
+
+    const { data: estWithAmount, error: estWithAmountError } = await supabaseAdmin
+      .from('establishments')
+      .select('id, name, mercadopago_billing_amount')
+      .eq('id', String(establishmentId))
+      .single();
+
+    if (!estWithAmountError && estWithAmount) {
+      establishment = estWithAmount;
+      const estAmount = Number((estWithAmount as any)?.mercadopago_billing_amount ?? 0);
+      amountCents = Math.round(estAmount * 100);
+    } else {
+      const { data: estFallback, error: estFallbackError } = await supabaseAdmin
+        .from('establishments')
+        .select('id, name')
+        .eq('id', String(establishmentId))
+        .single();
+
+      if (estFallbackError || !estFallback) {
+        return res.status(404).json({
+          error: 'Estabelecimento não encontrado',
+        });
+      }
+      establishment = estFallback;
+    }
+
+    if (amountCents <= 0) {
+      const { data: adminConfig, error: adminError } = await supabaseAdmin
+        .from('admin_billing_links')
+        .select('mercadopago_billing_amount')
+        .eq('id', 'global')
+        .maybeSingle();
+
+      if (!adminError) {
+        const amountBRL = Number((adminConfig as any)?.mercadopago_billing_amount ?? 0);
+        amountCents = Math.round(amountBRL * 100);
+      }
+    }
+
+    if (!Number.isFinite(amountCents) || amountCents <= 0) {
+      return res.status(400).json({
+        error: 'Valor cobrança MP não configurado para este estabelecimento',
+        userMessage: 'Configure o valor da cobrança PIX desta barbearia no Admin.',
+      });
+    }
+
+    const payerEmail = String(payer?.email || `billing_${String(establishmentId).slice(0, 8)}@agendeifacil.com`).trim();
+    const billingDescription = String(
+      description || `Regularizacao Agendei Facil - ${String((establishment as any)?.name || 'Estabelecimento')}`
+    );
+
+    const payment = await createMPPayment({
+      amount: amountCents,
+      description: billingDescription,
+      payer: { email: payerEmail },
+      application_fee: 0,
+      access_token: platformAccessToken,
+      payment_method_id: 'pix',
+      metadata: {
+        type: 'establishment_billing',
+        establishment_id: String(establishmentId),
+        source: 'establishment_dashboard',
+        created_at: new Date().toISOString(),
+      },
+    });
+
+    const normalizedStatus = (() => {
+      const raw = String((payment as any)?.status || '').toLowerCase().trim();
+      if (raw === 'approved' || raw === 'authorized') return 'paid';
+      if (raw === 'cancelled') return 'cancelled';
+      if (raw === 'rejected') return 'failed';
+      if (raw === 'refunded') return 'refunded';
+      return 'pending';
+    })();
+
+    const pixData = (payment as any)?.point_of_interaction?.transaction_data || {};
+    const { error: saveError } = await supabaseAdmin
+      .from('establishment_billing_payments')
+      .upsert(
+        {
+          establishment_id: String(establishmentId),
+          amount_cents: amountCents,
+          payment_provider: 'mercadopago',
+          payment_id: String((payment as any)?.id || ''),
+          status: normalizedStatus,
+          description: billingDescription,
+          qr_code: String(pixData?.qr_code || '') || null,
+          qr_code_base64: String(pixData?.qr_code_base64 || '') || null,
+          metadata: {
+            type: 'establishment_billing',
+            establishment_id: String(establishmentId),
+          },
+          paid_at: normalizedStatus === 'paid' ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        } as any,
+        { onConflict: 'payment_id' }
+      );
+
+    if (saveError) {
+      return res.status(500).json({
+        error: 'Erro ao salvar cobrança',
+        details: saveError,
+      });
+    }
+
+    return res.status(200).json({
+      ...payment,
+      billing_type: 'establishment_billing',
+      application_fee_cents_expected: 0,
+      amount_cents_used: amountCents,
+      amount_brl_used: amountCents / 100,
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      error: error?.message || 'Erro ao criar cobrança PIX de regularização',
+    });
+  }
+});
+
+/**
  * GET /api/mercadopago/check-status
  * Verifica o status de um pagamento
  * 

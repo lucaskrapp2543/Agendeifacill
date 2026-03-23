@@ -13,6 +13,32 @@ const supabaseAdmin =
       auth: { persistSession: false, autoRefreshToken: false },
     })
     : null;
+const PLATFORM_MP_ACCESS_TOKEN = String(process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim();
+
+const normalizeBillingStatus = (raw: unknown): 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded' => {
+  const status = String(raw || '').toLowerCase().trim();
+  if (status === 'approved' || status === 'authorized') return 'paid';
+  if (status === 'cancelled') return 'cancelled';
+  if (status === 'refunded') return 'refunded';
+  if (status === 'rejected') return 'failed';
+  return 'pending';
+};
+
+const getNextDueDate = (planTypeRaw: unknown): string => {
+  const planType = String(planTypeRaw || 'monthly').toLowerCase().trim();
+  const today = new Date();
+  let next = new Date(today);
+
+  if (planType === 'annual') {
+    next = new Date(today.getFullYear() + 1, today.getMonth(), today.getDate());
+  } else if (planType === 'trial') {
+    next = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+  } else {
+    next = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
+  }
+
+  return next.toISOString().split('T')[0];
+};
 
 export const handler: Handler = async (event) => {
   // Webhooks do Mercado Pago podem ser GET (verificação) ou POST (notificação)
@@ -79,7 +105,7 @@ export const handler: Handler = async (event) => {
 
       console.log('💳 [MP Webhook] Processando pagamento:', paymentId);
 
-      // Buscar agendamento pelo payment_transaction_id
+      // Buscar agendamento pelo payment_transaction_id (fluxo legado de agendamentos)
       const { data: appointments, error: fetchError } = await supabaseAdmin
         .from('appointments')
         .select('id, establishment_id, payment_transaction_id, payment_method, status, payment_status')
@@ -91,13 +117,100 @@ export const handler: Handler = async (event) => {
         return json(500, { error: 'Erro ao buscar agendamento' });
       }
 
-      if (!appointments || appointments.length === 0) {
-        console.warn('⚠️ [MP Webhook] Agendamento não encontrado para payment_id:', paymentId);
-        // Retornar 200 mesmo assim (webhook processado, mas não há agendamento relacionado)
-        return json(200, { message: 'Webhook recebido, mas agendamento não encontrado' });
+      // Buscar cobrança de regularização da barbearia (novo fluxo)
+      const { data: billingRows, error: billingFetchError } = await supabaseAdmin
+        .from('establishment_billing_payments')
+        .select('id, establishment_id, payment_id, status')
+        .eq('payment_id', String(paymentId))
+        .limit(1);
+
+      if (billingFetchError) {
+        const msg = String((billingFetchError as any)?.message || '').toLowerCase();
+        const missingTable =
+          msg.includes('relation') ||
+          msg.includes('does not exist') ||
+          msg.includes('schema cache') ||
+          msg.includes('establishment_billing_payments');
+        if (missingTable) {
+          console.warn('⚠️ [MP Webhook] Tabela establishment_billing_payments indisponível. Seguindo fluxo legado sem bloquear agendamentos.');
+        } else {
+          console.error('❌ [MP Webhook] Erro ao buscar cobrança de estabelecimento:', billingFetchError);
+        }
       }
 
-      const appointment = appointments[0];
+      const hasAppointment = Array.isArray(appointments) && appointments.length > 0;
+      const hasBilling = !billingFetchError && Array.isArray(billingRows) && billingRows.length > 0;
+
+      if (!hasAppointment && !hasBilling) {
+        console.warn('⚠️ [MP Webhook] Nenhum registro encontrado para payment_id:', paymentId);
+        return json(200, { message: 'Webhook recebido, mas registro não encontrado' });
+      }
+
+      // Fluxo novo: regularização de pagamento do estabelecimento
+      if (hasBilling) {
+        if (!PLATFORM_MP_ACCESS_TOKEN) {
+          console.error('❌ [MP Webhook] MERCADOPAGO_ACCESS_TOKEN não configurado para cobrança de estabelecimento');
+          return json(200, { message: 'Webhook recebido, mas token da plataforma não configurado' });
+        }
+
+        const billing = billingRows[0] as any;
+        const payment = await checkMPPaymentStatus(Number(paymentId), PLATFORM_MP_ACCESS_TOKEN);
+        const billingStatus = normalizeBillingStatus((payment as any)?.status);
+        const nowIso = new Date().toISOString();
+
+        const billingUpdatePayload: any = {
+          status: billingStatus,
+          updated_at: nowIso,
+        };
+        if (billingStatus === 'paid') billingUpdatePayload.paid_at = nowIso;
+
+        const { error: billingUpdateError } = await supabaseAdmin
+          .from('establishment_billing_payments')
+          .update(billingUpdatePayload)
+          .eq('id', String(billing.id));
+
+        if (billingUpdateError) {
+          console.error('❌ [MP Webhook] Erro ao atualizar status da cobrança:', billingUpdateError);
+          return json(500, { error: 'Erro ao atualizar cobrança' });
+        }
+
+        if (billingStatus === 'paid') {
+          const { data: estData, error: estDataError } = await supabaseAdmin
+            .from('establishments')
+            .select('id, plan_type')
+            .eq('id', String(billing.establishment_id))
+            .single();
+
+          if (estDataError || !estData) {
+            console.error('❌ [MP Webhook] Erro ao buscar estabelecimento para regularização:', estDataError);
+            return json(500, { error: 'Erro ao buscar estabelecimento para regularização' });
+          }
+
+          const { error: estUpdateError } = await supabaseAdmin
+            .from('establishments')
+            .update({
+              payment_status: 'paid',
+              is_blocked: false,
+              payment_paid_at: nowIso,
+              payment_due_date: getNextDueDate((estData as any)?.plan_type),
+            } as any)
+            .eq('id', String((estData as any).id));
+
+          if (estUpdateError) {
+            console.error('❌ [MP Webhook] Erro ao regularizar estabelecimento:', estUpdateError);
+            return json(500, { error: 'Erro ao regularizar estabelecimento' });
+          }
+        }
+
+        return json(200, {
+          message: 'Webhook de cobrança do estabelecimento processado',
+          paymentStatus: (payment as any)?.status || 'unknown',
+          billingStatus,
+          establishmentId: String(billing.establishment_id || ''),
+        });
+      }
+
+      const appointment = appointments![0];
       console.log('📋 [MP Webhook] Agendamento encontrado:', {
         appointmentId: appointment.id,
         currentStatus: appointment.status,

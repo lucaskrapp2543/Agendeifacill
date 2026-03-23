@@ -11,6 +11,7 @@ import { AllProfessionalsAppointmentsView } from '../components/AllProfessionals
 import { ChangeAppointmentServiceModal } from '../components/ChangeAppointmentServiceModal';
 import { ConfigPasswordModal } from '../components/ConfigPasswordModal';
 import { DiscountCouponsModal } from '../components/DiscountCouponsModal';
+import { EstablishmentBillingPaymentModal } from '../components/EstablishmentBillingPaymentModal';
 import { EstablishmentPixSettings } from '../components/EstablishmentPixSettings';
 import { ExpensesManager } from '../components/ExpensesManager';
 import { FinancialDashboard } from '../components/FinancialDashboard';
@@ -2987,6 +2988,18 @@ const EstablishmentDashboard = () => {
 
   // Estado para popup de alerta de pagamento
   const [showPaymentAlert, setShowPaymentAlert] = useState(false);
+  const [showBillingPaymentModal, setShowBillingPaymentModal] = useState(false);
+
+  const handleBillingPaymentSuccess = async () => {
+    setShowPaymentAlert(false);
+    setShowBillingPaymentModal(false);
+    try {
+      await fetchEstablishment();
+    } catch (error) {
+      console.warn('Falha ao recarregar dados após pagamento de regularização:', error);
+    }
+    hotToast.success('Pagamento confirmado! Seu sistema está em dia.');
+  };
 
   // Estado para popup de propaganda
   const [showPromotionPopup, setShowPromotionPopup] = useState(false);
@@ -20363,10 +20376,8 @@ Estamos te aguardando! 😎✂️`;
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              const whatsappNumber = '5548991265320';
-                              const message = encodeURIComponent(`Olá! Quero deixar meu sistema em dia.\n\nNome do meu estabelecimento: ${establishment.name}`);
-                              window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
                               setShowPaymentAlert(false);
+                              setShowBillingPaymentModal(true);
                             }}
                             className="w-full py-2.5 px-3 bg-gradient-to-r from-yellow-400 to-yellow-500 text-red-900 rounded-lg hover:from-yellow-300 hover:to-yellow-400 transition-all font-black text-sm sm:text-base shadow-xl transform hover:scale-105 flex items-center justify-center gap-2 border-2 border-yellow-300 cursor-pointer relative z-20"
                             type="button"
@@ -20398,6 +20409,14 @@ Estamos te aguardando! 😎✂️`;
                       </div>
                     </div>
                   )}
+
+                  <EstablishmentBillingPaymentModal
+                    isOpen={showBillingPaymentModal && Boolean(establishment)}
+                    onClose={() => setShowBillingPaymentModal(false)}
+                    establishmentId={String(establishment?.id || '')}
+                    establishmentName={String(establishment?.name || 'Estabelecimento')}
+                    onPaid={handleBillingPaymentSuccess}
+                  />
 
                   {/* Popup de Propaganda */}
                   {showPromotionPopup && establishment && (
@@ -20431,7 +20450,7 @@ Estamos te aguardando! 😎✂️`;
                             <button
                               onClick={() => {
                                 const whatsappNumber = '5548991265320';
-                                const message = encodeURIComponent('Quero pagar adiantado e ganhar 5 dias grátis');
+                                const message = encodeURIComponent('Quero regularizar meu pagamento agora');
                                 window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
                               }}
                               className="w-full px-4 py-3 md:px-6 md:py-4 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-medium md:text-lg flex items-center justify-center gap-2"

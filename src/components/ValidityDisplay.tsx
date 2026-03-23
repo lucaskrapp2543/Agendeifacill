@@ -180,7 +180,7 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
                         }
                       </p>
                       <p className="text-sm text-red-100 font-semibold mt-2">
-                        💰 Pague antes do vencimento e ganhe 5 dias GRÁTIS!
+                        💰 Regularize o pagamento para evitar bloqueio do sistema.
                       </p>
                     </div>
                   </div>
@@ -188,13 +188,13 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
                   <button
                     onClick={() => {
                       const establishmentName = validity?.name || 'Meu Estabelecimento';
-                      const message = `Olá! Quero pagar antes do vencimento e ganhar 5 dias GRÁTIS. Estabelecimento: ${establishmentName}`;
+                      const message = `Olá! Quero regularizar meu pagamento. Estabelecimento: ${establishmentName}`;
                       const whatsappUrl = `https://wa.me/5548991265320?text=${encodeURIComponent(message)}`;
                       window.open(whatsappUrl, '_blank');
                     }}
                     className="w-full bg-white text-red-600 font-bold py-3 px-4 rounded-lg hover:bg-red-50 transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2 text-base"
                   >
-                    💳 PAGAR AGORA E GANHAR 5 DIAS GRÁTIS
+                    💳 PAGAR AGORA
                   </button>
                 </div>
               </div>
