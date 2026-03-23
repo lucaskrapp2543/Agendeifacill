@@ -40,6 +40,13 @@ const normalizeSubscriptionPaymentStatus = (raw: unknown): 'paid' | 'pending' | 
 };
 
 const toISODate = (d: Date): string => d.toISOString().slice(0, 10);
+const addMonths = (date: Date, months: number): Date => {
+  const d = new Date(date);
+  const day = d.getDate();
+  d.setMonth(d.getMonth() + months);
+  if (d.getDate() < day) d.setDate(0);
+  return d;
+};
 
 /**
  * GET /api/mercadopago/oauth/authorize
@@ -628,7 +635,8 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
     const { establishmentId, subscriptionId, payer, backUrl } = req.body || {};
     const payerEmail = String(payer?.email || '').trim();
     const payerName = String(payer?.name || '').trim();
-    const backUrlCandidate = String(backUrl || '').trim();
+    const SUBSCRIPTION_BACK_URL = String(process.env.MERCADOPAGO_SUBSCRIPTION_BACK_URL || '').trim();
+    const backUrlCandidate = String(backUrl || SUBSCRIPTION_BACK_URL || '').trim();
 
     if (!establishmentId || !subscriptionId || !payerEmail) {
       return res.status(400).json({
@@ -670,66 +678,54 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
       return res.status(400).json({ error: 'Valor da assinatura inválido' });
     }
 
-    const applicationFeeRaw =
-      process.env.MERCADOPAGO_CREDIT_PLATFORM_FEE_CENTS ||
-      process.env.PLATFORM_CREDIT_FEE_CENTS ||
-      '100';
-    const applicationFeeCents = Number(String(applicationFeeRaw).trim());
-    const marketplaceFee = Number.isFinite(applicationFeeCents) ? applicationFeeCents / 100 : 1;
-    const externalReference = `subscription_checkout:${String(establishmentId)}:${String(subscriptionId)}:${Date.now()}`;
+    const externalReference = `subscription_preapproval:${String(establishmentId)}:${String(subscriptionId)}:${Date.now()}`;
     const title = String((subscription as any)?.name || 'Assinatura').trim();
     const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
 
     const payload: any = {
-      items: [
-        {
-          id: String(subscriptionId),
-          title,
-          quantity: 1,
-          currency_id: 'BRL',
-          unit_price: Number(amount.toFixed(2)),
-        },
-      ],
-      payer: {
-        email: payerEmail,
-        ...(payerName ? { name: payerName } : {}),
-      },
-      marketplace_fee: marketplaceFee,
+      reason: `Assinatura mensal - ${title}`,
+      payer_email: payerEmail,
       external_reference: externalReference,
+      auto_recurring: {
+        frequency: 1,
+        frequency_type: 'months',
+        transaction_amount: Number(amount.toFixed(2)),
+        currency_id: 'BRL',
+      },
       metadata: {
-        type: 'subscription_checkout',
+        type: 'subscription_preapproval',
         establishment_id: String(establishmentId),
         subscription_id: String(subscriptionId),
+        payer_name: payerName || null,
       },
+      status: 'pending',
     };
 
-    if (/^https:\/\//i.test(backUrlCandidate)) {
-      payload.back_urls = {
-        success: backUrlCandidate,
-        failure: backUrlCandidate,
-        pending: backUrlCandidate,
-      };
-      payload.auto_return = 'approved';
+    if (!/^https:\/\//i.test(backUrlCandidate)) {
+      return res.status(400).json({
+        error: 'back_url is required',
+        userMessage: 'Configure MERCADOPAGO_SUBSCRIPTION_BACK_URL com uma URL HTTPS pública.',
+      });
     }
+    payload.back_url = backUrlCandidate;
 
-    const mpResponse = await axios.post(`${MP_API_BASE_URL}/checkout/preferences`, payload, {
+    const mpResponse = await axios.post(`${MP_API_BASE_URL}/preapproval`, payload, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        'X-Idempotency-Key': `sub_pref_${externalReference}`,
+        'X-Idempotency-Key': `sub_preapproval_${externalReference}`,
       },
     });
 
-    const preference = mpResponse.data || {};
+    const preapproval = mpResponse.data || {};
     return res.status(200).json({
-      preference_id: String(preference?.id || ''),
-      init_point: preference?.init_point || null,
-      sandbox_init_point: preference?.sandbox_init_point || null,
+      preapproval_id: String(preapproval?.id || ''),
+      init_point: preapproval?.init_point || null,
+      sandbox_init_point: preapproval?.sandbox_init_point || null,
       external_reference: externalReference,
+      subscription_status: String(preapproval?.status || 'pending'),
       amount_brl_used: amount,
       amount_cents_used: Math.round(amount * 100),
-      marketplace_fee_cents: applicationFeeCents,
-      marketplace_fee_brl: marketplaceFee,
     });
   } catch (error: any) {
     return res.status(500).json({
@@ -812,6 +808,70 @@ router.post('/get-payment-by-external-reference', async (req: Request, res: Resp
         error?.response?.data?.error ||
         error?.message ||
         'Erro ao buscar pagamento no Mercado Pago',
+    });
+  }
+});
+
+/**
+ * POST /api/mercadopago/get-preapproval-status
+ * Busca status da assinatura recorrente (preapproval) por id.
+ */
+router.post('/get-preapproval-status', async (req: Request, res: Response) => {
+  try {
+    const { establishmentId, preapprovalId } = req.body || {};
+    if (!establishmentId || !preapprovalId) {
+      return res.status(400).json({
+        error: 'Dados incompletos',
+        required: ['establishmentId', 'preapprovalId'],
+      });
+    }
+
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: 'Supabase admin não configurado' });
+    }
+
+    const { data: establishment, error: estError } = await supabaseAdmin
+      .from('establishments')
+      .select('id, mercadopago_access_token')
+      .eq('id', String(establishmentId))
+      .single();
+    if (estError || !establishment) {
+      return res.status(404).json({ error: 'Estabelecimento não encontrado' });
+    }
+
+    const accessToken = String((establishment as any)?.mercadopago_access_token || '').trim();
+    if (!accessToken) {
+      return res.status(400).json({ error: 'Estabelecimento sem Mercado Pago conectado' });
+    }
+
+    const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+    const mpResponse = await axios.get(
+      `${MP_API_BASE_URL}/preapproval/${encodeURIComponent(String(preapprovalId))}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const subscription = mpResponse.data || {};
+    return res.status(200).json({
+      preapproval: {
+        id: String(subscription?.id || ''),
+        status: String(subscription?.status || ''),
+        external_reference: String(subscription?.external_reference || ''),
+        reason: String(subscription?.reason || ''),
+      },
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      error:
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message ||
+        'Erro ao buscar status da recorrência no Mercado Pago',
     });
   }
 });
@@ -976,7 +1036,88 @@ router.post('/webhook', async (req: Request, res: Response) => {
       data: webhookData?.data,
     });
 
-    if (webhookData?.type === 'payment') {
+    if (webhookData?.type === 'subscription_preapproval') {
+      const preapprovalId = String(webhookData.data?.id || webhookData.id || '').trim();
+      if (!preapprovalId) {
+        return res.status(400).json({ error: 'preapproval id não encontrado' });
+      }
+
+      const { data: rows, error: rowsError } = await supabaseAdmin
+        .from('client_subscriptions')
+        .select('id, establishment_id, subscription_id, payment_status, subscription_payment_order_id')
+        .eq('subscription_payment_order_id', preapprovalId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (rowsError || !Array.isArray(rows) || rows.length === 0) {
+        return res.status(200).json({ message: 'Webhook preapproval recebido sem assinante vinculado' });
+      }
+
+      const establishmentId = String((rows[0] as any)?.establishment_id || '').trim();
+      const { data: establishment } = await supabaseAdmin
+        .from('establishments')
+        .select('mercadopago_access_token')
+        .eq('id', establishmentId)
+        .single();
+      const accessToken = String((establishment as any)?.mercadopago_access_token || '').trim();
+      if (!accessToken) {
+        return res.status(200).json({ message: 'Webhook preapproval recebido, mas estabelecimento sem token MP' });
+      }
+
+      const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+      const preapprovalResp = await axios.get(
+        `${MP_API_BASE_URL}/preapproval/${encodeURIComponent(preapprovalId)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const preapproval = preapprovalResp.data || {};
+      const status = String(preapproval?.status || '').toLowerCase().trim();
+      if (status !== 'authorized') {
+        return res.status(200).json({ message: 'Webhook preapproval recebido (não autorizado)', preapprovalId, status });
+      }
+
+      const subscriptionIds = Array.from(new Set(rows.map((r: any) => String(r.subscription_id || '').trim()).filter(Boolean)));
+      const { data: subscriptionRows } = await supabaseAdmin
+        .from('subscriptions')
+        .select('id, duration_months')
+        .in('id', subscriptionIds);
+      const durationBySubscription = new Map<string, number>();
+      (subscriptionRows || []).forEach((s: any) => {
+        durationBySubscription.set(String(s?.id || ''), Number(s?.duration_months || 1));
+      });
+
+      const now = new Date();
+      for (const row of rows as any[]) {
+        const sid = String(row?.subscription_id || '').trim();
+        const durationMonths = durationBySubscription.get(sid) || 1;
+        const startDate = toISODate(now);
+        const endDate = toISODate(addMonths(now, Number.isFinite(durationMonths) && durationMonths > 0 ? durationMonths : 1));
+
+        await supabaseAdmin
+          .from('client_subscriptions')
+          .update({
+            payment_status: 'paid',
+            last_payment_date: startDate,
+            start_date: startDate,
+            end_date: endDate,
+            subscriber_payment_method: 'credito',
+            subscription_payment_provider: 'mercadopago_card_recurring',
+            subscription_payment_order_id: preapprovalId,
+          } as any)
+          .eq('id', String((row as any).id));
+      }
+
+      return res.status(200).json({
+        message: 'Webhook de assinatura recorrente processado automaticamente',
+        preapprovalId,
+        updatedSubscribers: rows.length,
+      });
+    } else if (webhookData?.type === 'payment') {
       const paymentId = webhookData.data?.id || webhookData.id;
 
       if (!paymentId) {

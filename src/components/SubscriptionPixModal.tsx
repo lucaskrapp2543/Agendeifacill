@@ -106,6 +106,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const [isCreditClaimed, setIsCreditClaimed] = useState(false);
   const [mpSubscriptionExternalReference, setMpSubscriptionExternalReference] = useState('');
   const [mpSubscriptionCheckoutUrl, setMpSubscriptionCheckoutUrl] = useState('');
+  const [mpSubscriptionPreapprovalId, setMpSubscriptionPreapprovalId] = useState('');
 
   // 🔗 Link externo (custom_link): estados do fluxo
   const [showExternalInstructions, setShowExternalInstructions] = useState(false);
@@ -218,6 +219,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setIsCreditClaimed(false);
     setMpSubscriptionExternalReference('');
     setMpSubscriptionCheckoutUrl('');
+    setMpSubscriptionPreapprovalId('');
     setShowExternalInstructions(false);
     setHasOpenedExternalLink(false);
     setIsExternalClaimed(false);
@@ -806,20 +808,50 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
 
     const checkoutUrl = String(data?.init_point || data?.sandbox_init_point || '').trim();
+    const preapprovalId = String(data?.preapproval_id || '').trim();
     const externalReference = String(data?.external_reference || '').trim();
-    if (!checkoutUrl || !externalReference) {
+    if (!checkoutUrl || !externalReference || !preapprovalId) {
       throw new Error('Mercado Pago não retornou link externo da assinatura.');
     }
 
     setMpSubscriptionCheckoutUrl(checkoutUrl);
     setMpSubscriptionExternalReference(externalReference);
-    return { checkoutUrl, externalReference };
+    setMpSubscriptionPreapprovalId(preapprovalId);
+    return { checkoutUrl, externalReference, preapprovalId };
   };
 
   const verifyExternalMercadoPagoSubscriptionPayment = async () => {
     const externalReference = String(mpSubscriptionExternalReference || '').trim();
-    if (!externalReference) {
+    const preapprovalId = String(mpSubscriptionPreapprovalId || '').trim();
+    if (!externalReference && !preapprovalId) {
       throw new Error('Nenhuma cobrança externa encontrada. Clique em "Pagar agora" para abrir o Mercado Pago.');
+    }
+
+    if (preapprovalId) {
+      const preapprovalCheckUrl = import.meta.env.PROD
+        ? '/.netlify/functions/mercadopago-get-preapproval-status'
+        : '/api/mercadopago/get-preapproval-status';
+
+      const preapprovalResp = await fetch(preapprovalCheckUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          establishmentId,
+          preapprovalId,
+        }),
+      });
+      const preapprovalData = await preapprovalResp.json().catch(() => ({}));
+      if (preapprovalResp.ok) {
+        const preapprovalStatus = String(preapprovalData?.preapproval?.status || '').toLowerCase().trim();
+        if (preapprovalStatus === 'authorized') {
+          return {
+            paymentId: preapprovalId,
+            status: 'authorized',
+            statusDetail: 'preapproval_authorized',
+            isPreapproval: true,
+          };
+        }
+      }
     }
 
     const checkUrl = import.meta.env.PROD
@@ -845,6 +877,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       paymentId: String(data?.payment?.id || '').trim(),
       status: String(data?.payment?.status || '').toLowerCase().trim(),
       statusDetail: String(data?.payment?.status_detail || '').trim(),
+      isPreapproval: false,
     };
   };
 
@@ -927,14 +960,19 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       if (hasMercadoPago) {
         const existingCheckoutUrl = String(mpSubscriptionCheckoutUrl || '').trim();
         const existingExternalReference = String(mpSubscriptionExternalReference || '').trim();
+        const existingPreapprovalId = String(mpSubscriptionPreapprovalId || '').trim();
         const checkout =
-          existingCheckoutUrl && existingExternalReference
-            ? { checkoutUrl: existingCheckoutUrl, externalReference: existingExternalReference }
+          existingCheckoutUrl && existingExternalReference && existingPreapprovalId
+            ? {
+              checkoutUrl: existingCheckoutUrl,
+              externalReference: existingExternalReference,
+              preapprovalId: existingPreapprovalId,
+            }
             : await createExternalMercadoPagoSubscriptionCheckout();
         if (!checkout) return false;
 
         // Pré-cria em "Meus Assinantes" como pendente já na abertura do checkout externo.
-        await createPendingSubscription(checkout.externalReference, 'mercadopago_card');
+        await createPendingSubscription(checkout.preapprovalId, 'mercadopago_card');
         setHasOpenedCreditLink(true);
         setSelectedMethod('credit_card');
         window.open(checkout.checkoutUrl, '_blank', 'noopener,noreferrer');
@@ -981,13 +1019,19 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         }
 
         if (payment.status === 'approved' || payment.status === 'authorized' || payment.status === 'paid') {
-          await confirmSubscription(payment.paymentId, 'mercadopago_card');
+          if (!payment.isPreapproval) {
+            await confirmSubscription(payment.paymentId, 'mercadopago_card');
+          }
           setIsPaid(true);
           setCurrentPaymentId(payment.paymentId);
           setCurrentPaymentProvider('mercadopago_card');
           setShowCreditInstructions(false);
           setHasOpenedCreditLink(false);
-          toast.success('Pagamento confirmado! Sua assinatura foi ativada.');
+          toast.success(
+            payment.isPreapproval
+              ? 'Recorrência autorizada! A ativação é automática em instantes.'
+              : 'Pagamento confirmado! Sua assinatura foi ativada.'
+          );
           return;
         }
 

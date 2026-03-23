@@ -1,4 +1,5 @@
 import type { Handler } from '@netlify/functions';
+import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { checkMPPaymentStatus } from '../../src/lib/mercadopago/mp-service';
@@ -39,6 +40,16 @@ const getNextDueDate = (planTypeRaw: unknown): string => {
 
   return next.toISOString().split('T')[0];
 };
+
+const addMonths = (date: Date, months: number): Date => {
+  const d = new Date(date);
+  const day = d.getDate();
+  d.setMonth(d.getMonth() + months);
+  if (d.getDate() < day) d.setDate(0);
+  return d;
+};
+
+const toISODate = (d: Date): string => d.toISOString().slice(0, 10);
 
 const normalizeSubscriptionPaymentStatus = (raw: unknown): 'paid' | 'pending' | 'failed' | 'cancelled' => {
   const status = String(raw || '').toLowerCase().trim();
@@ -103,9 +114,107 @@ export const handler: Handler = async (event) => {
       data: webhookData.data,
     });
 
-    // Mercado Pago envia diferentes tipos de notificações
-    // Para pagamentos, o tipo é "payment" e a ação pode ser "payment.updated", "payment.created", etc.
-    if (webhookData.type === 'payment') {
+    // Mercado Pago envia diferentes tipos de notificações.
+    // Para recorrência real (preapproval), também tratamos o tipo "subscription_preapproval".
+    if (webhookData.type === 'subscription_preapproval') {
+      const preapprovalId = String(webhookData.data?.id || webhookData.id || '').trim();
+      if (!preapprovalId) {
+        return json(400, { error: 'preapproval id não encontrado' });
+      }
+
+      const { data: rows, error: rowsError } = await supabaseAdmin
+        .from('client_subscriptions')
+        .select('id, establishment_id, subscription_id, payment_status, subscription_payment_order_id')
+        .eq('subscription_payment_order_id', preapprovalId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (rowsError) {
+        console.error('❌ [MP Webhook] Erro ao buscar assinantes pelo preapproval_id:', rowsError);
+        return json(200, { message: 'Webhook recebido, mas erro ao buscar assinantes' });
+      }
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return json(200, { message: 'Webhook preapproval recebido sem assinante vinculado' });
+      }
+
+      const establishmentId = String((rows[0] as any)?.establishment_id || '').trim();
+      if (!establishmentId) {
+        return json(200, { message: 'Webhook preapproval recebido sem establishment_id válido' });
+      }
+
+      const { data: establishment } = await supabaseAdmin
+        .from('establishments')
+        .select('mercadopago_access_token')
+        .eq('id', establishmentId)
+        .single();
+
+      const accessToken = String((establishment as any)?.mercadopago_access_token || '').trim();
+      if (!accessToken) {
+        return json(200, { message: 'Webhook preapproval recebido, mas estabelecimento sem token MP' });
+      }
+
+      const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+      const preapprovalResp = await axios.get(
+        `${MP_API_BASE_URL}/preapproval/${encodeURIComponent(preapprovalId)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const preapproval = preapprovalResp.data || {};
+      const status = String(preapproval?.status || '').toLowerCase().trim();
+      if (status !== 'authorized') {
+        return json(200, {
+          message: 'Webhook preapproval recebido (status ainda não autorizado)',
+          preapprovalId,
+          status,
+        });
+      }
+
+      const subscriptionIds = Array.from(new Set(rows.map((r: any) => String(r.subscription_id || '').trim()).filter(Boolean)));
+      const { data: subscriptionRows } = await supabaseAdmin
+        .from('subscriptions')
+        .select('id, duration_months')
+        .in('id', subscriptionIds);
+      const durationBySubscription = new Map<string, number>();
+      (subscriptionRows || []).forEach((s: any) => {
+        durationBySubscription.set(String(s?.id || ''), Number(s?.duration_months || 1));
+      });
+
+      const now = new Date();
+      for (const row of rows as any[]) {
+        const sid = String(row?.subscription_id || '').trim();
+        const durationMonths = durationBySubscription.get(sid) || 1;
+        const startDate = toISODate(now);
+        const endDate = toISODate(addMonths(now, Number.isFinite(durationMonths) && durationMonths > 0 ? durationMonths : 1));
+
+        const { error: updErr } = await supabaseAdmin
+          .from('client_subscriptions')
+          .update({
+            payment_status: 'paid',
+            last_payment_date: startDate,
+            start_date: startDate,
+            end_date: endDate,
+            subscriber_payment_method: 'credito',
+            subscription_payment_provider: 'mercadopago_card_recurring',
+            subscription_payment_order_id: preapprovalId,
+          } as any)
+          .eq('id', String(row.id));
+
+        if (updErr) {
+          console.error('❌ [MP Webhook] Erro ao ativar assinante por preapproval:', updErr);
+        }
+      }
+
+      return json(200, {
+        message: 'Webhook de assinatura recorrente processado automaticamente',
+        preapprovalId,
+        updatedSubscribers: rows.length,
+      });
+    } else if (webhookData.type === 'payment') {
       const paymentId = webhookData.data?.id || webhookData.id;
 
       if (!paymentId) {
