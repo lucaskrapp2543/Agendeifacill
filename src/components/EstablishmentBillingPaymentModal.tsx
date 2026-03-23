@@ -35,6 +35,8 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
   const [configError, setConfigError] = useState('');
   const [subscriptionPayerEmail, setSubscriptionPayerEmail] = useState('');
 
+  const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+
   useEffect(() => {
     if (!isOpen) return;
     setSelectedMethod('pix');
@@ -192,8 +194,10 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
 
       const origin = String(window.location.origin || '').trim();
       const isPublicHttpsUrl = /^https:\/\//i.test(origin);
-      const payerEmail = String(subscriptionPayerEmail || '').trim().toLowerCase() ||
-        `billing_${String(establishmentId).slice(0, 8)}@agendeifacil.com`;
+      const payerEmail = String(subscriptionPayerEmail || '').trim().toLowerCase();
+      if (!isValidEmail(payerEmail)) {
+        throw new Error('Informe um e-mail válido para criar a assinatura.');
+      }
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -344,15 +348,19 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
                 Ative a assinatura mensal no cartão. O Mercado Pago abre para confirmar o cartão uma vez.
               </div>
               <div className="rounded-lg border border-gray-700 bg-[#1c1d20] p-2 text-xs text-gray-200">
-                E-mail da assinatura:{' '}
-                <span className="font-semibold text-white">
-                  {subscriptionPayerEmail || `billing_${String(establishmentId).slice(0, 8)}@agendeifacil.com`}
-                </span>
+                <label className="block text-[11px] text-gray-400 mb-1">E-mail da assinatura (use o mesmo no Mercado Pago)</label>
+                <input
+                  type="email"
+                  value={subscriptionPayerEmail}
+                  onChange={(e) => setSubscriptionPayerEmail(String(e.target.value || '').trim().toLowerCase())}
+                  placeholder="email@exemplo.com"
+                  className="w-full rounded border border-gray-600 bg-[#0f1012] px-2 py-1.5 text-xs text-white outline-none focus:border-blue-400"
+                />
               </div>
               <button
                 type="button"
                 onClick={handleCreateRecurringCardSubscription}
-                disabled={isCreatingSubscription}
+                disabled={isCreatingSubscription || !isValidEmail(subscriptionPayerEmail)}
                 className="w-full bg-blue-500 hover:bg-blue-400 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-lg transition-colors inline-flex items-center justify-center gap-2"
               >
                 {isCreatingSubscription ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
