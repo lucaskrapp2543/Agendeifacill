@@ -63,6 +63,7 @@ interface Client {
 
 interface ReservarClienteProps {
   establishmentId: string;
+  initialProfessionalId?: string;
   use15MinuteInterval?: boolean;
   use20MinuteScheduleProp?: boolean;
   use60MinuteScheduleProp?: boolean;
@@ -73,6 +74,7 @@ interface ReservarClienteProps {
 
 export default function ReservarCliente({
   establishmentId,
+  initialProfessionalId,
   use15MinuteInterval = false,
   use20MinuteScheduleProp = false,
   use60MinuteScheduleProp = false,
@@ -114,6 +116,7 @@ export default function ReservarCliente({
   const [clientSearchQuery, setClientSearchQuery] = useState<string>('');
   const [serviceSearchQuery, setServiceSearchQuery] = useState<string>('');
   const [loadingClients, setLoadingClients] = useState(false);
+  const [hasAppliedInitialProfessional, setHasAppliedInitialProfessional] = useState(false);
 
   // Estados para pagamento antecipado
   const [exigirPagamentoAntecipado, setExigirPagamentoAntecipado] = useState(false);
@@ -512,6 +515,26 @@ export default function ReservarCliente({
       console.error('❌ establishmentId não fornecido');
     }
   }, [establishmentId]);
+
+  useEffect(() => {
+    setHasAppliedInitialProfessional(false);
+  }, [initialProfessionalId, establishmentId]);
+
+  useEffect(() => {
+    const preferredProfessionalId = String(initialProfessionalId || '').trim();
+    if (!preferredProfessionalId || hasAppliedInitialProfessional || professionals.length === 0) return;
+
+    const preferredProfessional =
+      professionals.find((prof) => String(prof?.id || '').trim() === preferredProfessionalId) || null;
+    if (!preferredProfessional) return;
+
+    setSelectedProfessional((prev) => {
+      if (prev && String(prev.id || '').trim() === preferredProfessionalId) return prev;
+      return preferredProfessional;
+    });
+    setHasAppliedInitialProfessional(true);
+    setStep((prev) => (prev === 'professional' ? 'service' : prev));
+  }, [initialProfessionalId, hasAppliedInitialProfessional, professionals]);
 
   // Carregar clubes de assinatura
   useEffect(() => {
@@ -1078,6 +1101,10 @@ export default function ReservarCliente({
     setSelectedClient(client);
     // Ao trocar cliente, limpamos seleção de assinatura anterior para evitar cruzamento de planos.
     setSelectedSubscription(null);
+    if (selectedProfessional && String(selectedProfessional.id || '').trim().length > 0) {
+      setStep('service');
+      return;
+    }
     setStep('professional');
   };
 
@@ -1645,7 +1672,13 @@ export default function ReservarCliente({
                   </div>
                 </button>
                 <button
-                  onClick={() => setStep('professional')}
+                  onClick={() => {
+                    if (selectedProfessional && String(selectedProfessional.id || '').trim().length > 0) {
+                      setStep('service');
+                      return;
+                    }
+                    setStep('professional');
+                  }}
                   className="p-6 border-2 border-gray-300 rounded-lg hover:border-black hover:bg-gray-50 transition-all text-left"
                 >
                   <div className="flex items-center space-x-3">

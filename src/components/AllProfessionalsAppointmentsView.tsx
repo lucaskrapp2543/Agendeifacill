@@ -142,7 +142,7 @@ interface AllProfessionalsAppointmentsViewProps {
   onGoToProfessionalConfig?: (professionalId: string) => void;
   onOpenBlockHoursModal?: (professionalId: string) => void;
   onOpenAbsenceModal?: (professionalId: string) => void;
-  onGoToClients?: () => void;
+  onGoToClients?: (professionalId?: string) => void;
   onCancelAppointment?: (appointmentId: string) => void;
   onClientNoShow?: (appointment: Appointment) => void;
   onAppointmentDetailsOpen?: () => void;
@@ -4020,7 +4020,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           )}
                           {onGoToClients && (
                             <button
-                              onClick={onGoToClients}
+                              onClick={() => onGoToClients(professional.id)}
                               data-tutorial-id="appointments-criar-reserva"
                               className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
                                 ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'

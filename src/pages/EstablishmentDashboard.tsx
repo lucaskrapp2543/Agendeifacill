@@ -725,6 +725,7 @@ const EstablishmentDashboard = () => {
 
   // Estados para Reservar Cliente
   const [showReservarClienteModal, setShowReservarClienteModal] = useState(false);
+  const [reserveClientPrefilledProfessionalId, setReserveClientPrefilledProfessionalId] = useState<string | null>(null);
 
   // Estados para Clientes Fiéis
   const [showLoyalForm, setShowLoyalForm] = useState(false);
@@ -19391,7 +19392,16 @@ Estamos te aguardando! 😎✂️`;
   };
 
   // Função para navegar até a aba de clientes
-  const handleGoToClients = () => {
+  const handleGoToClients = (professionalId?: string) => {
+    const normalizedProfessionalId = String(professionalId || '').trim();
+    if (normalizedProfessionalId) {
+      setReserveClientPrefilledProfessionalId(normalizedProfessionalId);
+      setShowReservarClienteModal(true);
+      setHighlightReserveButton(false);
+      return;
+    }
+
+    setReserveClientPrefilledProfessionalId(null);
     setActiveTab('clients');
     setHighlightReserveButton(true);
 
@@ -28666,6 +28676,7 @@ Estamos te aguardando! 😎✂️`;
                     <button
                       onClick={() => {
                         console.log('🔍 Abrindo modal ReservarCliente para establishment:', establishment?.id);
+                        setReserveClientPrefilledProfessionalId(null);
                         setShowReservarClienteModal(true);
                         setHighlightReserveButton(false);
                       }}
@@ -34889,6 +34900,7 @@ Estamos te aguardando! 😎✂️`;
         showReservarClienteModal && establishment && (
           <ReservarCliente
             establishmentId={establishment.id}
+            initialProfessionalId={reserveClientPrefilledProfessionalId || undefined}
             use15MinuteInterval={use15MinuteInterval}
             use20MinuteScheduleProp={use20MinuteSchedule}
             use60MinuteScheduleProp={use60MinuteSchedule}
@@ -34914,6 +34926,7 @@ Estamos te aguardando! 😎✂️`;
             onClose={() => {
               console.log('🔍 Fechando modal ReservarCliente');
               setShowReservarClienteModal(false);
+              setReserveClientPrefilledProfessionalId(null);
               // Recarregar clientes quando fechar o modal (para atualizar contagem)
               if (activeTab === 'clients' || activeTab === 'subscribers') {
                 console.log('🔄 Recarregando clientes após fechar modal de reserva...');
