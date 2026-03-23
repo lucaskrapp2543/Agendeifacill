@@ -225,14 +225,23 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     }
 
     // Taxa da plataforma (centavos) para Mercado Pago.
-    // Compat: usa MERCADOPAGO_PLATFORM_FEE_CENTS e, se não existir, cai em PLATFORM_FEE_CENTS.
-    const applicationFee = Number(
-      String(
+    // Regras:
+    // - Cartão: prioriza MERCADOPAGO_CREDIT_PLATFORM_FEE_CENTS (fallback 100 = R$1,00)
+    // - PIX: mantém MERCADOPAGO_PLATFORM_FEE_CENTS / PLATFORM_FEE_CENTS (fallback 50 = R$0,50)
+    const normalizedMethod = String(payment_method_id || '').toLowerCase().trim();
+    const isCardPayment = Boolean(token) || (normalizedMethod !== '' && normalizedMethod !== 'pix');
+    const applicationFeeRaw = isCardPayment
+      ? (
+        process.env.MERCADOPAGO_CREDIT_PLATFORM_FEE_CENTS ||
+        process.env.PLATFORM_CREDIT_FEE_CENTS ||
+        '100'
+      )
+      : (
         process.env.MERCADOPAGO_PLATFORM_FEE_CENTS ||
         process.env.PLATFORM_FEE_CENTS ||
-        '100'
-      ).trim()
-    );
+        '50'
+      );
+    const applicationFee = Number(String(applicationFeeRaw).trim());
 
     // Criar pagamento
     const paymentData: CreateMPPaymentRequest = {
@@ -285,6 +294,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       fee_validation: feeIsValid ? 'ok' : 'divergent',
       fee_version: `R$${(applicationFee / 100).toFixed(2).replace('.', ',')}`,
       application_fee_cents_expected: applicationFee,
+      fee_mode: isCardPayment ? 'credit_card' : 'pix',
     });
   } catch (error: any) {
     console.error('❌ [MP Routes] Erro ao criar pagamento:', error);
