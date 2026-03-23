@@ -33,6 +33,7 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
   const [paymentId, setPaymentId] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [configError, setConfigError] = useState('');
+  const [subscriptionPayerEmail, setSubscriptionPayerEmail] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -44,6 +45,23 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
     setConfigError('');
     setBillingAmount(0);
     setIsLoadingAmount(false);
+    setSubscriptionPayerEmail('');
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const loadAuthEmail = async () => {
+      try {
+        const { data } = await supabase.auth.getUser();
+        const email = String(data?.user?.email || '').trim().toLowerCase();
+        if (email) setSubscriptionPayerEmail(email);
+      } catch (error) {
+        console.warn('Falha ao carregar e-mail autenticado para assinatura:', error);
+      }
+    };
+
+    void loadAuthEmail();
   }, [isOpen]);
 
   useEffect(() => {
@@ -174,6 +192,9 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
 
       const origin = String(window.location.origin || '').trim();
       const isPublicHttpsUrl = /^https:\/\//i.test(origin);
+      const payerEmail = String(subscriptionPayerEmail || '').trim().toLowerCase() ||
+        `billing_${String(establishmentId).slice(0, 8)}@agendeifacil.com`;
+
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -182,7 +203,7 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
           description: `Assinatura mensal Agendei Facil - ${establishmentName}`,
           ...(isPublicHttpsUrl ? { backUrl: `${origin}/dashboard/establishment` } : {}),
           payer: {
-            email: `billing_${String(establishmentId).slice(0, 8)}@agendeifacil.com`,
+            email: payerEmail,
           },
         }),
       });
@@ -205,7 +226,7 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
       }
 
       window.open(checkoutUrl, '_blank');
-      setStatusMessage('Abrimos a confirmação do cartão em nova aba. Após autorizar, as próximas cobranças serão mensais automáticas.');
+      setStatusMessage(`Abrimos a confirmação do cartão em nova aba. Use o e-mail ${payerEmail} para confirmar a assinatura.`);
     } catch (error: any) {
       console.error('Erro ao criar assinatura recorrente no cartão:', error);
       setStatusMessage(String(error?.message || 'Erro ao iniciar assinatura recorrente.'));
@@ -321,6 +342,12 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
               <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-100 inline-flex items-center gap-2">
                 <CreditCard className="h-4 w-4" />
                 Ative a assinatura mensal no cartão. O Mercado Pago abre para confirmar o cartão uma vez.
+              </div>
+              <div className="rounded-lg border border-gray-700 bg-[#1c1d20] p-2 text-xs text-gray-200">
+                E-mail da assinatura:{' '}
+                <span className="font-semibold text-white">
+                  {subscriptionPayerEmail || `billing_${String(establishmentId).slice(0, 8)}@agendeifacil.com`}
+                </span>
               </div>
               <button
                 type="button"
