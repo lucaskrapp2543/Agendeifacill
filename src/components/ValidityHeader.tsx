@@ -1,6 +1,7 @@
 import { AlertTriangle, Calendar, Clock } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { EstablishmentBillingPaymentModal } from './EstablishmentBillingPaymentModal';
 
 interface EstablishmentValidity {
   payment_due_date: string;
@@ -20,6 +21,7 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [daysRemaining, setDaysRemaining] = useState(0);
+  const [showBillingPaymentModal, setShowBillingPaymentModal] = useState(false);
 
   useEffect(() => {
     fetchValidity();
@@ -73,7 +75,7 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
 
     if (validity.payment_status === 'expired' || daysRemaining < 0) {
       return 'text-red-500';
-    } else if (daysRemaining >= 1 && daysRemaining <= 4) {
+    } else if (daysRemaining === 2) {
       return 'text-red-600';
     } else if (daysRemaining <= 7) {
       return 'text-yellow-500';
@@ -132,42 +134,59 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
     );
   }
 
-  // Aviso chamativo em vermelho piscando para 1-4 dias
-  if (daysRemaining >= 1 && daysRemaining <= 4 && validity.payment_status !== 'expired') {
+  // Aviso chamativo exatamente 2 dias antes do vencimento.
+  if (daysRemaining === 2 && validity.payment_status !== 'expired') {
     return (
-      <div className="flex flex-col gap-2">
-        <div className={`flex items-center gap-2 text-sm font-bold text-red-600 bg-red-100 px-4 py-2 rounded-lg border-2 border-red-400 animate-red-blink shadow-lg`}>
-          <AlertTriangle className="h-5 w-5 animate-bounce" />
-          <span>
-            {daysRemaining === 1
-              ? '⚠️ FALTA 1 DIA PARA O VENCIMENTO!'
-              : `⚠️ FALTAM ${daysRemaining} DIAS PARA O VENCIMENTO!`
-            }
-          </span>
+      <>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-sm font-bold text-red-600 bg-red-100 px-4 py-2 rounded-lg border-2 border-red-400 animate-red-blink shadow-lg">
+            <AlertTriangle className="h-5 w-5 animate-bounce" />
+            <span>⚠️ FALTAM 2 DIAS PARA O VENCIMENTO!</span>
+          </div>
+          <div className="bg-gradient-to-r from-red-600 to-red-700 text-white px-4 py-2 rounded-lg border-2 border-red-400 animate-red-blink shadow-lg">
+            <p className="text-xs font-semibold text-center mb-2">
+              💰 Regularize seu pagamento para manter o sistema ativo.
+            </p>
+            <button
+              onClick={() => setShowBillingPaymentModal(true)}
+              className="w-full bg-white text-red-600 font-bold py-2 px-4 rounded-lg hover:bg-red-50 transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2 text-sm"
+            >
+              💳 PAGAR
+            </button>
+          </div>
         </div>
-        <div className="bg-gradient-to-r from-red-600 to-red-700 text-white px-4 py-2 rounded-lg border-2 border-red-400 animate-red-blink shadow-lg">
-          <p className="text-xs font-semibold text-center mb-2">
-            💰 Regularize seu pagamento para manter o sistema ativo.
-          </p>
-          <button
-            onClick={() => {
-              const message = 'Olá, quero regularizar meu pagamento.';
-              const whatsappUrl = `https://wa.me/5548991265320?text=${encodeURIComponent(message)}`;
-              window.open(whatsappUrl, '_blank');
-            }}
-            className="w-full bg-white text-red-600 font-bold py-2 px-4 rounded-lg hover:bg-red-50 transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2 text-sm"
-          >
-            💳 PAGAR
-          </button>
-        </div>
-      </div>
+
+        <EstablishmentBillingPaymentModal
+          isOpen={showBillingPaymentModal}
+          onClose={() => setShowBillingPaymentModal(false)}
+          establishmentId={String(establishmentId || '')}
+          establishmentName={String(validity?.name || 'Estabelecimento')}
+          onPaid={async () => {
+            setShowBillingPaymentModal(false);
+            await fetchValidity();
+          }}
+        />
+      </>
     );
   }
 
   return (
-    <div className={`flex items-center gap-1 text-xs font-medium ${getStatusColor()} bg-white/80 px-2 py-1 rounded-full border`}>
-      {getStatusIcon()}
-      <span>{getStatusText()}</span>
-    </div>
+    <>
+      <div className={`flex items-center gap-1 text-xs font-medium ${getStatusColor()} bg-white/80 px-2 py-1 rounded-full border`}>
+        {getStatusIcon()}
+        <span>{getStatusText()}</span>
+      </div>
+
+      <EstablishmentBillingPaymentModal
+        isOpen={showBillingPaymentModal}
+        onClose={() => setShowBillingPaymentModal(false)}
+        establishmentId={String(establishmentId || '')}
+        establishmentName={String(validity?.name || 'Estabelecimento')}
+        onPaid={async () => {
+          setShowBillingPaymentModal(false);
+          await fetchValidity();
+        }}
+      />
+    </>
   );
 };

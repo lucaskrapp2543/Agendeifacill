@@ -82,6 +82,10 @@ const AdminDashboard = () => {
   const [lucroPixPorEstabelecimento, setLucroPixPorEstabelecimento] = useState<Record<string, number>>({});
   const [isPayingByEstablishment, setIsPayingByEstablishment] = useState<Record<string, boolean>>({});
   const [showPayoutHistoryModal, setShowPayoutHistoryModal] = useState(false);
+  const [showLastPaymentsModal, setShowLastPaymentsModal] = useState(false);
+  const [automaticPaymentTimestampByEstablishment, setAutomaticPaymentTimestampByEstablishment] = useState<Record<string, number>>({});
+  const [isLoadingLastPaymentsSources, setIsLoadingLastPaymentsSources] = useState(false);
+  const [lastPaymentsSourcesWarning, setLastPaymentsSourcesWarning] = useState('');
   const [showClientesPagosHistoryModal, setShowClientesPagosHistoryModal] = useState(false);
   const [showClientesNovosHistoryModal, setShowClientesNovosHistoryModal] = useState(false);
   const [showTop5DetailsModal, setShowTop5DetailsModal] = useState(false);
@@ -1467,6 +1471,30 @@ const AdminDashboard = () => {
         })
       );
 
+      const paidWithAlertIds = establishmentsWithEmails
+        .filter((est) => est.payment_status === 'paid' && Boolean(est.payment_alert_enabled))
+        .map((est) => est.id);
+
+      if (paidWithAlertIds.length > 0) {
+        await Promise.all(
+          paidWithAlertIds.map(async (id) => {
+            const { error } = await supabase
+              .from('establishments')
+              .update({ payment_alert_enabled: false })
+              .eq('id', id);
+            if (error) {
+              console.warn('Falha ao desativar alerta automaticamente para estabelecimento pago:', id, error);
+            }
+          })
+        );
+
+        establishmentsWithEmails.forEach((est) => {
+          if (paidWithAlertIds.includes(est.id)) {
+            est.payment_alert_enabled = false;
+          }
+        });
+      }
+
       // Combinar dados dos estabelecimentos excluídos
       const deletedWithEmails = deletedData.map(establishment => {
         const profile = profilesData.find(p => p.id === establishment.owner_id);
@@ -1527,6 +1555,7 @@ const AdminDashboard = () => {
         }
 
         updateData.payment_due_date = nextDueDate.toISOString().split('T')[0];
+        updateData.payment_alert_enabled = false;
       }
 
       const { error } = await supabase
@@ -1543,7 +1572,8 @@ const AdminDashboard = () => {
               ...est,
               payment_status: status,
               payment_due_date: status === 'paid' ? updateData.payment_due_date : est.payment_due_date,
-              payment_paid_at: est.payment_paid_at
+              payment_paid_at: est.payment_paid_at,
+              payment_alert_enabled: status === 'paid' ? false : est.payment_alert_enabled
             }
             : est
         )
@@ -1637,6 +1667,12 @@ const AdminDashboard = () => {
   // Função para ativar/desativar alerta de pagamento
   const togglePaymentAlert = async (establishmentId: string, isEnabled: boolean) => {
     try {
+      const establishment = establishments.find((est) => est.id === establishmentId);
+      if (establishment?.payment_status === 'paid' && !isEnabled) {
+        toast.error('Estabelecimento já está pago. O alerta só pode ser ativado quando estiver pendente/vencido.');
+        return;
+      }
+
       const { error } = await supabase
         .from('establishments')
         .update({ payment_alert_enabled: !isEnabled })
@@ -2119,6 +2155,59 @@ const AdminDashboard = () => {
     const deletedIds = new Set(deletedEstablishments.map((est) => est.id));
     setDeletedContainmentIds((prev) => prev.filter((id) => deletedIds.has(id)));
   }, [deletedEstablishments]);
+
+  useEffect(() => {
+    if (!showLastPaymentsModal) return;
+
+    let alive = true;
+    const loadAutomaticPayments = async () => {
+      setIsLoadingLastPaymentsSources(true);
+      setLastPaymentsSourcesWarning('');
+      try {
+        const endpoint = import.meta.env.PROD
+          ? '/.netlify/functions/mercadopago-recent-establishment-billing-payments?days=10'
+          : '/api/mercadopago/recent-establishment-billing-payments?days=10';
+
+        const response = await fetch(endpoint, { method: 'GET' });
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          if (alive) setLastPaymentsSourcesWarning(String((payload as any)?.error || 'Não foi possível classificar pagamentos automáticos agora.'));
+          if (alive) setAutomaticPaymentTimestampByEstablishment({});
+          return;
+        }
+
+        const next: Record<string, number> = {};
+        const items = Array.isArray((payload as any)?.items) ? (payload as any).items : [];
+        items.forEach((row: any) => {
+          const id = String(row?.establishment_id || '').trim();
+          if (!id) return;
+
+          const ts = new Date(String(row?.paid_at || row?.updated_at || '')).getTime();
+          if (!Number.isFinite(ts)) return;
+
+          if (!Number.isFinite(next[id]) || ts > next[id]) {
+            next[id] = ts;
+          }
+        });
+
+        if (alive) setAutomaticPaymentTimestampByEstablishment(next);
+      } catch (error) {
+        console.error('Erro ao classificar pagamentos automáticos:', error);
+        if (alive) {
+          setAutomaticPaymentTimestampByEstablishment({});
+          setLastPaymentsSourcesWarning('Não foi possível classificar pagamentos automáticos agora.');
+        }
+      } finally {
+        if (alive) setIsLoadingLastPaymentsSources(false);
+      }
+    };
+
+    void loadAutomaticPayments();
+    return () => {
+      alive = false;
+    };
+  }, [showLastPaymentsModal]);
 
   const parseBRLNumberInput = (raw: string): number => {
     const s = String(raw || '').trim();
@@ -2972,6 +3061,37 @@ const AdminDashboard = () => {
     if (!Number.isFinite(t)) return '—';
     return format(new Date(t), 'dd/MM/yyyy');
   };
+  const getPaymentTimestamp = (est: Establishment): number => {
+    const paidAt = est.payment_paid_at ? new Date(est.payment_paid_at).getTime() : NaN;
+    if (Number.isFinite(paidAt)) return paidAt;
+
+    // Fallback legado para registros antigos sem payment_paid_at.
+    if (est.payment_status === 'paid') {
+      const dueAt = parseDateOnlyLocal(est.payment_due_date);
+      if (Number.isFinite(dueAt)) return dueAt;
+    }
+
+    return NaN;
+  };
+  const nowTs = Date.now();
+  const tenDaysAgo = nowTs - (10 * 24 * 60 * 60 * 1000);
+  const lastTenDaysPayments = [...establishments]
+    .filter((est) => {
+      const paidAt = getPaymentTimestamp(est);
+      return Number.isFinite(paidAt) && paidAt >= tenDaysAgo && paidAt <= nowTs;
+    })
+    .sort((a, b) => getPaymentTimestamp(b) - getPaymentTimestamp(a));
+  const isAutomaticPaymentInLastDays = (est: Establishment): boolean => {
+    const paymentTs = getPaymentTimestamp(est);
+    const automaticTs = Number(automaticPaymentTimestampByEstablishment[est.id]);
+    if (!Number.isFinite(paymentTs) || !Number.isFinite(automaticTs)) return false;
+
+    // Aceita pequena variação de horário entre webhook e atualização do establishment.
+    const toleranceMs = 24 * 60 * 60 * 1000;
+    return Math.abs(paymentTs - automaticTs) <= toleranceMs;
+  };
+  const automaticLastTenDaysPayments = lastTenDaysPayments.filter((est) => isAutomaticPaymentInLastDays(est));
+  const manualLastTenDaysPayments = lastTenDaysPayments.filter((est) => !isAutomaticPaymentInLastDays(est));
   // Usa somente a lista visível na tela (mesmo critério da tabela),
   // para não incluir lixeira/itens fora do filtro atual.
   const visibleEstablishments = filteredEstablishments;
@@ -3935,6 +4055,15 @@ const AdminDashboard = () => {
               <strong>Inativos:</strong> {inactiveCount}
               {filterActivity === 'inactive' ? <span className="text-[10px] font-semibold opacity-70">(filtrando)</span> : null}
             </button>
+            <button
+              type="button"
+              onClick={() => setShowLastPaymentsModal(true)}
+              className="inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors bg-white border-blue-200 text-blue-700 hover:bg-blue-50"
+              title="Lista de estabelecimentos com pagamento marcado nos últimos 10 dias"
+            >
+              <strong>Últimos pagamentos</strong>
+              <span className="text-[10px] font-semibold opacity-80">({lastTenDaysPayments.length})</span>
+            </button>
           </div>
           <div className="mt-1 text-xs text-gray-700 flex flex-wrap gap-x-4 gap-y-1">
             <span>
@@ -4350,11 +4479,20 @@ const AdminDashboard = () => {
                           <div className="flex flex-wrap gap-1">
                             <button
                               onClick={() => togglePaymentAlert(establishment.id, establishment.payment_alert_enabled || false)}
-                              className={`text-xs px-2 py-0.5 border rounded font-medium ${establishment.payment_alert_enabled
-                                ? 'text-orange-600 border-orange-300 bg-orange-50 hover:bg-orange-100'
-                                : 'text-gray-600 border-gray-300 hover:bg-gray-50'
+                              disabled={establishment.payment_status === 'paid'}
+                              className={`text-xs px-2 py-0.5 border rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed ${establishment.payment_status === 'paid'
+                                ? 'text-gray-400 border-gray-200 bg-gray-50'
+                                : establishment.payment_alert_enabled
+                                  ? 'text-orange-600 border-orange-300 bg-orange-50 hover:bg-orange-100'
+                                  : 'text-gray-600 border-gray-300 hover:bg-gray-50'
                                 }`}
-                              title={establishment.payment_alert_enabled ? 'Desativar Alerta' : 'Ativar Alerta'}
+                              title={
+                                establishment.payment_status === 'paid'
+                                  ? 'Alerta desativado automaticamente porque está pago'
+                                  : establishment.payment_alert_enabled
+                                    ? 'Desativar Alerta'
+                                    : 'Ativar Alerta'
+                              }
                             >
                               ALERTA
                             </button>
@@ -4593,6 +4731,142 @@ const AdminDashboard = () => {
                               ))}
                             </tbody>
                           </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {showLastPaymentsModal && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
+                  <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 border-b">
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">Últimos pagamentos</div>
+                        <div className="text-xs text-gray-600">
+                          Últimos 10 dias • ordem do mais recente para o mais antigo
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setShowLastPaymentsModal(false)}
+                        className="p-1 rounded hover:bg-gray-100 text-gray-600"
+                        title="Fechar"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="p-4 overflow-y-auto max-h-[70vh]">
+                      {lastTenDaysPayments.length === 0 ? (
+                        <div className="text-sm text-gray-600">
+                          Nenhum estabelecimento marcado como pago nos últimos 10 dias.
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700 font-semibold">
+                              Automáticos: {automaticLastTenDaysPayments.length}
+                            </span>
+                            <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700 font-semibold">
+                              Manuais: {manualLastTenDaysPayments.length}
+                            </span>
+                            {isLoadingLastPaymentsSources ? (
+                              <span className="text-gray-500">Classificando origem do pagamento...</span>
+                            ) : null}
+                          </div>
+
+                          {lastPaymentsSourcesWarning ? (
+                            <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                              {lastPaymentsSourcesWarning}
+                            </div>
+                          ) : null}
+
+                          <div className="rounded border border-emerald-200">
+                            <div className="px-3 py-2 bg-emerald-50 border-b border-emerald-200 text-xs font-semibold text-emerald-900">
+                              Pagamentos automáticos
+                            </div>
+                            {automaticLastTenDaysPayments.length === 0 ? (
+                              <div className="px-3 py-3 text-sm text-gray-500">
+                                Nenhum pagamento automático encontrado nesse período.
+                              </div>
+                            ) : (
+                              <div className="p-2 space-y-2">
+                                {automaticLastTenDaysPayments.map((est, idx) => {
+                                  const paidAt = getPaymentTimestamp(est);
+                                  const paidAtLabel = Number.isFinite(paidAt)
+                                    ? new Date(paidAt).toLocaleString('pt-BR')
+                                    : 'Sem data de pagamento';
+
+                                  return (
+                                    <div
+                                      key={`last-payment-auto-${est.id}`}
+                                      className="rounded-lg border border-gray-200 p-3 flex items-center justify-between gap-3"
+                                    >
+                                      <div className="min-w-0">
+                                        <div className="text-sm font-semibold text-gray-900 truncate">
+                                          {idx + 1}. {est.name}
+                                        </div>
+                                        <div className="text-xs text-gray-600 mt-0.5">
+                                          Código: {est.code || '—'} • Plano: {est.plan_type || '—'}
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-0.5">
+                                          Status atual: {est.payment_status === 'paid' ? 'Pago' : est.payment_status === 'expired' ? 'Vencido' : 'Pendente'}
+                                        </div>
+                                      </div>
+                                      <div className="text-right shrink-0">
+                                        <div className="text-xs text-gray-500">Pago em</div>
+                                        <div className="text-sm font-semibold text-green-700">{paidAtLabel}</div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="rounded border border-amber-200">
+                            <div className="px-3 py-2 bg-amber-50 border-b border-amber-200 text-xs font-semibold text-amber-900">
+                              Pagamentos manuais
+                            </div>
+                            {manualLastTenDaysPayments.length === 0 ? (
+                              <div className="px-3 py-3 text-sm text-gray-500">
+                                Nenhum pagamento manual encontrado nesse período.
+                              </div>
+                            ) : (
+                              <div className="p-2 space-y-2">
+                                {manualLastTenDaysPayments.map((est, idx) => {
+                                  const paidAt = getPaymentTimestamp(est);
+                                  const paidAtLabel = Number.isFinite(paidAt)
+                                    ? new Date(paidAt).toLocaleString('pt-BR')
+                                    : 'Sem data de pagamento';
+
+                                  return (
+                                    <div
+                                      key={`last-payment-manual-${est.id}`}
+                                      className="rounded-lg border border-gray-200 p-3 flex items-center justify-between gap-3"
+                                    >
+                                      <div className="min-w-0">
+                                        <div className="text-sm font-semibold text-gray-900 truncate">
+                                          {idx + 1}. {est.name}
+                                        </div>
+                                        <div className="text-xs text-gray-600 mt-0.5">
+                                          Código: {est.code || '—'} • Plano: {est.plan_type || '—'}
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-0.5">
+                                          Status atual: {est.payment_status === 'paid' ? 'Pago' : est.payment_status === 'expired' ? 'Vencido' : 'Pendente'}
+                                        </div>
+                                      </div>
+                                      <div className="text-right shrink-0">
+                                        <div className="text-xs text-gray-500">Pago em</div>
+                                        <div className="text-sm font-semibold text-green-700">{paidAtLabel}</div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>

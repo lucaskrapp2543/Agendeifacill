@@ -26,6 +26,7 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
   const [billingAmount, setBillingAmount] = useState<number>(0);
   const [isLoadingAmount, setIsLoadingAmount] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isCreatingSubscription, setIsCreatingSubscription] = useState(false);
   const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
   const [pixCode, setPixCode] = useState('');
   const [pixQrBase64, setPixQrBase64] = useState('');
@@ -43,6 +44,24 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
     setConfigError('');
     setBillingAmount(0);
     setIsLoadingAmount(false);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalBodyTouchAction = document.body.style.touchAction;
+    const originalHtmlOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = 'hidden';
+    document.body.style.touchAction = 'none';
+    document.documentElement.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = originalBodyOverflow;
+      document.body.style.touchAction = originalBodyTouchAction;
+      document.documentElement.style.overflow = originalHtmlOverflow;
+    };
   }, [isOpen]);
 
   useEffect(() => {
@@ -144,11 +163,68 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
     }
   };
 
+  const handleCreateRecurringCardSubscription = async () => {
+    setIsCreatingSubscription(true);
+    setStatusMessage('');
+    setConfigError('');
+    try {
+      const endpoint = import.meta.env.PROD
+        ? '/.netlify/functions/mercadopago-create-establishment-billing-subscription'
+        : '/api/mercadopago/create-establishment-billing-subscription';
+
+      const origin = String(window.location.origin || '').trim();
+      const isPublicHttpsUrl = /^https:\/\//i.test(origin);
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          establishmentId,
+          description: `Assinatura mensal Agendei Facil - ${establishmentName}`,
+          ...(isPublicHttpsUrl ? { backUrl: `${origin}/dashboard/establishment` } : {}),
+          payer: {
+            email: `billing_${String(establishmentId).slice(0, 8)}@agendeifacil.com`,
+          },
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = String((payload as any)?.userMessage || (payload as any)?.error || `Erro ${response.status}`);
+        setConfigError(message);
+        throw new Error(message);
+      }
+
+      const amountUsed = Number((payload as any)?.amount_brl_used ?? 0);
+      if (Number.isFinite(amountUsed) && amountUsed > 0) {
+        setBillingAmount(amountUsed);
+      }
+
+      const checkoutUrl = String((payload as any)?.init_point || (payload as any)?.sandbox_init_point || '').trim();
+      if (!checkoutUrl) {
+        throw new Error('Assinatura criada, mas o link de confirmação não foi retornado pelo Mercado Pago.');
+      }
+
+      window.open(checkoutUrl, '_blank');
+      setStatusMessage('Abrimos a confirmação do cartão em nova aba. Após autorizar, as próximas cobranças serão mensais automáticas.');
+    } catch (error: any) {
+      console.error('Erro ao criar assinatura recorrente no cartão:', error);
+      setStatusMessage(String(error?.message || 'Erro ao iniciar assinatura recorrente.'));
+    } finally {
+      setIsCreatingSubscription(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[12000] p-4">
-      <div className="bg-[#151618] border border-gray-700 rounded-xl w-full max-w-xl text-white">
+    <div
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-[12000] p-3 sm:p-4 overscroll-contain"
+      onClick={onClose}
+    >
+      <div
+        className="bg-[#151618] border border-gray-700 rounded-xl w-full max-w-md text-white max-h-[88vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between border-b border-gray-700 px-4 py-3">
           <h3 className="font-bold text-base sm:text-lg">Regularizar pagamento do sistema</h3>
           <button
@@ -161,7 +237,7 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
           </button>
         </div>
 
-        <div className="p-4 sm:p-5 space-y-4">
+        <div className="p-3 sm:p-4 space-y-3">
           <div className="rounded-lg border border-gray-700 bg-[#1c1d20] p-3">
             <p className="text-sm text-gray-300">
               Estabelecimento: <span className="text-white font-semibold">{establishmentName}</span>
@@ -174,11 +250,11 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => setSelectedMethod('pix')}
-              className={`rounded-lg border px-4 py-3 text-left transition-colors ${selectedMethod === 'pix'
+              className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${selectedMethod === 'pix'
                 ? 'border-emerald-400 bg-emerald-500/20'
                 : 'border-gray-700 bg-[#1c1d20] hover:border-gray-500'
                 }`}
@@ -190,7 +266,7 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
             <button
               type="button"
               onClick={() => setSelectedMethod('credit_card')}
-              className={`rounded-lg border px-4 py-3 text-left transition-colors ${selectedMethod === 'credit_card'
+              className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${selectedMethod === 'credit_card'
                 ? 'border-blue-400 bg-blue-500/20'
                 : 'border-gray-700 bg-[#1c1d20] hover:border-gray-500'
                 }`}
@@ -206,7 +282,7 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
                 type="button"
                 onClick={handleGeneratePix}
                 disabled={isGenerating || isLoadingAmount}
-                className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed text-black font-bold py-3 rounded-lg transition-colors inline-flex items-center justify-center gap-2"
+                className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed text-black font-bold py-2.5 rounded-lg transition-colors inline-flex items-center justify-center gap-2"
               >
                 {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <QrCode className="h-4 w-4" />}
                 {isGenerating ? 'Gerando PIX...' : 'Gerar PIX'}
@@ -214,7 +290,7 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
 
               {pixQrBase64 ? (
                 <div className="flex justify-center">
-                  <img src={pixQrBase64} alt="QR Code PIX" className="w-56 h-56 rounded-lg bg-white p-2" />
+                  <img src={pixQrBase64} alt="QR Code PIX" className="w-44 h-44 sm:w-48 sm:h-48 rounded-lg bg-white p-2" />
                 </div>
               ) : null}
 
@@ -241,9 +317,20 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
           )}
 
           {selectedMethod === 'credit_card' && (
-            <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-100 inline-flex items-center gap-2">
-              <CreditCard className="h-4 w-4" />
-              Cartão de crédito será disponibilizado na próxima etapa. Use PIX por enquanto.
+            <div className="space-y-3">
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-100 inline-flex items-center gap-2">
+                <CreditCard className="h-4 w-4" />
+                Ative a assinatura mensal no cartão. O Mercado Pago abre para confirmar o cartão uma vez.
+              </div>
+              <button
+                type="button"
+                onClick={handleCreateRecurringCardSubscription}
+                disabled={isCreatingSubscription}
+                className="w-full bg-blue-500 hover:bg-blue-400 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-lg transition-colors inline-flex items-center justify-center gap-2"
+              >
+                {isCreatingSubscription ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+                {isCreatingSubscription ? 'Criando assinatura...' : 'Ativar recorrência no cartão'}
+              </button>
             </div>
           )}
 

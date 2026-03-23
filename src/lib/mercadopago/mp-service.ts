@@ -65,6 +65,7 @@ export interface CreateMPPaymentResponse {
   };
   application_fee: number;
   metadata?: Record<string, any>;
+  external_reference?: string;
 }
 
 /**
@@ -279,6 +280,7 @@ export async function createMPPayment(
       },
       application_fee: payment.application_fee || (hasApplicationFee ? Number(application_fee) / 100 : 0),
       metadata: payment.metadata,
+      external_reference: payment.external_reference,
       // Incluir dados do PIX se disponível
       point_of_interaction: payment.point_of_interaction,
     } as any;
@@ -363,6 +365,7 @@ export async function checkMPPaymentStatus(
       },
       application_fee: payment.application_fee || 0,
       metadata: payment.metadata,
+      external_reference: payment.external_reference,
     };
   } catch (error: any) {
     console.error('❌ [MP Payment] Erro ao verificar status:', {

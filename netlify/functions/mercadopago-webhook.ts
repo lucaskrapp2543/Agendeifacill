@@ -142,6 +142,99 @@ export const handler: Handler = async (event) => {
       const hasBilling = !billingFetchError && Array.isArray(billingRows) && billingRows.length > 0;
 
       if (!hasAppointment && !hasBilling) {
+        // Fluxo de cobrança recorrente por assinatura no cartão:
+        // quando o pagamento não pertence a appointments nem à cobrança PIX avulsa,
+        // tentamos identificar pelo external_reference do pagamento.
+        if (PLATFORM_MP_ACCESS_TOKEN) {
+          try {
+            const payment = await checkMPPaymentStatus(Number(paymentId), PLATFORM_MP_ACCESS_TOKEN);
+            const externalReference = String((payment as any)?.external_reference || '').trim();
+            const recurringPrefix = 'establishment_billing_subscription:';
+            const isRecurringSubscriptionPayment = externalReference.startsWith(recurringPrefix);
+            if (isRecurringSubscriptionPayment) {
+              const establishmentId = externalReference.slice(recurringPrefix.length).trim();
+              const normalized = normalizeBillingStatus((payment as any)?.status);
+              const nowIso = new Date().toISOString();
+              const amountCents = Math.round(Number((payment as any)?.transaction_amount || 0) * 100);
+
+              if (establishmentId) {
+                const { error: upsertBillingError } = await supabaseAdmin
+                  .from('establishment_billing_payments')
+                  .upsert(
+                    {
+                      establishment_id: establishmentId,
+                      amount_cents: Number.isFinite(amountCents) && amountCents > 0 ? amountCents : 0,
+                      payment_provider: 'mercadopago_subscription',
+                      payment_id: String(paymentId),
+                      status: normalized,
+                      description: 'Cobranca recorrente mensal via cartao',
+                      metadata: {
+                        type: 'establishment_billing_subscription_payment',
+                        external_reference: externalReference,
+                      },
+                      paid_at: normalized === 'paid' ? nowIso : null,
+                      updated_at: nowIso,
+                    } as any,
+                    { onConflict: 'payment_id' }
+                  );
+
+                if (upsertBillingError) {
+                  console.error('❌ [MP Webhook] Erro ao salvar pagamento recorrente em billing_payments:', upsertBillingError);
+                }
+
+                const { data: estData } = await supabaseAdmin
+                  .from('establishments')
+                  .select('id, plan_type')
+                  .eq('id', establishmentId)
+                  .single();
+
+                if (normalized === 'paid' && estData?.id) {
+                  const { error: estUpdateError } = await supabaseAdmin
+                    .from('establishments')
+                    .update({
+                      payment_status: 'paid',
+                      is_blocked: false,
+                      payment_alert_enabled: false,
+                      payment_paid_at: nowIso,
+                      payment_due_date: getNextDueDate((estData as any)?.plan_type),
+                    } as any)
+                    .eq('id', String((estData as any).id));
+                  if (estUpdateError) {
+                    console.error('❌ [MP Webhook] Erro ao regularizar estabelecimento por recorrência:', estUpdateError);
+                  }
+                }
+
+                const { error: subscriptionUpdateError } = await supabaseAdmin
+                  .from('establishment_billing_subscriptions')
+                  .update({
+                    status: normalized === 'paid' ? 'authorized' : normalized,
+                    last_charged_payment_id: String(paymentId),
+                    last_charged_at: normalized === 'paid' ? nowIso : null,
+                    updated_at: nowIso,
+                  } as any)
+                  .eq('establishment_id', establishmentId);
+
+                if (subscriptionUpdateError) {
+                  const msg = String((subscriptionUpdateError as any)?.message || '').toLowerCase();
+                  const missingTable = msg.includes('establishment_billing_subscriptions') || msg.includes('relation') || msg.includes('does not exist');
+                  if (!missingTable) {
+                    console.error('❌ [MP Webhook] Erro ao atualizar assinatura recorrente:', subscriptionUpdateError);
+                  }
+                }
+
+                return json(200, {
+                  message: 'Webhook de cobrança recorrente processado',
+                  establishmentId,
+                  paymentStatus: (payment as any)?.status || 'unknown',
+                  billingStatus: normalized,
+                });
+              }
+            }
+          } catch (err) {
+            console.warn('⚠️ [MP Webhook] Falha ao tentar identificar cobrança recorrente:', err);
+          }
+        }
+
         console.warn('⚠️ [MP Webhook] Nenhum registro encontrado para payment_id:', paymentId);
         return json(200, { message: 'Webhook recebido, mas registro não encontrado' });
       }
@@ -191,6 +284,7 @@ export const handler: Handler = async (event) => {
             .update({
               payment_status: 'paid',
               is_blocked: false,
+              payment_alert_enabled: false,
               payment_paid_at: nowIso,
               payment_due_date: getNextDueDate((estData as any)?.plan_type),
             } as any)
