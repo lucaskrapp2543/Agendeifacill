@@ -39,7 +39,7 @@ import { ValidityDisplay } from '../components/ValidityDisplay';
 import { ValidityHeader } from '../components/ValidityHeader';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../hooks/useNotifications';
-import { addExpense, createEstablishment, deleteExpense, getEstablishmentPremiumSubscribers, getExpensesByMonth, getProfessionalGoal, isNewClient, setProfessionalGoal, supabase, updateEstablishment } from '../lib/supabase';
+import { addExpense, createEstablishment, deleteExpense, getEstablishmentGoals, getEstablishmentPremiumSubscribers, getExpensesByMonth, getProfessionalGoal, isNewClient, setProfessionalGoal, supabase, updateEstablishment } from '../lib/supabase';
 
 interface BusinessHours {
   enabled: boolean;
@@ -81,6 +81,13 @@ interface Professional {
 interface ProfessionalPin {
   professional_id: string;
   pin: string;
+}
+
+interface EmergencyRecoveredProfessionalCandidate {
+  id: string;
+  name: string;
+  source: 'appointments' | 'professional_payments';
+  matchedBy: 'id' | 'name';
 }
 
 interface Service {
@@ -3746,6 +3753,9 @@ const EstablishmentDashboard = () => {
   const [showEditExpenseModal, setShowEditExpenseModal] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [showDeletedProfessionalsModal, setShowDeletedProfessionalsModal] = useState(false);
+  const [isLoadingEmergencyRecoverProfessionals, setIsLoadingEmergencyRecoverProfessionals] = useState(false);
+  const [emergencyRecoveredProfessionals, setEmergencyRecoveredProfessionals] = useState<EmergencyRecoveredProfessionalCandidate[]>([]);
+  const [emergencyRecoveredNameDrafts, setEmergencyRecoveredNameDrafts] = useState<Record<string, string>>({});
   const [showExpensesList, setShowExpensesList] = useState(false);
   const [newExpenseName, setNewExpenseName] = useState('');
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
@@ -4031,14 +4041,25 @@ const EstablishmentDashboard = () => {
 
   // Estado para serviços selecionados das metas
   const [professionalSelectedServices, setProfessionalSelectedServices] = useState<Record<string, string[]>>({});
+  const [professionalGoalServiceTargets, setProfessionalGoalServiceTargets] = useState<Record<string, Record<string, number>>>({});
+  const [professionalGoalBonusPercentages, setProfessionalGoalBonusPercentages] = useState<Record<string, number>>({});
+  const [professionalGoalHistory, setProfessionalGoalHistory] = useState<
+    Record<string, Array<{ year: number; month: number; goalAmount: number; completedServices: number; bonusPercentage: number }>>
+  >({});
   // Estado para dados de progresso das metas
   const [professionalGoalProgress, setProfessionalGoalProgress] = useState<Record<string, {
     goalAmount: number;
     completedServices: number;
     progressPercentage: number;
     remainingServices: number;
+    goalReached: boolean;
+    bonusPercentage: number;
+    selectedServices: string[];
+    serviceTargets: Record<string, number>;
+    selectedServiceNames: string[];
   }>>({});
   const [goalModalCurrentMonth, setGoalModalCurrentMonth] = useState(new Date());
+  const [goalModalCompletedServices, setGoalModalCompletedServices] = useState(0);
   const [isLoadingGoal, setIsLoadingGoal] = useState(false);
 
   // Estados para transferência de agendamentos
@@ -8315,12 +8336,226 @@ const EstablishmentDashboard = () => {
       if (error) throw error;
       setEstablishment({ ...establishment, professionals: safeProfessionals, professionals_pins: newPins, deleted_professionals: currentDeleted });
       setProfessionals(safeProfessionals);
-      setShowDeletedProfessionalsModal(false);
+      handleCloseDeletedProfessionalsModal();
       toast.success(`${deletedProfessional.name} reativado. Ele volta a aparecer na Receita por Profissional e pode receber pagamentos.`);
     } catch (e: any) {
       console.error('Erro ao reativar profissional:', e);
       toast(e?.message || 'Erro ao reativar profissional', 'error');
     }
+  };
+
+  const handleFindEmergencyRecoveredProfessionals = async () => {
+    if (!establishment) return;
+    setIsLoadingEmergencyRecoverProfessionals(true);
+    try {
+      const activeById = new Set(professionals.map((p) => String(p.id || '').trim()).filter(Boolean));
+      const activeByName = new Set(
+        professionals
+          .map((p) => String(p.name || '').trim().toLowerCase())
+          .filter(Boolean)
+      );
+      const deletedById = new Set(
+        (establishment.deleted_professionals || [])
+          .map((p: any) => String(p?.id || '').trim())
+          .filter(Boolean)
+      );
+      const deletedByName = new Set(
+        (establishment.deleted_professionals || [])
+          .map((p: any) => String(p?.name || '').trim().toLowerCase())
+          .filter(Boolean)
+      );
+
+      const found = new Map<string, EmergencyRecoveredProfessionalCandidate>();
+      const isLikelyUuid = (value: string) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+      const fallbackLabelFromId = (id: string) => `Sem nome (ID ${id.slice(0, 8)})`;
+      const nameByIdFromPayments = new Map<string, string>();
+      const addCandidate = (candidate: EmergencyRecoveredProfessionalCandidate) => {
+        const idKey = String(candidate.id || '').trim();
+        const rawName = String(candidate.name || '').trim();
+        const resolvedName = rawName && !isLikelyUuid(rawName) ? rawName : fallbackLabelFromId(idKey);
+        const nameKey = resolvedName.toLowerCase();
+        if (!idKey || !nameKey) return;
+        if (activeById.has(idKey) || activeByName.has(nameKey)) return;
+        if (deletedById.has(idKey) || deletedByName.has(nameKey)) return;
+        if (!found.has(idKey)) found.set(idKey, { ...candidate, name: resolvedName });
+      };
+
+      let recentAppointments: any[] = [];
+      let appointmentsError: any = null;
+      const appointmentSelectAttempts = [
+        'professional, professional_id, professional_name, appointment_date',
+        'professional, professional_name, appointment_date',
+        'professional, appointment_date',
+      ];
+
+      for (const selectFields of appointmentSelectAttempts) {
+        const response = await supabase
+          .from('appointments')
+          .select(selectFields)
+          .eq('establishment_id', establishment.id)
+          .order('appointment_date', { ascending: false })
+          .limit(3000);
+
+        if (!response.error) {
+          recentAppointments = (response.data || []) as any[];
+          appointmentsError = null;
+          break;
+        }
+
+        const errorText = `${String(response.error?.message || '')} ${String(response.error?.details || '')}`.toLowerCase();
+        const missingColumn = response.error?.code === '42703' || errorText.includes('does not exist') || errorText.includes('column');
+        appointmentsError = response.error;
+        if (!missingColumn) break;
+      }
+
+      if (appointmentsError) throw appointmentsError;
+
+      const { data: recentPayments, error: paymentsError } = await supabase
+        .from('professional_payments')
+        .select('professional_id, professional_name, payment_date')
+        .eq('establishment_id', establishment.id)
+        .order('payment_date', { ascending: false })
+        .limit(2000);
+      if (!paymentsError) {
+        (recentPayments || []).forEach((row: any) => {
+          const id = String(row?.professional_id || '').trim();
+          const name = String(row?.professional_name || '').trim();
+          if (!id) return;
+          if (name && !isLikelyUuid(name)) {
+            nameByIdFromPayments.set(id, name);
+          }
+          addCandidate({
+            id,
+            name,
+            source: 'professional_payments',
+            matchedBy: activeById.has(id) ? 'id' : 'name'
+          });
+        });
+      }
+
+      (recentAppointments || []).forEach((row: any) => {
+        const id = String(row?.professional || row?.professional_id || '').trim();
+        const appointmentName = String(row?.professional_name || '').trim();
+        const nameFromPayments = id ? String(nameByIdFromPayments.get(id) || '').trim() : '';
+        const resolvedName =
+          (appointmentName && !isLikelyUuid(appointmentName) ? appointmentName : '') ||
+          (nameFromPayments && !isLikelyUuid(nameFromPayments) ? nameFromPayments : '') ||
+          String(row?.professional || '').trim();
+        if (!id) return;
+        addCandidate({
+          id,
+          name: resolvedName,
+          source: 'appointments',
+          matchedBy: activeById.has(id) ? 'id' : 'name'
+        });
+      });
+
+      const sorted = Array.from(found.values()).sort((a, b) =>
+        String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' })
+      );
+      setEmergencyRecoveredProfessionals(sorted);
+      setEmergencyRecoveredNameDrafts(
+        sorted.reduce<Record<string, string>>((acc, item) => {
+          acc[item.id] = String(item.name || '').trim();
+          return acc;
+        }, {})
+      );
+
+      if (sorted.length === 0) {
+        toast('Nenhum profissional perdido encontrado automaticamente nos históricos.', 'error');
+      } else {
+        toast.success(`${sorted.length} profissional(is) encontrado(s) para recuperação de urgência.`);
+      }
+    } catch (error: any) {
+      console.error('Erro ao buscar recuperação de urgência dos profissionais:', error);
+      toast(
+        [error?.message, error?.code, error?.details, error?.hint].filter(Boolean).join(' | ') || 'Erro ao buscar recuperação de urgência',
+        'error'
+      );
+    } finally {
+      setIsLoadingEmergencyRecoverProfessionals(false);
+    }
+  };
+
+  const handleRestoreEmergencyProfessional = async (candidate: EmergencyRecoveredProfessionalCandidate) => {
+    if (!establishment) return;
+    try {
+      const id = String(candidate.id || '').trim();
+      const draftName = String(emergencyRecoveredNameDrafts[id] || '').trim();
+      const fallbackName = String(candidate.name || '').trim();
+      const name = draftName || fallbackName;
+      if (!id || !name) {
+        toast('Dados do profissional inválidos para recuperação.', 'error');
+        return;
+      }
+      if (name.toLowerCase().startsWith('sem nome (id')) {
+        toast('Informe o nome do profissional antes de restaurar.', 'error');
+        return;
+      }
+
+      if (professionals.some((p) => String(p.id || '').trim() === id || String(p.name || '').trim().toLowerCase() === name.toLowerCase())) {
+        toast('Esse profissional já está ativo na lista.', 'error');
+        return;
+      }
+
+      const restoredProfessional: Professional = {
+        id,
+        name,
+        specialties: [],
+        percentage: 100,
+        whatsapp: '',
+        specific_services: [],
+      };
+
+      const updatedProfessionals = [...professionals, restoredProfessional];
+      const updatedPins = [...(establishment.professionals_pins || [])];
+      if (!updatedPins.some((p: any) => String(p?.professional_id || '').trim() === id)) {
+        updatedPins.push({ professional_id: id, pin: '0000' });
+      }
+
+      const { data: establishmentData, error: fetchError } = await supabase
+        .from('establishments')
+        .select('professionals')
+        .eq('id', establishment.id)
+        .single();
+      if (fetchError) throw fetchError;
+
+      const dbProfessionals = (establishmentData?.professionals || []) as any[];
+      const safeProfessionals = mergeProfessionalsPreservingCriticalFields(updatedProfessionals, dbProfessionals);
+
+      const { error } = await supabase
+        .from('establishments')
+        .update({
+          professionals: safeProfessionals,
+          professionals_pins: updatedPins
+        })
+        .eq('id', establishment.id);
+      if (error) throw error;
+
+      setProfessionals(safeProfessionals);
+      setEstablishment({ ...establishment, professionals: safeProfessionals, professionals_pins: updatedPins });
+      setEmergencyRecoveredProfessionals((prev) => prev.filter((item) => item.id !== id));
+      setEmergencyRecoveredNameDrafts((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      toast.success(`${name} recuperado com sucesso. Revise o percentual dele em Profissionais.`);
+    } catch (error: any) {
+      console.error('Erro ao recuperar profissional de urgência:', error);
+      toast(
+        [error?.message, error?.code, error?.details, error?.hint].filter(Boolean).join(' | ') || 'Erro ao recuperar profissional',
+        'error'
+      );
+    }
+  };
+
+  const handleCloseDeletedProfessionalsModal = () => {
+    setShowDeletedProfessionalsModal(false);
+    setEmergencyRecoveredProfessionals([]);
+    setEmergencyRecoveredNameDrafts({});
+    setIsLoadingEmergencyRecoverProfessionals(false);
   };
 
   const handleRemoveService = (id: string) => {
@@ -10612,11 +10847,6 @@ Estamos te aguardando! 😎✂️`;
       fetchServiceSubcategories();
     }
 
-    // Carregar progresso das metas quando estiver na aba de profissionais
-    if (establishment && activeTab === 'professionals' && professionals.length > 0) {
-      loadAllProfessionalGoalsProgress();
-    }
-
     // Mostrar popup de alerta quando entrar em "Meus Agendamentos" e o alerta estiver ativado
     if (establishment && activeTab === 'appointments' && establishment.payment_alert_enabled) {
       setShowPaymentAlert(true);
@@ -10632,6 +10862,11 @@ Estamos te aguardando! 😎✂️`;
       setShowPromotionPopup(false);
     }
   }, [establishment, activeTab]);
+
+  useEffect(() => {
+    if (!establishment || activeTab !== 'professionals' || professionals.length === 0) return;
+    loadAllProfessionalGoalsProgress();
+  }, [establishment, activeTab, professionals, selectedMonth, monthlyAppointments]);
 
   useEffect(() => {
     if (!establishment?.id) return;
@@ -11720,17 +11955,48 @@ Estamos te aguardando! 😎✂️`;
     return result;
   };
 
-  // Função para obter percentual do profissional por nome ou ID
-  const getProfessionalPercentageByName = (professionalName: string) => {
-    // Primeiro tenta encontrar por nome
-    let professional = professionals.find(p => p.name === professionalName);
-
-    // Se não encontrar por nome, tenta por ID
+  const getProfessionalByToken = (professionalNameOrId: string) => {
+    let professional = professionals.find(p => p.name === professionalNameOrId);
     if (!professional) {
-      professional = professionals.find(p => p.id === professionalName);
+      professional = professionals.find(p => p.id === professionalNameOrId);
+    }
+    return professional || null;
+  };
+
+  const serviceMatchesGoalSelection = (serviceName: string, selectedServiceNames: string[]) => {
+    const serviceToken = normalizeProfessionalToken(serviceName);
+    if (!serviceToken) return false;
+    return selectedServiceNames.some((item) => normalizeProfessionalToken(item) === serviceToken);
+  };
+
+  const getProfessionalPercentageForAppointment = (appointment: Appointment, professionalOverride?: Professional | null) => {
+    const professional = professionalOverride || getProfessionalByToken(String(appointment.professional || ''));
+    const basePercentage = normalizeProfessionalPercentage(professional?.percentage);
+
+    if (!professional) return basePercentage;
+    if (isOwnerProfessional(professional)) return basePercentage;
+
+    const goalProgress = professionalGoalProgress[professional.id];
+    if (!goalProgress || !goalProgress.goalReached) return basePercentage;
+    if (!goalProgress.bonusPercentage || goalProgress.bonusPercentage <= 0) return basePercentage;
+    if (!Array.isArray(goalProgress.selectedServiceNames) || goalProgress.selectedServiceNames.length === 0) {
+      return basePercentage;
     }
 
-    const percentage = normalizeProfessionalPercentage(professional?.percentage);
+    const appointmentService = String(appointment?.service || '');
+    if (!serviceMatchesGoalSelection(appointmentService, goalProgress.selectedServiceNames)) {
+      return basePercentage;
+    }
+
+    return normalizeProfessionalPercentage(goalProgress.bonusPercentage);
+  };
+
+  // Função para obter percentual do profissional por nome ou ID
+  const getProfessionalPercentageByName = (professionalName: string, appointment?: Appointment) => {
+    const professional = getProfessionalByToken(professionalName);
+    const percentage = appointment
+      ? getProfessionalPercentageForAppointment(appointment, professional)
+      : normalizeProfessionalPercentage(professional?.percentage);
 
     console.log('🚨 TESTE - Buscando percentual:', {
       professionalName,
@@ -11768,7 +12034,7 @@ Estamos te aguardando! 😎✂️`;
         return total;
       }
 
-      const professionalPercentage = getProfessionalPercentageByName(appointment.professional);
+      const professionalPercentage = getProfessionalPercentageByName(appointment.professional, appointment);
 
       // Descontar TODOS os profissionais (incluindo dono com 100%)
       if (professionalPercentage === 100) {
@@ -14320,7 +14586,12 @@ Estamos te aguardando! 😎✂️`;
         break;
       case 'goal':
         if (data?.goalAmount !== undefined) {
-          handleSaveGoalDirect(data.goalAmount, data.selectedServices || []);
+          handleSaveGoalDirect(
+            data.goalAmount,
+            data.selectedServices || [],
+            data.serviceTargets || {},
+            data.bonusPercentage || 0
+          );
         }
         break;
       case 'barbershop_cash':
@@ -16165,41 +16436,12 @@ Estamos te aguardando! 😎✂️`;
   // Funções para gerenciar metas dos profissionais
   const handleOpenGoalModal = async (professionalId: string) => {
     setSelectedProfessionalForGoal(professionalId);
+    setGoalModalCurrentMonth(new Date());
 
-    // Carregar meta existente do profissional para o mês atual
     if (establishment) {
-      const currentYear = goalModalCurrentMonth.getFullYear();
-      const currentMonth = goalModalCurrentMonth.getMonth() + 1;
-
-      try {
-        const { data } = await getProfessionalGoal(
-          establishment.id,
-          professionalId,
-          currentYear,
-          currentMonth
-        );
-
-        if (data) {
-          setProfessionalGoals(prev => ({
-            ...prev,
-            [professionalId]: data.goal_amount
-          }));
-
-          // Carregar serviços selecionados também
-          const selectedServices = data.selected_services || [];
-          setProfessionalSelectedServices(prev => ({
-            ...prev,
-            [professionalId]: selectedServices
-          }));
-
-          console.log('🔍 DEBUG - Meta e serviços carregados:', {
-            goalAmount: data.goal_amount,
-            selectedServices: selectedServices
-          });
-        }
-      } catch (error) {
-        console.error('Erro ao carregar meta:', error);
-      }
+      const now = new Date();
+      await loadProfessionalGoalByMonth(professionalId, now);
+      await loadProfessionalGoalHistory(professionalId);
     }
 
     setShowGoalModal(true);
@@ -16209,7 +16451,201 @@ Estamos te aguardando! 😎✂️`;
     setShowGoalModal(false);
     setSelectedProfessionalForGoal(null);
     setGoalModalCurrentMonth(new Date()); // Reset para o mês atual
+    setGoalModalCompletedServices(0);
   };
+
+  const handleGoalModalMonthChange = async (nextMonth: Date) => {
+    setGoalModalCurrentMonth(nextMonth);
+    if (!selectedProfessionalForGoal) return;
+    await loadProfessionalGoalByMonth(selectedProfessionalForGoal, nextMonth);
+  };
+
+  const goalServiceCatalog = useCallback(() => {
+    const byKey = new Map<string, string>();
+    const byNameNormalized = new Map<string, string>();
+
+    (servicesWithPrices || []).forEach((service) => {
+      const key = String(service?.id || '').trim();
+      const name = String(service?.name || '').trim();
+      if (key && name) byKey.set(key, name);
+      if (name) byNameNormalized.set(normalizeProfessionalToken(name), name);
+    });
+
+    (serviceSubcategories || []).forEach((subcategory) => {
+      const key = `subcategory_${String(subcategory?.id || '').trim()}`;
+      const name = String(subcategory?.name || '').trim();
+      if (key && name) byKey.set(key, name);
+      if (name) byNameNormalized.set(normalizeProfessionalToken(name), name);
+    });
+
+    return { byKey, byNameNormalized };
+  }, [servicesWithPrices, serviceSubcategories]);
+
+  const resolveGoalSelectedServiceNames = useCallback((selectedServices: string[] = []) => {
+    const catalog = goalServiceCatalog();
+    return selectedServices
+      .map((rawKey) => {
+        const key = String(rawKey || '').trim();
+        if (!key) return '';
+        return catalog.byKey.get(key) || catalog.byNameNormalized.get(normalizeProfessionalToken(key)) || key;
+      })
+      .map((name) => String(name || '').trim())
+      .filter(Boolean);
+  }, [goalServiceCatalog]);
+
+  const fetchCompletedServicesCountForMonth = useCallback(async (
+    professionalId: string,
+    year: number,
+    month: number,
+    selectedServices: string[] = []
+  ) => {
+    if (!establishment?.id) return 0;
+    const professional = professionals.find((p) => p.id === professionalId);
+    if (!professional) return 0;
+
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const endDate = format(new Date(year, month, 0), 'yyyy-MM-dd');
+    const selectedServiceNames = resolveGoalSelectedServiceNames(selectedServices);
+
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('id, professional, professional_id, professional_name, service, status, appointment_date, is_subscriber')
+      .eq('establishment_id', establishment.id)
+      .eq('status', 'completed')
+      .gte('appointment_date', startDate)
+      .lte('appointment_date', endDate)
+      .limit(5000);
+
+    if (error) {
+      console.error('Erro ao buscar agendamentos para meta do mês:', error);
+      return 0;
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    return rows.filter((apt: any) => {
+      if (apt?.is_subscriber) return false;
+      if (!appointmentBelongsToProfessional(apt as Appointment, professional)) return false;
+      if (selectedServiceNames.length === 0) return true;
+      return serviceMatchesGoalSelection(String(apt?.service || ''), selectedServiceNames);
+    }).length;
+  }, [establishment, professionals, resolveGoalSelectedServiceNames]);
+
+  const calculateGoalProgressForProfessional = useCallback((
+    professionalId: string,
+    monthlyGoal: {
+      goalAmount: number;
+      selectedServices: string[];
+      serviceTargets: Record<string, number>;
+      bonusPercentage: number;
+    }
+  ) => {
+    const professional = professionals.find((p) => p.id === professionalId);
+    if (!professional) {
+      return {
+        goalAmount: Number(monthlyGoal.goalAmount || 0),
+        completedServices: 0,
+        progressPercentage: 0,
+        remainingServices: Number(monthlyGoal.goalAmount || 0),
+        goalReached: false,
+        bonusPercentage: Number(monthlyGoal.bonusPercentage || 0),
+        selectedServices: monthlyGoal.selectedServices || [],
+        serviceTargets: monthlyGoal.serviceTargets || {},
+        selectedServiceNames: resolveGoalSelectedServiceNames(monthlyGoal.selectedServices || []),
+      };
+    }
+
+    const selectedServiceNames = resolveGoalSelectedServiceNames(monthlyGoal.selectedServices || []);
+    const selectedNameKeys = new Set(selectedServiceNames.map((name) => normalizeProfessionalToken(name)));
+
+    const completedServices = (monthlyAppointments || []).filter((apt) => {
+      if (!isCompletedAppointmentStatus(apt)) return false;
+      if (isSubscriberAppointment(apt)) return false;
+      if (!appointmentBelongsToProfessional(apt, professional)) return false;
+      if (selectedNameKeys.size === 0) return true;
+      const aptServiceKey = normalizeProfessionalToken(String(apt?.service || ''));
+      return aptServiceKey.length > 0 && selectedNameKeys.has(aptServiceKey);
+    }).length;
+
+    const goalAmount = Number(monthlyGoal.goalAmount || 0);
+    const progressPercentage = goalAmount > 0 ? (completedServices / goalAmount) * 100 : 0;
+    const remainingServices = Math.max(goalAmount - completedServices, 0);
+    const goalReached = goalAmount > 0 && completedServices >= goalAmount;
+
+    return {
+      goalAmount,
+      completedServices,
+      progressPercentage,
+      remainingServices,
+      goalReached,
+      bonusPercentage: Number(monthlyGoal.bonusPercentage || 0),
+      selectedServices: monthlyGoal.selectedServices || [],
+      serviceTargets: monthlyGoal.serviceTargets || {},
+      selectedServiceNames,
+    };
+  }, [professionals, monthlyAppointments, resolveGoalSelectedServiceNames]);
+
+  const loadProfessionalGoalByMonth = useCallback(async (professionalId: string, monthRef: Date) => {
+    if (!establishment?.id || !professionalId) return;
+
+    const year = monthRef.getFullYear();
+    const month = monthRef.getMonth() + 1;
+    const { data } = await getProfessionalGoal(establishment.id, professionalId, year, month);
+
+    const selectedServices: string[] = Array.isArray((data as any)?.selected_services) ? (data as any).selected_services : [];
+    const serviceTargets = ((data as any)?.service_targets && typeof (data as any).service_targets === 'object')
+      ? ((data as any).service_targets as Record<string, number>)
+      : {};
+    const bonusPercentage = Number((data as any)?.bonus_percentage || 0);
+    const goalAmount = Number((data as any)?.goal_amount || 0);
+
+    setProfessionalGoals((prev) => ({ ...prev, [professionalId]: goalAmount }));
+    setProfessionalSelectedServices((prev) => ({ ...prev, [professionalId]: selectedServices }));
+    setProfessionalGoalServiceTargets((prev) => ({ ...prev, [professionalId]: serviceTargets }));
+    setProfessionalGoalBonusPercentages((prev) => ({ ...prev, [professionalId]: bonusPercentage }));
+    const completedInMonth = await fetchCompletedServicesCountForMonth(
+      professionalId,
+      year,
+      month,
+      selectedServices
+    );
+    setGoalModalCompletedServices(completedInMonth);
+  }, [establishment, fetchCompletedServicesCountForMonth]);
+
+  const loadProfessionalGoalHistory = useCallback(async (professionalId: string) => {
+    if (!establishment?.id || !professionalId) return;
+    const { data, error } = await supabase
+      .from('professional_goals')
+      .select('year, month, goal_amount, selected_services, service_targets, bonus_percentage')
+      .eq('establishment_id', establishment.id)
+      .eq('professional_id', professionalId)
+      .order('year', { ascending: false })
+      .order('month', { ascending: false })
+      .limit(12);
+
+    if (error) {
+      console.error('Erro ao carregar histórico de meta:', error);
+      return;
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    const history = await Promise.all(rows.map(async (row: any) => {
+      const year = Number(row?.year || 0);
+      const month = Number(row?.month || 0);
+      const selectedServices = Array.isArray(row?.selected_services) ? row.selected_services : [];
+      const completedServices = year > 0 && month > 0
+        ? await fetchCompletedServicesCountForMonth(professionalId, year, month, selectedServices)
+        : 0;
+      return {
+        year: Number(row?.year || 0),
+        month: Number(row?.month || 0),
+        goalAmount: Number(row?.goal_amount || 0),
+        completedServices,
+        bonusPercentage: Number(row?.bonus_percentage || 0),
+      };
+    }));
+
+    setProfessionalGoalHistory((prev) => ({ ...prev, [professionalId]: history }));
+  }, [establishment, fetchCompletedServicesCountForMonth]);
 
   // ✅ Funções para gerenciar serviços específicos dos profissionais
   const handleOpenSpecificServiceModal = (professionalId: string) => {
@@ -17303,21 +17739,33 @@ Estamos te aguardando! 😎✂️`;
     };
   }, []);
 
-  const handleSaveGoal = async (goalAmount: number, selectedServices: string[]) => {
+  const handleSaveGoal = async (
+    goalAmount: number,
+    selectedServices: string[],
+    serviceTargets: Record<string, number>,
+    bonusPercentage: number
+  ) => {
     if (!selectedProfessionalForGoal || !establishment) return;
 
     // TEMPORÁRIO: Salvar meta diretamente sem proteção de senha
     console.log('🔍 DEBUG - Salvando meta diretamente (proteção de senha desabilitada temporariamente)');
-    handleSaveGoalDirect(goalAmount, selectedServices);
+    handleSaveGoalDirect(goalAmount, selectedServices, serviceTargets, bonusPercentage);
   };
 
-  const handleSaveGoalDirect = async (goalAmount: number, selectedServices: string[] = []) => {
+  const handleSaveGoalDirect = async (
+    goalAmount: number,
+    selectedServices: string[] = [],
+    serviceTargets: Record<string, number> = {},
+    bonusPercentage: number = 0
+  ) => {
     if (!selectedProfessionalForGoal || !establishment) return;
 
     console.log('🔍 DEBUG - handleSaveGoalDirect chamado:', {
       professionalId: selectedProfessionalForGoal,
       goalAmount,
       selectedServices,
+      serviceTargets,
+      bonusPercentage,
       establishmentId: establishment.id,
       professionalName: professionals.find(p => p.id === selectedProfessionalForGoal)?.name
     });
@@ -17334,7 +17782,9 @@ Estamos te aguardando! 😎✂️`;
         goalAmount,
         year: currentYear,
         month: currentMonth,
-        selectedServices
+        selectedServices,
+        serviceTargets,
+        bonusPercentage
       });
 
       const { error } = await setProfessionalGoal(
@@ -17343,7 +17793,9 @@ Estamos te aguardando! 😎✂️`;
         goalAmount,
         currentYear,
         currentMonth,
-        selectedServices
+        selectedServices,
+        serviceTargets,
+        bonusPercentage
       );
 
       if (error) {
@@ -17366,10 +17818,21 @@ Estamos te aguardando! 😎✂️`;
         [selectedProfessionalForGoal]: selectedServices
       }));
 
+      setProfessionalGoalServiceTargets(prev => ({
+        ...prev,
+        [selectedProfessionalForGoal]: serviceTargets
+      }));
+
+      setProfessionalGoalBonusPercentages(prev => ({
+        ...prev,
+        [selectedProfessionalForGoal]: bonusPercentage
+      }));
+
       toast.success('Meta do profissional salva com sucesso!');
 
       // Recarregar progresso das metas após salvar
       await loadAllProfessionalGoalsProgress();
+      await loadProfessionalGoalHistory(selectedProfessionalForGoal);
 
       handleCloseGoalModal();
     } catch (error) {
@@ -17386,64 +17849,57 @@ Estamos te aguardando! 😎✂️`;
   };
 
   // Função para carregar progresso das metas de todos os profissionais
-  const loadAllProfessionalGoalsProgress = async () => {
+  const loadAllProfessionalGoalsProgress = useCallback(async () => {
     if (!establishment) return;
 
-    const currentYear = new Date().getFullYear();
-    const currentMonth = new Date().getMonth() + 1;
+    const currentYear = selectedMonth.getFullYear();
+    const currentMonth = selectedMonth.getMonth() + 1;
 
     console.log('🔍 DEBUG - Carregando progresso de metas para todos os profissionais');
 
     const progressData: Record<string, any> = {};
 
-    for (const professional of professionals) {
-      try {
-        const { data, error } = await supabase
-          .rpc('get_professional_goal_progress', {
-            p_establishment_id: establishment.id,
-            p_professional_id: professional.id,
-            p_year: currentYear,
-            p_month: currentMonth
-          });
+    const goalsResult = await getEstablishmentGoals(establishment.id, currentYear, currentMonth);
+    const goalsRows = Array.isArray(goalsResult?.data) ? goalsResult.data : [];
+    const goalsByProfessional = new Map<string, any>();
+    goalsRows.forEach((row: any) => {
+      goalsByProfessional.set(String(row?.professional_id || ''), row);
+    });
 
-        if (error) {
-          console.error(`❌ Erro ao buscar progresso da meta para ${professional.name}:`, error);
-          continue;
-        }
+    professionals.forEach((professional) => {
+      const row: any = goalsByProfessional.get(String(professional.id)) || {};
+      const selectedServices = Array.isArray(row?.selected_services) ? row.selected_services : [];
+      const serviceTargets = row?.service_targets && typeof row.service_targets === 'object' ? row.service_targets : {};
+      const bonusPercentage = Number(row?.bonus_percentage || 0);
+      const goalAmountRaw = Number(row?.goal_amount || 0);
+      const serviceTargetsTotal = Object.values(serviceTargets).reduce((sum: number, value: any) => {
+        const num = Number(value || 0);
+        return sum + (Number.isFinite(num) && num > 0 ? num : 0);
+      }, 0);
+      const goalAmount = goalAmountRaw > 0 ? goalAmountRaw : serviceTargetsTotal;
 
-        if (data && data.length > 0) {
-          const progress = data[0];
-          progressData[professional.id] = {
-            goalAmount: progress.goal_amount || 0,
-            completedServices: progress.completed_services || 0,
-            progressPercentage: progress.progress_percentage || 0,
-            remainingServices: progress.remaining_services || 0
-          };
+      const snapshot = calculateGoalProgressForProfessional(professional.id, {
+        goalAmount,
+        selectedServices,
+        serviceTargets,
+        bonusPercentage,
+      });
 
-          console.log(`✅ Progresso carregado para ${professional.name}:`, progressData[professional.id]);
-        } else {
-          // Se não há dados, usar valores padrão
-          progressData[professional.id] = {
-            goalAmount: 0,
-            completedServices: 0,
-            progressPercentage: 0,
-            remainingServices: 0
-          };
-        }
-      } catch (error) {
-        console.error(`❌ Erro ao processar meta para ${professional.name}:`, error);
-        progressData[professional.id] = {
-          goalAmount: 0,
-          completedServices: 0,
-          progressPercentage: 0,
-          remainingServices: 0
-        };
-      }
-    }
+      progressData[professional.id] = snapshot;
+      setProfessionalGoals((prev) => ({ ...prev, [professional.id]: goalAmount }));
+      setProfessionalSelectedServices((prev) => ({ ...prev, [professional.id]: selectedServices }));
+      setProfessionalGoalServiceTargets((prev) => ({ ...prev, [professional.id]: serviceTargets }));
+      setProfessionalGoalBonusPercentages((prev) => ({ ...prev, [professional.id]: bonusPercentage }));
+    });
 
     setProfessionalGoalProgress(progressData);
     console.log('🔍 DEBUG - Todos os progressos carregados:', progressData);
-  };
+  }, [
+    establishment,
+    selectedMonth,
+    professionals,
+    calculateGoalProgressForProfessional,
+  ]);
 
 
   // Funções para gerenciar bloqueio de horários dos profissionais
@@ -18386,9 +18842,10 @@ Estamos te aguardando! 😎✂️`;
         const baseValue = getAppointmentRevenueBase(appointment);
         const cardTaxAmount = getCardTaxAmountFromAppointment(appointment, baseValue);
         const netBase = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
-        const netValue = (netBase * (professional?.percentage || 0)) / 100;
+        const effectivePercentage = getProfessionalPercentageForAppointment(appointment, professional);
+        const netValue = (netBase * effectivePercentage) / 100;
 
-        console.log(`💰 ${appointment.client_name}: R$ ${baseValue} → Líquido: R$ ${netValue} (${professional?.percentage || 0}%)`);
+        console.log(`💰 ${appointment.client_name}: R$ ${baseValue} → Líquido: R$ ${netValue} (${effectivePercentage}%)`);
         return total + netValue;
       }
       return total;
@@ -18420,7 +18877,7 @@ Estamos te aguardando! 😎✂️`;
     const baseValue = serviceBasePrice + additionalServicesTotal; // Serviços extra entram na %
 
     // Obter percentual do profissional
-    const percentage = getProfessionalPercentageByName(appointment.professional);
+    const percentage = getProfessionalPercentageByName(appointment.professional, appointment);
 
     // Obter valor de taxa (incluindo múltiplas formas de pagamento)
     const cardTaxAmount = getCardTaxAmountFromAppointment(appointment, baseValue);
@@ -18571,11 +19028,12 @@ Estamos te aguardando! 😎✂️`;
     }
 
     if (cardTaxAmount > 0) {
-      if (establishment?.tax_deducted_by_establishment) return (baseValue * (professional?.percentage || 0)) / 100;
+      const effectivePercentage = getProfessionalPercentageForAppointment(apt, professional);
+      if (establishment?.tax_deducted_by_establishment) return (baseValue * effectivePercentage) / 100;
       const valueAfterCardTax = Math.max(0, baseValue - cardTaxAmount);
-      return (valueAfterCardTax * (professional?.percentage || 0)) / 100;
+      return (valueAfterCardTax * effectivePercentage) / 100;
     }
-    return (baseValue * (professional?.percentage || 0)) / 100;
+    return (baseValue * getProfessionalPercentageForAppointment(apt, professional)) / 100;
   };
 
   const paymentBelongsToSelectedMonth = (payment: any): boolean => {
@@ -18925,7 +19383,11 @@ Estamos te aguardando! 😎✂️`;
             const productsV2Total = (apt.sold_products || []).reduce((sum, p) => sum + Number(p.total || 0), 0);
             const baseRevenue = getAppointmentRevenueBase(apt);
             const grossService = Number(apt.price || 0);
-            const professionalPercent = Number(prof?.percentage ?? getProfessionalPercentageByName(apt.professional) ?? 0);
+            const professionalPercent = Number(
+              getProfessionalPercentageForAppointment(apt, prof as any) ??
+              getProfessionalPercentageByName(apt.professional, apt) ??
+              0
+            );
             const netForProfessional = isSubscriberAppointment(apt) ? 0 : calculateNetValueWithCardTax(apt);
             const taxPercent = (apt.payment_method === 'credito' || apt.payment_method === 'debito')
               ? getPaymentMethodTax(apt.payment_method || '', apt.card_brand)
@@ -28827,18 +29289,19 @@ Estamos te aguardando! 😎✂️`;
                                           } else {
                                             // Para outros profissionais: verificar se taxa é descontada do estabelecimento ou do profissional
                                             const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                            const effectivePercentage = getProfessionalPercentageForAppointment(apt, professional);
                                             if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
                                               // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
                                               if (establishment?.tax_deducted_by_establishment) {
-                                                netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                                netValue = (baseValue * effectivePercentage) / 100;
                                               } else {
                                                 // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
                                                 const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
-                                                netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
+                                                netValue = (valueAfterCardTax * effectivePercentage) / 100;
                                               }
                                             } else {
                                               // Se não for cartão, apenas aplicar percentual
-                                              netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                              netValue = (baseValue * effectivePercentage) / 100;
                                             }
                                           }
                                           return total + netValue;
@@ -28982,18 +29445,19 @@ Estamos te aguardando! 😎✂️`;
                                           } else {
                                             // Para outros profissionais: verificar se taxa é descontada do estabelecimento ou do profissional
                                             const paymentTax = getPaymentMethodTax(apt.payment_method || '', apt.card_brand);
+                                            const effectivePercentage = getProfessionalPercentageForAppointment(apt, professional);
                                             if (apt.payment_method === 'credito' || apt.payment_method === 'debito') {
                                               // Se a taxa é descontada pelo estabelecimento, profissional recebe % do valor bruto
                                               if (establishment?.tax_deducted_by_establishment) {
-                                                netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                                netValue = (baseValue * effectivePercentage) / 100;
                                               } else {
                                                 // Se a taxa é descontada do profissional, descontar primeiro e depois aplicar percentual
                                                 const valueAfterCardTax = baseValue - (baseValue * paymentTax / 100);
-                                                netValue = (valueAfterCardTax * (professional?.percentage || 0)) / 100;
+                                                netValue = (valueAfterCardTax * effectivePercentage) / 100;
                                               }
                                             } else {
                                               // Se não for cartão, apenas aplicar percentual
-                                              netValue = (baseValue * (professional?.percentage || 0)) / 100;
+                                              netValue = (baseValue * effectivePercentage) / 100;
                                             }
                                           }
 
@@ -30018,6 +30482,16 @@ Estamos te aguardando! 😎✂️`;
               onSave={handleSaveGoal}
               professionalName={professionals.find(p => p.id === selectedProfessionalForGoal)?.name || ''}
               currentGoal={getProfessionalGoalAmount(selectedProfessionalForGoal)}
+              currentSelectedServices={professionalSelectedServices[selectedProfessionalForGoal] || []}
+              currentServiceTargets={professionalGoalServiceTargets[selectedProfessionalForGoal] || {}}
+              currentBonusPercentage={professionalGoalBonusPercentages[selectedProfessionalForGoal] || 0}
+              currentCompletedServices={goalModalCompletedServices}
+              currentMonth={goalModalCurrentMonth}
+              onMonthChange={handleGoalModalMonthChange}
+              historyItems={professionalGoalHistory[selectedProfessionalForGoal] || []}
+              services={servicesWithPrices}
+              serviceCategories={serviceCategories}
+              serviceSubcategories={serviceSubcategories as any}
               isLoading={isLoadingGoal}
             />
           )}
@@ -31077,7 +31551,7 @@ Estamos te aguardando! 😎✂️`;
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-gray-900">Histórico de profissionais</h3>
                   <button
-                    onClick={() => setShowDeletedProfessionalsModal(false)}
+                    onClick={handleCloseDeletedProfessionalsModal}
                     className="text-gray-400 hover:text-gray-600"
                   >
                     <X className="h-5 w-5" />
@@ -31086,6 +31560,56 @@ Estamos te aguardando! 😎✂️`;
                 <p className="text-sm text-gray-600 mb-4">
                   Profissionais que foram removidos da lista. Você pode reativar para que voltem a aparecer na Receita por Profissional e possam receber pagamentos (saldo vinculado ao mesmo ID).
                 </p>
+                <div className="mb-4 p-3 border border-amber-200 bg-amber-50 rounded-lg">
+                  <p className="text-xs text-amber-800 mb-2">
+                    Urgência: se a lixeira estiver vazia, busque profissionais perdidos automaticamente nos agendamentos/pagamentos.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleFindEmergencyRecoveredProfessionals}
+                    disabled={isLoadingEmergencyRecoverProfessionals}
+                    className="px-3 py-1.5 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-60"
+                  >
+                    {isLoadingEmergencyRecoverProfessionals ? 'Buscando...' : 'Buscar profissionais perdidos (urgência)'}
+                  </button>
+                </div>
+                {emergencyRecoveredProfessionals.length > 0 && (
+                  <div className="mb-4 p-3 border border-blue-200 bg-blue-50 rounded-lg">
+                    <p className="text-sm font-medium text-blue-900 mb-2">
+                      Profissionais encontrados para recuperação imediata
+                    </p>
+                    <ul className="space-y-2 max-h-36 overflow-y-auto">
+                      {emergencyRecoveredProfessionals.map((candidate) => (
+                        <li key={`emergency-${candidate.id}`} className="flex items-center justify-between bg-white border border-blue-200 rounded-lg p-2">
+                          <div className="flex-1 mr-2">
+                            <input
+                              type="text"
+                              value={emergencyRecoveredNameDrafts[candidate.id] ?? candidate.name}
+                              onChange={(e) =>
+                                setEmergencyRecoveredNameDrafts((prev) => ({
+                                  ...prev,
+                                  [candidate.id]: e.target.value,
+                                }))
+                              }
+                              className="w-full px-2 py-1 border border-blue-200 rounded text-sm text-gray-900 bg-white"
+                              placeholder="Nome do profissional"
+                            />
+                            <p className="text-xs text-gray-500">
+                              Fonte: {candidate.source === 'appointments' ? 'Agendamentos' : 'Pagamentos profissionais'}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRestoreEmergencyProfessional(candidate)}
+                            className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                          >
+                            Restaurar agora
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <div className="overflow-y-auto flex-1 min-h-0">
                   {(establishment?.deleted_professionals || []).length === 0 ? (
                     <p className="text-gray-500 text-center py-6">Nenhum profissional no histórico.</p>
@@ -31119,7 +31643,7 @@ Estamos te aguardando! 😎✂️`;
                 <div className="mt-4 pt-4 border-t border-gray-200">
                   <button
                     type="button"
-                    onClick={() => setShowDeletedProfessionalsModal(false)}
+                    onClick={handleCloseDeletedProfessionalsModal}
                     className="w-full px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                   >
                     Fechar
@@ -33606,6 +34130,11 @@ Estamos te aguardando! 😎✂️`;
                           professionalName={professional.name}
                           isCompact={true}
                         />
+                        <p className={`mt-2 text-xs ${professionalGoalProgress[professional.id].goalReached ? 'text-green-300' : 'text-gray-400'}`}>
+                          {professionalGoalProgress[professional.id].goalReached
+                            ? `Meta global batida. Serviços da meta em ${Number(professionalGoalProgress[professional.id].bonusPercentage || 0).toFixed(2)}%.`
+                            : `Meta em andamento. % padrão continua fora da meta.`}
+                        </p>
                       </div>
                     )}
 

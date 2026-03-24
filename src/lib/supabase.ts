@@ -2468,7 +2468,9 @@ export const setProfessionalGoal = async (
   goalAmount: number,
   year: number,
   month: number,
-  selectedServices: string[] = []
+  selectedServices: string[] = [],
+  serviceTargets: Record<string, number> = {},
+  bonusPercentage: number = 0
 ) => {
   try {
     console.log('💾 setProfessionalGoal - Salvando meta:', {
@@ -2477,22 +2479,50 @@ export const setProfessionalGoal = async (
       goalAmount,
       year,
       month,
-      selectedServices
+      selectedServices,
+      serviceTargets,
+      bonusPercentage
     });
 
-    const { data, error } = await supabase
+    const payload: any = {
+      establishment_id: establishmentId,
+      professional_id: professionalId,
+      year,
+      month,
+      goal_amount: goalAmount,
+      selected_services: selectedServices,
+      service_targets: serviceTargets,
+      bonus_percentage: bonusPercentage,
+    };
+
+    let { data, error } = await supabase
       .from('professional_goals')
-      .upsert({
+      .upsert(payload, {
+        onConflict: 'establishment_id,professional_id,year,month'
+      })
+      .select();
+
+    // Compatibilidade: se as colunas novas ainda não existirem no banco, salva sem elas.
+    if (error?.code === '42703') {
+      const fallbackPayload = {
         establishment_id: establishmentId,
         professional_id: professionalId,
         year,
         month,
         goal_amount: goalAmount,
         selected_services: selectedServices
-      }, {
-        onConflict: 'establishment_id,professional_id,year,month'
-      })
-      .select();
+      };
+
+      const fallback = await supabase
+        .from('professional_goals')
+        .upsert(fallbackPayload, {
+          onConflict: 'establishment_id,professional_id,year,month'
+        })
+        .select();
+
+      data = fallback.data as any;
+      error = fallback.error as any;
+    }
 
     if (error) {
       console.error('❌ Erro ao definir meta:', error);

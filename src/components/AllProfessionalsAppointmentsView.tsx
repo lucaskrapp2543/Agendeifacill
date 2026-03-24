@@ -115,6 +115,12 @@ interface AppointmentChangeLog {
   created_at: string;
 }
 
+interface ProfessionalGoalMonthlyConfig {
+  goalAmount: number;
+  bonusPercentage: number;
+  selectedServiceNames: string[];
+}
+
 interface AllProfessionalsAppointmentsViewProps {
   professionals: Professional[];
   appointments: Appointment[];
@@ -225,6 +231,46 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return normalizeProfessionalPercentage(professional?.percentage) === 100;
     };
 
+    const normalizeServiceToken = (value: unknown): string =>
+      String(value ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+
+    const resolveGoalSelectedServiceNames = (selectedServices: string[]): string[] => {
+      const safeSelected = Array.isArray(selectedServices) ? selectedServices : [];
+      const byKey = new Map<string, string>();
+      const byNameNormalized = new Map<string, string>();
+
+      const establishmentServices = Array.isArray(establishment?.services_with_prices)
+        ? establishment.services_with_prices
+        : [];
+
+      establishmentServices.forEach((service: any) => {
+        const key = String(service?.id || '').trim();
+        const name = String(service?.name || '').trim();
+        if (key && name) byKey.set(key, name);
+        if (name) byNameNormalized.set(normalizeServiceToken(name), name);
+      });
+
+      (serviceSubcategories || []).forEach((subcategory: any) => {
+        const key = `subcategory_${String(subcategory?.id || '').trim()}`;
+        const name = String(subcategory?.name || '').trim();
+        if (key && name) byKey.set(key, name);
+        if (name) byNameNormalized.set(normalizeServiceToken(name), name);
+      });
+
+      return safeSelected
+        .map((raw) => {
+          const key = String(raw || '').trim();
+          if (!key) return '';
+          return byKey.get(key) || byNameNormalized.get(normalizeServiceToken(key)) || key;
+        })
+        .map((name) => String(name || '').trim())
+        .filter(Boolean);
+    };
+
     const DEFAULT_PAYMENT_METHODS = ['pix', 'credito', 'debito', 'dinheiro', 'pagar_local'] as const;
     const defaultPaymentMethodSet = new Set<string>(DEFAULT_PAYMENT_METHODS as unknown as string[]);
     const getCustomPaymentMethods = (): string[] => {
@@ -319,7 +365,74 @@ export const AllProfessionalsAppointmentsView: React.FC<
         saleCommissionCount: number;
       }>
     >({});
+    const [professionalGoalConfigs, setProfessionalGoalConfigs] = useState<Record<string, ProfessionalGoalMonthlyConfig>>({});
     const selectedDateIso = format(selectedDate, 'yyyy-MM-dd');
+
+    useEffect(() => {
+      let cancelled = false;
+
+      const loadProfessionalGoalsForMonth = async () => {
+        if (!establishment?.id) {
+          if (!cancelled) setProfessionalGoalConfigs({});
+          return;
+        }
+
+        const year = selectedDate.getFullYear();
+        const month = selectedDate.getMonth() + 1;
+
+        try {
+          let rows: any[] | null = null;
+          let error: any = null;
+
+          const withBonus = await supabase
+            .from('professional_goals')
+            .select('professional_id, goal_amount, selected_services, bonus_percentage')
+            .eq('establishment_id', establishment.id)
+            .eq('year', year)
+            .eq('month', month);
+
+          rows = withBonus.data as any[] | null;
+          error = withBonus.error;
+
+          // Compatibilidade: coluna nova ainda não aplicada no banco.
+          if (error?.code === '42703') {
+            const fallback = await supabase
+              .from('professional_goals')
+              .select('professional_id, goal_amount, selected_services')
+              .eq('establishment_id', establishment.id)
+              .eq('year', year)
+              .eq('month', month);
+            rows = fallback.data as any[] | null;
+            error = fallback.error;
+          }
+
+          if (error) throw error;
+
+          const nextConfigs: Record<string, ProfessionalGoalMonthlyConfig> = {};
+          (rows || []).forEach((row: any) => {
+            const professionalId = String(row?.professional_id || '').trim();
+            if (!professionalId) return;
+            nextConfigs[professionalId] = {
+              goalAmount: Number(row?.goal_amount || 0),
+              bonusPercentage: Number(row?.bonus_percentage || 0),
+              selectedServiceNames: resolveGoalSelectedServiceNames(
+                Array.isArray(row?.selected_services) ? row.selected_services : []
+              ),
+            };
+          });
+
+          if (!cancelled) setProfessionalGoalConfigs(nextConfigs);
+        } catch (err) {
+          console.error('Erro ao carregar metas mensais dos profissionais:', err);
+          if (!cancelled) setProfessionalGoalConfigs({});
+        }
+      };
+
+      void loadProfessionalGoalsForMonth();
+      return () => {
+        cancelled = true;
+      };
+    }, [establishment?.id, selectedDate, serviceSubcategories, establishment?.services_with_prices]);
 
     const writeAppointmentChangeLog = async (params: {
       appointmentId: string;
@@ -2965,6 +3078,51 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return professionals.find(p => p.id === professionalId)?.name || 'Desconhecido';
     };
 
+    const getGoalProgressForProfessional = (professionalId: string) => {
+      const goal = professionalGoalConfigs[professionalId];
+      if (!goal || goal.goalAmount <= 0) {
+        return { completed: 0, goalReached: false, ...goal };
+      }
+
+      const completed = monthlyAppointments.filter((apt) => {
+        if (apt.professional !== professionalId) return false;
+        if (apt.status !== 'completed') return false;
+        if (apt.is_subscriber) return false;
+        if (!goal.selectedServiceNames || goal.selectedServiceNames.length === 0) return false;
+        const aptServiceToken = normalizeServiceToken(apt.service);
+        return goal.selectedServiceNames.some(
+          (serviceName) => normalizeServiceToken(serviceName) === aptServiceToken
+        );
+      }).length;
+
+      return {
+        ...goal,
+        completed,
+        goalReached: completed >= goal.goalAmount,
+      };
+    };
+
+    const getEffectiveProfessionalPercentageForAppointment = (apt: Appointment, professional?: Professional | null): number => {
+      const basePercentage = normalizeProfessionalPercentage(professional?.percentage);
+      if (!professional || isOwnerProfessional(professional)) return basePercentage;
+
+      const goalProgress = getGoalProgressForProfessional(professional.id);
+      if (!goalProgress.goalReached) return basePercentage;
+      if (!Number.isFinite(goalProgress.bonusPercentage) || goalProgress.bonusPercentage <= 0) return basePercentage;
+      if (!Array.isArray(goalProgress.selectedServiceNames) || goalProgress.selectedServiceNames.length === 0) {
+        return basePercentage;
+      }
+
+      const aptServiceToken = normalizeServiceToken(apt.service);
+      const isMetaService = goalProgress.selectedServiceNames.some(
+        (serviceName) => normalizeServiceToken(serviceName) === aptServiceToken
+      );
+
+      return isMetaService
+        ? normalizeProfessionalPercentage(goalProgress.bonusPercentage)
+        : basePercentage;
+    };
+
     // Calcular valores do profissional para o modal
     const calculateProfessionalValues = (professionalId: string) => {
       const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
@@ -3016,6 +3174,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
       const professional = professionals.find((p) => p.id === professionalId);
       const percentage = normalizeProfessionalPercentage(professional?.percentage);
+      const goalProgress = getGoalProgressForProfessional(professionalId);
       const professionalNameKey = String(professional?.name || '').trim().toLowerCase();
       const subscriberFinancial = subscriberFinancialByProfessional[professionalNameKey] || {
         accumulated: 0,
@@ -3031,7 +3190,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const baseValue = calculateServiceTotal(apt);
         const cardTaxAmount = getCardTaxAmountForServiceBase(apt, baseValue);
         const baseAfterTax = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
-        return total + (baseAfterTax * percentage / 100);
+        const effectivePercentage = getEffectiveProfessionalPercentageForAppointment(apt, professional);
+        return total + (baseAfterTax * effectivePercentage / 100);
       }, 0);
 
       // Calcular líquido mensal: verificar se taxa é descontada do estabelecimento ou do profissional
@@ -3039,7 +3199,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const baseValue = calculateServiceTotal(apt);
         const cardTaxAmount = getCardTaxAmountForServiceBase(apt, baseValue);
         const baseAfterTax = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
-        return total + (baseAfterTax * percentage / 100);
+        const effectivePercentage = getEffectiveProfessionalPercentageForAppointment(apt, professional);
+        return total + (baseAfterTax * effectivePercentage / 100);
       }, 0);
 
       return {
@@ -3047,6 +3208,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
         dailyNet,
         monthlyGross: monthlyGross + (isOwnerProfessional(professional) ? 0 : subscriberFinancial.pending),
         monthlyNet: monthlyNet + (isOwnerProfessional(professional) ? 0 : subscriberFinancial.pending),
+        basePercentage: percentage,
+        metaBonusPercentage: Number(goalProgress?.bonusPercentage || 0),
+        metaGoalReached: Boolean(goalProgress?.goalReached),
+        metaServiceCount: Array.isArray(goalProgress?.selectedServiceNames) ? goalProgress.selectedServiceNames.length : 0,
         appointmentsToday: dailyAppointments.length, // Apenas concluídos (igual ao contador verde da agenda)
         appointmentsMonth: monthlyAppointmentsForCount.length, // Contagem: todos não cancelados
         subscriberMonthlyAccumulated: subscriberFinancial.accumulated,

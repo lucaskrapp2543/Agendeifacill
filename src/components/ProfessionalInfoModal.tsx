@@ -25,6 +25,10 @@ interface ProfessionalInfoModalProps {
   subscriberSalesCount?: number;
   establishmentId?: string;
   selectedMonth?: Date;
+  basePercentage?: number;
+  metaBonusPercentage?: number;
+  metaGoalReached?: boolean;
+  metaServiceCount?: number;
   onClose: () => void;
 }
 
@@ -53,6 +57,10 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   subscriberSalesCount = 0,
   establishmentId,
   selectedMonth,
+  basePercentage,
+  metaBonusPercentage = 0,
+  metaGoalReached = false,
+  metaServiceCount = 0,
   onClose,
 }) => {
   const [pinInput, setPinInput] = useState('');
@@ -303,9 +311,14 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
             </div>
           )}
           <h3 className="text-2xl font-bold text-gray-800 mb-2">{professional.name}</h3>
-          {professional.percentage !== undefined && (
+          {(professional.percentage !== undefined || basePercentage !== undefined) && (
             <span className="px-4 py-2 bg-gray-200 text-gray-800 rounded-full font-semibold">
-              Percentual: {professional.percentage}%
+              Percentual base: {Number(basePercentage ?? professional.percentage ?? 0).toFixed(2)}%
+            </span>
+          )}
+          {metaGoalReached && metaBonusPercentage > 0 && metaServiceCount > 0 && (
+            <span className="mt-2 px-4 py-2 bg-green-100 text-green-800 rounded-full font-semibold text-sm">
+              Meta ativa: serviços da meta em {Number(metaBonusPercentage).toFixed(2)}%
             </span>
           )}
         </div>
@@ -478,8 +491,14 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
             <ul className="text-sm text-gray-600 space-y-1">
               {!hideGrossInFinancial && <li>• <strong>Valor Bruto:</strong> Total sem descontos</li>}
               <li>• <strong>Valor Líquido:</strong> Após descontar taxas e percentual do estabelecimento</li>
-              {professional.percentage !== undefined && (
-                <li>• <strong>Percentual:</strong> {professional.percentage}% do valor bruto vai para o profissional</li>
+              {(professional.percentage !== undefined || basePercentage !== undefined) && (
+                <li>• <strong>Percentual base:</strong> {Number(basePercentage ?? professional.percentage ?? 0).toFixed(2)}%</li>
+              )}
+              {metaGoalReached && metaBonusPercentage > 0 && metaServiceCount > 0 && (
+                <li>
+                  • <strong>Meta batida:</strong> serviços da meta usam{' '}
+                  <strong>{Number(metaBonusPercentage).toFixed(2)}%</strong>; serviços fora da meta seguem no percentual base.
+                </li>
               )}
               {hasSubscriberFinancial && (
                 <li>• <strong>Assinaturas:</strong> o pendente de assinaturas do mês já está somado no valor mensal</li>
