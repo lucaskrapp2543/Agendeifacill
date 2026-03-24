@@ -43,7 +43,7 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
         return;
       }
 
-      setValidity(data);
+      setValidity((data as EstablishmentValidity) || null);
     } catch (error) {
       console.error('Erro ao buscar dados de validade:', error);
     } finally {
@@ -122,13 +122,6 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
     }
   };
 
-  // Verifica se está em dia (mais de 7 dias restantes e não está vencido)
-  const normalizedDisplayStatus = String(validity.payment_status || '').toLowerCase().trim();
-  const isInGoodStanding = validity && (
-    (normalizedDisplayStatus === 'paid' && daysRemaining > 0) ||
-    (daysRemaining > 7 && normalizedDisplayStatus !== 'expired' && daysRemaining >= 0)
-  );
-
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-xs text-gray-500">
@@ -141,6 +134,12 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
   if (!validity) {
     return null;
   }
+
+  // Verifica se está em dia (mais de 7 dias restantes e não está vencido)
+  const normalizedDisplayStatus = String(validity?.payment_status || '').toLowerCase().trim();
+  const isInGoodStanding =
+    (normalizedDisplayStatus === 'paid' && daysRemaining > 0) ||
+    (daysRemaining > 7 && normalizedDisplayStatus !== 'expired' && daysRemaining >= 0);
 
   // Modo discreto - quando está em dia
   if (isInGoodStanding) {
@@ -179,7 +178,11 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
         <div className="flex items-center justify-between">
           <span className="text-gray-300">Plano:</span>
           <span className="text-white font-medium capitalize">
-            {validity.plan_type === 'monthly' ? 'Mensal' : 'Anual'}
+            {validity.plan_type === 'monthly'
+              ? 'Mensal'
+              : validity.plan_type === 'annual'
+                ? 'Anual'
+                : 'Teste'}
           </span>
         </div>
 

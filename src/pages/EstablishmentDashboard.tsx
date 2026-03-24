@@ -7674,9 +7674,68 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  const handleRemoveProfessional = (id: string) => {
+  const handleRemoveProfessional = async (id: string) => {
     console.log('Removendo profissional:', id);
-    setProfessionals(prev => prev.filter(p => p.id !== id));
+    if (!establishment?.id) {
+      setProfessionals(prev => prev.filter(p => p.id !== id));
+      return;
+    }
+
+    const professionalToRemove = professionals.find((p) => String(p.id) === String(id));
+    if (!professionalToRemove) return;
+
+    try {
+      const { data: establishmentData, error: fetchError } = await supabase
+        .from('establishments')
+        .select('professionals, professionals_pins, deleted_professionals')
+        .eq('id', establishment.id)
+        .single();
+      if (fetchError) throw fetchError;
+
+      const dbProfessionals = Array.isArray(establishmentData?.professionals)
+        ? (establishmentData.professionals as any[])
+        : [];
+      const dbPins = Array.isArray(establishmentData?.professionals_pins)
+        ? (establishmentData.professionals_pins as any[])
+        : [];
+      const dbDeleted = Array.isArray(establishmentData?.deleted_professionals)
+        ? (establishmentData.deleted_professionals as any[])
+        : [];
+
+      const nextProfessionals = dbProfessionals.filter((p: any) => String(p?.id || '') !== String(id));
+      const alreadyDeleted = dbDeleted.some((p: any) => String(p?.id || '') === String(id));
+      const now = new Date().toISOString();
+      const removedPayload = {
+        ...(dbProfessionals.find((p: any) => String(p?.id || '') === String(id)) || professionalToRemove),
+        deleted_at: now,
+      };
+      const nextDeleted = alreadyDeleted ? dbDeleted : [...dbDeleted, removedPayload];
+
+      const { error: updateError } = await supabase
+        .from('establishments')
+        .update({
+          professionals: nextProfessionals,
+          professionals_pins: dbPins,
+          deleted_professionals: nextDeleted,
+        })
+        .eq('id', establishment.id);
+      if (updateError) throw updateError;
+
+      setProfessionals(nextProfessionals as any);
+      setEstablishment({
+        ...establishment,
+        professionals: nextProfessionals as any,
+        professionals_pins: dbPins as any,
+        deleted_professionals: nextDeleted as any,
+      });
+      toast.success(`${professionalToRemove.name || 'Profissional'} removido e enviado para o histórico.`);
+    } catch (error: any) {
+      console.error('Erro ao remover profissional:', error);
+      toast(
+        [error?.message, error?.code, error?.details, error?.hint].filter(Boolean).join(' | ') || 'Erro ao remover profissional',
+        'error'
+      );
+    }
   };
 
   const handleProfessionalChange = (id: string, field: keyof Professional, value: string | string[] | number) => {
