@@ -20,16 +20,6 @@ const BlockedCheck: React.FC<BlockedCheckProps> = ({ children }) => {
         return;
       }
 
-      // Em localhost não bloqueamos dashboard por cobrança.
-      // Isso evita travas durante suporte/teste e não afeta produção.
-      const isLocalEnv =
-        window.location.hostname === 'localhost' ||
-        window.location.hostname === '127.0.0.1';
-      if (isLocalEnv) {
-        setIsChecking(false);
-        return;
-      }
-
       try {
         // ✅ Fail-open com timeout: evita travar infinito em mobile/PWA ou quando há outra aba aberta
         // Se a checagem demorar demais, liberamos o app e registramos no console.

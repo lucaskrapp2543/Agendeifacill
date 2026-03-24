@@ -1,14 +1,70 @@
-import { ArrowLeft, Lock, MessageCircle } from 'lucide-react';
+import { ArrowLeft, Loader2, Lock } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { EstablishmentBillingPaymentModal } from '../components/EstablishmentBillingPaymentModal';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 const BlockedPage = () => {
+  const { user } = useAuth();
   const navigate = useNavigate();
+  const [showBillingPaymentModal, setShowBillingPaymentModal] = useState(false);
+  const [isLoadingEstablishment, setIsLoadingEstablishment] = useState(true);
+  const [billingTarget, setBillingTarget] = useState<{ id: string; name: string } | null>(null);
+  const [loadingMessage, setLoadingMessage] = useState('');
 
-  const handleWhatsAppClick = () => {
-    const message = encodeURIComponent('Olá, quero deixar meu agendei fácil em dia.');
-    const whatsappUrl = `https://wa.me/48991265320?text=${message}`;
-    window.open(whatsappUrl, '_blank');
-  };
+  useEffect(() => {
+    const loadBlockedEstablishment = async () => {
+      if (!user?.id) {
+        setIsLoadingEstablishment(false);
+        return;
+      }
+
+      setIsLoadingEstablishment(true);
+      try {
+        const { data, error } = await (supabase as any)
+          .from('establishments')
+          .select('id, name, is_blocked, is_deleted, created_at')
+          .eq('owner_id', user.id)
+          .or('is_deleted.is.null,is_deleted.eq.false')
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        const establishments = Array.isArray(data) ? data : [];
+        if (establishments.length === 0) {
+          setBillingTarget(null);
+          return;
+        }
+
+        const blocked = establishments.find((est: any) => Boolean(est?.is_blocked));
+        const target = blocked || establishments[0];
+        setBillingTarget({
+          id: String(target?.id || ''),
+          name: String(target?.name || 'Estabelecimento'),
+        });
+      } catch (error: any) {
+        const messageParts = [
+          String(error?.message || '').trim(),
+          error?.code ? `(código: ${error.code})` : '',
+          String(error?.details || error?.hint || '').trim(),
+        ].filter(Boolean);
+        setLoadingMessage(
+          messageParts.join(' ') || 'Não foi possível carregar os dados para pagamento automático.'
+        );
+        setBillingTarget(null);
+      } finally {
+        setIsLoadingEstablishment(false);
+      }
+    };
+
+    void loadBlockedEstablishment();
+  }, [user?.id]);
+
+  const canOpenAutomatedBilling = useMemo(
+    () => !isLoadingEstablishment && Boolean(billingTarget?.id),
+    [isLoadingEstablishment, billingTarget?.id]
+  );
 
   const handleGoBack = () => {
     navigate('/');
@@ -30,7 +86,7 @@ const BlockedPage = () => {
         {/* Mensagem */}
         <p className="text-gray-600 mb-4 leading-relaxed">
           Seu sistema foi bloqueado por falta de pagamento.
-          Para continuar utilizando nossos serviços, entre em contato conosco.
+          Para continuar utilizando nossos serviços, regularize agora no fluxo automático.
         </p>
 
         {/* Mensagem destacada */}
@@ -40,14 +96,28 @@ const BlockedPage = () => {
           </p>
         </div>
 
-        {/* Botão do WhatsApp */}
+        {/* Botão de regularização automática */}
         <button
-          onClick={handleWhatsAppClick}
-          className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-4 px-6 rounded-lg transition-colors duration-200 flex items-center justify-center space-x-3 mb-4"
+          onClick={() => setShowBillingPaymentModal(true)}
+          disabled={!canOpenAutomatedBilling}
+          className={`w-full text-white font-semibold py-4 px-6 rounded-lg transition-colors duration-200 flex items-center justify-center space-x-3 mb-4 ${
+            canOpenAutomatedBilling
+              ? 'bg-green-600 hover:bg-green-700'
+              : 'bg-green-300 cursor-not-allowed'
+          }`}
         >
-          <MessageCircle className="h-5 w-5" />
-          <span>Clique aqui para atualizar seu pagamento</span>
+          {isLoadingEstablishment ? (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span>Carregando pagamento automático...</span>
+            </>
+          ) : (
+            <span>Clique aqui para atualizar seu pagamento</span>
+          )}
         </button>
+        {loadingMessage && (
+          <p className="text-xs text-red-600 mb-4">{loadingMessage}</p>
+        )}
 
         {/* Botão voltar */}
         <button
@@ -61,10 +131,23 @@ const BlockedPage = () => {
         {/* Informações adicionais */}
         <div className="mt-8 pt-6 border-t border-gray-200">
           <p className="text-sm text-gray-500">
-            Em caso de dúvidas, entre em contato pelo WhatsApp: (48) 99126-5320
+            Em caso de dúvidas, entre em contato com o suporte.
           </p>
         </div>
       </div>
+
+      {billingTarget?.id && (
+        <EstablishmentBillingPaymentModal
+          isOpen={showBillingPaymentModal}
+          onClose={() => setShowBillingPaymentModal(false)}
+          establishmentId={billingTarget.id}
+          establishmentName={billingTarget.name}
+          onPaid={async () => {
+            setShowBillingPaymentModal(false);
+            navigate('/', { replace: true });
+          }}
+        />
+      )}
     </div>
   );
 };
