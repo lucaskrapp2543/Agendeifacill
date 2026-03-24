@@ -52,6 +52,7 @@ interface Appointment {
   client_name: string;
   client_whatsapp?: string;
   client_cpf?: string;
+  client_street?: string;
   service: string;
   professional: string;
   appointment_date: string;
@@ -253,6 +254,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [cancelledHistoryDate, setCancelledHistoryDate] = useState('');
     const [editingAppointmentValue, setEditingAppointmentValue] = useState<string | null>(null);
     const [editingValue, setEditingValue] = useState<string>('');
+    const [appointmentContactById, setAppointmentContactById] = useState<Record<string, { cpf?: string; street?: string }>>({});
+    const [editingContactAppointmentId, setEditingContactAppointmentId] = useState<string | null>(null);
+    const [editingContactCpf, setEditingContactCpf] = useState('');
+    const [editingContactStreet, setEditingContactStreet] = useState('');
+    const [isSavingAppointmentContact, setIsSavingAppointmentContact] = useState(false);
     const [editingAvulsoNameId, setEditingAvulsoNameId] = useState<string | null>(null);
     const [editingAvulsoNameValue, setEditingAvulsoNameValue] = useState<string>('');
     const [localClientNameOverrides, setLocalClientNameOverrides] = useState<Record<string, string>>({});
@@ -2495,6 +2501,107 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
     };
 
+    const handleStartEditAppointmentContact = (apt: Appointment) => {
+      const current = appointmentContactById[apt.id];
+      setEditingContactAppointmentId(apt.id);
+      setEditingContactCpf(String(current?.cpf || apt.client_cpf || ''));
+      setEditingContactStreet(String(current?.street || (apt as any).client_street || ''));
+    };
+
+    const handleSaveAppointmentContact = async (apt: Appointment) => {
+      if (!establishment?.id) {
+        toast('Estabelecimento não identificado.');
+        return;
+      }
+      const normalizedCpf = String(editingContactCpf || '').replace(/\D/g, '');
+      const normalizedStreet = String(editingContactStreet || '').trim();
+      if (normalizedCpf && normalizedCpf.length !== 11) {
+        toast('CPF inválido. Informe 11 dígitos ou deixe em branco.');
+        return;
+      }
+
+      setIsSavingAppointmentContact(true);
+      try {
+        const normalizedWhatsapp = normalizeWhatsappKey(apt.client_whatsapp || '');
+        if (normalizedWhatsapp) {
+          const payloadBase: any = {
+            establishment_id: establishment?.id,
+            whatsapp: normalizedWhatsapp.startsWith('55') ? normalizedWhatsapp : `55${normalizedWhatsapp}`,
+            name: String(apt.client_name || 'Cliente').trim() || 'Cliente',
+            updated_at: new Date().toISOString(),
+          };
+          let upsertError: any = null;
+          const withExtra = {
+            ...payloadBase,
+            cpf: normalizedCpf || null,
+            street: normalizedStreet || null,
+          };
+          const withExtraResult = await supabase
+            .from('manual_clients')
+            .upsert(withExtra, { onConflict: 'establishment_id,whatsapp' });
+          upsertError = withExtraResult.error;
+
+          if (upsertError) {
+            const message = String(upsertError?.message || '').toLowerCase();
+            const missingColumn =
+              message.includes('column') &&
+              (message.includes('cpf') || message.includes('street'));
+            if (missingColumn) {
+              const fallback = await supabase
+                .from('manual_clients')
+                .upsert(payloadBase, { onConflict: 'establishment_id,whatsapp' });
+              upsertError = fallback.error;
+            }
+          }
+
+          if (upsertError) throw upsertError;
+
+          try {
+            const storageKey = `manual_clients_${establishment?.id}`;
+            const localManual = JSON.parse(localStorage.getItem(storageKey) || '{}');
+            const key55 = payloadBase.whatsapp;
+            const keyNo55 = key55.startsWith('55') ? key55.slice(2) : key55;
+            if (keyNo55 && localManual[keyNo55]) delete localManual[keyNo55];
+            localManual[key55] = {
+              ...(localManual[key55] || {}),
+              name: payloadBase.name,
+              whatsapp: key55,
+              cpf: normalizedCpf || null,
+              street: normalizedStreet || null,
+            };
+            localStorage.setItem(storageKey, JSON.stringify(localManual));
+          } catch {
+            // ignore fallback storage errors
+          }
+        }
+
+        if (normalizedCpf) {
+          const { error } = await supabase
+            .from('appointments')
+            .update({ client_cpf: normalizedCpf })
+            .eq('id', apt.id);
+          if (error) {
+            console.warn('⚠️ Falha ao salvar CPF no appointments:', error);
+          }
+        }
+
+        setAppointmentContactById((prev) => ({
+          ...prev,
+          [apt.id]: { cpf: normalizedCpf || '', street: normalizedStreet || '' },
+        }));
+        setEditingContactAppointmentId(null);
+        setEditingContactCpf('');
+        setEditingContactStreet('');
+        toast('Contato do cliente salvo com sucesso!');
+        onAppointmentUpdate?.();
+      } catch (error: any) {
+        console.error('Erro ao salvar contato do cliente:', error);
+        toast(String(error?.message || 'Erro ao salvar contato do cliente.'));
+      } finally {
+        setIsSavingAppointmentContact(false);
+      }
+    };
+
     const handleRemoveAdditionalProduct = async (appointmentId: string, productIndex: number) => {
       try {
         const appointment = appointments.find(apt => apt.id === appointmentId);
@@ -3118,14 +3225,147 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const normalizeWhatsappKey = (raw: any) => {
-      const digits = String(raw || '').replace(/\D/g, '');
+      let digits = String(raw || '').replace(/\D/g, '');
       if (!digits) return '';
+      while (digits.startsWith('55') && digits.length > 11) {
+        digits = digits.slice(2);
+      }
       if (digits.startsWith('55')) {
         const after = digits.slice(2);
         if (after.length === 10 || after.length === 11) return after;
       }
+      if (digits.length > 11) return digits.slice(-11);
       return digits;
     };
+
+    const getWhatsappLookupKeys = (raw: any): string[] => {
+      const digits = String(raw || '').replace(/\D/g, '');
+      const normalized = normalizeWhatsappKey(raw);
+      if (!digits && !normalized) return [];
+      const keys = new Set<string>();
+      if (digits) keys.add(digits);
+      if (normalized) keys.add(normalized);
+      if (digits.startsWith('55') && digits.length > 2) keys.add(digits.slice(2));
+      if (normalized && (normalized.length === 10 || normalized.length === 11)) {
+        keys.add(`55${normalized}`);
+      }
+      return Array.from(keys).filter(Boolean);
+    };
+
+    const formatCpfDisplay = (cpfRaw?: string | null): string => {
+      const digits = String(cpfRaw || '').replace(/\D/g, '');
+      if (digits.length !== 11) return '';
+      return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+    };
+
+    useEffect(() => {
+      if (!establishment?.id || !Array.isArray(appointments) || appointments.length === 0) {
+        setAppointmentContactById({});
+        return;
+      }
+
+      let cancelled = false;
+      const hydrateContacts = async () => {
+        const nextById: Record<string, { cpf?: string; street?: string }> = {};
+        const whatsappKeys = Array.from(
+          new Set(
+            appointments
+              .flatMap((apt) => getWhatsappLookupKeys(apt.client_whatsapp))
+              .map((w) => String(w || '').replace(/\D/g, ''))
+              .filter(Boolean)
+          )
+        );
+
+        const contactsByKey = new Map<string, { cpf?: string; street?: string }>();
+        const mergeContact = (key: string, nextCpfRaw: any, nextStreetRaw: any) => {
+          if (!key) return;
+          const nextCpf = String(nextCpfRaw || '').replace(/\D/g, '');
+          const nextStreet = String(nextStreetRaw || '').trim();
+          const current = contactsByKey.get(key) || {};
+          const currentCpf = String(current.cpf || '').replace(/\D/g, '');
+          const currentStreet = String(current.street || '').trim();
+          contactsByKey.set(key, {
+            cpf: currentCpf || nextCpf || '',
+            street: currentStreet || nextStreet || '',
+          });
+        };
+
+        try {
+          if (whatsappKeys.length > 0) {
+            let rows: any[] = [];
+            const withExtra = await supabase
+              .from('manual_clients')
+              .select('whatsapp, cpf, street')
+              .eq('establishment_id', establishment.id)
+              .in('whatsapp', whatsappKeys);
+
+            if (withExtra.error) {
+              const message = String(withExtra.error?.message || '').toLowerCase();
+              const missingColumn =
+                message.includes('column') &&
+                (message.includes('cpf') || message.includes('street'));
+              if (!missingColumn) throw withExtra.error;
+              const legacy = await supabase
+                .from('manual_clients')
+                .select('whatsapp')
+                .eq('establishment_id', establishment.id)
+                .in('whatsapp', whatsappKeys);
+              if (legacy.error) throw legacy.error;
+              rows = (legacy.data || []) as any[];
+            } else {
+              rows = (withExtra.data || []) as any[];
+            }
+
+            rows.forEach((row: any) => {
+              const keys = getWhatsappLookupKeys(row?.whatsapp).map((w) =>
+                String(w || '').replace(/\D/g, '')
+              );
+              keys.forEach((key) => {
+                mergeContact(key, row?.cpf, row?.street);
+              });
+            });
+          }
+        } catch (error) {
+          console.warn('⚠️ Erro ao buscar CPF/endereço no manual_clients:', error);
+        }
+
+        // Fallback no localStorage para não depender só do banco.
+        try {
+          const storageKey = `manual_clients_${establishment.id}`;
+          const localManual = JSON.parse(localStorage.getItem(storageKey) || '{}');
+          Object.values(localManual || {}).forEach((raw: any) => {
+            const keys = getWhatsappLookupKeys((raw as any)?.whatsapp || '').map((w) =>
+              String(w || '').replace(/\D/g, '')
+            );
+            keys.forEach((key) => {
+              mergeContact(key, (raw as any)?.cpf, (raw as any)?.street);
+            });
+          });
+        } catch {
+          // ignore fallback errors
+        }
+
+        appointments.forEach((apt) => {
+          const aptKeys = getWhatsappLookupKeys(apt.client_whatsapp).map((w) =>
+            String(w || '').replace(/\D/g, '')
+          );
+          const merged = aptKeys.map((k) => contactsByKey.get(k)).find(Boolean);
+          nextById[apt.id] = {
+            cpf: String(apt.client_cpf || '').replace(/\D/g, '') || String(merged?.cpf || ''),
+            street: String((apt as any).client_street || merged?.street || '').trim(),
+          };
+        });
+
+        if (!cancelled) {
+          setAppointmentContactById(nextById);
+        }
+      };
+
+      void hydrateContacts();
+      return () => {
+        cancelled = true;
+      };
+    }, [appointments, establishment?.id]);
 
     const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
 
@@ -4272,6 +4512,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               const isExpanded = expandedAppointments[apt.id];
                               const serviceLabels = getAppointmentServiceLabels(apt);
                               const subscriptionLabelColor = getSubscriptionLabelColor(apt);
+                              const contactOverride = appointmentContactById[apt.id] || {};
+                              const displayedCpf = String(contactOverride.cpf || apt.client_cpf || '').replace(/\D/g, '');
+                              const displayedStreet = String(contactOverride.street || (apt as any).client_street || '').trim();
 
                               return (
                                 <div
@@ -4481,10 +4724,59 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             {apt.client_whatsapp}
                                           </a>
                                         )}
-                                        {apt.client_cpf && (
-                                          <div className="text-white/80 text-xs mt-1">
-                                            CPF: {apt.client_cpf}
+                                        <div className="text-white/80 text-xs mt-1">
+                                          CPF: {displayedCpf ? formatCpfDisplay(displayedCpf) : 'Não informado'}
+                                        </div>
+                                        <div className="text-white/80 text-xs mt-1">
+                                          Endereço: {displayedStreet || 'Não informado'}
+                                        </div>
+                                        {editingContactAppointmentId === apt.id ? (
+                                          <div className="mt-2 space-y-2">
+                                            <input
+                                              type="text"
+                                              value={editingContactCpf}
+                                              onChange={(e) => setEditingContactCpf(e.target.value)}
+                                              placeholder="CPF (opcional)"
+                                              className="w-full px-2 py-1 text-xs bg-white border border-gray-300 rounded text-gray-900 placeholder-gray-500"
+                                            />
+                                            <input
+                                              type="text"
+                                              value={editingContactStreet}
+                                              onChange={(e) => setEditingContactStreet(e.target.value)}
+                                              placeholder="Rua / Endereço (opcional)"
+                                              className="w-full px-2 py-1 text-xs bg-white border border-gray-300 rounded text-gray-900 placeholder-gray-500"
+                                            />
+                                            <div className="flex items-center gap-2">
+                                              <button
+                                                type="button"
+                                                disabled={isSavingAppointmentContact}
+                                                onClick={() => void handleSaveAppointmentContact(apt)}
+                                                className="text-white text-xs px-2 py-1 bg-green-600 rounded hover:bg-green-500 disabled:opacity-60"
+                                              >
+                                                Salvar contato
+                                              </button>
+                                              <button
+                                                type="button"
+                                                disabled={isSavingAppointmentContact}
+                                                onClick={() => {
+                                                  setEditingContactAppointmentId(null);
+                                                  setEditingContactCpf('');
+                                                  setEditingContactStreet('');
+                                                }}
+                                                className="text-white text-xs px-2 py-1 bg-gray-700 rounded hover:bg-gray-600"
+                                              >
+                                                Cancelar
+                                              </button>
+                                            </div>
                                           </div>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleStartEditAppointmentContact(apt)}
+                                            className="text-white/90 text-[11px] underline mt-1"
+                                          >
+                                            {displayedCpf || displayedStreet ? 'Editar CPF/endereço' : 'Adicionar CPF/endereço'}
+                                          </button>
                                         )}
                                       </div>
 
@@ -4810,6 +5102,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             >
                                               IMPREVISTO
                                             </button>
+
+                                            {onGenerateNF && (
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  void logAppointmentCardActionClick(apt, 'baixar_nf_click', 'Clique em Baixar NF.');
+                                                  onGenerateNF({
+                                                    ...apt,
+                                                    client_cpf: displayedCpf || apt.client_cpf,
+                                                    client_street: displayedStreet || (apt as any).client_street,
+                                                  });
+                                                }}
+                                                data-tutorial-id="appointments-detalhes-baixar-nf"
+                                                className="col-span-2 px-2 py-1.5 text-xs bg-emerald-700 text-white rounded hover:bg-emerald-800 font-extrabold"
+                                                title="Baixar nota fiscal do atendimento"
+                                              >
+                                                🧾 BAIXAR NF
+                                              </button>
+                                            )}
 
                                             {onClientNoShow && (
                                               <button

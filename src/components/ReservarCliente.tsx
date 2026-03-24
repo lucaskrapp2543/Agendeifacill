@@ -116,6 +116,13 @@ export default function ReservarCliente({
   const [clientSearchQuery, setClientSearchQuery] = useState<string>('');
   const [serviceSearchQuery, setServiceSearchQuery] = useState<string>('');
   const [loadingClients, setLoadingClients] = useState(false);
+  const [showAddClientInline, setShowAddClientInline] = useState(false);
+  const [newKnownClientName, setNewKnownClientName] = useState('');
+  const [newKnownClientWhatsapp, setNewKnownClientWhatsapp] = useState('');
+  const [newKnownClientCpf, setNewKnownClientCpf] = useState('');
+  const [newKnownClientStreet, setNewKnownClientStreet] = useState('');
+  const [newKnownClientBirthday, setNewKnownClientBirthday] = useState('');
+  const [isCreatingKnownClient, setIsCreatingKnownClient] = useState(false);
   const [hasAppliedInitialProfessional, setHasAppliedInitialProfessional] = useState(false);
 
   // Estados para pagamento antecipado
@@ -133,6 +140,14 @@ export default function ReservarCliente({
       const after = digits.slice(2);
       if (after.length === 10 || after.length === 11) return after;
     }
+    return digits;
+  };
+
+  const normalizeWhatsappForStorage = (raw: any) => {
+    const digits = String(raw || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('55')) return digits;
+    if (digits.length >= 10 && digits.length <= 11) return `55${digits}`;
     return digits;
   };
 
@@ -1108,6 +1123,152 @@ export default function ReservarCliente({
     setStep('professional');
   };
 
+  const handleCreateKnownClient = async () => {
+    const trimmedName = String(newKnownClientName || '').trim();
+    const normalizedWhatsapp = normalizeWhatsappForStorage(newKnownClientWhatsapp);
+    const normalizedCpf = String(newKnownClientCpf || '').replace(/\D/g, '');
+    const normalizedStreet = String(newKnownClientStreet || '').trim();
+    const birthday = String(newKnownClientBirthday || '').trim();
+
+    if (!trimmedName) {
+      alert('Informe o nome do cliente.');
+      return;
+    }
+
+    const normalizedKey = normalizeWhatsappKey(normalizedWhatsapp);
+    if (!normalizedKey || normalizedKey.length < 10) {
+      alert('Informe um telefone válido com DDD.');
+      return;
+    }
+
+    if (normalizedCpf && normalizedCpf.length !== 11) {
+      alert('CPF inválido. Informe 11 dígitos ou deixe em branco.');
+      return;
+    }
+
+    if (birthday && !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
+      alert('Data de aniversário inválida.');
+      return;
+    }
+
+    setIsCreatingKnownClient(true);
+    try {
+      const payloadBase: any = {
+        establishment_id: establishmentId,
+        name: trimmedName.slice(0, 120),
+        whatsapp: normalizedWhatsapp,
+        updated_at: new Date().toISOString(),
+      };
+
+      let upsertError: any = null;
+      if (birthday) {
+        const { error } = await supabase
+          .from('manual_clients')
+          .upsert(
+            {
+              ...payloadBase,
+              birthday,
+              cpf: normalizedCpf || null,
+              street: normalizedStreet || null,
+            },
+            { onConflict: 'establishment_id,whatsapp' }
+          );
+        upsertError = error;
+      } else {
+        const { error } = await supabase
+          .from('manual_clients')
+          .upsert(
+            {
+              ...payloadBase,
+              cpf: normalizedCpf || null,
+              street: normalizedStreet || null,
+            },
+            { onConflict: 'establishment_id,whatsapp' }
+          );
+        upsertError = error;
+      }
+
+      if (upsertError) {
+        const errorMessage = String(upsertError?.message || '').toLowerCase();
+        const missingColumn =
+          errorMessage.includes('column') &&
+          (errorMessage.includes('cpf') || errorMessage.includes('street'));
+        if (missingColumn) {
+          const fallbackPayload = birthday ? { ...payloadBase, birthday } : payloadBase;
+          const fallback = await supabase
+            .from('manual_clients')
+            .upsert(fallbackPayload, { onConflict: 'establishment_id,whatsapp' });
+          upsertError = fallback.error;
+        }
+      }
+
+      if (upsertError) throw upsertError;
+
+      const storageKey = `manual_clients_${establishmentId}`;
+      const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      manualClients[normalizedWhatsapp] = {
+        ...(manualClients[normalizedWhatsapp] || {}),
+        name: trimmedName,
+        whatsapp: normalizedWhatsapp,
+        cpf: normalizedCpf || undefined,
+        street: normalizedStreet || undefined,
+        birthday: birthday || manualClients[normalizedWhatsapp]?.birthday || null,
+        forceAdvancePayment: manualClients[normalizedWhatsapp]?.forceAdvancePayment === true,
+        addedAt: manualClients[normalizedWhatsapp]?.addedAt || new Date().toISOString(),
+        appointmentCount: Number(manualClients[normalizedWhatsapp]?.appointmentCount || 0),
+      };
+      localStorage.setItem(storageKey, JSON.stringify(manualClients));
+
+      const newClient: Client = {
+        id: `manual_${normalizedKey}`,
+        name: trimmedName,
+        whatsapp: normalizedWhatsapp,
+        appointmentCount: 0,
+      };
+
+      setClients((prev) => {
+        const next = [...prev];
+        const existingIndex = next.findIndex((c) => {
+          const key = normalizeWhatsappKey(c.whatsapp);
+          return key && key === normalizedKey;
+        });
+        if (existingIndex >= 0) {
+          next[existingIndex] = {
+            ...next[existingIndex],
+            name: trimmedName,
+            whatsapp: normalizedWhatsapp,
+          };
+        } else {
+          next.unshift(newClient);
+        }
+        return next.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' }));
+      });
+
+      const selected = {
+        ...newClient,
+      };
+      setSelectedClient(selected);
+      setClientSearchQuery('');
+      setShowAddClientInline(false);
+      setNewKnownClientName('');
+      setNewKnownClientWhatsapp('');
+      setNewKnownClientCpf('');
+      setNewKnownClientStreet('');
+      setNewKnownClientBirthday('');
+
+      if (selectedProfessional && String(selectedProfessional.id || '').trim().length > 0) {
+        setStep('service');
+      } else {
+        setStep('professional');
+      }
+    } catch (error: any) {
+      console.error('❌ Erro ao adicionar cliente conhecido:', error);
+      alert(String(error?.message || 'Erro ao adicionar cliente.'));
+    } finally {
+      setIsCreatingKnownClient(false);
+    }
+  };
+
   const handleProfessionalSelect = (professional: Professional) => {
     setSelectedProfessional(professional);
     setStep('service');
@@ -1719,7 +1880,10 @@ export default function ReservarCliente({
                     type="text"
                     placeholder="Buscar cliente por nome ou WhatsApp..."
                     value={clientSearchQuery}
-                    onChange={(e) => setClientSearchQuery(e.target.value)}
+                    onChange={(e) => {
+                      setClientSearchQuery(e.target.value);
+                      setShowAddClientInline(false);
+                    }}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-gray-900 bg-white"
                   />
                 </div>
@@ -1740,6 +1904,84 @@ export default function ReservarCliente({
                       Clientes aparecem aqui após fazerem agendamentos no sistema.
                     </p>
                   )}
+                  <div className="mt-4">
+                    {!showAddClientInline ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowAddClientInline(true)}
+                        className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+                      >
+                        Adicionar cliente novo
+                      </button>
+                    ) : (
+                      <div className="mt-3 text-left border border-gray-300 rounded-lg p-4 bg-gray-50">
+                        <h4 className="text-sm font-semibold text-gray-800 mb-3">Novo cliente</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <input
+                            type="text"
+                            placeholder="Nome *"
+                            value={newKnownClientName}
+                            onChange={(e) => setNewKnownClientName(e.target.value)}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Telefone *"
+                            value={newKnownClientWhatsapp}
+                            onChange={(e) => setNewKnownClientWhatsapp(e.target.value)}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                          />
+                          <input
+                            type="text"
+                            placeholder="CPF (opcional)"
+                            value={newKnownClientCpf}
+                            onChange={(e) => setNewKnownClientCpf(e.target.value)}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Rua (opcional)"
+                            value={newKnownClientStreet}
+                            onChange={(e) => setNewKnownClientStreet(e.target.value)}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                          />
+                          <input
+                            type="date"
+                            value={newKnownClientBirthday}
+                            onChange={(e) => setNewKnownClientBirthday(e.target.value)}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                          />
+                        </div>
+                        <div className="flex items-center justify-end gap-2 mt-4">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowAddClientInline(false);
+                              setNewKnownClientName('');
+                              setNewKnownClientWhatsapp('');
+                              setNewKnownClientCpf('');
+                              setNewKnownClientStreet('');
+                              setNewKnownClientBirthday('');
+                            }}
+                            className="px-3 py-2 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100"
+                            disabled={isCreatingKnownClient}
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCreateKnownClient}
+                            disabled={isCreatingKnownClient}
+                            className={`px-4 py-2 text-sm rounded-lg text-white font-medium ${
+                              isCreatingKnownClient ? 'bg-gray-400 cursor-not-allowed' : 'bg-black hover:bg-gray-800'
+                            }`}
+                          >
+                            {isCreatingKnownClient ? 'Adicionando...' : 'Salvar e continuar'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[45vh] sm:max-h-[400px] overflow-y-auto">

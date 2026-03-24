@@ -296,6 +296,7 @@ interface Appointment {
   client_name: string;
   client_whatsapp?: string;
   client_cpf?: string;
+  client_street?: string;
   establishment_id: string;
   service: string;
   professional: string;
@@ -357,6 +358,8 @@ interface Client {
   id: string; // ID do profile do cliente
   whatsapp: string;
   name: string;
+  cpf?: string | null;
+  street?: string | null;
   appointmentCount: number;
   completedCount?: number; // Agendamentos realizados (status completed)
   totalSpent?: number; // Total gasto (somente completed)
@@ -645,12 +648,22 @@ const EstablishmentDashboard = () => {
   const [showAddClientModal, setShowAddClientModal] = useState(false);
   const [newClientName, setNewClientName] = useState('');
   const [newClientWhatsapp, setNewClientWhatsapp] = useState('');
+  const [newClientCpf, setNewClientCpf] = useState('');
+  const [newClientStreet, setNewClientStreet] = useState('');
+  const [expandedClientCards, setExpandedClientCards] = useState<Record<string, boolean>>({});
 
   // Estados para editar cliente (seção Meus Clientes)
   const [editingClient, setEditingClient] = useState<string | null>(null);
   const [editClientName, setEditClientName] = useState('');
   const [editClientWhatsapp, setEditClientWhatsapp] = useState('');
   const [newClientBirthday, setNewClientBirthday] = useState('');
+  const [editingClientContact, setEditingClientContact] = useState<string | null>(null);
+  const [newClientContactCpf, setNewClientContactCpf] = useState('');
+  const [newClientContactStreet, setNewClientContactStreet] = useState('');
+  const [editingAppointmentContactId, setEditingAppointmentContactId] = useState<string | null>(null);
+  const [editingAppointmentClientCpf, setEditingAppointmentClientCpf] = useState('');
+  const [editingAppointmentClientStreet, setEditingAppointmentClientStreet] = useState('');
+  const [isSavingClientContact, setIsSavingClientContact] = useState(false);
 
   const formatBirthdayMask = (value: string) => {
     const digits = String(value || '').replace(/\D/g, '').slice(0, 8);
@@ -3872,8 +3885,45 @@ const EstablishmentDashboard = () => {
       }
 
       const novo = Number(data || 0);
-      setClients((prev) => prev.map((c) => (c.whatsapp === client.whatsapp ? { ...c, faltas: novo } : c)));
-      setSelectedClientInfo((prev) => (prev && prev.whatsapp === client.whatsapp ? { ...prev, faltas: novo } : prev));
+      const normalizePhone = (raw: any) => String(raw || '').replace(/\D/g, '');
+      const normalizePhoneKey = (raw: any) => {
+        let digits = normalizePhone(raw);
+        // Compatibilidade: alguns fluxos antigos/novos podem trazer "55" duplicado.
+        while (digits.startsWith('55') && digits.length > 11) {
+          digits = digits.slice(2);
+        }
+        if (digits.length > 11) digits = digits.slice(-11);
+        return digits;
+      };
+      const possiblePhoneKeys = (raw: any) => {
+        const digits = normalizePhone(raw);
+        const normalized = normalizePhoneKey(raw);
+        const keys = new Set<string>();
+        if (digits) keys.add(digits);
+        if (normalized) keys.add(normalized);
+        if (normalized && (normalized.length === 10 || normalized.length === 11)) {
+          keys.add(`55${normalized}`);
+        }
+        if (digits.startsWith('55') && digits.length > 2) {
+          keys.add(digits.slice(2));
+        }
+        return keys;
+      };
+      const targetKeys = possiblePhoneKeys(client.whatsapp);
+
+      setClients((prev) =>
+        prev.map((c) => {
+          const currentKeys = possiblePhoneKeys(c.whatsapp);
+          const matched = Array.from(currentKeys).some((key) => targetKeys.has(key));
+          return matched ? { ...c, faltas: novo } : c;
+        })
+      );
+      setSelectedClientInfo((prev) => {
+        if (!prev) return prev;
+        const currentKeys = possiblePhoneKeys(prev.whatsapp);
+        const matched = Array.from(currentKeys).some((key) => targetKeys.has(key));
+        return matched ? { ...prev, faltas: novo } : prev;
+      });
       toast.success(delta === 1 ? '✅ Falta registrada (-1).' : '✅ Falta removida (+1).');
     } catch (e: any) {
       console.error('❌ Erro ao ajustar falta do cliente:', e);
@@ -3889,16 +3939,19 @@ const EstablishmentDashboard = () => {
       toast.error('Agendamento sem WhatsApp; não é possível registrar falta.');
       return;
     }
-    const client = { id: '', whatsapp: appointment.client_whatsapp || '', name: '' } as Client;
+    const client = { id: '', whatsapp, name: '' } as Client;
     await ajustarFaltaCliente(client, 1);
+    await fetchClients();
     try {
       const { error } = await supabase.from('appointments').update({ status: 'cancelled' }).eq('id', appointment.id);
       if (error) throw error;
       toast.success('Agendamento cancelado.');
-      fetchAppointments();
-      fetchMonthlyAppointments();
     } catch (e: any) {
       toast.error(e?.message || 'Erro ao cancelar agendamento');
+    } finally {
+      fetchAppointments();
+      fetchMonthlyAppointments();
+      fetchClients();
     }
   };
 
@@ -8800,12 +8853,62 @@ Estamos te aguardando! 😎✂️`;
   };
 
   // Função para gerar Nota Fiscal (XML)
-  const handleGenerateNF = (appointment: Appointment) => {
+  const handleGenerateNF = async (appointment: Appointment) => {
     try {
       console.log('📄 Gerando NF para agendamento:', appointment);
 
+      let resolvedCpf = String(appointment.client_cpf || '').replace(/\D/g, '');
+      let resolvedStreet = String((appointment as any).client_street || '').trim();
+
+      // Fallback: quando o agendamento não tiver CPF/endereço, buscar no cadastro manual do cliente.
+      if ((!resolvedCpf || !resolvedStreet) && establishment?.id) {
+        const whatsappDigits = String(appointment.client_whatsapp || '').replace(/\D/g, '');
+        if (whatsappDigits) {
+          const possibleWhatsappKeys = new Set<string>();
+          possibleWhatsappKeys.add(whatsappDigits);
+          if (whatsappDigits.startsWith('55') && whatsappDigits.length > 2) {
+            possibleWhatsappKeys.add(whatsappDigits.slice(2));
+          }
+          if (whatsappDigits.length === 10 || whatsappDigits.length === 11) {
+            possibleWhatsappKeys.add(`55${whatsappDigits}`);
+          }
+
+          try {
+            const { data, error } = await supabase
+              .from('manual_clients')
+              .select('cpf, street, whatsapp')
+              .eq('establishment_id', establishment.id)
+              .in('whatsapp', Array.from(possibleWhatsappKeys));
+            if (!error && Array.isArray(data) && data.length > 0) {
+              const rowWithCpf = data.find((row: any) => String(row?.cpf || '').replace(/\D/g, '').length === 11);
+              const rowWithStreet = data.find((row: any) => String(row?.street || '').trim().length > 0);
+              resolvedCpf = resolvedCpf || String(rowWithCpf?.cpf || '').replace(/\D/g, '');
+              resolvedStreet = resolvedStreet || String(rowWithStreet?.street || '').trim();
+            }
+          } catch (manualClientsError) {
+            console.warn('⚠️ Falha ao buscar CPF/endereço no manual_clients para NF:', manualClientsError);
+          }
+
+          if (!resolvedCpf || !resolvedStreet) {
+            try {
+              const storageKey = `manual_clients_${establishment.id}`;
+              const localManual = JSON.parse(localStorage.getItem(storageKey) || '{}');
+              const localMatch = Array.from(possibleWhatsappKeys)
+                .map((key) => localManual[key])
+                .find(Boolean) as any;
+              if (localMatch) {
+                resolvedCpf = resolvedCpf || String(localMatch?.cpf || '').replace(/\D/g, '');
+                resolvedStreet = resolvedStreet || String(localMatch?.street || '').trim();
+              }
+            } catch {
+              // ignore fallback storage errors
+            }
+          }
+        }
+      }
+
       // Verificar se tem CPF (obrigatório para NF)
-      if (!appointment.client_cpf) {
+      if (!resolvedCpf) {
         toast('CPF do cliente é obrigatório para gerar Nota Fiscal', 'error');
         return;
       }
@@ -8814,7 +8917,8 @@ Estamos te aguardando! 😎✂️`;
       const nfData = {
         cliente: {
           nome: appointment.client_name,
-          cpf: appointment.client_cpf.replace(/\D/g, ''), // Apenas números
+          cpf: resolvedCpf, // Apenas números
+          endereco: resolvedStreet || 'Não informado',
         },
         servico: {
           descricao: appointment.service,
@@ -8864,6 +8968,7 @@ Estamos te aguardando! 😎✂️`;
 
     // Escapar dados que podem conter caracteres especiais
     const nomeCliente = escapeXML(nfData.cliente.nome);
+    const enderecoCliente = escapeXML(String(nfData?.cliente?.endereco || 'Não informado'));
     const nomeEstabelecimento = escapeXML(nfData.estabelecimento.nome);
     const descricaoServico = escapeXML(nfData.servico.descricao);
     const nomeProfissional = escapeXML(nfData.agendamento.profissional);
@@ -8913,7 +9018,7 @@ Estamos te aguardando! 😎✂️`;
       <CPF>${nfData.cliente.cpf}</CPF>
       <xNome>${nomeCliente}</xNome>
       <enderDest>
-        <xLgr>Endereco do Cliente</xLgr>
+        <xLgr>${enderecoCliente}</xLgr>
         <nro>S/N</nro>
         <xBairro>Bairro</xBairro>
         <cMun>3550308</cMun>
@@ -8989,6 +9094,7 @@ Estamos te aguardando! 😎✂️`;
         Agendamento: ${nfData.agendamento.data} as ${nfData.agendamento.hora}
         Profissional: ${nomeProfissional}
         Duracao: ${nfData.servico.duracao} minutos
+        Endereco do cliente: ${enderecoCliente}
       </infCpl>
     </infAdic>
   </infNFe>
@@ -9321,6 +9427,66 @@ Estamos te aguardando! 😎✂️`;
       console.log('✅ AGENDAMENTOS ENCONTRADOS:', appointmentsData.length);
       console.log('📋 Dados:', appointmentsData);
 
+      // Enriquecer CPF/endereço do cliente usando manual_clients (sem quebrar legado).
+      try {
+        const appointmentWhatsappKeys = Array.from(
+          new Set(
+            appointmentsData
+              .flatMap((apt) => getWhatsappLookupKeys(String(apt.client_whatsapp || '')))
+              .map((x) => normalizePhoneDigits(x))
+              .filter(Boolean)
+          )
+        );
+
+        if (appointmentWhatsappKeys.length > 0) {
+          let contactRows: any[] = [];
+          const withExtra = await supabase
+            .from('manual_clients')
+            .select('whatsapp, cpf, street')
+            .eq('establishment_id', establishment.id)
+            .in('whatsapp', appointmentWhatsappKeys);
+          if (withExtra.error) {
+            const message = String(withExtra.error?.message || '').toLowerCase();
+            const missingColumn =
+              message.includes('column') &&
+              (message.includes('cpf') || message.includes('street'));
+            if (!missingColumn) throw withExtra.error;
+            const fallback = await supabase
+              .from('manual_clients')
+              .select('whatsapp')
+              .eq('establishment_id', establishment.id)
+              .in('whatsapp', appointmentWhatsappKeys);
+            if (fallback.error) throw fallback.error;
+            contactRows = (fallback.data || []) as any[];
+          } else {
+            contactRows = (withExtra.data || []) as any[];
+          }
+
+          const contactsByWhatsapp = new Map<string, { cpf?: string | null; street?: string | null }>();
+          contactRows.forEach((row) => {
+            const keys = getWhatsappLookupKeys(String((row as any)?.whatsapp || ''));
+            keys.forEach((key) => {
+              contactsByWhatsapp.set(normalizePhoneDigits(key), {
+                cpf: String((row as any)?.cpf || '').replace(/\D/g, '') || null,
+                street: String((row as any)?.street || '').trim() || null,
+              });
+            });
+          });
+
+          appointmentsData.forEach((apt: any) => {
+            const aptKeys = getWhatsappLookupKeys(String(apt.client_whatsapp || '')).map((k) =>
+              normalizePhoneDigits(k)
+            );
+            const matched = aptKeys.map((k) => contactsByWhatsapp.get(k)).find(Boolean);
+            const appointmentCpf = String(apt.client_cpf || '').replace(/\D/g, '');
+            apt.client_cpf = appointmentCpf || matched?.cpf || '';
+            apt.client_street = matched?.street || apt.client_street || '';
+          });
+        }
+      } catch (contactError) {
+        console.warn('⚠️ Falha ao enriquecer CPF/endereço dos agendamentos:', contactError);
+      }
+
       // Buscar produtos vendidos para cada agendamento
       for (const appointment of appointmentsData) {
         const { data: appointmentProducts } = await supabase
@@ -9370,7 +9536,13 @@ Estamos te aguardando! 😎✂️`;
       setNewClientsInfo(newClientsMap);
     } catch (error: any) {
       console.error('Error fetching appointments:', error);
-      toast(error.message || 'Erro ao carregar agendamentos', 'error');
+      const rawMessage = String(error?.message || '').trim();
+      const isFetchError = rawMessage.toLowerCase().includes('failed to fetch');
+      if (isFetchError) {
+        toast('Conexao instavel no momento. O agendamento pode ter sido salvo. Atualize a tela em alguns segundos.', 'warning');
+      } else {
+        toast(rawMessage || 'Erro ao carregar agendamentos', 'error');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -12085,6 +12257,8 @@ Estamos te aguardando! 😎✂️`;
             name: editClientName.trim(),
             whatsapp: cleanNewWhatsapp,
             birthday: manualClients[cleanOldWhatsapp]?.birthday,
+            cpf: manualClients[cleanOldWhatsapp]?.cpf || null,
+            street: manualClients[cleanOldWhatsapp]?.street || null,
             forceAdvancePayment: manualClients[cleanOldWhatsapp]?.forceAdvancePayment === true,
             addedAt: manualClients[cleanOldWhatsapp]?.addedAt
           };
@@ -12508,6 +12682,225 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
+  const formatCpfDisplay = (cpfRaw?: string | null) => {
+    const digits = String(cpfRaw || '').replace(/\D/g, '');
+    if (digits.length !== 11) return '';
+    return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  };
+
+  const persistClientContactByWhatsapp = async (
+    clientWhatsapp: string,
+    clientName: string,
+    cpfRaw: string,
+    streetRaw: string
+  ) => {
+    if (!establishment?.id) {
+      throw new Error('Estabelecimento não encontrado.');
+    }
+
+    const normalizedWhatsapp = normalizeWhatsappForStorage(clientWhatsapp);
+    if (!normalizedWhatsapp) {
+      throw new Error('WhatsApp do cliente inválido.');
+    }
+
+    const normalizedCpf = String(cpfRaw || '').replace(/\D/g, '');
+    const normalizedStreet = String(streetRaw || '').trim();
+    if (normalizedCpf && normalizedCpf.length !== 11) {
+      throw new Error('CPF inválido. Informe 11 dígitos ou deixe em branco.');
+    }
+
+    const payloadBase: any = {
+      establishment_id: establishment.id,
+      whatsapp: normalizedWhatsapp,
+      name: String(clientName || 'Cliente').trim() || 'Cliente',
+      updated_at: new Date().toISOString(),
+    };
+
+    let upsertError: any = null;
+    const withExtra = {
+      ...payloadBase,
+      cpf: normalizedCpf || null,
+      street: normalizedStreet || null,
+    };
+    const firstTry = await supabase
+      .from('manual_clients')
+      .upsert(withExtra, { onConflict: 'establishment_id,whatsapp' });
+    upsertError = firstTry.error;
+
+    // Compatibilidade: se colunas novas não existirem, mantém fluxo antigo.
+    if (upsertError) {
+      const message = String(upsertError?.message || '').toLowerCase();
+      const missingColumn =
+        message.includes('column') && (message.includes('cpf') || message.includes('street'));
+      if (missingColumn) {
+        const fallback = await supabase
+          .from('manual_clients')
+          .upsert(payloadBase, { onConflict: 'establishment_id,whatsapp' });
+        upsertError = fallback.error;
+      }
+    }
+
+    if (upsertError) throw upsertError;
+
+    const storageKey = `manual_clients_${establishment.id}`;
+    const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    const keys = getWhatsappLookupKeys(normalizedWhatsapp);
+    const existingEntry = keys.map((key) => manualClients[key]).find(Boolean) || {};
+    keys.forEach((key) => {
+      if (key !== normalizedWhatsapp && manualClients[key]) {
+        delete manualClients[key];
+      }
+    });
+    manualClients[normalizedWhatsapp] = {
+      ...existingEntry,
+      name: String(clientName || existingEntry?.name || 'Cliente').trim() || 'Cliente',
+      whatsapp: normalizedWhatsapp,
+      cpf: normalizedCpf || null,
+      street: normalizedStreet || null,
+      birthday: existingEntry?.birthday || null,
+      forceAdvancePayment: existingEntry?.forceAdvancePayment === true,
+      addedAt: existingEntry?.addedAt || new Date().toISOString(),
+      appointmentCount: Number(existingEntry?.appointmentCount || 0),
+    };
+    localStorage.setItem(storageKey, JSON.stringify(manualClients));
+
+    const possibleKeys = new Set(getWhatsappLookupKeys(normalizedWhatsapp).map((x) => normalizePhoneDigits(x)));
+    setClients((prev) =>
+      prev.map((client) => {
+        const matches = getWhatsappLookupKeys(client.whatsapp)
+          .map((x) => normalizePhoneDigits(x))
+          .some((key) => possibleKeys.has(key));
+        if (!matches) return client;
+        return {
+          ...client,
+          cpf: normalizedCpf || null,
+          street: normalizedStreet || null,
+        };
+      })
+    );
+
+    setAppointments((prev) =>
+      prev.map((appointment) => {
+        const aptKeys = getWhatsappLookupKeys(String(appointment.client_whatsapp || ''))
+          .map((x) => normalizePhoneDigits(x));
+        const matches = aptKeys.some((key) => possibleKeys.has(key));
+        if (!matches) return appointment;
+        return {
+          ...appointment,
+          client_cpf: normalizedCpf || appointment.client_cpf || '',
+          client_street: normalizedStreet || '',
+        };
+      })
+    );
+
+    return {
+      normalizedCpf,
+      normalizedStreet,
+      normalizedWhatsapp,
+    };
+  };
+
+  const handleEditClientContact = (client: Client) => {
+    setEditingClientContact(client.whatsapp);
+    setNewClientContactCpf(String(client.cpf || ''));
+    setNewClientContactStreet(String(client.street || ''));
+  };
+
+  const handleSaveClientContact = async (client: Client) => {
+    setIsSavingClientContact(true);
+    try {
+      await persistClientContactByWhatsapp(
+        client.whatsapp,
+        client.name,
+        newClientContactCpf,
+        newClientContactStreet
+      );
+      setEditingClientContact(null);
+      setNewClientContactCpf('');
+      setNewClientContactStreet('');
+      toast('Contato do cliente atualizado com sucesso!', 'success');
+    } catch (error: any) {
+      const msg = String(error?.message || error?.error || 'Erro ao salvar contato do cliente');
+      const details = String(error?.details || '').trim();
+      const hint = String(error?.hint || '').trim();
+      const code = String(error?.code || '').trim();
+      toast(
+        msg +
+        (code ? ` (código ${code})` : '') +
+        (details ? ` • ${details}` : '') +
+        (hint ? ` • ${hint}` : ''),
+        'error'
+      );
+    } finally {
+      setIsSavingClientContact(false);
+    }
+  };
+
+  const handleStartEditAppointmentContact = (appointment: Appointment) => {
+    setEditingAppointmentContactId(appointment.id);
+    setEditingAppointmentClientCpf(String(appointment.client_cpf || ''));
+    setEditingAppointmentClientStreet(String((appointment as any).client_street || ''));
+  };
+
+  const handleSaveAppointmentContact = async (appointment: Appointment) => {
+    setIsSavingClientContact(true);
+    try {
+      const normalizedCpf = String(editingAppointmentClientCpf || '').replace(/\D/g, '');
+      const normalizedStreet = String(editingAppointmentClientStreet || '').trim();
+      if (normalizedCpf && normalizedCpf.length !== 11) {
+        toast('CPF inválido. Informe 11 dígitos ou deixe em branco.', 'error');
+        return;
+      }
+
+      const normalizedWhatsapp = normalizeWhatsappForStorage(String(appointment.client_whatsapp || ''));
+      if (normalizedWhatsapp) {
+        await persistClientContactByWhatsapp(
+          normalizedWhatsapp,
+          String(appointment.client_name || 'Cliente'),
+          editingAppointmentClientCpf,
+          editingAppointmentClientStreet
+        );
+      } else {
+        setAppointments((prev) =>
+          prev.map((apt) =>
+            apt.id === appointment.id
+              ? { ...apt, client_cpf: normalizedCpf || '', client_street: normalizedStreet || '' }
+              : apt
+          )
+        );
+      }
+
+      if (normalizedCpf) {
+        const { error } = await supabase
+          .from('appointments')
+          .update({ client_cpf: normalizedCpf })
+          .eq('id', appointment.id);
+        if (error) {
+          console.warn('⚠️ Não foi possível sincronizar CPF no agendamento:', error);
+        }
+      }
+
+      setEditingAppointmentContactId(null);
+      setEditingAppointmentClientCpf('');
+      setEditingAppointmentClientStreet('');
+      toast('Contato do cliente atualizado no agendamento!', 'success');
+    } catch (error: any) {
+      const msg = String(error?.message || error?.error || 'Erro ao salvar contato do cliente');
+      const details = String(error?.details || '').trim();
+      const hint = String(error?.hint || '').trim();
+      const code = String(error?.code || '').trim();
+      toast(
+        msg +
+        (code ? ` (código ${code})` : '') +
+        (details ? ` • ${details}` : '') +
+        (hint ? ` • ${hint}` : ''),
+        'error'
+      );
+    } finally {
+      setIsSavingClientContact(false);
+    }
+  };
+
   const saveBirthday = async (clientWhatsapp: string, birthday: string) => {
     try {
       console.log('🎂 Salvando aniversário:', { clientWhatsapp, birthday });
@@ -12780,6 +13173,8 @@ Estamos te aguardando! 😎✂️`;
             name: client.name,
             whatsapp: cleanWhatsapp,
             birthday: client.birthday,
+            cpf: String((client as any)?.cpf || '').replace(/\D/g, '') || null,
+            street: String((client as any)?.street || '').trim() || null,
             alert: client.alert,
             forceAdvancePayment: client.force_advance_payment === true,
             addedAt: client.created_at,
@@ -12791,6 +13186,28 @@ Estamos te aguardando! 😎✂️`;
       } else {
         console.log('📋 Nenhum cliente manual encontrado no Supabase');
       }
+
+      // Mesclar dados extras do localStorage (fallback/compatibilidade quando coluna nova não existir no banco).
+      const storageKey = `manual_clients_${establishment.id}`;
+      const localManualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      Object.entries(localManualClients).forEach(([rawWhatsapp, rawData]: [string, any]) => {
+        const cleanWhatsapp = String(rawWhatsapp || '').replace(/\D/g, '');
+        if (!cleanWhatsapp) return;
+        const current = clientsMap[cleanWhatsapp] || {};
+        clientsMap[cleanWhatsapp] = {
+          ...current,
+          name: current.name || rawData?.name || '',
+          whatsapp: current.whatsapp || cleanWhatsapp,
+          birthday: current.birthday || rawData?.birthday || null,
+          cpf: current.cpf || String(rawData?.cpf || '').replace(/\D/g, '') || null,
+          street: current.street || String(rawData?.street || '').trim() || null,
+          alert: current.alert || rawData?.alert || null,
+          forceAdvancePayment:
+            current.forceAdvancePayment === true || rawData?.forceAdvancePayment === true,
+          addedAt: current.addedAt || rawData?.addedAt || new Date().toISOString(),
+          appointmentCount: Number(current.appointmentCount || rawData?.appointmentCount || 0),
+        };
+      });
 
       return clientsMap;
 
@@ -13038,6 +13455,13 @@ Estamos te aguardando! 😎✂️`;
       return;
     }
     const normalizedBirthday = parsedNewClientBirthday.iso || null;
+    const normalizedCpf = String(newClientCpf || '').replace(/\D/g, '');
+    const normalizedStreet = String(newClientStreet || '').trim();
+
+    if (normalizedCpf && normalizedCpf.length !== 11) {
+      toast('CPF inválido. Informe 11 dígitos ou deixe em branco.', 'error');
+      return;
+    }
 
     try {
       // Atualizar sessão do Supabase antes de inserir (resolve problemas no iPhone)
@@ -13055,18 +13479,43 @@ Estamos te aguardando! 😎✂️`;
       let savedData;
       if (existingClient) {
         // Atualizar cliente existente
-        const { data, error } = await supabase
+        const updatePayloadBase: any = {
+          name: newClientName.trim(),
+          whatsapp: normalizedWhatsapp, // garantir padrão único (55 + DDD)
+          birthday: normalizedBirthday,
+          force_advance_payment: existingClient.force_advance_payment === true,
+          updated_at: new Date().toISOString()
+        };
+        let data: any = null;
+        let error: any = null;
+        const withExtra = {
+          ...updatePayloadBase,
+          cpf: normalizedCpf || null,
+          street: normalizedStreet || null,
+        };
+        const tryWithExtra = await supabase
           .from('manual_clients')
-          .update({
-            name: newClientName.trim(),
-            whatsapp: normalizedWhatsapp, // garantir padrão único (55 + DDD)
-            birthday: normalizedBirthday,
-            force_advance_payment: existingClient.force_advance_payment === true,
-            updated_at: new Date().toISOString()
-          })
+          .update(withExtra)
           .eq('id', existingClient.id)
           .select()
           .single();
+        data = tryWithExtra.data;
+        error = tryWithExtra.error;
+
+        if (error) {
+          const message = String(error?.message || '').toLowerCase();
+          const missingColumn = message.includes('column') && (message.includes('cpf') || message.includes('street'));
+          if (missingColumn) {
+            const fallback = await supabase
+              .from('manual_clients')
+              .update(updatePayloadBase)
+              .eq('id', existingClient.id)
+              .select()
+              .single();
+            data = fallback.data;
+            error = fallback.error;
+          }
+        }
 
         if (error) {
           console.error('❌ Erro ao atualizar no Supabase:', error);
@@ -13076,17 +13525,41 @@ Estamos te aguardando! 😎✂️`;
         console.log('✅ Cliente manual atualizado no banco de dados:', savedData);
       } else {
         // Criar novo cliente
-        const { data, error } = await supabase
+        const insertPayloadBase: any = {
+          establishment_id: establishment.id,
+          name: newClientName.trim(),
+          whatsapp: normalizedWhatsapp,
+          birthday: normalizedBirthday,
+          force_advance_payment: false
+        };
+        let data: any = null;
+        let error: any = null;
+        const withExtra = {
+          ...insertPayloadBase,
+          cpf: normalizedCpf || null,
+          street: normalizedStreet || null,
+        };
+        const tryWithExtra = await supabase
           .from('manual_clients')
-          .insert({
-            establishment_id: establishment.id,
-            name: newClientName.trim(),
-            whatsapp: normalizedWhatsapp,
-            birthday: normalizedBirthday,
-            force_advance_payment: false
-          })
+          .insert(withExtra)
           .select()
           .single();
+        data = tryWithExtra.data;
+        error = tryWithExtra.error;
+
+        if (error) {
+          const message = String(error?.message || '').toLowerCase();
+          const missingColumn = message.includes('column') && (message.includes('cpf') || message.includes('street'));
+          if (missingColumn) {
+            const fallback = await supabase
+              .from('manual_clients')
+              .insert(insertPayloadBase)
+              .select()
+              .single();
+            data = fallback.data;
+            error = fallback.error;
+          }
+        }
 
         if (error) {
           console.error('❌ Erro ao salvar no Supabase:', error);
@@ -13108,6 +13581,8 @@ Estamos te aguardando! 😎✂️`;
         name: newClientName.trim(),
         whatsapp: normalizedWhatsapp,
         birthday: normalizedBirthday,
+        cpf: normalizedCpf || null,
+        street: normalizedStreet || null,
         forceAdvancePayment: manualClients[normalizedWhatsapp]?.forceAdvancePayment === true,
         addedAt: new Date().toISOString(),
         appointmentCount: 0
@@ -13135,6 +13610,8 @@ Estamos te aguardando! 😎✂️`;
       setNewClientName('');
       setNewClientWhatsapp('');
       setNewClientBirthday('');
+      setNewClientCpf('');
+      setNewClientStreet('');
       setShowAddClientModal(false);
 
       // Recarregar lista de clientes
@@ -13161,6 +13638,8 @@ Estamos te aguardando! 😎✂️`;
           name: newClientName.trim(),
           whatsapp: normalizedWhatsapp,
           birthday: normalizedBirthday,
+          cpf: normalizedCpf || null,
+          street: normalizedStreet || null,
           forceAdvancePayment: manualClients[normalizedWhatsapp]?.forceAdvancePayment === true,
           addedAt: new Date().toISOString(),
           appointmentCount: 0
@@ -13173,6 +13652,8 @@ Estamos te aguardando! 😎✂️`;
         setNewClientName('');
         setNewClientWhatsapp('');
         setNewClientBirthday('');
+        setNewClientCpf('');
+        setNewClientStreet('');
         setShowAddClientModal(false);
 
         // Recarregar lista de clientes
@@ -14484,8 +14965,14 @@ Estamos te aguardando! 😎✂️`;
       // Regra: para BR, tratar "55 + DDD + número" e "DDD + número" como o MESMO cliente.
       // (Evita duplicar cadastros quando um registro vem com 55 e outro sem 55.)
       const normalizeWhatsappKey = (raw: any) => {
-        const digits = String(raw || '').replace(/\D/g, '');
+        const onlyDigits = String(raw || '').replace(/\D/g, '');
+        let digits = onlyDigits;
         if (!digits) return '';
+
+        // Compatibilidade: pode existir prefixo 55 duplicado em dados antigos.
+        while (digits.startsWith('55') && digits.length > 11) {
+          digits = digits.slice(2);
+        }
 
         if (digits.startsWith('55')) {
           const after = digits.slice(2);
@@ -14505,19 +14992,22 @@ Estamos te aguardando! 😎✂️`;
           if (after.length === 10 || after.length === 11) return after;
         }
 
+        if (digits.length > 11) return digits.slice(-11);
         return digits;
       };
 
       const possibleWhatsappLookupKeys = (raw: any): string[] => {
         const digits = String(raw || '').replace(/\D/g, '');
-        if (!digits) return [];
-        if (digits.startsWith('55')) {
-          const after = digits.slice(2);
-          return [digits, after].filter(Boolean);
+        const normalized = normalizeWhatsappKey(raw);
+        if (!digits && !normalized) return [];
+        const keys = new Set<string>();
+        if (digits) keys.add(digits);
+        if (normalized) keys.add(normalized);
+        if (digits.startsWith('55') && digits.length > 2) keys.add(digits.slice(2));
+        if (normalized && (normalized.length === 10 || normalized.length === 11)) {
+          keys.add(`55${normalized}`);
         }
-        // Se for BR local (10/11), também considerar com 55
-        if (digits.length === 10 || digits.length === 11) return [digits, `55${digits}`];
-        return [digits];
+        return Array.from(keys).filter(Boolean);
       };
 
       appointmentsData.forEach(appointment => {
@@ -14599,6 +15089,8 @@ Estamos te aguardando! 😎✂️`;
             id: `manual_${cleanManualWhatsapp}`, // ID único para cliente manual
             whatsapp: String(manualClient.whatsapp || '').replace(/\D/g, '') || cleanManualWhatsapp,
             name: manualClient.name,
+            cpf: String(manualClient.cpf || '').replace(/\D/g, '') || null,
+            street: String(manualClient.street || '').trim() || null,
             appointmentCount: 0,
             isSubscriber: false,
             birthday: manualClient.birthday,
@@ -14610,6 +15102,8 @@ Estamos te aguardando! 😎✂️`;
           existingClient.name = manualClient.name;
           // Priorizar whatsapp salvo no manual_clients (evita alternar formatos)
           existingClient.whatsapp = String(manualClient.whatsapp || '').replace(/\D/g, '') || existingClient.whatsapp;
+          existingClient.cpf = String(manualClient.cpf || '').replace(/\D/g, '') || existingClient.cpf || null;
+          existingClient.street = String(manualClient.street || '').trim() || existingClient.street || null;
           if (manualClient.birthday) {
             existingClient.birthday = manualClient.birthday;
           }
@@ -14654,39 +15148,31 @@ Estamos te aguardando! 😎✂️`;
 
       // ✅ Buscar faltas no banco (interno) e mesclar por WhatsApp
       try {
-        // Para buscar faltas, usar chaves possíveis (com e sem 55) e deduplicar
-        const whList = Array.from(
-          new Set(
-            uniqueClients
-              .flatMap((c) => possibleWhatsappLookupKeys(c.whatsapp))
-              .map((x) => String(x || '').replace(/\D/g, ''))
-              .filter(Boolean)
-          )
-        );
-        if (whList.length > 0) {
-          const { data: faltasData, error: faltasErr } = await supabase
-            .from('client_no_shows')
-            .select('client_whatsapp, misses')
-            .eq('establishment_id', establishment.id)
-            .in('client_whatsapp', whList);
+        const { data: faltasData, error: faltasErr } = await supabase
+          .from('client_no_shows')
+          .select('client_whatsapp, misses')
+          .eq('establishment_id', establishment.id);
 
-          if (!faltasErr) {
-            const map = new Map<string, number>();
-            (faltasData as any[])?.forEach((r: any) => {
-              map.set(String(r.client_whatsapp || '').replace(/\D/g, ''), Number(r.misses || 0));
+        if (!faltasErr) {
+          const map = new Map<string, number>();
+          (faltasData as any[])?.forEach((r: any) => {
+            const phone = String(r.client_whatsapp || '').replace(/\D/g, '');
+            const keys = possibleWhatsappLookupKeys(phone).map((k) => String(k || '').replace(/\D/g, ''));
+            keys.forEach((k) => {
+              if (!k) return;
+              map.set(k, Number(r.misses || 0));
             });
-            uniqueClients.forEach((c) => {
-              // tentar achar por qualquer key (com/sem 55)
-              const keys = possibleWhatsappLookupKeys(c.whatsapp).map((k) => String(k || '').replace(/\D/g, ''));
-              const found = keys.map((k) => map.get(k)).find((v) => v !== undefined);
-              c.faltas = found ?? 0;
-            });
-          } else {
-            const msg = String((faltasErr as any)?.message || '');
-            console.warn('⚠️ Não foi possível carregar faltas (client_no_shows):', faltasErr);
-            if (msg.includes('does not exist') || msg.includes('schema cache')) {
-              uniqueClients.forEach((c) => (c.faltas = 0));
-            }
+          });
+          uniqueClients.forEach((c) => {
+            const keys = possibleWhatsappLookupKeys(c.whatsapp).map((k) => String(k || '').replace(/\D/g, ''));
+            const found = keys.map((k) => map.get(k)).find((v) => v !== undefined);
+            c.faltas = found ?? 0;
+          });
+        } else {
+          const msg = String((faltasErr as any)?.message || '');
+          console.warn('⚠️ Não foi possível carregar faltas (client_no_shows):', faltasErr);
+          if (msg.includes('does not exist') || msg.includes('schema cache')) {
+            uniqueClients.forEach((c) => (c.faltas = 0));
           }
         }
       } catch (e) {
@@ -21329,15 +21815,72 @@ Estamos te aguardando! 😎✂️`;
                                           )}
                                         </div>
 
-                                        {/* CPF - Só exibir se existir */}
-                                        {appointment.client_cpf && (
-                                          <div className="mt-2 px-3 py-2 bg-white/5 rounded-md border border-white/10">
-                                            <span className="text-xs text-white/60 font-medium">CPF:</span>
-                                            <span className="text-sm text-white ml-2">
-                                              {appointment.client_cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')}
-                                            </span>
-                                          </div>
-                                        )}
+                                        <div className="mt-2 px-3 py-2 bg-white rounded-md border border-white/30 space-y-2">
+                                          {editingAppointmentContactId === appointment.id ? (
+                                            <>
+                                              <input
+                                                type="text"
+                                                value={editingAppointmentClientCpf}
+                                                onChange={(e) => setEditingAppointmentClientCpf(e.target.value)}
+                                                placeholder="CPF (opcional)"
+                                                className="w-full px-2 py-1 text-sm bg-white border border-gray-300 rounded text-gray-900 placeholder-gray-500"
+                                              />
+                                              <input
+                                                type="text"
+                                                value={editingAppointmentClientStreet}
+                                                onChange={(e) => setEditingAppointmentClientStreet(e.target.value)}
+                                                placeholder="Rua / Endereço (opcional)"
+                                                className="w-full px-2 py-1 text-sm bg-white border border-gray-300 rounded text-gray-900 placeholder-gray-500"
+                                              />
+                                              <div className="flex items-center gap-2">
+                                                <button
+                                                  type="button"
+                                                  disabled={isSavingClientContact}
+                                                  onClick={() => handleSaveAppointmentContact(appointment as Appointment)}
+                                                  className="px-2 py-1 text-xs font-bold rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-60"
+                                                >
+                                                  Salvar contato
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  disabled={isSavingClientContact}
+                                                  onClick={() => {
+                                                    setEditingAppointmentContactId(null);
+                                                    setEditingAppointmentClientCpf('');
+                                                    setEditingAppointmentClientStreet('');
+                                                  }}
+                                                  className="px-2 py-1 text-xs font-bold rounded bg-gray-200 text-gray-800 hover:bg-gray-300"
+                                                >
+                                                  Cancelar
+                                                </button>
+                                              </div>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <div>
+                                                <span className="text-xs text-gray-600 font-medium">CPF:</span>
+                                                <span className="text-sm text-gray-900 ml-2">
+                                                  {appointment.client_cpf ? formatCpfDisplay(appointment.client_cpf) : 'Não informado'}
+                                                </span>
+                                              </div>
+                                              <div>
+                                                <span className="text-xs text-gray-600 font-medium">Endereço:</span>
+                                                <span className="text-sm text-gray-900 ml-2">
+                                                  {(appointment as any).client_street || 'Não informado'}
+                                                </span>
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleStartEditAppointmentContact(appointment as Appointment)}
+                                                className="text-xs text-gray-700 underline font-semibold hover:text-black"
+                                              >
+                                                {appointment.client_cpf || (appointment as any).client_street
+                                                  ? 'Editar CPF/endereço'
+                                                  : 'Adicionar CPF/endereço'}
+                                              </button>
+                                            </>
+                                          )}
+                                        </div>
 
                                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-white/90">
                                           <span className="inline-flex items-center gap-1">
@@ -28854,6 +29397,8 @@ Estamos te aguardando! 😎✂️`;
                       </div>
                     ) : (
                       paginatedClients.map((client, index) => {
+                        const clientCardKey = `${String(client.id || 'manual')}_${String(client.whatsapp || '').replace(/\D/g, '')}`;
+                        const isExpandedClientCard = Boolean(expandedClientCards[clientCardKey]);
                         const chance = getClienteChanceFalta(client);
                         const nivel = getClienteNivel(chance);
                         const nivelUi = getNivelClasses(nivel);
@@ -28921,17 +29466,7 @@ Estamos te aguardando! 😎✂️`;
                               </div>
                             </div>
 
-                            <div className="flex items-center justify-between gap-2 mb-2">
-                              <span className={`px-2 py-1 rounded-lg text-[11px] font-extrabold ${nivelUi.badge}`}>
-                                {getNivelLabel(nivel)} {chance}% {chance > 40 ? '⚠️' : ''}
-                              </span>
-                              <span className="text-[11px] text-gray-600">
-                                Faltas: <strong className="text-gray-900">{Number(client.faltas || 0)}</strong>
-                              </span>
-                            </div>
-
-                            {/* WhatsApp */}
-                            <div className="text-gray-700 flex items-center gap-2 mb-1">
+                            <div className="text-gray-700 flex items-center gap-2 mb-3">
                               <Phone className="h-4 w-4 text-gray-600" />
                               {editingClient === client.whatsapp ? (
                                 <input
@@ -28945,6 +29480,32 @@ Estamos te aguardando! 😎✂️`;
                                 <span className="text-gray-700">{client.whatsapp}</span>
                               )}
                             </div>
+
+                            <div className="mb-3">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedClientCards((prev) => ({
+                                    ...prev,
+                                    [clientCardKey]: !isExpandedClientCard,
+                                  }))
+                                }
+                                className="w-full px-3 py-2 rounded-lg bg-gray-100 text-gray-900 hover:bg-gray-200 transition-colors text-xs font-extrabold"
+                              >
+                                {isExpandedClientCard ? 'Ver menos' : 'Ver mais'}
+                              </button>
+                            </div>
+
+                            {isExpandedClientCard && (
+                            <>
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <span className={`px-2 py-1 rounded-lg text-[11px] font-extrabold ${nivelUi.badge}`}>
+                                  {getNivelLabel(nivel)} {chance}% {chance > 40 ? '⚠️' : ''}
+                                </span>
+                                <span className="text-[11px] text-gray-600">
+                                  Faltas: <strong className="text-gray-900">{Number(client.faltas || 0)}</strong>
+                                </span>
+                              </div>
                             <p className="text-gray-700 flex items-center gap-2 mb-1">
                               <Calendar className="h-4 w-4 text-gray-600" />
                               Agendamentos: {client.appointmentCount}
@@ -28953,6 +29514,64 @@ Estamos te aguardando! 😎✂️`;
                               <span className="text-gray-600">✅</span>
                               Realizados: {Number(client.completedCount || 0)}
                             </p>
+                            {editingClientContact === client.whatsapp ? (
+                              <div className="mb-3 rounded-lg border border-gray-300 bg-gray-50 p-3 space-y-2">
+                                <input
+                                  type="text"
+                                  value={newClientContactCpf}
+                                  onChange={(e) => setNewClientContactCpf(e.target.value)}
+                                  placeholder="CPF (opcional)"
+                                  className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary text-gray-900 bg-white placeholder-gray-500"
+                                />
+                                <input
+                                  type="text"
+                                  value={newClientContactStreet}
+                                  onChange={(e) => setNewClientContactStreet(e.target.value)}
+                                  placeholder="Rua / Endereço (opcional)"
+                                  className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary text-gray-900 bg-white placeholder-gray-500"
+                                />
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={isSavingClientContact}
+                                    onClick={() => handleSaveClientContact(client)}
+                                    className="px-3 py-1 rounded bg-black text-white text-xs font-bold disabled:opacity-60"
+                                  >
+                                    Salvar contato
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isSavingClientContact}
+                                    onClick={() => {
+                                      setEditingClientContact(null);
+                                      setNewClientContactCpf('');
+                                      setNewClientContactStreet('');
+                                    }}
+                                    className="px-3 py-1 rounded bg-gray-200 text-gray-800 text-xs font-bold"
+                                  >
+                                    Cancelar
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="mb-2">
+                                <p className="text-gray-700 flex items-center gap-2 mb-1">
+                                  <span className="text-gray-600">🪪</span>
+                                  CPF: {client.cpf ? formatCpfDisplay(client.cpf) : 'Não informado'}
+                                </p>
+                                <p className="text-gray-700 flex items-center gap-2 mb-1">
+                                  <span className="text-gray-600">📍</span>
+                                  Rua: {client.street ? client.street : 'Não informado'}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditClientContact(client)}
+                                  className="text-xs text-gray-700 hover:text-black font-semibold underline"
+                                >
+                                  {client.cpf || client.street ? 'Editar CPF/endereço' : 'Adicionar CPF/endereço'}
+                                </button>
+                              </div>
+                            )}
 
                             {/* Campo de aniversário */}
                             <div className="text-gray-700 flex items-center gap-2 mb-4">
@@ -29138,7 +29757,7 @@ Estamos te aguardando! 😎✂️`;
                               </button>
                             </div>
 
-                            <a
+                              <a
                               href={(() => {
                                 let phoneNumber = client.whatsapp.replace(/\D/g, '');
                                 // Lista de códigos de países comuns
@@ -29162,10 +29781,12 @@ Estamos te aguardando! 😎✂️`;
                               target="_blank"
                               rel="noopener noreferrer"
                               className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
-                            >
-                              <MessageSquare className="h-5 w-5" />
-                              Enviar Mensagem
-                            </a>
+                              >
+                                <MessageSquare className="h-5 w-5" />
+                                Enviar Mensagem
+                              </a>
+                            </>
+                            )}
                           </div>
                         );
                       })
@@ -30167,6 +30788,30 @@ Estamos te aguardando! 😎✂️`;
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
                     />
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      CPF (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={newClientCpf}
+                      onChange={(e) => setNewClientCpf(e.target.value)}
+                      placeholder="Ex: 12345678901"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white placeholder-gray-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Rua / Endereço (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={newClientStreet}
+                      onChange={(e) => setNewClientStreet(e.target.value)}
+                      placeholder="Ex: Rua das Flores, 123"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white placeholder-gray-500"
+                    />
+                  </div>
                 </div>
 
                 <div className="flex gap-3 mt-6">
@@ -30176,6 +30821,8 @@ Estamos te aguardando! 😎✂️`;
                       setNewClientName('');
                       setNewClientWhatsapp('');
                       setNewClientBirthday('');
+                      setNewClientCpf('');
+                      setNewClientStreet('');
                     }}
                     className="flex-1 px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
                   >

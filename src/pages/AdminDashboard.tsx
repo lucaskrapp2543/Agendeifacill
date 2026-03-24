@@ -1424,6 +1424,7 @@ const AdminDashboard = () => {
         .from('establishments')
         .select('*')
         .eq('is_deleted', true)
+        .order('updated_at', { ascending: false })
         .order('created_at', { ascending: false });
 
       if (deletedError) throw deletedError;
@@ -1841,7 +1842,13 @@ const AdminDashboard = () => {
       // Encontrar o estabelecimento para adicionar à lista de excluídos
       establishmentToDelete = establishments.find(est => est.id === establishmentId);
       if (establishmentToDelete) {
-        setDeletedEstablishments(prev => [...prev, establishmentToDelete]);
+        const nowIso = new Date().toISOString();
+        const deletedDraft = {
+          ...(establishmentToDelete as any),
+          is_deleted: true,
+          updated_at: nowIso,
+        } as Establishment;
+        setDeletedEstablishments(prev => [deletedDraft, ...prev]);
       }
 
       // Remover da lista de estabelecimentos ativos
@@ -1850,7 +1857,7 @@ const AdminDashboard = () => {
       // Marcar como excluído no banco de dados
       const { error } = await supabase
         .from('establishments')
-        .update({ is_deleted: true })
+        .update({ is_deleted: true, updated_at: new Date().toISOString() } as any)
         .eq('id', establishmentId);
 
       if (error) throw error;
@@ -1872,7 +1879,13 @@ const AdminDashboard = () => {
       // Encontrar o estabelecimento para adicionar à lista de excluídos
       const establishmentToDelete = establishments.find(est => est.id === establishmentId);
       if (establishmentToDelete) {
-        setDeletedEstablishments(prev => [...prev, establishmentToDelete]);
+        const nowIso = new Date().toISOString();
+        const deletedDraft = {
+          ...(establishmentToDelete as any),
+          is_deleted: true,
+          updated_at: nowIso,
+        } as Establishment;
+        setDeletedEstablishments(prev => [deletedDraft, ...prev]);
       }
 
       // Remover da lista de estabelecimentos ativos
@@ -1881,7 +1894,7 @@ const AdminDashboard = () => {
       // Marcar como excluído no banco de dados
       const { error } = await supabase
         .from('establishments')
-        .update({ is_deleted: true })
+        .update({ is_deleted: true, updated_at: new Date().toISOString() } as any)
         .eq('id', establishmentId);
 
       if (error) throw error;
@@ -1913,7 +1926,7 @@ const AdminDashboard = () => {
       // Marcar como não excluído no banco de dados
       const { error } = await supabase
         .from('establishments')
-        .update({ is_deleted: false })
+        .update({ is_deleted: false, updated_at: new Date().toISOString() } as any)
         .eq('id', establishmentId);
 
       if (error) throw error;
@@ -2942,6 +2955,20 @@ const AdminDashboard = () => {
     : deletedEstablishments;
   const deletedNormalBase = deletedBaseForSearch.filter((est) => !deletedContainmentIdSet.has(est.id));
   const deletedContainmentBase = deletedBaseForSearch.filter((est) => deletedContainmentIdSet.has(est.id));
+  const getTrashOrderTimestamp = (est: Establishment) => {
+    const deletedAt = String((est as any)?.deleted_at || '').trim();
+    const updatedAt = String((est as any)?.updated_at || '').trim();
+    const createdAt = String(est?.created_at || '').trim();
+
+    const deletedAtTs = deletedAt ? new Date(deletedAt).getTime() : NaN;
+    if (Number.isFinite(deletedAtTs)) return deletedAtTs;
+
+    const updatedAtTs = updatedAt ? new Date(updatedAt).getTime() : NaN;
+    if (Number.isFinite(updatedAtTs)) return updatedAtTs;
+
+    const createdAtTs = createdAt ? new Date(createdAt).getTime() : NaN;
+    return Number.isFinite(createdAtTs) ? createdAtTs : 0;
+  };
   const deletedSearchMatches = (establishment: Establishment) => {
     const rawTokens = String(searchTermDeleted || '')
       .split(/\s+/)
@@ -2988,8 +3015,12 @@ const AdminDashboard = () => {
       })
     );
   };
-  const filteredDeletedEstablishments = deletedNormalBase.filter(deletedSearchMatches);
-  const filteredDeletedContainmentEstablishments = deletedContainmentBase.filter(deletedSearchMatches);
+  const filteredDeletedEstablishments = deletedNormalBase
+    .filter(deletedSearchMatches)
+    .sort((a, b) => getTrashOrderTimestamp(b) - getTrashOrderTimestamp(a));
+  const filteredDeletedContainmentEstablishments = deletedContainmentBase
+    .filter(deletedSearchMatches)
+    .sort((a, b) => getTrashOrderTimestamp(b) - getTrashOrderTimestamp(a));
 
   // Saldo (lucro) manual total — não inclui lixeira pois establishments já vem filtrado
   const totalAdminProfit = establishments.reduce((sum, est) => {
