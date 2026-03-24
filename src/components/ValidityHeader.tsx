@@ -72,10 +72,15 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
 
   const getStatusColor = () => {
     if (!validity) return 'text-gray-500';
+    const normalizedStatus = String(validity.payment_status || '').toLowerCase().trim();
 
-    if (validity.payment_status === 'expired' || daysRemaining < 0) {
+    if (normalizedStatus === 'expired' || daysRemaining < 0) {
       return 'text-red-500';
-    } else if (daysRemaining === 2) {
+    } else if (daysRemaining === 0) {
+      return 'text-red-600';
+    } else if (normalizedStatus === 'paid') {
+      return 'text-green-600';
+    } else if (daysRemaining <= 2) {
       return 'text-red-600';
     } else if (daysRemaining <= 7) {
       return 'text-yellow-500';
@@ -86,9 +91,14 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
 
   const getStatusIcon = () => {
     if (!validity) return <Calendar className="h-4 w-4" />;
+    const normalizedStatus = String(validity.payment_status || '').toLowerCase().trim();
 
-    if (validity.payment_status === 'expired' || daysRemaining < 0) {
+    if (normalizedStatus === 'expired' || daysRemaining < 0) {
       return <AlertTriangle className="h-4 w-4" />;
+    } else if (daysRemaining === 0) {
+      return <AlertTriangle className="h-4 w-4" />;
+    } else if (normalizedStatus === 'paid') {
+      return <Calendar className="h-4 w-4" />;
     } else {
       return <Clock className="h-4 w-4" />;
     }
@@ -96,13 +106,16 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
 
   const getStatusText = () => {
     if (!validity || isLoading) return 'Carregando...';
+    const normalizedStatus = String(validity.payment_status || '').toLowerCase().trim();
 
-    if (validity.payment_status === 'expired' || daysRemaining < 0) {
+    if (normalizedStatus === 'expired' || daysRemaining < 0) {
       const daysOverdue = Math.abs(daysRemaining);
       const daysUntilBlock = Math.max(0, 4 - daysOverdue);
       return `⚠️ Vencido há ${daysOverdue} dia${daysOverdue !== 1 ? 's' : ''} - Acesso bloqueia em ${daysUntilBlock} dia${daysUntilBlock !== 1 ? 's' : ''}!`;
     } else if (daysRemaining === 0) {
       return 'Vence hoje';
+    } else if (normalizedStatus === 'paid') {
+      return 'Em dia';
     } else if (daysRemaining === 1) {
       return 'Vence amanhã';
     } else {
@@ -134,14 +147,21 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
     );
   }
 
-  // Aviso chamativo exatamente 2 dias antes do vencimento.
-  if (daysRemaining === 2 && validity.payment_status !== 'expired') {
+  // Aviso chamativo em 2 dias, 1 dia e no dia do vencimento (somente quando ainda não está pago).
+  const normalizedHeaderStatus = String(validity.payment_status || '').toLowerCase().trim();
+  if (daysRemaining <= 2 && daysRemaining >= 0 && normalizedHeaderStatus !== 'expired') {
+    const alertTitle =
+      daysRemaining === 0
+        ? '⚠️ VENCE HOJE!'
+        : daysRemaining === 1
+          ? '⚠️ FALTA 1 DIA PARA O VENCIMENTO!'
+          : '⚠️ FALTAM 2 DIAS PARA O VENCIMENTO!';
     return (
       <>
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2 text-sm font-bold text-red-600 bg-red-100 px-4 py-2 rounded-lg border-2 border-red-400 animate-red-blink shadow-lg">
             <AlertTriangle className="h-5 w-5 animate-bounce" />
-            <span>⚠️ FALTAM 2 DIAS PARA O VENCIMENTO!</span>
+            <span>{alertTitle}</span>
           </div>
           <div className="bg-gradient-to-r from-red-600 to-red-700 text-white px-4 py-2 rounded-lg border-2 border-red-400 animate-red-blink shadow-lg">
             <p className="text-xs font-semibold text-center mb-2">

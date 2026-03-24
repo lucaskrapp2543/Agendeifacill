@@ -73,9 +73,14 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
 
   const getStatusColor = () => {
     if (!validity) return 'text-gray-400';
+    const normalizedStatus = String(validity.payment_status || '').toLowerCase().trim();
 
-    if (validity.payment_status === 'expired' || daysRemaining < 0) {
+    if (normalizedStatus === 'expired' || daysRemaining < 0) {
       return 'text-red-500';
+    } else if (daysRemaining === 0) {
+      return 'text-red-500';
+    } else if (normalizedStatus === 'paid') {
+      return 'text-green-500';
     } else if (daysRemaining <= 7) {
       return 'text-yellow-500';
     } else {
@@ -85,9 +90,14 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
 
   const getStatusIcon = () => {
     if (!validity) return <Calendar className="h-4 w-4" />;
+    const normalizedStatus = String(validity.payment_status || '').toLowerCase().trim();
 
-    if (validity.payment_status === 'expired' || daysRemaining < 0) {
+    if (normalizedStatus === 'expired' || daysRemaining < 0) {
       return <AlertTriangle className="h-4 w-4" />;
+    } else if (daysRemaining === 0) {
+      return <AlertTriangle className="h-4 w-4" />;
+    } else if (normalizedStatus === 'paid') {
+      return <Calendar className="h-4 w-4" />;
     } else if (daysRemaining <= 7) {
       return <Clock className="h-4 w-4" />;
     } else {
@@ -97,11 +107,14 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
 
   const getStatusText = () => {
     if (!validity) return 'Carregando...';
+    const normalizedStatus = String(validity.payment_status || '').toLowerCase().trim();
 
-    if (validity.payment_status === 'expired' || daysRemaining < 0) {
+    if (normalizedStatus === 'expired' || daysRemaining < 0) {
       return 'Vencido';
     } else if (daysRemaining === 0) {
       return 'Vence hoje';
+    } else if (normalizedStatus === 'paid') {
+      return 'Em dia';
     } else if (daysRemaining === 1) {
       return 'Vence amanhã';
     } else {
@@ -110,7 +123,11 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
   };
 
   // Verifica se está em dia (mais de 7 dias restantes e não está vencido)
-  const isInGoodStanding = validity && daysRemaining > 7 && validity.payment_status !== 'expired' && daysRemaining >= 0;
+  const normalizedDisplayStatus = String(validity.payment_status || '').toLowerCase().trim();
+  const isInGoodStanding = validity && (
+    (normalizedDisplayStatus === 'paid' && daysRemaining > 0) ||
+    (daysRemaining > 7 && normalizedDisplayStatus !== 'expired' && daysRemaining >= 0)
+  );
 
   if (isLoading) {
     return (
@@ -166,13 +183,19 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
           </span>
         </div>
 
-        {daysRemaining === 2 && (
+        {daysRemaining <= 2 && daysRemaining >= 0 && normalizedDisplayStatus !== 'expired' && (
           <div className="mt-4 p-4 bg-gradient-to-r from-red-600 to-red-700 border-4 border-red-400 rounded-xl shadow-2xl animate-red-blink">
             <div className="space-y-3">
               <div className="flex items-center gap-3 text-white">
                 <AlertTriangle className="h-6 w-6 animate-bounce" />
                 <div className="flex-1">
-                  <p className="text-lg font-bold">⚠️ FALTAM 2 DIAS PARA O VENCIMENTO!</p>
+                  <p className="text-lg font-bold">
+                    {daysRemaining === 0
+                      ? '⚠️ VENCE HOJE!'
+                      : daysRemaining === 1
+                        ? '⚠️ FALTA 1 DIA PARA O VENCIMENTO!'
+                        : '⚠️ FALTAM 2 DIAS PARA O VENCIMENTO!'}
+                  </p>
                   <p className="text-sm text-red-100 font-semibold mt-2">
                     💰 Regularize o pagamento para evitar bloqueio do sistema.
                   </p>
@@ -189,7 +212,7 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
           </div>
         )}
 
-        {(validity.payment_status === 'expired' || daysRemaining < 0) && (
+        {(normalizedDisplayStatus === 'expired' || daysRemaining < 0) && (
           <div className="mt-4 p-4 bg-gradient-to-r from-red-600 to-red-700 border-4 border-red-400 rounded-xl shadow-2xl animate-pulse">
             <div className="space-y-3">
               <div className="flex items-center gap-3 text-white">

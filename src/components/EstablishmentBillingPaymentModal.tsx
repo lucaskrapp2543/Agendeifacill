@@ -297,7 +297,7 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
                 }`}
             >
               <p className="font-semibold">Cartão de crédito</p>
-              <p className="text-xs text-gray-300 mt-1">Em breve</p>
+              <p className="text-xs text-gray-300 mt-1">Recomendado</p>
             </button>
           </div>
 

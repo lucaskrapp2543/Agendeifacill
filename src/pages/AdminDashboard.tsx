@@ -1472,7 +1472,14 @@ const AdminDashboard = () => {
       );
 
       const paidWithAlertIds = establishmentsWithEmails
-        .filter((est) => est.payment_status === 'paid' && Boolean(est.payment_alert_enabled))
+        .filter((est) => {
+          const paymentStatus = String(est.payment_status || '').toLowerCase().trim();
+          if (paymentStatus !== 'paid') return false;
+          const dueDate = String(est.payment_due_date || '').trim();
+          const isDueOrExpired = Boolean(dueDate) && (isDueToday(dueDate) || isExpired(dueDate));
+          // Mantém alerta ligado para casos críticos (vence hoje / vencido), mesmo se status vier como "paid".
+          return Boolean(est.payment_alert_enabled) && !isDueOrExpired;
+        })
         .map((est) => est.id);
 
       if (paidWithAlertIds.length > 0) {
@@ -1491,6 +1498,38 @@ const AdminDashboard = () => {
         establishmentsWithEmails.forEach((est) => {
           if (paidWithAlertIds.includes(est.id)) {
             est.payment_alert_enabled = false;
+          }
+        });
+      }
+
+      // ✅ Regra automática: se venceu hoje OU está vencido, alerta deve ficar ligado (quando não está pago).
+      const shouldAutoEnableAlert = (est: any) => {
+        const paymentStatus = String(est?.payment_status || '').toLowerCase().trim();
+        const dueDate = String(est?.payment_due_date || '').trim();
+        if (!dueDate) return false;
+        return paymentStatus === 'expired' || isExpired(dueDate) || isDueToday(dueDate);
+      };
+
+      const shouldEnableAlertIds = establishmentsWithEmails
+        .filter((est) => shouldAutoEnableAlert(est) && !Boolean(est.payment_alert_enabled))
+        .map((est) => est.id);
+
+      if (shouldEnableAlertIds.length > 0) {
+        await Promise.all(
+          shouldEnableAlertIds.map(async (id) => {
+            const { error } = await supabase
+              .from('establishments')
+              .update({ payment_alert_enabled: true })
+              .eq('id', id);
+            if (error) {
+              console.warn('Falha ao ativar alerta automaticamente para estabelecimento vencido/vence hoje:', id, error);
+            }
+          })
+        );
+
+        establishmentsWithEmails.forEach((est) => {
+          if (shouldEnableAlertIds.includes(est.id)) {
+            est.payment_alert_enabled = true;
           }
         });
       }
