@@ -5068,36 +5068,86 @@ const EstablishmentDashboard = () => {
     const end = endOfMonth(referenceMonth);
     let hasSubscriptionValueColumn = true;
 
-    let { data: clientSubscriptions, error: subscriptionsError } = await supabase
-      .from('client_subscriptions')
-      .select(`
-        id,
-        start_date,
-        end_date,
-        payment_status,
-        last_payment_date,
-        subscription_payment_provider,
-        subscription_value,
-        subscriptions(value)
-      `)
-      .eq('establishment_id', establishment.id);
+    const isLocalDev =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    const subscriptionsSafeMode =
+      isLocalDev ||
+      (typeof window !== 'undefined' &&
+        window.sessionStorage.getItem('client_subscriptions_safe_mode') === '1');
 
-    if (subscriptionsError && String(subscriptionsError.message || '').toLowerCase().includes('subscription_value')) {
-      hasSubscriptionValueColumn = false;
-      const retry = await supabase
-        .from('client_subscriptions')
-        .select(`
-          id,
-          start_date,
-          end_date,
-          payment_status,
-          last_payment_date,
-          subscription_payment_provider,
-          subscriptions(value)
-        `)
-        .eq('establishment_id', establishment.id);
-      clientSubscriptions = retry.data;
-      subscriptionsError = retry.error;
+    let { data: clientSubscriptions, error: subscriptionsError } = subscriptionsSafeMode
+      ? await supabase
+          .from('client_subscriptions')
+          .select(`
+            id,
+            start_date,
+            end_date,
+            payment_status,
+            last_payment_date,
+            subscription_payment_provider
+          `)
+          .eq('establishment_id', establishment.id)
+      : await supabase
+          .from('client_subscriptions')
+          .select(`
+            id,
+            start_date,
+            end_date,
+            payment_status,
+            last_payment_date,
+            subscription_payment_provider,
+            subscription_value,
+            subscriptions(value)
+          `)
+          .eq('establishment_id', establishment.id);
+
+    if (subscriptionsError) {
+      const subscriptionErrorMsg = String(subscriptionsError.message || '').toLowerCase();
+      const missingSubscriptionValue = subscriptionErrorMsg.includes('subscription_value');
+      const relationIssue =
+        subscriptionErrorMsg.includes('subscriptions') &&
+        (subscriptionErrorMsg.includes('relation') ||
+          subscriptionErrorMsg.includes('schema cache') ||
+          subscriptionErrorMsg.includes('column'));
+
+      if (missingSubscriptionValue || relationIssue) {
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.setItem('client_subscriptions_safe_mode', '1');
+        }
+        hasSubscriptionValueColumn = false;
+        const retryWithoutSubscriptionValue = await supabase
+          .from('client_subscriptions')
+          .select(`
+            id,
+            start_date,
+            end_date,
+            payment_status,
+            last_payment_date,
+            subscription_payment_provider,
+            subscriptions(value)
+          `)
+          .eq('establishment_id', establishment.id);
+
+        clientSubscriptions = retryWithoutSubscriptionValue.data;
+        subscriptionsError = retryWithoutSubscriptionValue.error;
+
+        if (subscriptionsError) {
+          const fallbackOnlyClientSubscription = await supabase
+            .from('client_subscriptions')
+            .select(`
+              id,
+              start_date,
+              end_date,
+              payment_status,
+              last_payment_date,
+              subscription_payment_provider
+            `)
+            .eq('establishment_id', establishment.id);
+          clientSubscriptions = fallbackOnlyClientSubscription.data;
+          subscriptionsError = fallbackOnlyClientSubscription.error;
+        }
+      }
     }
 
     if (subscriptionsError) {
@@ -5474,16 +5524,27 @@ const EstablishmentDashboard = () => {
       const appointmentIds = data?.map(sale => sale.appointment_id) || [];
       console.log('🔍 DEBUG - Appointment IDs para buscar:', appointmentIds);
 
-      const { data: appointments, error: appointmentsError } = await supabase
-        .from('appointments')
-        .select(`
-          id,
-          professional,
-          appointment_date,
-          status,
-          establishment_id
-        `)
-        .in('id', appointmentIds);
+      const batchedAppointments: any[] = [];
+      if (appointmentIds.length > 0) {
+        const uniqueIds = Array.from(new Set(appointmentIds.filter(Boolean)));
+        const batchSize = 120;
+        for (let i = 0; i < uniqueIds.length; i += batchSize) {
+          const chunk = uniqueIds.slice(i, i + batchSize);
+          const { data: chunkAppointments, error: chunkError } = await supabase
+            .from('appointments')
+            .select(`
+              id,
+              professional,
+              appointment_date,
+              status,
+              establishment_id
+            `)
+            .in('id', chunk);
+          if (chunkError) throw chunkError;
+          batchedAppointments.push(...(chunkAppointments || []));
+        }
+      }
+      const appointments = batchedAppointments;
 
       console.log('🔍 DEBUG - Appointments encontrados (SEM filtro de establishment):', appointments);
 
@@ -5492,11 +5553,6 @@ const EstablishmentDashboard = () => {
         (apt) => apt.establishment_id === establishment.id && isCompletedAppointmentStatus(apt)
       );
       console.log('🔍 DEBUG - Appointments filtrados por establishment:', filteredAppointments);
-
-      if (appointmentsError) {
-        console.error('Erro ao buscar appointments:', appointmentsError);
-        return [];
-      }
 
       // 4. Inicializar TODOS os funcionários com 0 vendas
       const salesByProfessional: Record<string, {
@@ -9615,6 +9671,9 @@ Estamos te aguardando! 😎✂️`;
 
       const startOfSelectedDate = format(startOfDay(selectedDate), 'yyyy-MM-dd');
       const endOfSelectedDate = format(endOfDay(selectedDate), 'yyyy-MM-dd');
+      const isLocalDev =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
       console.log('🔍 BUSCANDO AGENDAMENTOS:');
       console.log('  - Establishment ID:', establishment.id);
@@ -9733,31 +9792,58 @@ Estamos te aguardando! 😎✂️`;
         );
 
         if (appointmentWhatsappKeys.length > 0) {
+          const appointmentWhatsappKeySet = new Set(appointmentWhatsappKeys);
           let contactRows: any[] = [];
-          const withExtra = await supabase
-            .from('manual_clients')
-            .select('whatsapp, cpf, street')
-            .eq('establishment_id', establishment.id)
-            .in('whatsapp', appointmentWhatsappKeys);
+          const manualClientsSafeMode =
+            isLocalDev ||
+            (typeof window !== 'undefined' &&
+              window.sessionStorage.getItem('manual_clients_safe_select') === '1');
+          const withExtra = manualClientsSafeMode
+            ? await supabase
+                .from('manual_clients')
+                .select('whatsapp')
+                .eq('establishment_id', establishment.id)
+                .limit(10000)
+            : await supabase
+                .from('manual_clients')
+                .select('whatsapp, cpf, street')
+                .eq('establishment_id', establishment.id)
+                .limit(10000);
           if (withExtra.error) {
             const message = String(withExtra.error?.message || '').toLowerCase();
             const missingColumn =
               message.includes('column') &&
               (message.includes('cpf') || message.includes('street'));
-            if (!missingColumn) throw withExtra.error;
-            const fallback = await supabase
-              .from('manual_clients')
-              .select('whatsapp')
-              .eq('establishment_id', establishment.id)
-              .in('whatsapp', appointmentWhatsappKeys);
-            if (fallback.error) throw fallback.error;
-            contactRows = (fallback.data || []) as any[];
+            if (!missingColumn) {
+              if (typeof window !== 'undefined') {
+                window.sessionStorage.setItem('manual_clients_safe_select', '1');
+              }
+              // Fallback extra de compatibilidade (RLS/tabela parcial/erro transitório):
+              // tenta sem colunas opcionais para não quebrar o fluxo principal.
+              const fallbackAnyError = await supabase
+                .from('manual_clients')
+                .select('whatsapp')
+                .eq('establishment_id', establishment.id)
+                .limit(10000);
+              if (fallbackAnyError.error) throw withExtra.error;
+              contactRows = (fallbackAnyError.data || []) as any[];
+            } else {
+              const fallback = await supabase
+                .from('manual_clients')
+                .select('whatsapp')
+                .eq('establishment_id', establishment.id)
+                .limit(10000);
+              if (fallback.error) throw fallback.error;
+              contactRows = (fallback.data || []) as any[];
+            }
           } else {
             contactRows = (withExtra.data || []) as any[];
           }
 
           const contactsByWhatsapp = new Map<string, { cpf?: string | null; street?: string | null }>();
           contactRows.forEach((row) => {
+            const rowDigits = normalizePhoneDigits(String((row as any)?.whatsapp || ''));
+            if (!rowDigits || !appointmentWhatsappKeySet.has(rowDigits)) return;
             const keys = getWhatsappLookupKeys(String((row as any)?.whatsapp || ''));
             keys.forEach((key) => {
               contactsByWhatsapp.set(normalizePhoneDigits(key), {
@@ -14887,16 +14973,38 @@ Estamos te aguardando! 😎✂️`;
   };
 
   const handleRescheduleAppointment = async (appointmentId: string, newDate: string, newTime: string) => {
-    try {
+    const isTransientError = (err: any) => {
+      const msg = String(err?.message || '').toLowerCase();
+      return (
+        msg.includes('failed to fetch') ||
+        msg.includes('network') ||
+        msg.includes('service unavailable') ||
+        msg.includes('insufficient resources') ||
+        String(err?.status || '') === '503'
+      );
+    };
+
+    const updatePayload = {
+      appointment_date: newDate,
+      appointment_time: newTime,
+    } as any;
+
+    const tryUpdate = async () => {
       const { error } = await supabase
         .from('appointments')
-        .update({
-          appointment_date: newDate,
-          appointment_time: newTime,
-        } as any)
+        .update(updatePayload)
         .eq('id', appointmentId);
-
       if (error) throw error;
+    };
+
+    try {
+      try {
+        await tryUpdate();
+      } catch (firstError: any) {
+        if (!isTransientError(firstError)) throw firstError;
+        await new Promise((resolve) => setTimeout(resolve, 450));
+        await tryUpdate();
+      }
 
       toast('Horário alterado com sucesso!', 'success');
 
@@ -14905,9 +15013,17 @@ Estamos te aguardando! 😎✂️`;
         fetchAppointments(),
         fetchMonthlyAppointments(selectedMonth),
       ]);
-    } catch (e) {
-      console.error('❌ Erro ao trocar horário:', e);
-      toast('Erro ao trocar horário. Tente novamente.', 'error');
+    } catch (e: any) {
+      console.error('❌ Erro ao trocar horário:', {
+        message: e?.message,
+        code: e?.code,
+        details: e?.details,
+        hint: e?.hint,
+        status: e?.status,
+        raw: e,
+      });
+      const detailed = [e?.message, e?.details, e?.hint].filter(Boolean).join(' | ');
+      toast(detailed || 'Erro ao trocar horário. Tente novamente.', 'error');
       throw e;
     }
   };

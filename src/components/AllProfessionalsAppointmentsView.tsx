@@ -3442,6 +3442,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         );
 
         const contactsByKey = new Map<string, { cpf?: string; street?: string }>();
+        const whatsappKeySet = new Set(whatsappKeys);
         const mergeContact = (key: string, nextCpfRaw: any, nextStreetRaw: any) => {
           if (!key) return;
           const nextCpf = String(nextCpfRaw || '').replace(/\D/g, '');
@@ -3458,23 +3459,39 @@ export const AllProfessionalsAppointmentsView: React.FC<
         try {
           if (whatsappKeys.length > 0) {
             let rows: any[] = [];
-            const withExtra = await supabase
-              .from('manual_clients')
-              .select('whatsapp, cpf, street')
-              .eq('establishment_id', establishment.id)
-              .in('whatsapp', whatsappKeys);
+            const isLocalDev =
+              typeof window !== 'undefined' &&
+              (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+            const manualClientsSafeMode =
+              isLocalDev ||
+              typeof window !== 'undefined' &&
+              window.sessionStorage.getItem('manual_clients_safe_select') === '1';
+
+            const withExtra = manualClientsSafeMode
+              ? await supabase
+                  .from('manual_clients')
+                  .select('whatsapp')
+                  .eq('establishment_id', establishment.id)
+                  .limit(10000)
+              : await supabase
+                  .from('manual_clients')
+                  .select('whatsapp, cpf, street')
+                  .eq('establishment_id', establishment.id)
+                  .limit(10000);
 
             if (withExtra.error) {
               const message = String(withExtra.error?.message || '').toLowerCase();
               const missingColumn =
                 message.includes('column') &&
                 (message.includes('cpf') || message.includes('street'));
-              if (!missingColumn) throw withExtra.error;
+              if (!missingColumn && typeof window !== 'undefined') {
+                window.sessionStorage.setItem('manual_clients_safe_select', '1');
+              }
               const legacy = await supabase
                 .from('manual_clients')
                 .select('whatsapp')
                 .eq('establishment_id', establishment.id)
-                .in('whatsapp', whatsappKeys);
+                .limit(10000);
               if (legacy.error) throw legacy.error;
               rows = (legacy.data || []) as any[];
             } else {
@@ -3482,6 +3499,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
             }
 
             rows.forEach((row: any) => {
+              const rowDigits = String(row?.whatsapp || '').replace(/\D/g, '');
+              if (!rowDigits || !whatsappKeySet.has(rowDigits)) return;
               const keys = getWhatsappLookupKeys(row?.whatsapp).map((w) =>
                 String(w || '').replace(/\D/g, '')
               );

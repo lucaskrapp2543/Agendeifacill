@@ -1,4 +1,5 @@
 import { CheckCircle, Clock, Scissors, Search, User } from 'lucide-react';
+import { format } from 'date-fns';
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { checkWhatsAppSubscriber, supabase } from '../lib/supabase';
@@ -1624,35 +1625,103 @@ export default function ReservarCliente({
         return true;
       });
 
+      const askBlockedOverrideConfirmation = () =>
+        window.confirm(
+          'Esse horário está bloqueado, deseja agendar mesmo assim?\n\n' +
+          `Data: ${selectedDate}\nHorário: ${selectedTime}`
+        );
+
+      // Regra solicitada:
+      // No agendamento interno (Reservar Cliente), se for HOJE e o horário estiver bloqueado,
+      // perguntar se deseja agendar mesmo assim.
+      const todayDateKey = format(new Date(), 'yyyy-MM-dd');
+      const isTodayReservation = selectedDate === todayDateKey;
+      let allowBlockedOverride = false;
+      if (isTodayReservation) {
+        const blockedByDate = ((selectedProfessional as any)?.blocked_hours || {})[selectedDate] || [];
+        const blockedTimes = Array.isArray(blockedByDate) ? blockedByDate : [];
+        const hasBlockedConflict = blockedTimes.some((blocked: string) => {
+          const blockedStart = parseTimeToMinutes(String(blocked || ''));
+          const blockedDuration = 15; // compatível com trigger no banco
+          return hasOverlap(novoInicioMin, totalDuration, blockedStart, blockedDuration);
+        });
+
+        if (hasBlockedConflict) {
+          const shouldProceed = askBlockedOverrideConfirmation();
+          if (!shouldProceed) {
+            setLoading(false);
+            return;
+          }
+          allowBlockedOverride = true;
+        }
+      }
+
       // Barbeiro cria a reserva: client_id tem que ser um id que existe em auth.users (NOT NULL + FK).
       // Sempre usamos o user do dono logado (currentUserId da sessão atualizada); cliente identificado por client_name e client_whatsapp.
-      const payloads = datasSemConflito.map((dateStr) => ({
-        client_id: currentUserId,
-        establishment_id: establishmentId,
-        professional: selectedProfessional.id,
-        service: serviceNames,
-        client_name: clientName,
-        client_whatsapp: clientWhatsapp,
-        appointment_date: dateStr,
-        appointment_time: selectedTime,
-        status: 'confirmed',
-        price: totalPrice,
-        total_price: totalPrice,
-        duration: totalDuration,
-        payment_method: isSubscriber ? 'assinante' : 'dinheiro',
-        is_avulso: isAvulso,
-        is_subscriber: isSubscriber
-      }));
+      const payloads = datasSemConflito.map((dateStr) => {
+        const payload: any = {
+          client_id: currentUserId,
+          establishment_id: establishmentId,
+          professional: selectedProfessional.id,
+          service: serviceNames,
+          client_name: clientName,
+          client_whatsapp: clientWhatsapp,
+          appointment_date: dateStr,
+          appointment_time: selectedTime,
+          status: 'confirmed',
+          price: totalPrice,
+          total_price: totalPrice,
+          duration: totalDuration,
+          payment_method: isSubscriber ? 'assinante' : 'dinheiro',
+          is_avulso: isAvulso,
+          is_subscriber: isSubscriber
+        };
+        // Só permitir bypass no contexto interno e no dia atual.
+        if (allowBlockedOverride && dateStr === todayDateKey) {
+          payload.allow_blocked_override = true;
+        }
+        return payload;
+      });
 
       if (payloads.length === 0) {
         alert('Não foi possível criar as reservas: todos os horários do mês já estão ocupados nesse horário.');
         return;
       }
 
-      const { data: inserted, error: insertError } = await supabase
+      const { data: insertedData, error: initialInsertError } = await supabase
         .from('appointments')
         .insert(payloads)
         .select('id');
+
+      const isBlockedByTriggerError = (err: any) => {
+        const errorCode = String(err?.code ?? '').trim();
+        const errorMessage = String(err?.message ?? '').toLowerCase();
+        return errorCode === 'P0001' && errorMessage.includes('bloqueado para este profissional');
+      };
+
+      let inserted = insertedData;
+      let insertError = initialInsertError;
+
+      // Fallback de compatibilidade:
+      // Se o frontend não detectou bloqueio local, mas o banco bloqueou (P0001),
+      // oferece override no contexto interno de HOJE e tenta novamente.
+      if (insertError && isTodayReservation && !allowBlockedOverride && isBlockedByTriggerError(insertError)) {
+        const shouldOverrideAfterDbError = askBlockedOverrideConfirmation();
+        if (shouldOverrideAfterDbError) {
+          const retryPayloads = payloads.map((payload) => ({
+            ...payload,
+            allow_blocked_override: payload.appointment_date === todayDateKey,
+          }));
+
+          const { data: retryInserted, error: retryError } = await supabase
+            .from('appointments')
+            .insert(retryPayloads)
+            .select('id');
+
+          inserted = retryInserted;
+          insertError = retryError;
+        }
+      }
 
       if (insertError) throw insertError;
 
@@ -1701,6 +1770,19 @@ export default function ReservarCliente({
         setLoading(false);
         alert(
           'Sessão expirada ou inválida. Recarregue a página ou faça login novamente e tente criar a reserva de novo.'
+        );
+        return;
+      }
+
+      // Coluna nova ainda não aplicada no banco (migração pendente).
+      const missingOverrideColumn =
+        msg.toLowerCase().includes('allow_blocked_override') &&
+        (msg.toLowerCase().includes('column') || msg.toLowerCase().includes('schema cache'));
+      if (missingOverrideColumn) {
+        setLoading(false);
+        alert(
+          'Seu banco ainda não recebeu a atualização para permitir "agendar por cima do bloqueio" no dia atual.\n\n' +
+          'Aplique a migration do projeto e tente novamente.'
         );
         return;
       }

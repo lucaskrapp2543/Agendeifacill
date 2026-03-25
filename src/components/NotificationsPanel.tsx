@@ -131,21 +131,69 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       let data: any[] | null = null;
       let error: any = null;
 
+      const safeSelect =
+        'id, created_at, client_name, service, appointment_date, appointment_time, professional';
       const selectAttempts = [
         'id, created_at, client_name, service, appointment_date, appointment_time, professional_name, professional, is_waitlist',
         'id, created_at, client_name, service, appointment_date, appointment_time, professional_name, professional',
         'id, created_at, client_name, service, appointment_date, appointment_time, professional, is_waitlist',
-        'id, created_at, client_name, service, appointment_date, appointment_time, professional',
+        safeSelect,
       ];
 
-      for (const selectClause of selectAttempts) {
-        const result = await supabase
-          .from('appointments')
-          .select(selectClause)
-          .in('id', appointmentIds);
-        data = result.data as any;
-        error = result.error as any;
-        if (!error) break;
+      const isUuidId = (value: string) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+      const safeAppointmentIds = appointmentIds.filter((id) => isUuidId(id));
+      if (safeAppointmentIds.length === 0) {
+        setAppointmentDetailsMap({});
+        return {};
+      }
+
+      const fetchByChunkSize = async (selectClause: string, chunkSize: number) => {
+        const mergedRows: any[] = [];
+        for (let i = 0; i < safeAppointmentIds.length; i += chunkSize) {
+          const chunk = safeAppointmentIds.slice(i, i + chunkSize);
+          const result = await supabase
+            .from('appointments')
+            .select(selectClause)
+            .in('id', chunk);
+          if (result.error) {
+            return { data: null as any[] | null, error: result.error as any };
+          }
+          mergedRows.push(...((result.data as any[]) || []));
+        }
+        return { data: mergedRows, error: null as any };
+      };
+
+      const isLocalDev =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      const forceSafeMode =
+        isLocalDev ||
+        typeof window !== 'undefined' &&
+        window.sessionStorage.getItem('notifications_appointments_safe_select') === '1';
+
+      if (forceSafeMode) {
+        const safeResult = await fetchByChunkSize(safeSelect, 20);
+        data = safeResult.data as any;
+        error = safeResult.error as any;
+      } else {
+        for (const selectClause of selectAttempts) {
+          // Estratégia progressiva para ambientes com proxy mais restrito.
+          let result = await fetchByChunkSize(selectClause, 20);
+          if (result.error) result = await fetchByChunkSize(selectClause, 10);
+          if (result.error) result = await fetchByChunkSize(selectClause, 1);
+          data = result.data as any;
+          error = result.error as any;
+          if (!error) break;
+        }
+
+        if (error && typeof window !== 'undefined') {
+          // Evita repetir 400 em todo refresh quando schema é legado.
+          window.sessionStorage.setItem('notifications_appointments_safe_select', '1');
+          const safeResult = await fetchByChunkSize(safeSelect, 20);
+          data = safeResult.data as any;
+          error = safeResult.error as any;
+        }
       }
 
       if (error) {

@@ -79,7 +79,9 @@ const AdminDashboard = () => {
   const [totalVendasLiquidasPorEstabelecimento, setTotalVendasLiquidasPorEstabelecimento] = useState<Record<string, number>>({});
   const [totalPagoAdminPorEstabelecimento, setTotalPagoAdminPorEstabelecimento] = useState<Record<string, number>>({});
   const [qtdPixPagoPorEstabelecimento, setQtdPixPagoPorEstabelecimento] = useState<Record<string, number>>({});
+  const [qtdCreditoPagoPorEstabelecimento, setQtdCreditoPagoPorEstabelecimento] = useState<Record<string, number>>({});
   const [lucroPixPorEstabelecimento, setLucroPixPorEstabelecimento] = useState<Record<string, number>>({});
+  const [lucroCreditoPorEstabelecimento, setLucroCreditoPorEstabelecimento] = useState<Record<string, number>>({});
   const [isPayingByEstablishment, setIsPayingByEstablishment] = useState<Record<string, boolean>>({});
   const [showPayoutHistoryModal, setShowPayoutHistoryModal] = useState(false);
   const [showLastPaymentsModal, setShowLastPaymentsModal] = useState(false);
@@ -523,6 +525,13 @@ const AdminDashboard = () => {
   const [saldoDiaDate, setSaldoDiaDate] = useState<Date>(() => new Date());
   const [lucroPixMonth, setLucroPixMonth] = useState<Date>(() => new Date());
   const [qtdVendasPixMes, setQtdVendasPixMes] = useState<number>(0);
+  const [qtdVendasCreditoMes, setQtdVendasCreditoMes] = useState<number>(0);
+  const [qtdPixAgendamentosMes, setQtdPixAgendamentosMes] = useState<number>(0);
+  const [qtdPixAssinaturasMes, setQtdPixAssinaturasMes] = useState<number>(0);
+  const [qtdCreditoAgendamentosMes, setQtdCreditoAgendamentosMes] = useState<number>(0);
+  const [qtdCreditoAssinaturasMes, setQtdCreditoAssinaturasMes] = useState<number>(0);
+  const [lucroPixMesDetalhe, setLucroPixMesDetalhe] = useState<number>(0);
+  const [lucroCreditoMesDetalhe, setLucroCreditoMesDetalhe] = useState<number>(0);
   const [lucroPixMesTotal, setLucroPixMesTotal] = useState<number>(0);
   const [isLoadingLucroPixMes, setIsLoadingLucroPixMes] = useState(false);
   const DELETED_CONTAINMENT_STORAGE_KEY = 'admin_deleted_containment_ids_v1';
@@ -618,18 +627,12 @@ const AdminDashboard = () => {
     return Math.round(n * 100);
   };
 
-  // Sem retroatividade: vendas antigas continuam com R$ 0,50.
-  const TAXA_PLATAFORMA_PIX_LEGADA = 0.5;
-  const TAXA_PLATAFORMA_PIX_ATUAL = 1;
-  const DATA_VIRADA_TAXA_PIX = new Date('2026-03-18T00:00:00-03:00');
+  const TAXA_PLATAFORMA_PIX_ATUAL = 0.5;
+  const TAXA_PLATAFORMA_CREDITO_ATUAL = 1;
 
   const getTaxaPlataformaPixPorData = (dateLike?: string | Date | null) => {
-    if (!dateLike) return TAXA_PLATAFORMA_PIX_ATUAL;
-    const dt = dateLike instanceof Date ? dateLike : new Date(dateLike);
-    if (!Number.isFinite(dt.getTime())) return TAXA_PLATAFORMA_PIX_ATUAL;
-    return dt.getTime() >= DATA_VIRADA_TAXA_PIX.getTime()
-      ? TAXA_PLATAFORMA_PIX_ATUAL
-      : TAXA_PLATAFORMA_PIX_LEGADA;
+    // Regra atual solicitada: PIX sempre R$ 0,50 por venda.
+    return TAXA_PLATAFORMA_PIX_ATUAL;
   };
 
   const calcularLiquidoPix = (bruto: number, dateLike?: string | Date | null) => {
@@ -639,11 +642,72 @@ const AdminDashboard = () => {
     return Math.max(0, Math.round(liquido * 100) / 100);
   };
 
-  const calcularLucroPix = (qtdPixPago: number, dateLike?: string | Date | null) => {
-    const q = Number(qtdPixPago || 0);
+  const calcularLucroPorMetodo = (metodo: 'pix' | 'credito', qtdPago: number) => {
+    const q = Number(qtdPago || 0);
     if (!Number.isFinite(q) || q <= 0) return 0;
-    const taxaPlataforma = getTaxaPlataformaPixPorData(dateLike);
-    return Math.round(q * taxaPlataforma * 100) / 100;
+    const taxa = metodo === 'credito' ? TAXA_PLATAFORMA_CREDITO_ATUAL : TAXA_PLATAFORMA_PIX_ATUAL;
+    return Math.round(q * taxa * 100) / 100;
+  };
+
+  const getMetodoPixOuCreditoAppointment = (row: any): 'pix' | 'credito' | null => {
+    const paymentStatus = String(row?.payment_status || '').toLowerCase();
+    const pixPaymentStatus = String(row?.pix_payment_status || '').toLowerCase();
+    const hasTransactionId = Boolean(String(row?.payment_transaction_id || '').trim());
+    const isPaid = paymentStatus === 'paid' || pixPaymentStatus === 'confirmado';
+    if (!isPaid) return null;
+    if (paymentStatus === 'paid' && !hasTransactionId && pixPaymentStatus !== 'confirmado') return null;
+
+    const metodo = String(row?.payment_method || '').toLowerCase();
+    const isPixByMethod = metodo === 'pix' || metodo === 'pix_now';
+    const isCreditByMethod = metodo === 'credito' || metodo === 'credit_card' || metodo === 'credit';
+    const isPixByStatus = pixPaymentStatus === 'confirmado';
+
+    if (isPixByMethod || isPixByStatus) return 'pix';
+    if (isCreditByMethod) return 'credito';
+    // Sem método confiável, não forçar classificação para evitar inflar PIX.
+    return null;
+  };
+
+  const getSubscriptionBruto = (sub: any) => {
+    const rawSubscription = sub?.subscriptions;
+    const relationValue = Array.isArray(rawSubscription)
+      ? Number(rawSubscription[0]?.value || 0)
+      : Number(rawSubscription?.value || 0);
+    if (Number.isFinite(relationValue) && relationValue > 0) return relationValue;
+
+    const customValue = Number(sub?.custom_subscription_value ?? 0);
+    if (Number.isFinite(customValue) && customValue > 0) return customValue;
+
+    return 0;
+  };
+
+  const getSubscriptionPaymentDate = (sub: any) => {
+    const lastPaymentDate = String(sub?.last_payment_date || '').trim();
+    if (lastPaymentDate) return lastPaymentDate;
+    const createdAt = String(sub?.created_at || '').trim();
+    if (createdAt) return createdAt;
+    return null;
+  };
+
+  const isDateInCurrentMonth = (dateLike?: string | Date | null) => {
+    if (!dateLike) return false;
+    const dt = dateLike instanceof Date ? dateLike : new Date(dateLike);
+    if (!Number.isFinite(dt.getTime())) return false;
+    const now = new Date();
+    return dt.getFullYear() === now.getFullYear() && dt.getMonth() === now.getMonth();
+  };
+
+  const getMetodoAssinaturaPixOuCredito = (sub: any): 'pix' | 'credito' | null => {
+    const provider = String(sub?.subscription_payment_provider || '').toLowerCase().trim();
+    const paymentMethod = String(sub?.subscriber_payment_method || '').toLowerCase().trim();
+    const isIntegratedProvider = provider.includes('mercadopago') || provider.includes('pagarme');
+    if (!isIntegratedProvider) return null;
+
+    if (paymentMethod === 'pix') return 'pix';
+    if (paymentMethod === 'credito' || paymentMethod === 'credit_card') return 'credito';
+    if (provider.includes('pix')) return 'pix';
+    if (provider.includes('card') || provider.includes('credit') || provider.includes('credito')) return 'credito';
+    return null;
   };
 
   // (removido) carregarCostMetrics
@@ -689,8 +753,10 @@ const AdminDashboard = () => {
       if (apptsError) throw apptsError;
 
       const totalLiquidoMap: Record<string, number> = {};
-      const qtdMap: Record<string, number> = {};
-      const lucroMap: Record<string, number> = {};
+      const qtdPixMap: Record<string, number> = {};
+      const qtdCreditoMap: Record<string, number> = {};
+      const lucroPixMap: Record<string, number> = {};
+      const lucroCreditoMap: Record<string, number> = {};
       const seenByEst = new Map<string, Set<string>>();
 
       for (const row of (appts as any[]) || []) {
@@ -702,20 +768,8 @@ const AdminDashboard = () => {
         if (seen.has(id)) continue;
         seen.add(id);
 
-        const paymentStatus = String(row?.payment_status || '').toLowerCase();
-        const pixPaymentStatus = String(row?.pix_payment_status || '').toLowerCase();
-        const hasTransactionId = Boolean(String(row?.payment_transaction_id || '').trim());
-        const isPaid = paymentStatus === 'paid' || pixPaymentStatus === 'confirmado';
-        if (!isPaid) continue;
-        if (paymentStatus === 'paid' && !hasTransactionId && pixPaymentStatus !== 'confirmado') continue;
-
-        const metodo = String(row?.payment_method || '').toLowerCase();
-        const isPix =
-          metodo === 'pix' ||
-          metodo === 'pix_now' ||
-          pixPaymentStatus === 'confirmado' ||
-          (paymentStatus === 'paid' && hasTransactionId);
-        if (!isPix) continue;
+        const metodoVenda = getMetodoPixOuCreditoAppointment(row);
+        if (!metodoVenda) continue;
 
         const status = String(row?.status || '').toLowerCase();
         if (status !== 'confirmed') continue; // regra do produto: só entra se finalizou agendamento
@@ -725,18 +779,25 @@ const AdminDashboard = () => {
 
         const rowDate = row?.created_at || row?.appointment_date || null;
         totalLiquidoMap[estId] = Math.round(((totalLiquidoMap[estId] || 0) + calcularLiquidoPix(bruto, rowDate)) * 100) / 100;
-        qtdMap[estId] = (qtdMap[estId] || 0) + 1;
-        lucroMap[estId] = Math.round(((lucroMap[estId] || 0) + calcularLucroPix(1, rowDate)) * 100) / 100;
+        if (!isDateInCurrentMonth(rowDate)) continue;
+        const lucroItem = calcularLucroPorMetodo(metodoVenda, 1);
+        if (metodoVenda === 'pix') {
+          qtdPixMap[estId] = (qtdPixMap[estId] || 0) + 1;
+          lucroPixMap[estId] = Math.round(((lucroPixMap[estId] || 0) + lucroItem) * 100) / 100;
+        } else if (metodoVenda === 'credito') {
+          qtdCreditoMap[estId] = (qtdCreditoMap[estId] || 0) + 1;
+          lucroCreditoMap[estId] = Math.round(((lucroCreditoMap[estId] || 0) + lucroItem) * 100) / 100;
+        }
       }
 
-      // 3) Assinaturas PIX pagas (client_subscriptions) via Mercado Pago
-      // - Conta também no "Lucro PIX" (regra por data: R$0,50 antigo / R$1,00 atual) e no saldo líquido.
+      // 3) Assinaturas PIX/Crédito pagas (client_subscriptions) via integração
+      // - Conta também no "Lucro PIX + Crédito" (PIX R$0,50 e Crédito R$1,00 por venda) e no saldo líquido.
       // - Observação: não temos histórico por renovação; aqui conta a venda/assinatura paga atual.
       try {
         const subsQuery = supabase.from('client_subscriptions') as any;
         const { data: subsData, error: subsError } = await subsQuery
           .select(
-            'id,establishment_id,payment_status,subscription_payment_provider,subscription_payment_order_id,created_at,subscriptions(value)'
+            'id,establishment_id,payment_status,subscription_payment_provider,subscriber_payment_method,subscription_payment_order_id,created_at,last_payment_date,custom_subscription_value,subscriptions(value)'
           )
           .in('establishment_id', ids)
           .eq('payment_status', 'paid');
@@ -758,17 +819,24 @@ const AdminDashboard = () => {
           if (seen.has(`sub:${uniqKey}`)) continue;
           seen.add(`sub:${uniqKey}`);
 
-          const provider = String(sub?.subscription_payment_provider || '').toLowerCase().trim();
-          // Só contar PIX Mercado Pago (pedido do usuário)
-          if (provider !== 'mercadopago_pix') continue;
+          // Contar assinaturas PIX e crédito (Mercado Pago / Pagar.me)
+          const metodoAssinatura = getMetodoAssinaturaPixOuCredito(sub);
+          if (!metodoAssinatura) continue;
 
-          const bruto = Number((sub as any)?.subscriptions?.value ?? 0);
+          const bruto = getSubscriptionBruto(sub);
           if (!Number.isFinite(bruto) || bruto <= 0) continue;
 
-          const rowDate = sub?.created_at || null;
+          const rowDate = getSubscriptionPaymentDate(sub);
           totalLiquidoMap[estId] = Math.round(((totalLiquidoMap[estId] || 0) + calcularLiquidoPix(bruto, rowDate)) * 100) / 100;
-          qtdMap[estId] = (qtdMap[estId] || 0) + 1;
-          lucroMap[estId] = Math.round(((lucroMap[estId] || 0) + calcularLucroPix(1, rowDate)) * 100) / 100;
+          if (!isDateInCurrentMonth(rowDate)) continue;
+          const lucroItem = calcularLucroPorMetodo(metodoAssinatura, 1);
+          if (metodoAssinatura === 'pix') {
+            qtdPixMap[estId] = (qtdPixMap[estId] || 0) + 1;
+            lucroPixMap[estId] = Math.round(((lucroPixMap[estId] || 0) + lucroItem) * 100) / 100;
+          } else if (metodoAssinatura === 'credito') {
+            qtdCreditoMap[estId] = (qtdCreditoMap[estId] || 0) + 1;
+            lucroCreditoMap[estId] = Math.round(((lucroCreditoMap[estId] || 0) + lucroItem) * 100) / 100;
+          }
         }
       } catch (e: any) {
         // Fallback seguro: se o banco não tiver as colunas (schema antigo), ignora sem quebrar o admin
@@ -779,7 +847,7 @@ const AdminDashboard = () => {
           msg.includes('subscription_payment_provider') ||
           msg.includes('subscription_payment_order_id');
         if (!looksLikeMissingColumn) {
-          console.warn('⚠️ Falha ao incluir assinaturas no cálculo PIX (admin):', e);
+          console.warn('⚠️ Falha ao incluir assinaturas no cálculo PIX/Crédito (admin):', e);
         }
       }
 
@@ -792,8 +860,10 @@ const AdminDashboard = () => {
 
       setTotalVendasLiquidasPorEstabelecimento(totalLiquidoMap);
       setTotalPagoAdminPorEstabelecimento(pagoMap);
-      setQtdPixPagoPorEstabelecimento(qtdMap);
-      setLucroPixPorEstabelecimento(lucroMap);
+      setQtdPixPagoPorEstabelecimento(qtdPixMap);
+      setQtdCreditoPagoPorEstabelecimento(qtdCreditoMap);
+      setLucroPixPorEstabelecimento(lucroPixMap);
+      setLucroCreditoPorEstabelecimento(lucroCreditoMap);
       setSaldosPorEstabelecimento(saldoMap);
     } catch (e: any) {
       console.error('Erro ao carregar saldos em vendas (admin):', e);
@@ -2050,6 +2120,13 @@ const AdminDashboard = () => {
     const ids = establishments.map(e => e.id).filter(Boolean);
     if (ids.length === 0) {
       setQtdVendasPixMes(0);
+      setQtdVendasCreditoMes(0);
+      setQtdPixAgendamentosMes(0);
+      setQtdPixAssinaturasMes(0);
+      setQtdCreditoAgendamentosMes(0);
+      setQtdCreditoAssinaturasMes(0);
+      setLucroPixMesDetalhe(0);
+      setLucroCreditoMesDetalhe(0);
       setLucroPixMesTotal(0);
       return;
     }
@@ -2059,8 +2136,10 @@ const AdminDashboard = () => {
       const monthStartStr = format(monthStart, 'yyyy-MM-dd');
       const monthEndStr = format(monthEnd, 'yyyy-MM-dd');
 
-      let countAppts = 0;
-      let lucroAppts = 0;
+      let countPixAppts = 0;
+      let countCreditoAppts = 0;
+      let lucroPixAppts = 0;
+      let lucroCreditoAppts = 0;
       const { data: appts, error: apptsError } = await supabase
         .from('appointments')
         .select('id,establishment_id,payment_status,pix_payment_status,payment_method,payment_transaction_id,status,appointment_date,created_at')
@@ -2075,56 +2154,87 @@ const AdminDashboard = () => {
           const id = String(row?.id || '');
           const estId = String(row?.establishment_id || '');
           if (!estId || !id || seen.has(id)) continue;
-          const paymentStatus = String(row?.payment_status || '').toLowerCase();
-          const pixPaymentStatus = String(row?.pix_payment_status || '').toLowerCase();
-          const hasTransactionId = Boolean(String(row?.payment_transaction_id || '').trim());
-          const isPaid = paymentStatus === 'paid' || pixPaymentStatus === 'confirmado';
-          if (!isPaid) continue;
-          if (paymentStatus === 'paid' && !hasTransactionId && pixPaymentStatus !== 'confirmado') continue;
-          const metodo = String(row?.payment_method || '').toLowerCase();
-          const isPix =
-            metodo === 'pix' ||
-            metodo === 'pix_now' ||
-            pixPaymentStatus === 'confirmado' ||
-            (paymentStatus === 'paid' && hasTransactionId);
-          if (!isPix) continue;
+          const metodoVenda = getMetodoPixOuCreditoAppointment(row);
+          if (!metodoVenda) continue;
           if (String(row?.status || '').toLowerCase() !== 'confirmed') continue;
           seen.add(id);
-          countAppts++;
           const rowDate = row?.created_at || row?.appointment_date || null;
-          lucroAppts = Math.round((lucroAppts + calcularLucroPix(1, rowDate)) * 100) / 100;
+          const lucroItem = calcularLucroPorMetodo(metodoVenda, 1);
+          if (metodoVenda === 'pix') {
+            countPixAppts++;
+            lucroPixAppts = Math.round((lucroPixAppts + lucroItem) * 100) / 100;
+          } else if (metodoVenda === 'credito') {
+            countCreditoAppts++;
+            lucroCreditoAppts = Math.round((lucroCreditoAppts + lucroItem) * 100) / 100;
+          }
         }
       }
 
-      let countSubs = 0;
-      let lucroSubs = 0;
+      let countPixSubs = 0;
+      let countCreditoSubs = 0;
+      let lucroPixSubs = 0;
+      let lucroCreditoSubs = 0;
       try {
+        const monthStartTs = monthStart.getTime();
+        const monthEndTs = monthEnd.getTime();
         const subsQuery = supabase.from('client_subscriptions') as any;
         const { data: subsData, error: subsError } = await subsQuery
-          .select('id,establishment_id,subscription_payment_provider,created_at')
+          .select('id,establishment_id,subscription_payment_provider,subscriber_payment_method,last_payment_date,created_at,custom_subscription_value,subscriptions(value)')
           .in('establishment_id', ids)
-          .eq('payment_status', 'paid')
-          .gte('created_at', monthStart.toISOString())
-          .lte('created_at', monthEnd.toISOString());
+          .eq('payment_status', 'paid');
 
         if (!subsError && subsData) {
           for (const sub of subsData as any[]) {
-            if (String(sub?.subscription_payment_provider || '').toLowerCase().trim() !== 'mercadopago_pix') continue;
-            countSubs++;
-            lucroSubs = Math.round((lucroSubs + calcularLucroPix(1, sub?.created_at || null)) * 100) / 100;
+            const paymentDateRaw = getSubscriptionPaymentDate(sub);
+            if (!paymentDateRaw) continue;
+            const paymentDate = new Date(paymentDateRaw);
+            if (!Number.isFinite(paymentDate.getTime())) continue;
+            const paymentTs = paymentDate.getTime();
+            if (paymentTs < monthStartTs || paymentTs > monthEndTs) continue;
+
+            const bruto = getSubscriptionBruto(sub);
+            if (!Number.isFinite(bruto) || bruto <= 0) continue;
+
+            const metodoAssinatura = getMetodoAssinaturaPixOuCredito(sub);
+            if (!metodoAssinatura) continue;
+            const lucroItem = calcularLucroPorMetodo(metodoAssinatura, 1);
+            if (metodoAssinatura === 'pix') {
+              countPixSubs++;
+              lucroPixSubs = Math.round((lucroPixSubs + lucroItem) * 100) / 100;
+            } else if (metodoAssinatura === 'credito') {
+              countCreditoSubs++;
+              lucroCreditoSubs = Math.round((lucroCreditoSubs + lucroItem) * 100) / 100;
+            }
           }
         }
       } catch {
         // schema antigo sem colunas
       }
 
-      const totalVendas = countAppts + countSubs;
-      const lucro = Math.round((lucroAppts + lucroSubs) * 100) / 100;
-      setQtdVendasPixMes(totalVendas);
+      const totalPix = countPixAppts + countPixSubs;
+      const totalCredito = countCreditoAppts + countCreditoSubs;
+      const lucroPix = Math.round((lucroPixAppts + lucroPixSubs) * 100) / 100;
+      const lucroCredito = Math.round((lucroCreditoAppts + lucroCreditoSubs) * 100) / 100;
+      const lucro = Math.round((lucroPix + lucroCredito) * 100) / 100;
+      setQtdVendasPixMes(totalPix);
+      setQtdVendasCreditoMes(totalCredito);
+      setQtdPixAgendamentosMes(countPixAppts);
+      setQtdPixAssinaturasMes(countPixSubs);
+      setQtdCreditoAgendamentosMes(countCreditoAppts);
+      setQtdCreditoAssinaturasMes(countCreditoSubs);
+      setLucroPixMesDetalhe(lucroPix);
+      setLucroCreditoMesDetalhe(lucroCredito);
       setLucroPixMesTotal(lucro);
     } catch (e) {
-      console.error('Erro ao carregar lucro PIX por mês:', e);
+      console.error('Erro ao carregar lucro PIX/Crédito por mês:', e);
       setQtdVendasPixMes(0);
+      setQtdVendasCreditoMes(0);
+      setQtdPixAgendamentosMes(0);
+      setQtdPixAssinaturasMes(0);
+      setQtdCreditoAgendamentosMes(0);
+      setQtdCreditoAssinaturasMes(0);
+      setLucroPixMesDetalhe(0);
+      setLucroCreditoMesDetalhe(0);
       setLucroPixMesTotal(0);
     } finally {
       setIsLoadingLucroPixMes(false);
@@ -2933,8 +3043,12 @@ const AdminDashboard = () => {
     });
 
   const lucroPixFiltrado = filteredEstablishments.reduce((sum, est) => {
-    const lucro = Number(lucroPixPorEstabelecimento[String(est.id)] || 0);
-    return sum + (Number.isFinite(lucro) ? lucro : 0);
+    const lucroPix = Number(lucroPixPorEstabelecimento[String(est.id)] || 0);
+    const lucroCredito = Number(lucroCreditoPorEstabelecimento[String(est.id)] || 0);
+    const lucroTotal =
+      (Number.isFinite(lucroPix) ? lucroPix : 0) +
+      (Number.isFinite(lucroCredito) ? lucroCredito : 0);
+    return sum + lucroTotal;
   }, 0);
 
   // Filtrar estabelecimentos da lixeira (respeitando período global dos cards, quando ativo)
@@ -3586,7 +3700,7 @@ const AdminDashboard = () => {
         className="max-w-full mx-auto px-2 sm:px-4 lg:px-6 py-6"
         style={isSupportAccount && !canEditEverything() ? { pointerEvents: 'none', userSelect: 'none' } : undefined}
       >
-        {/* Lucro PIX por mês: vendas (serviços + assinaturas) com regra por data, com seletor de mês */}
+        {/* Lucro PIX/Crédito por mês: vendas (serviços + assinaturas), PIX R$0,50 e Crédito R$1,00 */}
         <div className="mb-6">
           <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl shadow-md p-6 max-w-lg">
             <div className="flex items-center justify-between gap-4">
@@ -3594,7 +3708,7 @@ const AdminDashboard = () => {
                 <DollarSign className="h-10 w-10 text-emerald-700 flex-shrink-0" />
                 <div className="ml-4">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-medium text-emerald-800">Lucro PIX</p>
+                    <p className="text-sm font-medium text-emerald-800">Lucro PIX + Crédito</p>
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
@@ -3624,10 +3738,20 @@ const AdminDashboard = () => {
                   <p className="text-xs text-emerald-700/90 mt-1">
                     {isLoadingLucroPixMes
                       ? 'Carregando...'
-                      : `Foram feitas ${qtdVendasPixMes} venda(s) neste mês para você ter lucro de ${fmtBRL(lucroPixMesTotal)}`}
+                      : `Foram feitas ${qtdVendasPixMes + qtdVendasCreditoMes} venda(s) neste mês para você ter lucro de ${fmtBRL(lucroPixMesTotal)}`}
+                  </p>
+                  <p className="text-xs text-emerald-700/90 mt-0.5">
+                    {isLoadingLucroPixMes
+                      ? '...'
+                      : `PIX: ${qtdVendasPixMes} venda(s) • ${fmtBRL(lucroPixMesDetalhe)} | Crédito: ${qtdVendasCreditoMes} venda(s) • ${fmtBRL(lucroCreditoMesDetalhe)}`}
+                  </p>
+                  <p className="text-xs text-emerald-700/90 mt-0.5">
+                    {isLoadingLucroPixMes
+                      ? '...'
+                      : `PIX agend.: ${qtdPixAgendamentosMes} | PIX assin.: ${qtdPixAssinaturasMes} | Crédito agend.: ${qtdCreditoAgendamentosMes} | Crédito assin.: ${qtdCreditoAssinaturasMes}`}
                   </p>
                   <p className="text-xs text-emerald-600/90 mt-0.5">
-                    Total acumulado (todos os tempos): {isLoadingSaldos ? '...' : fmtBRL(lucroPixFiltrado)}
+                    Total no mês atual: {isLoadingSaldos ? '...' : fmtBRL(lucroPixFiltrado)}
                   </p>
                 </div>
               </div>
@@ -4098,8 +4222,8 @@ const AdminDashboard = () => {
             <span>
               <strong>Outros:</strong> {planCounts.outros}
             </span>
-            <span title="Lucro do app com PIX via Mercado Pago (R$0,50 até 17/03/2026 e R$1,00 a partir de 18/03/2026)">
-              <strong>Lucro PIX:</strong> {isLoadingSaldos ? '...' : fmtBRL(lucroPixFiltrado)}
+            <span title="Lucro do app no mês atual (PIX R$0,50 por venda e Crédito R$1,00 por venda)">
+              <strong>Lucro mês atual (PIX + Crédito):</strong> {isLoadingSaldos ? '...' : fmtBRL(lucroPixFiltrado)}
             </span>
             <button
               type="button"
@@ -4277,7 +4401,7 @@ const AdminDashboard = () => {
                       🕐 Último Acesso
                     </th>
                     <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
-                      Saldo (PIX)
+                      Saldo (PIX + Crédito)
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">
                       Ações
@@ -4534,14 +4658,20 @@ const AdminDashboard = () => {
                             {isLoadingSaldos ? '...' : fmtBRL(Number(saldosPorEstabelecimento[establishment.id] || 0))}
                           </div>
                           <div className="text-[10px] text-gray-500">
-                            {qtdPixPagoPorEstabelecimento[establishment.id]
-                              ? `${qtdPixPagoPorEstabelecimento[establishment.id]} PIX pago(s)`
+                            {(Number(qtdPixPagoPorEstabelecimento[establishment.id] || 0) + Number(qtdCreditoPagoPorEstabelecimento[establishment.id] || 0)) > 0
+                              ? `${Number(qtdPixPagoPorEstabelecimento[establishment.id] || 0) + Number(qtdCreditoPagoPorEstabelecimento[establishment.id] || 0)} venda(s) PIX/Crédito`
                               : '—'}
                           </div>
-                          <div className="text-[10px] text-gray-700 font-semibold" title="Lucro do app com regra por data (R$0,50 antigo e R$1,00 atual)">
-                            {qtdPixPagoPorEstabelecimento[establishment.id]
-                              ? `Lucro: ${fmtBRL(Number(lucroPixPorEstabelecimento[establishment.id] || 0))}`
+                          <div className="text-[10px] text-gray-500">
+                            PIX: {Number(qtdPixPagoPorEstabelecimento[establishment.id] || 0)} | Crédito: {Number(qtdCreditoPagoPorEstabelecimento[establishment.id] || 0)}
+                          </div>
+                          <div className="text-[10px] text-gray-700 font-semibold" title="Lucro do app (PIX R$0,50 por venda e Crédito R$1,00 por venda)">
+                            {(Number(qtdPixPagoPorEstabelecimento[establishment.id] || 0) + Number(qtdCreditoPagoPorEstabelecimento[establishment.id] || 0)) > 0
+                              ? `Lucro: ${fmtBRL(Number(lucroPixPorEstabelecimento[establishment.id] || 0) + Number(lucroCreditoPorEstabelecimento[establishment.id] || 0))}`
                               : 'Lucro: —'}
+                          </div>
+                          <div className="text-[10px] text-gray-700">
+                            PIX: {fmtBRL(Number(lucroPixPorEstabelecimento[establishment.id] || 0))} | Crédito: {fmtBRL(Number(lucroCreditoPorEstabelecimento[establishment.id] || 0))}
                           </div>
                         </td>
 
