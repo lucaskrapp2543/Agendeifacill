@@ -1679,6 +1679,9 @@ const AdminDashboard = () => {
 
         updateData.payment_due_date = nextDueDate.toISOString().split('T')[0];
         updateData.payment_alert_enabled = false;
+        // Importante para cards de "saldo do dia"/"saldo mês":
+        // quando marcar pago manualmente, registrar o instante do pagamento.
+        updateData.payment_paid_at = new Date().toISOString();
       }
 
       const { error } = await supabase
@@ -1695,7 +1698,7 @@ const AdminDashboard = () => {
               ...est,
               payment_status: status,
               payment_due_date: status === 'paid' ? updateData.payment_due_date : est.payment_due_date,
-              payment_paid_at: est.payment_paid_at,
+              payment_paid_at: status === 'paid' ? updateData.payment_paid_at : est.payment_paid_at,
               payment_alert_enabled: status === 'paid' ? false : est.payment_alert_enabled
             }
             : est
@@ -3365,16 +3368,40 @@ const AdminDashboard = () => {
     return sum + (Number.isFinite(v) ? v : 0);
   }, 0);
 
-  // Saldo do dia (HOJE): soma do lucro manual apenas de quem PAGOU HOJE
+  // Saldo do dia: soma do lucro de quem pagou no dia + quem foi criado no dia.
+  // Se for "novo" e "pago" no mesmo dia, conta apenas uma vez (sem duplicar).
+  // Compatibilidade: registros legados podem estar "paid" sem payment_paid_at;
+  // nesse caso, se o cliente foi criado no dia e já está pago, também entra no saldo.
   const dayStart = startOfDay(saldoDiaDate);
   const dayEnd = endOfDay(saldoDiaDate);
   const paidOnDay = establishments.filter(est => {
-    if (!est.payment_paid_at) return false;
-    const t = new Date(est.payment_paid_at).getTime();
-    if (!Number.isFinite(t)) return false;
-    return t >= dayStart.getTime() && t <= dayEnd.getTime();
+    const paidAt = est.payment_paid_at ? new Date(est.payment_paid_at).getTime() : NaN;
+    if (Number.isFinite(paidAt)) {
+      return paidAt >= dayStart.getTime() && paidAt <= dayEnd.getTime();
+    }
+
+    // Fallback legado para não "sumir" no saldo diário quando o status foi marcado
+    // como pago em versões antigas sem gravar payment_paid_at.
+    if (est.payment_status !== 'paid') return false;
+    const createdAt = new Date(est.created_at).getTime();
+    if (!Number.isFinite(createdAt)) return false;
+    return createdAt >= dayStart.getTime() && createdAt <= dayEnd.getTime();
   });
+  const newOnDay = establishments.filter(est => {
+    const createdAt = new Date(est.created_at).getTime();
+    if (!Number.isFinite(createdAt)) return false;
+    return createdAt >= dayStart.getTime() && createdAt <= dayEnd.getTime();
+  });
+  const saldoDiaIds = new Set<string>([
+    ...paidOnDay.map((est) => est.id),
+    ...newOnDay.map((est) => est.id),
+  ]);
+  const saldoDiaEntities = establishments.filter((est) => saldoDiaIds.has(est.id));
   const saldoDiaProfit = paidOnDay.reduce((sum, est) => {
+    const v = Number(est.admin_profit_value ?? 0);
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0);
+  const saldoDiaCombinedProfit = saldoDiaEntities.reduce((sum, est) => {
     const v = Number(est.admin_profit_value ?? 0);
     return sum + (Number.isFinite(v) ? v : 0);
   }, 0);
@@ -3468,7 +3495,16 @@ const AdminDashboard = () => {
     const v = Number(est.admin_profit_value ?? 0);
     return sum + (Number.isFinite(v) ? v : 0);
   }, 0) : clientesMeusPagosMesSelected;
-  const saldoDiaValueDisplay = hasCardsRange ? saldoLucroValueDisplay : saldoDiaProfit;
+  const saldoPeriodoIds = new Set<string>([
+    ...paidInCardsRange.map((est) => est.id),
+    ...newInCardsRange.map((est) => est.id),
+  ]);
+  const saldoPeriodoEntities = establishments.filter((est) => saldoPeriodoIds.has(est.id));
+  const saldoPeriodoCombinedProfit = saldoPeriodoEntities.reduce((sum, est) => {
+    const v = Number(est.admin_profit_value ?? 0);
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0);
+  const saldoDiaValueDisplay = hasCardsRange ? saldoPeriodoCombinedProfit : saldoDiaCombinedProfit;
   const totalEstablishmentsDisplay = hasCardsRange ? establishmentsInCardsRange.length : establishments.length;
   const clientsMonthCountDisplay = hasCardsRange ? newInCardsRange.length : clientsMonthCount;
   const pagamentosEmDiaDisplay = establishmentsInCardsRange.filter((e) => e.payment_status === 'paid').length;
@@ -4042,8 +4078,8 @@ const AdminDashboard = () => {
                 <p className="text-2xl font-bold text-emerald-900">{fmtBRL(saldoDiaValueDisplay)}</p>
                 <p className="text-xs text-emerald-800/80 mt-1">
                   {hasCardsRange
-                    ? `${paidInCardsRange.length} pago(s) • ${newInCardsRange.length} novo(s)`
-                    : `${paidOnDay.length} pago(s) • ${clientesDiaCount} novo(s)`}
+                    ? `${paidInCardsRange.length} pago(s) • ${newInCardsRange.length} novo(s) • ${saldoPeriodoEntities.length} no saldo`
+                    : `${paidOnDay.length} pago(s) • ${clientesDiaCount} novo(s) • ${saldoDiaEntities.length} no saldo`}
                 </p>
               </div>
             </div>

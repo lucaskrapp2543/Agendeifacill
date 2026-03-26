@@ -20,11 +20,117 @@ type DueReminderRow = {
   instance_status: string;
 };
 
+function sanitizeMaybeWamid(raw: unknown): string | null {
+  const value = String(raw || '').trim();
+  if (!value) return null;
+  if (value.toLowerCase().startsWith('wamid.')) return value;
+  return null;
+}
+
+function findWamidDeep(value: unknown, depth = 0): string | null {
+  if (depth > 5) return null;
+
+  const direct = sanitizeMaybeWamid(value);
+  if (direct) return direct;
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nested = findWamidDeep(item, depth + 1);
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  if (!value || typeof value !== 'object') return null;
+  const obj = value as Record<string, unknown>;
+
+  // Chaves mais comuns em APIs/proxies.
+  const prioritizedKeys = [
+    'id',
+    'message_id',
+    'messageId',
+    'meta_message_id',
+    'metaMessageId',
+    'wamid',
+  ];
+
+  for (const key of prioritizedKeys) {
+    const nested = sanitizeMaybeWamid(obj[key]);
+    if (nested) return nested;
+  }
+
+  const nestedKeys = ['messages', 'data', 'result', 'response', 'payload'];
+  for (const key of nestedKeys) {
+    const nested = findWamidDeep(obj[key], depth + 1);
+    if (nested) return nested;
+  }
+
+  for (const [, nestedValue] of Object.entries(obj)) {
+    const nested = findWamidDeep(nestedValue, depth + 1);
+    if (nested) return nested;
+  }
+
+  return null;
+}
+
 function getMetaMessageIdFromSendResponse(data: unknown): string | null {
-  const maybeObj = (data as any) || null;
-  const first = maybeObj?.messages?.[0];
-  const id = String(first?.id || '').trim();
-  return id || null;
+  const parsed = findWamidDeep(data);
+  return parsed || null;
+}
+
+async function upsertReminderLogWithCompatibility(params: {
+  supabase: any;
+  payload: Record<string, any>;
+}) {
+  const { supabase, payload } = params;
+
+  const tryUpsert = async (candidatePayload: Record<string, any>) =>
+    supabase.from('whatsapp_reminder_logs').upsert(candidatePayload as any, { onConflict: 'appointment_id' });
+
+  let { error } = await tryUpsert(payload);
+  if (!error) return { error: null };
+
+  const lowerMessage = String(error?.message || '').toLowerCase();
+  const lowerDetails = String(error?.details || '').toLowerCase();
+  const hasUnknownColumnError =
+    lowerMessage.includes('column') ||
+    lowerMessage.includes('schema cache') ||
+    lowerDetails.includes('column');
+
+  if (!hasUnknownColumnError) return { error };
+
+  // Fallback seguro para bancos sem colunas novas.
+  const fallbackPayload: Record<string, any> = { ...payload };
+  const removableColumns = [
+    'meta_message_id',
+    'meta_status',
+    'meta_status_updated_at',
+    'meta_recipient_id',
+    'meta_conversation_id',
+    'meta_pricing_category',
+    'attempt_count',
+    'last_attempt_at',
+    'next_attempt_at',
+    'last_error',
+  ];
+
+  let removedAny = false;
+  for (const column of removableColumns) {
+    if (column in fallbackPayload && (lowerMessage.includes(column) || lowerDetails.includes(column))) {
+      delete fallbackPayload[column];
+      removedAny = true;
+    }
+  }
+
+  if (!removedAny) {
+    // Se não ficou claro qual coluna faltou, remove todas opcionais para preservar envio.
+    for (const column of removableColumns) {
+      if (column in fallbackPayload) delete fallbackPayload[column];
+    }
+  }
+
+  const retry = await tryUpsert(fallbackPayload);
+  return { error: retry.error || null };
 }
 
 function sleep(ms: number) {
@@ -194,7 +300,7 @@ export async function runSendWhatsappRemindersOnce() {
       const providerResponse = JSON.stringify(sendRes.data ?? sendRes.errorText ?? null);
       const attemptInc = 1;
       const nextAttemptAt = sendRes.ok ? null : computeNextAttemptAt(attemptInc);
-      const metaMessageId = useMetaTemplate && sendRes.ok ? getMetaMessageIdFromSendResponse(sendRes.data) : null;
+      const metaMessageId = sendRes.ok ? getMetaMessageIdFromSendResponse(sendRes.data) : null;
 
       // ✅ UPSERT para permitir retries (tabela tem UNIQUE(appointment_id))
       const { data: existingLog } = await supabase
@@ -204,8 +310,9 @@ export async function runSendWhatsappRemindersOnce() {
         .maybeSingle();
 
       const nextAttemptCount = Number((existingLog as any)?.attempt_count || 0) + 1;
-      const { error: logErr } = await supabase.from('whatsapp_reminder_logs').upsert(
-        {
+      const { error: logErr } = await upsertReminderLogWithCompatibility({
+        supabase,
+        payload: {
           establishment_id: r.establishment_id,
           appointment_id: r.appointment_id,
           phone_to: String(usedTo || ''),
@@ -213,15 +320,14 @@ export async function runSendWhatsappRemindersOnce() {
           status,
           provider_response: providerResponse,
           meta_message_id: metaMessageId,
-          meta_status: sendRes.ok && useMetaTemplate ? 'sent' : null,
-          meta_status_updated_at: sendRes.ok && useMetaTemplate ? new Date().toISOString() : null,
+          meta_status: sendRes.ok && metaMessageId ? 'sent' : null,
+          meta_status_updated_at: sendRes.ok && metaMessageId ? new Date().toISOString() : null,
           attempt_count: nextAttemptCount,
           last_attempt_at: new Date().toISOString(),
           next_attempt_at: sendRes.ok ? null : computeNextAttemptAt(nextAttemptCount),
           last_error: sendRes.ok ? null : `status=${sendRes.status} body=${providerResponse?.slice(0, 500)}`,
-        } as any,
-        { onConflict: 'appointment_id' }
-      );
+        },
+      });
 
       if (logErr) {
         // Anti-duplicidade: se já existe log (unique appointment_id), não reenviar (já enviamos acima).
@@ -231,7 +337,7 @@ export async function runSendWhatsappRemindersOnce() {
 
       if (sendRes.ok) {
         sent += 1;
-        console.log(`✅ Enviado: appointment_id=${r.appointment_id} to=${usedTo}`);
+        console.log(`✅ Enviado: appointment_id=${r.appointment_id} to=${usedTo}${metaMessageId ? ` wamid=${metaMessageId}` : ''}`);
       } else {
         failed += 1;
         console.warn(
@@ -248,8 +354,9 @@ export async function runSendWhatsappRemindersOnce() {
 
       // Tentar registrar falha no log (sem quebrar tudo)
       try {
-        await supabase.from('whatsapp_reminder_logs').upsert(
-          {
+        await upsertReminderLogWithCompatibility({
+          supabase,
+          payload: {
             establishment_id: r.establishment_id,
             appointment_id: r.appointment_id,
             phone_to: String(r.client_whatsapp || ''),
@@ -260,9 +367,8 @@ export async function runSendWhatsappRemindersOnce() {
             last_attempt_at: new Date().toISOString(),
             next_attempt_at: computeNextAttemptAt(1),
             last_error: String(e).slice(0, 500),
-          } as any,
-          { onConflict: 'appointment_id' }
-        );
+          },
+        });
       } catch {
         // ignore
       }

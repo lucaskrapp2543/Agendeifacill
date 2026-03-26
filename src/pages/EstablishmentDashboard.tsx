@@ -619,6 +619,7 @@ const EstablishmentDashboard = () => {
   const [showSecondUnitQuickPassword, setShowSecondUnitQuickPassword] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const previousAppointmentsRef = useRef<Appointment[]>([]);
+  const fetchAppointmentsRequestSeqRef = useRef(0);
   const paymentDropdownRef = useRef<HTMLDivElement>(null);
   const onboardingCompletedRef = useRef(false); // Evita múltiplas chamadas ao completar onboarding
   const onboardingWelcomeShownThisLoadRef = useRef(false); // Evita reabrir após fechar (só volta no reload)
@@ -9681,6 +9682,8 @@ Estamos te aguardando! 😎✂️`;
   const fetchAppointments = async () => {
     if (!establishment) return;
 
+    const requestSeq = ++fetchAppointmentsRequestSeqRef.current;
+    const selectedDateKeySnapshot = format(selectedDate, 'yyyy-MM-dd');
     setIsLoading(true);
 
     try {
@@ -9733,8 +9736,8 @@ Estamos te aguardando! 😎✂️`;
         }
       }
 
-      const startOfSelectedDate = format(startOfDay(selectedDate), 'yyyy-MM-dd');
-      const endOfSelectedDate = format(endOfDay(selectedDate), 'yyyy-MM-dd');
+      const startOfSelectedDate = selectedDateKeySnapshot;
+      const endOfSelectedDate = selectedDateKeySnapshot;
       const isLocalDev =
         typeof window !== 'undefined' &&
         (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
@@ -9962,7 +9965,41 @@ Estamos te aguardando! 😎✂️`;
         }
       }
 
-      setAppointments(appointmentsData);
+      // Evita flicker: quando chegar vazio de forma transitória, confirma no banco antes
+      // de sobrescrever a agenda já exibida na tela.
+      const currentVisibleSameDayCount = appointments.filter((apt) => {
+        const aptDate = String((apt as any)?.appointment_date || '').slice(0, 10);
+        const aptStatus = String((apt as any)?.status || '').toLowerCase().trim();
+        return aptDate === selectedDateKeySnapshot && aptStatus !== 'cancelled';
+      }).length;
+
+      let canApplyIncomingAppointments = true;
+      if (appointmentsData.length === 0 && currentVisibleSameDayCount > 0) {
+        const { count: sameDayActiveCount, error: sameDayCountError } = await supabase
+          .from('appointments')
+          .select('id', { count: 'exact', head: true })
+          .eq('establishment_id', establishment.id)
+          .eq('appointment_date', selectedDateKeySnapshot)
+          .neq('status', 'cancelled');
+
+        if (!sameDayCountError && Number(sameDayActiveCount || 0) > 0) {
+          canApplyIncomingAppointments = false;
+          console.warn('⚠️ Proteção anti-flicker: mantendo agenda atual para evitar tela zerada transitória.', {
+            selectedDate: selectedDateKeySnapshot,
+            currentVisibleSameDayCount,
+            sameDayActiveCount,
+          });
+        }
+      }
+
+      // Condição de corrida: ignora resposta antiga de requisição concorrente.
+      if (requestSeq !== fetchAppointmentsRequestSeqRef.current) {
+        return;
+      }
+
+      if (canApplyIncomingAppointments) {
+        setAppointments(appointmentsData);
+      }
 
       // Verificar quais clientes são novos
       const newClientsMap: Record<string, boolean> = {};
@@ -9977,7 +10014,9 @@ Estamos te aguardando! 😎✂️`;
           }
         }
       }
-      setNewClientsInfo(newClientsMap);
+      if (requestSeq === fetchAppointmentsRequestSeqRef.current) {
+        setNewClientsInfo(newClientsMap);
+      }
     } catch (error: any) {
       console.error('Error fetching appointments:', error);
       const rawMessage = String(error?.message || '').trim();
@@ -9988,7 +10027,9 @@ Estamos te aguardando! 😎✂️`;
         toast(rawMessage || 'Erro ao carregar agendamentos', 'error');
       }
     } finally {
-      setIsLoading(false);
+      if (requestSeq === fetchAppointmentsRequestSeqRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 

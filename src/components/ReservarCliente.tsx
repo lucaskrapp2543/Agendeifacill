@@ -168,7 +168,17 @@ export default function ReservarCliente({
   };
 
   const parseDurationMinutes = (rawDuration: any): number => {
-    const parsed = Number(rawDuration);
+    if (rawDuration === null || rawDuration === undefined) return 30;
+    if (typeof rawDuration === 'number') {
+      return Number.isFinite(rawDuration) && rawDuration > 0 ? Math.round(rawDuration) : 30;
+    }
+    const rawText = String(rawDuration).trim();
+    if (!rawText) return 30;
+    const direct = Number(rawText);
+    if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+    const match = rawText.match(/(\d+)/);
+    if (!match) return 30;
+    const parsed = Number(match[1]);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
   };
 
@@ -1605,21 +1615,30 @@ export default function ReservarCliente({
       // Verificar conflitos antes de criar (evita sobreposição e double-booking)
       const { data: existingAppointments, error: existingError } = await supabase
         .from('appointments')
-        .select('appointment_date, appointment_time, duration, status')
+        .select('appointment_date, appointment_time, duration, status, professional')
         .eq('establishment_id', establishmentId)
-        .eq('professional', selectedProfessional.id)
         .in('appointment_date', datasMensais)
         .neq('status', 'cancelled');
 
       if (existingError) throw existingError;
 
       const novoInicioMin = parseTimeToMinutes(selectedTime);
+      const selectedProfessionalIdNorm = normalizeText(selectedProfessional?.id);
+      const selectedProfessionalNameNorm = normalizeText(selectedProfessional?.name);
 
       const datasSemConflito = datasMensais.filter((dateStr) => {
-        const doDia = (existingAppointments || []).filter((a: any) => a.appointment_date === dateStr);
+        const doDia = (existingAppointments || []).filter((a: any) => {
+          if (a.appointment_date !== dateStr) return false;
+          const existingProfessionalNorm = normalizeText(a?.professional);
+          if (!existingProfessionalNorm) return false;
+          return (
+            (selectedProfessionalIdNorm.length > 0 && existingProfessionalNorm === selectedProfessionalIdNorm) ||
+            (selectedProfessionalNameNorm.length > 0 && existingProfessionalNorm === selectedProfessionalNameNorm)
+          );
+        });
         for (const a of doDia) {
           const inicio = parseTimeToMinutes(a.appointment_time);
-          const dur = Number(a.duration || 30);
+          const dur = parseDurationMinutes(a.duration);
           if (hasOverlap(novoInicioMin, totalDuration, inicio, dur)) return false;
         }
         return true;

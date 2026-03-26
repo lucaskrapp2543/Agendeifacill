@@ -1984,10 +1984,24 @@ export const AllProfessionalsAppointmentsView: React.FC<
         .toLowerCase()
         .trim();
 
+    const parseDurationMinutes = (raw: unknown, fallback: number): number => {
+      if (typeof raw === 'number') {
+        return Number.isFinite(raw) && raw > 0 ? Math.round(raw) : fallback;
+      }
+      const rawText = String(raw || '').trim();
+      if (!rawText) return fallback;
+      const direct = Number(rawText);
+      if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+      const match = rawText.match(/(\d+)/);
+      if (!match) return fallback;
+      const parsed = Number(match[1]);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+    };
+
     // Para assinantes: priorizar sempre a duração salva no agendamento.
     // Isso evita regressão visual (ex.: cair para 30min) quando o plano/serviços mudam depois.
     const getEffectiveBaseDuration = (apt: Appointment, interval: number): number => {
-      const fallback = Number.isFinite(apt.duration) && apt.duration > 0 ? apt.duration : interval;
+      const fallback = parseDurationMinutes((apt as any)?.duration, interval);
       if (!apt.service || subscriptionDurations.length === 0) return fallback;
 
       const isSubscriberAppointment =
@@ -1995,9 +2009,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
         String((apt as any)?.client_name || '').toUpperCase().includes('(ASSINANTE)');
       if (!isSubscriberAppointment) return fallback;
 
-      if (Number.isFinite(apt.duration) && apt.duration > 0) {
-        return apt.duration;
-      }
+      const storedDuration = parseDurationMinutes((apt as any)?.duration, 0);
+      if (storedDuration > 0) return storedDuration;
 
       const serviceStr = String(apt.service).trim();
       const normalizedService = normalizeName(serviceStr);
@@ -2029,7 +2042,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const getDuracaoTotalAgendamento = (apt: Appointment, interval: number): number => {
       const base = getEffectiveBaseDuration(apt, interval);
       const extra = (apt.additional_products || []).reduce(
-        (sum, p) => sum + (Number(p?.duration) || 0),
+        (sum, p) => sum + parseDurationMinutes((p as any)?.duration, 0),
         0
       );
       // Importante: respeitar duração real (ex.: "Terminei Antes" com 5min),
@@ -2442,10 +2455,28 @@ export const AllProfessionalsAppointmentsView: React.FC<
       try {
         const appointment = (appointments || []).find((apt) => String(apt.id) === String(appointmentId));
         const previousStatus = String(appointment?.status || '').trim().toLowerCase();
-        const { error } = await supabase
+        const todayDateKey = format(new Date(), 'yyyy-MM-dd');
+        const isTodayAppointment = String((appointment as any)?.appointment_date || '') === todayDateKey;
+        const isBlockedByHourError = (err: any): boolean => {
+          const code = String(err?.code || '').trim();
+          const message = String(err?.message || '').toLowerCase();
+          return code === 'P0001' && message.includes('bloqueado para este profissional');
+        };
+
+        let { error } = await supabase
           .from('appointments')
           .update({ status: newStatus })
           .eq('id', appointmentId);
+
+        // Compatibilidade: se o banco estiver com trigger de bloqueio estrito e for concluir no dia atual,
+        // tenta novamente com override explícito (sem quebrar bancos legados).
+        if (error && newStatus === 'completed' && isTodayAppointment && isBlockedByHourError(error)) {
+          const retry = await supabase
+            .from('appointments')
+            .update({ status: newStatus, allow_blocked_override: true } as any)
+            .eq('id', appointmentId);
+          error = retry.error;
+        }
 
         if (error) throw error;
 

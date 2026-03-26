@@ -17,6 +17,7 @@ type ReminderLogRaw = {
   appointment_id?: string | null;
   phone_to?: string | null;
   status?: string | null;
+  meta_message_id?: string | null;
   meta_status?: string | null;
   last_error?: string | null;
   provider_response?: string | null;
@@ -47,8 +48,12 @@ type ReminderLogView = {
   serviceName: string;
   professionalName: string;
   phoneTo: string;
+  metaMessageId: string | null;
   errorText: string | null;
 };
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PLACEHOLDER_REGEX = /\{[^}]+\}/;
 
 /**
  * Tela/Bloco para o dashboard do estabelecimento.
@@ -180,6 +185,55 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
     return value || null;
   };
 
+  const sanitizeParsedField = (value: string | null | undefined): string | null => {
+    const v = String(value || '').trim();
+    if (!v) return null;
+    if (v === '-' || v === '—') return null;
+    if (PLACEHOLDER_REGEX.test(v)) return null;
+    return v;
+  };
+
+  const extractLineValue = (message: string, patterns: RegExp[]): string | null => {
+    for (const pattern of patterns) {
+      const match = message.match(pattern);
+      if (match) {
+        const parsed = sanitizeParsedField(String(match[1] || ''));
+        if (parsed) return parsed;
+      }
+    }
+    return null;
+  };
+
+  const extractFallbackFromMessage = (message: string) => {
+    const raw = String(message || '');
+    const clientName =
+      extractLineValue(raw, [/Ol[aá]\s+([^!\n\r]+)!?/i, /Cliente:\s*([^\n\r]+)/i]) || extractClientNameFromMessage(raw);
+    const dateLabel = extractLineValue(raw, [/(?:📅|Data:)\s*([^\n\r]+)/i]);
+    const timeLabel = extractLineValue(raw, [/(?:⏰|Hor[aá]rio:)\s*([^\n\r]+)/i]);
+    const serviceName = extractLineValue(raw, [/(?:✂️|✂|Servi[cç]o:)\s*([^\n\r]+)/i]);
+    const professionalName = extractLineValue(raw, [/(?:👨‍💼|Profissional:)\s*([^\n\r]+)/i]);
+    const scheduleLabel = [dateLabel, timeLabel].filter(Boolean).join(' às ').trim() || null;
+    return {
+      clientName,
+      scheduleLabel,
+      serviceName,
+      professionalName,
+    };
+  };
+
+  const isUuid = (value: string | null | undefined): boolean => UUID_REGEX.test(String(value || '').trim());
+
+  const extractSupabaseErrorMessage = (errorLike: any): string => {
+    const message = String(errorLike?.message || '').trim();
+    const code = String(errorLike?.code || '').trim();
+    const details = String(errorLike?.details || '').trim();
+    const hint = String(errorLike?.hint || '').trim();
+    const parts = [message, code ? `(code: ${code})` : '', details ? `detalhes: ${details}` : '', hint ? `dica: ${hint}` : '']
+      .filter(Boolean)
+      .join(' • ');
+    return parts || 'Erro inesperado ao carregar histórico.';
+  };
+
   const loadReminderLogs = async () => {
     if (!establishmentId) return;
     setLogsLoading(true);
@@ -191,9 +245,10 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
 
       // Compatibilidade com bancos em versões diferentes (com/sem colunas novas).
       const logSelectCandidates = [
-        'appointment_id,phone_to,status,meta_status,last_error,provider_response,created_at,message',
-        'appointment_id,phone_to,status,meta_status,provider_response,created_at,message',
-        'appointment_id,phone_to,status,meta_status,created_at,message',
+        'appointment_id,phone_to,status,meta_message_id,meta_status,last_error,provider_response,created_at,message',
+        'appointment_id,phone_to,status,meta_message_id,meta_status,provider_response,created_at,message',
+        'appointment_id,phone_to,status,meta_message_id,meta_status,created_at,message',
+        'appointment_id,phone_to,status,meta_message_id,created_at,message',
         'appointment_id,phone_to,status,created_at,message',
       ];
 
@@ -206,8 +261,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
           .select(selectCols)
           .eq('establishment_id', establishmentId)
           .gte('created_at', monthStart.toISOString())
-          .order('created_at', { ascending: false })
-          .limit(150);
+          .order('created_at', { ascending: false });
         if (!error) {
           rows = (data as ReminderLogRaw[]) || [];
           logsLoaded = true;
@@ -221,6 +275,8 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
       const appointmentIds = Array.from(
         new Set(metaRows.map(r => String(r.appointment_id || '').trim()).filter(Boolean))
       );
+      // Compatibilidade: logs antigos podem ter appointment_id fora do formato UUID.
+      const appointmentLookupIds = appointmentIds.filter(id => isUuid(id));
 
       const professionalsById = new Map<string, string>();
       const { data: estData, error: estErr } = await supabase
@@ -241,7 +297,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
       }
 
       const appointmentById = new Map<string, AppointmentMini>();
-      if (appointmentIds.length > 0) {
+      if (appointmentLookupIds.length > 0) {
         const appointmentSelectCandidates = [
           'id,client_name,appointment_date,appointment_time,service_name,professional',
           'id,client_name,appointment_date,appointment_time,service,professional',
@@ -252,7 +308,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
           const { data: aptData, error: aptErr } = await supabase
             .from('appointments')
             .select(selectCols)
-            .in('id', appointmentIds);
+            .in('id', appointmentLookupIds);
           if (!aptErr) {
             for (const apt of (aptData as any[]) || []) {
               appointmentById.set(String(apt.id), apt as AppointmentMini);
@@ -262,7 +318,10 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
           }
           lastAppointmentError = aptErr;
         }
-        if (!loadedAppointments) throw lastAppointmentError || new Error('Falha ao carregar agendamentos dos logs.');
+        if (!loadedAppointments) {
+          // Não derruba a UI: mantém histórico com fallback por mensagem/telefone.
+          console.warn('Aviso ao carregar appointments para histórico WhatsApp:', lastAppointmentError);
+        }
       }
 
       const counters = { sent: 0, failed: 0, delivered: 0 };
@@ -271,18 +330,21 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
         counters[kind] += 1;
 
         const appointment = appointmentById.get(String(row.appointment_id || '').trim());
-        const fallbackClient = extractClientNameFromMessage(String(row.message || '')) || 'Cliente não identificado';
+        const fallbackFromMessage = extractFallbackFromMessage(String(row.message || ''));
+        const fallbackClient = fallbackFromMessage.clientName || 'Cliente não identificado';
         const clientName = String(appointment?.client_name || fallbackClient).trim() || 'Cliente não identificado';
-        const scheduleLabel = formatSchedule(appointment);
-        const serviceName = String((appointment as any)?.service_name || (appointment as any)?.service || '').trim() || '-';
+        const scheduleLabel = formatSchedule(appointment) !== '-' ? formatSchedule(appointment) : String(fallbackFromMessage.scheduleLabel || '-');
+        const serviceName =
+          String((appointment as any)?.service_name || (appointment as any)?.service || '').trim() ||
+          String(fallbackFromMessage.serviceName || '-');
         const professionalRaw = String(appointment?.professional || '').trim();
-        const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-          professionalRaw
-        );
-        const professionalName = looksLikeUuid
-          ? String(professionalsById.get(professionalRaw) || professionalRaw || '-')
-          : String(professionalRaw || '-');
+        const looksLikeUuid = isUuid(professionalRaw);
+        const professionalNameResolved = looksLikeUuid
+          ? String(professionalsById.get(professionalRaw) || professionalRaw || '')
+          : String(professionalRaw || '');
+        const professionalName = professionalNameResolved.trim() || String(fallbackFromMessage.professionalName || '-');
         const phoneTo = String(row.phone_to || '').trim() || '-';
+        const metaMessageId = String(row.meta_message_id || '').trim() || null;
         const errorTextRaw = row.last_error || row.provider_response || null;
         const errorText = errorTextRaw ? String(errorTextRaw).slice(0, 220) : null;
 
@@ -295,6 +357,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
           serviceName,
           professionalName,
           phoneTo,
+          metaMessageId,
           errorText,
         };
       });
@@ -303,7 +366,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
       setLogRows(mapped);
     } catch (e) {
       console.error(e);
-      setLogLoadError('Não foi possível carregar o histórico com o esquema atual deste banco.');
+      setLogLoadError(`Não foi possível carregar o histórico. ${extractSupabaseErrorMessage(e)}`);
       setLogCounters({ sent: 0, failed: 0, delivered: 0 });
       setLogRows([]);
     } finally {
@@ -450,6 +513,25 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
                         <span className="text-white">{row.professionalName}</span>
                       </div>
                       <div className="mt-1 text-xs text-gray-400">Destino: {row.phoneTo}</div>
+                      {row.metaMessageId && (
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-cyan-200">
+                          <span className="break-all">wamid: {row.metaMessageId}</span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(row.metaMessageId || '');
+                                toast.success('wamid copiado.');
+                              } catch {
+                                toast.error('Não foi possível copiar o wamid.');
+                              }
+                            }}
+                            className="rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-100 hover:bg-cyan-500/20"
+                          >
+                            Copiar wamid
+                          </button>
+                        </div>
+                      )}
                       {row.kind === 'failed' && row.errorText && (
                         <div className="mt-2 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-[11px] text-red-100">
                           Erro: {row.errorText}
