@@ -3231,6 +3231,7 @@ const EstablishmentDashboard = () => {
     (appointmentsTutorialStep === 3 && appointmentsTutorialBlockPreview) ||
     (appointmentsTutorialStep === 4 && appointmentsTutorialAbsencePreview) ||
     (appointmentsTutorialStep === 5 && appointmentsTutorialClientsPreview);
+  const isAppointmentsTutorialReservePreview = appointmentsTutorialStep === 5 && appointmentsTutorialClientsPreview;
 
   const countTodayAvulsoAppointments = useCallback(async (): Promise<number | null> => {
     if (!establishment?.id) return 0;
@@ -3442,12 +3443,26 @@ const EstablishmentDashboard = () => {
       return;
     }
 
-    // Etapa 6: Criar Reserva (abre Meus Clientes e modal, próximo clique volta)
+    // Etapa 6: Criar Reserva (fluxo novo: botão no card do profissional em Meus Agendamentos)
     if (appointmentsTutorialStep === 5) {
       if (!appointmentsTutorialClientsPreview && !appointmentsTutorialClientsCompleted) {
         setAppointmentsTutorialClientsPreview(true);
-        setActiveTab('clients');
-        setShowReservarClienteModal(true);
+        // Fluxo atual: abre o modal pelo botão "Criar reserva" dentro de Meus Agendamentos.
+        // Fallback: se o botão não estiver disponível (layout antigo), abre modal direto.
+        const reserveButtons = Array.from(
+          document.querySelectorAll('[data-tutorial-id="appointments-criar-reserva"]')
+        ) as HTMLButtonElement[];
+        const visibleReserveButton =
+          reserveButtons.find((el) => {
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0 && !el.disabled;
+          }) || null;
+
+        if (visibleReserveButton) {
+          visibleReserveButton.click();
+        } else {
+          setShowReservarClienteModal(true);
+        }
         const baselineCount = await countTodayAvulsoAppointments();
         setAppointmentsTutorialAvulsoBaselineCount(baselineCount);
         return;
@@ -36136,75 +36151,91 @@ Estamos te aguardando! 😎✂️`;
             <div className="fixed inset-0 z-[10020] bg-black/25 pointer-events-none" />
           )}
 
-          <div
-            className={`fixed inset-x-0 z-[10022] p-3 sm:p-4 pointer-events-none ${appointmentsTutorialStep === 5 && appointmentsTutorialClientsPreview
-              ? 'top-0'
-              : 'bottom-0'
-              }`}
-          >
-            <div className="mx-auto w-full max-w-3xl rounded-2xl border border-gray-300 bg-white shadow-2xl p-4 sm:p-5 pointer-events-auto">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Fluxo Tutorial - Primeiros Passos</p>
-                  <h3 className="text-base sm:text-lg font-extrabold text-gray-900">
-                    {appointmentsTutorialCurrent?.title}
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={closeAppointmentsTutorial}
-                  className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-                >
-                  Fechar
-                </button>
-              </div>
-
-              <p className="text-sm text-gray-700 mt-2">
-                {appointmentsTutorialStep === 2 && appointmentsTutorialFinancePreview
-                  ? 'Tela de Financeiro aberta. Clique em Próximo para fechar e seguir.'
-                  : appointmentsTutorialStep === 3 && appointmentsTutorialBlockPreview
-                    ? 'Tela de Bloquear Horários aberta. Clique em Próximo para fechar e seguir.'
-                    : appointmentsTutorialStep === 4 && appointmentsTutorialAbsencePreview
-                      ? 'Tela de Ausência aberta. Aqui você pode deixar ausência em algum dia que desejar para que ninguém agende nesse dia. Clique em Próximo para fechar e seguir.'
-                      : appointmentsTutorialStep === 6 && !appointmentsTutorialDetailsOpened
-                        ? 'Agora clique no agendamento criado para abrir os detalhes. Só depois disso o Próximo será liberado.'
-                        : appointmentsTutorialStep === 5 && appointmentsTutorialClientsCompleted
-                          ? 'Reserva avulsa confirmada. Agora vamos ensinar você a ver como funciona a reserva e as opções dela. Clique em Próximo para continuar.'
-                          : appointmentsTutorialStep === 5 && appointmentsTutorialClientsPreview
-                            ? 'Tela Meus Clientes aberta com Reservar Cliente. Faça a reserva avulsa e clique em Próximo para voltar para Meus Agendamentos.'
-                            : appointmentsTutorialCurrent?.text}
-              </p>
-
-              <div className="mt-4 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={goBackAppointmentsTutorial}
-                  disabled={appointmentsTutorialStep === 0}
-                  className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-800 font-semibold hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Voltar
-                </button>
-
-                {isAppointmentsTutorialLastStep ? (
+          {isAppointmentsTutorialReservePreview ? (
+            <div className="fixed top-2 sm:top-3 left-2 sm:left-3 right-2 sm:right-3 z-[10022] pointer-events-none">
+              <div className="ml-auto w-full max-w-sm rounded-xl border border-gray-300 bg-white shadow-2xl p-3 sm:p-4 pointer-events-auto">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Fluxo Tutorial</p>
+                    <h3 className="text-sm sm:text-base font-extrabold text-gray-900">{appointmentsTutorialCurrent?.title}</h3>
+                  </div>
                   <button
                     type="button"
                     onClick={closeAppointmentsTutorial}
-                    className="px-4 py-2 rounded-lg bg-black text-white font-semibold hover:bg-gray-800 transition-colors"
+                    className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
                   >
-                    Finalizar Tutorial
+                    Fechar
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={goNextAppointmentsTutorial}
-                    className="px-4 py-2 rounded-lg bg-black text-white font-semibold hover:bg-gray-800 transition-colors"
-                  >
-                    Proximo
-                  </button>
-                )}
+                </div>
+                <p className="text-xs sm:text-sm text-gray-700 mt-2">
+                  Clique em <strong>Criar reserva</strong> e faça 1 reserva avulsa de teste. O tutorial avança automaticamente.
+                </p>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="fixed inset-x-0 bottom-0 z-[10022] p-3 sm:p-4 pointer-events-none">
+              <div className="mx-auto w-full max-w-3xl rounded-2xl border border-gray-300 bg-white shadow-2xl p-4 sm:p-5 pointer-events-auto">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Fluxo Tutorial - Primeiros Passos</p>
+                    <h3 className="text-base sm:text-lg font-extrabold text-gray-900">
+                      {appointmentsTutorialCurrent?.title}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeAppointmentsTutorial}
+                    className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                  >
+                    Fechar
+                  </button>
+                </div>
+
+                <p className="text-sm text-gray-700 mt-2">
+                  {appointmentsTutorialStep === 2 && appointmentsTutorialFinancePreview
+                    ? 'Tela de Financeiro aberta. Clique em Próximo para fechar e seguir.'
+                    : appointmentsTutorialStep === 3 && appointmentsTutorialBlockPreview
+                      ? 'Tela de Bloquear Horários aberta. Clique em Próximo para fechar e seguir.'
+                      : appointmentsTutorialStep === 4 && appointmentsTutorialAbsencePreview
+                        ? 'Tela de Ausência aberta. Aqui você pode deixar ausência em algum dia que desejar para que ninguém agende nesse dia. Clique em Próximo para fechar e seguir.'
+                        : appointmentsTutorialStep === 6 && !appointmentsTutorialDetailsOpened
+                          ? 'Agora clique no agendamento criado para abrir os detalhes. Só depois disso o Próximo será liberado.'
+                          : appointmentsTutorialStep === 5 && appointmentsTutorialClientsCompleted
+                            ? 'Reserva avulsa confirmada. Agora vamos ensinar você a ver como funciona a reserva e as opções dela. Clique em Próximo para continuar.'
+                            : appointmentsTutorialCurrent?.text}
+                </p>
+
+                <div className="mt-4 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={goBackAppointmentsTutorial}
+                    disabled={appointmentsTutorialStep === 0}
+                    className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-800 font-semibold hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Voltar
+                  </button>
+
+                  {isAppointmentsTutorialLastStep ? (
+                    <button
+                      type="button"
+                      onClick={closeAppointmentsTutorial}
+                      className="px-4 py-2 rounded-lg bg-black text-white font-semibold hover:bg-gray-800 transition-colors"
+                    >
+                      Finalizar Tutorial
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={goNextAppointmentsTutorial}
+                      className="px-4 py-2 rounded-lg bg-black text-white font-semibold hover:bg-gray-800 transition-colors"
+                    >
+                      Proximo
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
 
