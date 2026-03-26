@@ -7482,12 +7482,31 @@ const EstablishmentDashboard = () => {
   ) => {
     console.log('🕐 handleBusinessHoursChange chamado:', { day, field, value });
 
-    // Se for um horário (não enabled), ajustar ao intervalo configurado
+    // Se for um horário (não enabled), normalizar para nunca salvar null/vazio.
+    // Isso evita estado quebrado tipo "08:00 -" e perda ao recarregar.
     let adjustedValue = value;
-    if (field !== 'enabled' && typeof value === 'string') {
-      adjustedValue = adjustTimeToInterval(value);
-      if (adjustedValue !== value) {
-        console.log(`⚡ Horário ajustado: ${value} → ${adjustedValue}`);
+    if (field !== 'enabled') {
+      const currentDay = businessHours[day];
+      const raw = typeof value === 'string' ? value.trim() : '';
+      if (!raw) {
+        // open1/close1 são obrigatórios no funcionamento; mantém valor anterior.
+        if (field === 'open1' || field === 'close1') {
+          const currentFieldValue = String(currentDay?.[field] || '').trim();
+          const fallback =
+            currentFieldValue && currentFieldValue !== '00:00'
+              ? currentFieldValue
+              : (field === 'open1' ? '08:00' : '12:00');
+          adjustedValue = adjustTimeToInterval(fallback);
+          toast('Esse campo não pode ficar vazio. Mantivemos o último horário válido.', 'warning');
+        } else {
+          // open2/close2 vazios significam "sem segundo período" => salva como 00:00 para compatibilidade.
+          adjustedValue = '00:00';
+        }
+      } else {
+        adjustedValue = adjustTimeToInterval(raw);
+        if (adjustedValue !== raw) {
+          console.log(`⚡ Horário ajustado: ${raw} → ${adjustedValue}`);
+        }
       }
     }
 
@@ -7523,56 +7542,57 @@ const EstablishmentDashboard = () => {
     });
   };
 
-  // ✅ Modo "sem intervalo" (global): esconde reabertura/fechamento e usa apenas abertura + fechamento final.
+  const isNoIntervalModeForDay = (dayHours?: BusinessHours | null): boolean => {
+    const h = dayHours || ({} as BusinessHours);
+    return String((h as any)?.open2 || '00:00') === '00:00' && String((h as any)?.close2 || '00:00') === '00:00';
+  };
+
+  // ✅ Modo "sem intervalo" (global): verdadeiro apenas quando TODOS os dias ativos estão sem intervalo.
   const isNoIntervalModeEnabled = (hours: Record<string, BusinessHours>): boolean => {
     const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
     return days.every((day) => {
       const h = (hours as any)?.[day];
       if (!h?.enabled) return true;
-      return String(h?.open2 || '00:00') === '00:00' && String(h?.close2 || '00:00') === '00:00';
+      return isNoIntervalModeForDay(h as BusinessHours);
     });
   };
 
-  const toggleNoIntervalMode = (enable: boolean) => {
-    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
-
+  const toggleNoIntervalModeForDay = (day: keyof typeof businessHours, enable: boolean) => {
     const updatedHours = { ...businessHours } as Record<string, BusinessHours>;
+    const current = updatedHours[day];
+    if (!current) return;
 
-    days.forEach((day) => {
-      const current = updatedHours[day];
-      if (!current) return;
+    if (enable) {
+      const currentClose1 = String(current.close1 || '').trim();
+      const currentClose2 = String(current.close2 || '').trim();
+      const finalClose =
+        currentClose2 && currentClose2 !== '00:00'
+          ? currentClose2
+          : currentClose1 && currentClose1 !== '00:00'
+            ? currentClose1
+            : '12:00';
 
-      if (enable) {
-        // Fechar direto no final (se já existir close2, usa ele; senão mantém close1)
-        const finalClose =
-          current.close2 && current.close2 !== '00:00'
-            ? current.close2
-            : current.close1;
+      updatedHours[day] = {
+        ...current,
+        close1: adjustTimeToInterval(String(finalClose)),
+        open2: '00:00',
+        close2: '00:00'
+      };
+    } else {
+      const open2 = current.open2 && current.open2 !== '00:00' ? current.open2 : '14:00';
+      const close2 = current.close2 && current.close2 !== '00:00' ? current.close2 : '20:00';
 
-        updatedHours[day] = {
-          ...current,
-          close1: adjustTimeToInterval(String(finalClose || current.close1)),
-          open2: '00:00',
-          close2: '00:00'
-        };
-      } else {
-        // Voltar ao modo normal (com intervalo).
-        // Se estava sem intervalo (open2/close2 zerados), preencher um padrão amigável.
-        const open2 = current.open2 && current.open2 !== '00:00' ? current.open2 : '14:00';
-        const close2 = current.close2 && current.close2 !== '00:00' ? current.close2 : '20:00';
+      let close1 = current.close1;
+      if (!close1 || close1 === '00:00') close1 = '12:00';
+      if (String(close1) === String(close2)) close1 = '12:00';
 
-        let close1 = current.close1;
-        // Se o close1 estava funcionando como fechamento final, voltar para o "fecha p/ intervalo" padrão.
-        if (String(close1) === String(close2)) close1 = '12:00';
-
-        updatedHours[day] = {
-          ...current,
-          close1: adjustTimeToInterval(String(close1 || '12:00')),
-          open2: adjustTimeToInterval(String(open2)),
-          close2: adjustTimeToInterval(String(close2))
-        };
-      }
-    });
+      updatedHours[day] = {
+        ...current,
+        close1: adjustTimeToInterval(String(close1 || '12:00')),
+        open2: adjustTimeToInterval(String(open2)),
+        close2: adjustTimeToInterval(String(close2))
+      };
+    }
 
     setBusinessHours(updatedHours);
     unsavedBusinessHoursRef.current = updatedHours;
@@ -7593,8 +7613,6 @@ const EstablishmentDashboard = () => {
   // Regra: o profissional herda por padrão o que foi configurado aqui, mas pode alterar no próprio profissional.
   const buildDefaultProfessionalWorkHoursFromEstablishment = () => {
     const WEEK_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
-    const noIntervalDefault = isNoIntervalModeEnabled(businessHours);
-
     const getOr = (v: any, fallback: string) => (typeof v === 'string' && v.trim() ? v : fallback);
 
     const result: Record<string, any> = {};
@@ -7607,7 +7625,7 @@ const EstablishmentDashboard = () => {
       const open2 = adjustTimeToInterval(getOr(h.open2, '14:00'));
       const close2 = adjustTimeToInterval(getOr(h.close2, '20:00'));
 
-      if (noIntervalDefault) {
+      if (isNoIntervalModeForDay(h as BusinessHours)) {
         // Sem intervalo: entrada = abertura, saída = fechamento (usa close1)
         result[day] = {
           enabled,
@@ -26817,28 +26835,18 @@ Estamos te aguardando! 😎✂️`;
                         </div>
                       </div>
 
-                      {/* Controle global: sem intervalo */}
+                      {/* Controle de intervalo */}
                       <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-700 rounded-lg">
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                           <p className="text-sm text-yellow-200">
-                            <span className="font-semibold">⚠️ Não tira intervalo?</span> Ative para usar só Abertura e Fechamento (sem pausa no meio do dia).
+                            <span className="font-semibold">⚠️ Não tira intervalo em algum dia?</span> Marque no próprio dia
+                            a opção <span className="font-semibold">“Sem intervalo neste dia”</span>.
                           </p>
-                          <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-                            <input
-                              type="checkbox"
-                              checked={isNoIntervalModeEnabled(businessHours)}
-                              onChange={(e) => toggleNoIntervalMode(e.target.checked)}
-                              className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-yellow-700 rounded"
-                            />
-                            <span className="text-sm font-extrabold text-yellow-100">
-                              Não tenho horário de intervalo
-                            </span>
-                          </label>
                         </div>
                         <div className="mt-2 text-xs text-yellow-100/90">
-                          Ative esta opção somente se você trabalha direto, sem intervalo.
+                          Agora é por dia: você pode ter segunda sem intervalo e terça com dois períodos.
                           <span className="block mt-1">
-                            Se você para para almoço/pausa, deixe desativado e preencha os dois períodos.
+                            Sem intervalo: usa só Abertura + Fechamento do estabelecimento.
                           </span>
                         </div>
                       </div>
@@ -26871,6 +26879,19 @@ Estamos te aguardando! 😎✂️`;
                                     Fechado
                                   </span>
                                 )}
+                                {hours.enabled && (
+                                  <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={isNoIntervalModeForDay(hours)}
+                                      onChange={(e) => toggleNoIntervalModeForDay(day as keyof typeof businessHours, e.target.checked)}
+                                      className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-yellow-700 rounded"
+                                    />
+                                    <span className="text-xs font-extrabold text-yellow-100">
+                                      Sem intervalo neste dia
+                                    </span>
+                                  </label>
+                                )}
                               </div>
 
                               {/* Horários - Layout responsivo */}
@@ -26892,7 +26913,7 @@ Estamos te aguardando! 😎✂️`;
                                     </div>
                                     <div className="space-y-2">
                                       <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
-                                        {isNoIntervalModeEnabled(businessHours)
+                                        {isNoIntervalModeForDay(hours)
                                           ? (isNewUser && quizStep === 6 ? 'Fechamento do estabelecimento' : 'Fechamento do estabelecimento')
                                           : (isNewUser && quizStep === 6 ? 'Qual seu fechamento para intervalo?' : 'Fecha p/ Intervalo')}
                                       </label>
@@ -26907,7 +26928,7 @@ Estamos te aguardando! 😎✂️`;
                                   </div>
 
                                   {/* Período da tarde (some quando ativa "Não tenho horário de intervalo") */}
-                                  {!isNoIntervalModeEnabled(businessHours) && (
+                                  {!isNoIntervalModeForDay(hours) && (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                       <div className="space-y-2">
                                         <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide">
@@ -26938,7 +26959,27 @@ Estamos te aguardando! 😎✂️`;
 
                                   {/* Resumo visual dos horários */}
                                   <div className="mt-3 p-2 bg-[#1a1b1c] rounded text-sm text-primary">
-                                    <span className="font-medium">Funcionamento:</span> {hours.open1} - {hours.close1} {hours.open2 && hours.close2 ? `e ${hours.open2} - ${hours.close2}` : ''}
+                                    {(() => {
+                                      const open1 = String(hours.open1 || '').trim();
+                                      const close1 = String(hours.close1 || '').trim();
+                                      const open2 = String(hours.open2 || '').trim();
+                                      const close2 = String(hours.close2 || '').trim();
+                                      const hasSecondPeriod =
+                                        !isNoIntervalModeForDay(hours) &&
+                                        open2 !== '' &&
+                                        close2 !== '' &&
+                                        open2 !== '00:00' &&
+                                        close2 !== '00:00';
+                                      const firstPeriodLabel =
+                                        open1 && close1 ? `${open1} - ${close1}` : open1 ? `${open1}` : 'não definido';
+                                      return (
+                                        <>
+                                          <span className="font-medium">Funcionamento:</span>{' '}
+                                          {firstPeriodLabel}
+                                          {hasSecondPeriod ? ` e ${open2} - ${close2}` : ''}
+                                        </>
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               )}
