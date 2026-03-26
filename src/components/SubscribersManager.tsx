@@ -2047,7 +2047,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         newDivideTotalEnabled ? divideAttendancesNum : null,
         true,
         normalizedDividedServices,
-        newSubscriptionLabelColor || null
+        newSubscriptionLabelColor || null,
+        true,
+        true
       );
       if (error) {
         throw error;
@@ -2240,6 +2242,87 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         console.error(`Erro ao ${action} assinatura:`, error);
         toast.error(error.message || `Erro ao ${action} assinatura.`);
       }
+    }
+  };
+
+  const isSubscriptionPixEnabled = (sub: Subscription): boolean =>
+    Boolean((sub as any)?.payment_pix_enabled ?? true);
+
+  const isSubscriptionCardEnabled = (sub: Subscription): boolean =>
+    Boolean((sub as any)?.payment_card_enabled ?? true);
+
+  const handleToggleSubscriptionPaymentMethod = async (
+    subscriptionId: string,
+    method: 'pix' | 'card'
+  ) => {
+    const currentSubscription = subscriptions.find((s) => String(s.id) === String(subscriptionId));
+    if (!currentSubscription) return;
+
+    const currentPixEnabled = isSubscriptionPixEnabled(currentSubscription);
+    const currentCardEnabled = isSubscriptionCardEnabled(currentSubscription);
+
+    let nextPixEnabled = currentPixEnabled;
+    let nextCardEnabled = currentCardEnabled;
+
+    if (method === 'pix') {
+      const wantsEnablePix = !currentPixEnabled;
+      if (!wantsEnablePix && !currentCardEnabled) {
+        toast.error('Não é possível desativar o PIX quando o Cartão já está desativado.');
+        return;
+      }
+      nextPixEnabled = wantsEnablePix;
+    } else {
+      const wantsEnableCard = !currentCardEnabled;
+      if (wantsEnableCard) {
+        nextCardEnabled = true;
+      } else {
+        // Regra solicitada: ao desativar cartão, o PIX liga automaticamente.
+        nextCardEnabled = false;
+        nextPixEnabled = true;
+      }
+    }
+
+    setSubscriptions((prev) =>
+      prev.map((sub) =>
+        String(sub.id) === String(subscriptionId)
+          ? ({
+            ...sub,
+            payment_pix_enabled: nextPixEnabled,
+            payment_card_enabled: nextCardEnabled,
+          } as Subscription)
+          : sub
+      )
+    );
+
+    try {
+      const { error } = await supabase
+        .from('subscriptions')
+        .update({
+          payment_pix_enabled: nextPixEnabled,
+          payment_card_enabled: nextCardEnabled,
+        } as any)
+        .eq('id', subscriptionId)
+        .eq('establishment_id', establishmentId);
+
+      if (error) {
+        const message = String(error.message || '').toLowerCase();
+        if (message.includes('payment_pix_enabled') || message.includes('payment_card_enabled')) {
+          toast.error(
+            'Falta migration para ativar PIX/Cartão por assinatura. Rode o SQL novo no Supabase.'
+          );
+          fetchSubscriptions();
+          return;
+        }
+        throw error;
+      }
+
+      toast.success(
+        `Pagamento da assinatura atualizado: PIX ${nextPixEnabled ? 'ativo' : 'desativado'} • Cartão ${nextCardEnabled ? 'ativo' : 'desativado'}.`
+      );
+    } catch (error: any) {
+      console.error('Erro ao atualizar formas de pagamento da assinatura:', error);
+      toast.error(error?.message || 'Erro ao atualizar formas de pagamento da assinatura.');
+      fetchSubscriptions();
     }
   };
 
@@ -4498,8 +4581,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       </p>
                     </div>
                     <p className="text-sm text-gray-300 mt-1">
-                      As taxas da Pagar.me é baixa apenas <span className="font-semibold">1,19% + R$1,00</span> apenas diferencial,
-                      não tem cobrança automatica, seu cliente só é lembrado de deixar em dia apenas.
+                      As taxas da Pagar.me são baixas: <span className="font-semibold">1,19% + R$1,00</span>.
+                      <span className="font-semibold text-amber-200"> A cobrança recorrente mensal acontece apenas no Cartão de crédito.</span>
+                      No PIX, o pagamento continua manual (sem cobrança automática).
                     </p>
                   </div>
                   <button
@@ -4534,7 +4618,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-3">
-                  Quando ativado, no Booking o botão <span className="text-gray-300 font-semibold">Assinar</span> abre um PIX da Pagar.me (com CPF).
+                  Quando ativado, no Booking o botão <span className="text-gray-300 font-semibold">Assinar</span> abre o fluxo de pagamento da Pagar.me.
+                  <span className="text-gray-300 font-semibold"> Cartão = recorrência mensal automática</span>; PIX = pagamento manual.
                   Quando desativado, mantém o comportamento atual (link da assinatura ou WhatsApp).
                 </p>
               </div>
@@ -4566,8 +4651,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     </p>
                   </div>
                   <p className="text-sm text-gray-300 mt-1">
-                    As taxas do Mercado Pago são baixas: <span className="font-semibold">0.99% (PIX) + R$1,00</span> da plataforma,
-                    não tem cobrança automatica, seu cliente só é lembrado de deixar em dia apenas.
+                    As taxas do Mercado Pago são baixas: <span className="font-semibold">0.99% (PIX) + R$1,00</span> da plataforma.
+                    <span className="font-semibold text-amber-200"> A cobrança recorrente mensal acontece apenas no Cartão de crédito.</span>
+                    No PIX, o pagamento continua manual (sem cobrança automática).
                   </p>
                 </div>
                 <button
@@ -4598,7 +4684,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 </button>
               </div>
               <p className="text-xs text-gray-500 mt-3">
-                Quando ativado, no Booking o botão <span className="text-gray-300 font-semibold">Assinar</span> abre um PIX do Mercado Pago (com CPF).
+                Quando ativado, no Booking o botão <span className="text-gray-300 font-semibold">Assinar</span> abre o fluxo de pagamento do Mercado Pago.
+                <span className="text-gray-300 font-semibold"> Cartão = recorrência mensal automática</span>; PIX = pagamento manual.
                 Quando desativado, mantém o comportamento atual (link da assinatura ou WhatsApp).
               </p>
               {!useMercadoPagoSubscriptionPix && !String(establishment?.mercadopago_access_token || '').trim() && (
@@ -4691,6 +4778,32 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     )}
                   </div>
                   <p className="text-gray-400 text-sm">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sub.value)}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleSubscriptionPaymentMethod(sub.id, 'pix')}
+                      className={`px-2.5 py-1 rounded-md text-xs font-extrabold border transition-colors ${
+                        isSubscriptionPixEnabled(sub)
+                          ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30'
+                          : 'bg-white/5 border-white/20 text-gray-300 hover:bg-white/10'
+                      }`}
+                      title={isSubscriptionPixEnabled(sub) ? 'Desativar PIX nesta assinatura' : 'Ativar PIX nesta assinatura'}
+                    >
+                      PIX {isSubscriptionPixEnabled(sub) ? 'ATIVO' : 'OFF'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleSubscriptionPaymentMethod(sub.id, 'card')}
+                      className={`px-2.5 py-1 rounded-md text-xs font-extrabold border transition-colors ${
+                        isSubscriptionCardEnabled(sub)
+                          ? 'bg-sky-600/20 border-sky-500/40 text-sky-300 hover:bg-sky-600/30'
+                          : 'bg-white/5 border-white/20 text-gray-300 hover:bg-white/10'
+                      }`}
+                      title={isSubscriptionCardEnabled(sub) ? 'Desativar Cartão nesta assinatura' : 'Ativar Cartão nesta assinatura'}
+                    >
+                      Cartão {isSubscriptionCardEnabled(sub) ? 'ATIVO' : 'OFF'}
+                    </button>
+                  </div>
                   {Boolean((sub as any)?.divide_services_enabled) && (
                     <p className="text-emerald-300 text-xs mt-1">
                       ✂️ Serviços oferecidos na assinatura ({parseDividedServices((sub as any)?.divided_services).length} serviço(s))

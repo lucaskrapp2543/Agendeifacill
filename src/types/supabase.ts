@@ -131,6 +131,8 @@ export interface Database {
           divide_services_enabled?: boolean | null;
           divided_services?: any[] | null;
           label_color?: string | null;
+          payment_pix_enabled?: boolean | null;
+          payment_card_enabled?: boolean | null;
         };
         Insert: {
           establishment_id: string;
@@ -151,6 +153,8 @@ export interface Database {
           divide_services_enabled?: boolean | null;
           divided_services?: any[] | null;
           label_color?: string | null;
+          payment_pix_enabled?: boolean | null;
+          payment_card_enabled?: boolean | null;
         };
         Update: {
           name?: string;
@@ -170,6 +174,8 @@ export interface Database {
           divide_services_enabled?: boolean | null;
           divided_services?: any[] | null;
           label_color?: string | null;
+          payment_pix_enabled?: boolean | null;
+          payment_card_enabled?: boolean | null;
         };
       };
       discount_coupons: {

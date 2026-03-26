@@ -1433,9 +1433,18 @@ export default function BookingPage() {
     }
   };
 
-  const handleSubscribeClick = (subscriptionName: string) => {
-    // Buscar a assinatura completa para verificar se tem link personalizado
-    const subscription = subscriptions.find(sub => sub.name === subscriptionName);
+  const isSubscriptionPixEnabled = (subscription: any): boolean =>
+    Boolean(subscription?.payment_pix_enabled ?? true);
+
+  const isSubscriptionCardEnabled = (subscription: any): boolean =>
+    Boolean(subscription?.payment_card_enabled ?? true);
+
+  const handleSubscribeClick = (subscriptionInput: any) => {
+    const selectedId = String(subscriptionInput?.id || '').trim();
+    const selectedName = String(subscriptionInput?.name || '').trim();
+    const subscription =
+      subscriptions.find((sub: any) => String(sub?.id || '').trim() === selectedId) ||
+      subscriptions.find((sub: any) => String(sub?.name || '').trim() === selectedName);
 
     // Verificar Pagar.me: SEMPRE priorizar valor do banco de dados
     // Se estiver false no banco, NÃO usar Pagar.me mesmo que localStorage diga true
@@ -1454,8 +1463,10 @@ export default function BookingPage() {
     }
     const hasMercadoPagoAccessToken = !!String((establishment as any)?.mercadopago_access_token || '').trim();
 
+    const pixEnabledForThisSubscription = isSubscriptionPixEnabled(subscription);
+
     // Se Mercado Pago estiver ativado e conectado, usar Mercado Pago
-    if (isMercadoPagoSubscriptionPixEnabled && hasMercadoPagoAccessToken) {
+    if (pixEnabledForThisSubscription && isMercadoPagoSubscriptionPixEnabled && hasMercadoPagoAccessToken) {
       if (!subscription) {
         toast.error('Assinatura não encontrada');
         return;
@@ -1469,7 +1480,7 @@ export default function BookingPage() {
     }
 
     // Se Pagar.me PIX estiver ativado, abrir modal de pagamento (sem cobrança automática)
-    if (isPagarmeSubscriptionPixEnabled) {
+    if (pixEnabledForThisSubscription && isPagarmeSubscriptionPixEnabled) {
       if (!subscription) {
         toast.error('Assinatura não encontrada');
         return;
@@ -1482,7 +1493,7 @@ export default function BookingPage() {
     }
 
     // Se tiver link personalizado, redirecionar para ele
-    if (subscription && subscription.custom_link && subscription.custom_link.trim()) {
+    if (pixEnabledForThisSubscription && subscription && subscription.custom_link && subscription.custom_link.trim()) {
       // ✅ NOVO: manter o mesmo fluxo do modal (cadastro + confirmação), mas no final redirecionar para o link
       setSubscriptionPixInitialFlow('default');
       setSelectedSubscriptionForPix(subscription);
@@ -3340,7 +3351,7 @@ export default function BookingPage() {
                             )}
                             <button
                               onClick={() => {
-                                handleSubscribeClick(subscription.name);
+                                handleSubscribeClick(subscription);
                               }}
                               className="bg-[#e6d7b1] hover:bg-[#f3e7c7] text-black px-3 py-1 rounded-lg text-sm font-extrabold transition-colors"
                             >
@@ -5231,6 +5242,8 @@ export default function BookingPage() {
             value: Number(selectedSubscriptionForPix.value || 0),
             duration_months: selectedSubscriptionForPix.duration_months ?? null,
           }}
+          allowedPix={isSubscriptionPixEnabled(selectedSubscriptionForPix)}
+          allowedCard={isSubscriptionCardEnabled(selectedSubscriptionForPix)}
           initialFlow={subscriptionPixInitialFlow}
           externalPaymentLink={String(selectedSubscriptionForPix.custom_link || '').trim() || undefined}
           paymentProvider={

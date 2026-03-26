@@ -62,6 +62,9 @@ type SubscriptionPixModalProps = {
   initialFlow?: 'default' | 'credit' | 'whatsapp';
   // ✅ Renovação: pré-preenche nome e WhatsApp do assinante (mesmo número = atualiza o registro existente ao pagar)
   initialPrefill?: { name: string; whatsapp: string };
+  // ✅ Controle por assinatura (fallback true para compatibilidade com bases antigas)
+  allowedPix?: boolean;
+  allowedCard?: boolean;
 };
 
 export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
@@ -76,6 +79,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   externalPaymentLink,
   initialFlow = 'default',
   initialPrefill,
+  allowedPix = true,
+  allowedCard = true,
 }) => {
   const [selectedMethod, setSelectedMethod] = useState<'pix' | 'credit_card' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -247,8 +252,10 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   }, [isOpen, subscription?.id]);
 
   const externalLink = String(externalPaymentLink || '').trim();
-  const canPix =
+  const canPixInfra =
     hasMercadoPago || (paymentProvider !== 'mercadopago' && Boolean(String(recipientId || '').trim()));
+  const canPix = Boolean(allowedPix) && canPixInfra;
+  const canCard = Boolean(allowedCard) && (hasMercadoPago || Boolean(creditCardLink));
 
   // Quando abrir a área do crédito, descer automaticamente
   useEffect(() => {
@@ -1226,7 +1233,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   // ✅ Abrir fluxo inicial (sem abrir WhatsApp direto no Booking)
   useEffect(() => {
     if (!isOpen) return;
-    if (initialFlow === 'credit') {
+    if (initialFlow === 'credit' && canCard) {
       setShowCreditConfirm(true);
     } else if (initialFlow === 'whatsapp') {
       // Não é PIX nem link; o usuário vai preencher os dados e clicar em "Enviar pedido no WhatsApp"
@@ -1235,7 +1242,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       setShowCreditInstructions(false);
       setShowExternalInstructions(false);
     }
-  }, [isOpen, initialFlow]);
+  }, [canCard, isOpen, initialFlow]);
 
   const handleSafeClose = useCallback(() => {
     if (statusIntervalRef.current) {
@@ -1414,7 +1421,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                 {/* Se tiver link externo (custom_link) e NÃO estiver usando Mercado Pago, mostrar o fluxo do link */}
-                {externalLink && !hasMercadoPago ? (
+                {canPix && externalLink && !hasMercadoPago ? (
                   <button
                     type="button"
                     onClick={() => setShowExternalInstructions(true)}
@@ -1441,7 +1448,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                       </>
                     )}
                   </button>
-                ) : (
+                ) : !canCard ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -1469,10 +1476,10 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                     <MessageCircle className="h-5 w-5" />
                     Enviar pedido no WhatsApp
                   </button>
-                )}
+                ) : null}
 
                 {/* Cartão: Mercado Pago externo ou link manual legado */}
-                {hasMercadoPago ? (
+                {canCard && hasMercadoPago ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -1484,7 +1491,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                     <CreditCard className="h-5 w-5" />
                     Cartão de crédito
                   </button>
-                ) : creditCardLink ? (
+                ) : canCard && creditCardLink ? (
                   <button
                     type="button"
                     onClick={() => setShowCreditConfirm(true)}
@@ -1496,6 +1503,17 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                   </button>
                 ) : null}
               </div>
+
+              {!canPix && !canCard && (
+                <div className="mt-4 rounded-lg border border-rose-500/40 bg-rose-500/10 p-3">
+                  <p className="text-sm text-rose-100 font-semibold">
+                    Esta assinatura está sem forma de pagamento ativa no momento.
+                  </p>
+                  <p className="text-xs text-rose-200/90 mt-1">
+                    Chame o estabelecimento para habilitar PIX ou Cartão nesta assinatura.
+                  </p>
+                </div>
+              )}
 
               {showExternalInstructions && externalLink && !hasMercadoPago ? (
                 <div ref={externalSectionRef} className="mt-4 space-y-3 border-t border-gray-800 pt-4">
