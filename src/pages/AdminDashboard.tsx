@@ -85,7 +85,9 @@ const AdminDashboard = () => {
   const [isPayingByEstablishment, setIsPayingByEstablishment] = useState<Record<string, boolean>>({});
   const [showPayoutHistoryModal, setShowPayoutHistoryModal] = useState(false);
   const [showLastPaymentsModal, setShowLastPaymentsModal] = useState(false);
-  const [automaticPaymentTimestampByEstablishment, setAutomaticPaymentTimestampByEstablishment] = useState<Record<string, number>>({});
+  const [automaticPaymentInfoByEstablishment, setAutomaticPaymentInfoByEstablishment] = useState<
+    Record<string, { timestamp: number; paymentProvider: string }>
+  >({});
   const [isLoadingLastPaymentsSources, setIsLoadingLastPaymentsSources] = useState(false);
   const [lastPaymentsSourcesWarning, setLastPaymentsSourcesWarning] = useState('');
   const [showClientesPagosHistoryModal, setShowClientesPagosHistoryModal] = useState(false);
@@ -121,6 +123,7 @@ const AdminDashboard = () => {
   const [selectedDateForAppointments, setSelectedDateForAppointments] = useState<Record<string, Date>>({});
   const [selectedMonthForAppointments, setSelectedMonthForAppointments] = useState<Record<string, Date>>({});
   const [appointmentCounts, setAppointmentCounts] = useState<Record<string, { day: number; month: number }>>({});
+  const [appointmentCountsFetchedAt, setAppointmentCountsFetchedAt] = useState<Record<string, number>>({});
   const [isLoadingAppointmentCounts, setIsLoadingAppointmentCounts] = useState<Record<string, boolean>>({});
 
   // Suporte por nome: Lucas, Erlon, Kinkas, usuario 1, usuario 2 (Lucas e Erlon = acesso total; outros = só visualização)
@@ -182,6 +185,10 @@ const AdminDashboard = () => {
           day: dayCount || 0,
           month: monthCount || 0
         }
+      }));
+      setAppointmentCountsFetchedAt((prev) => ({
+        ...prev,
+        [key]: Date.now(),
       }));
     } catch (error) {
       console.error('Erro ao buscar contagem de agendamentos:', error);
@@ -288,8 +295,14 @@ const AdminDashboard = () => {
   // Função para carregar contagem inicial (lazy load - só quando necessário)
   const loadAppointmentCounts = async (establishment: Establishment) => {
     // Evitar carregar múltiplas vezes
-    if (isLoadingAppointmentCounts[establishment.id]) return;
-    if (appointmentCounts[establishment.id]) return; // Já carregado
+    const key = String(establishment.id || '').trim();
+    if (!key) return;
+    if (isLoadingAppointmentCounts[key]) return;
+
+    // Evita contador travado: permite refresh automático após curto período.
+    const fetchedAt = Number(appointmentCountsFetchedAt[key] || 0);
+    const cacheIsFresh = Number.isFinite(fetchedAt) && Date.now() - fetchedAt < 20000;
+    if (cacheIsFresh && appointmentCounts[key]) return;
 
     const date = getSelectedDateForEstablishment(establishment.id);
     const month = getSelectedMonthForEstablishment(establishment.id);
@@ -2335,11 +2348,11 @@ const AdminDashboard = () => {
 
         if (!response.ok) {
           if (alive) setLastPaymentsSourcesWarning(String((payload as any)?.error || 'Não foi possível classificar pagamentos automáticos agora.'));
-          if (alive) setAutomaticPaymentTimestampByEstablishment({});
+          if (alive) setAutomaticPaymentInfoByEstablishment({});
           return;
         }
 
-        const next: Record<string, number> = {};
+        const next: Record<string, { timestamp: number; paymentProvider: string }> = {};
         const items = Array.isArray((payload as any)?.items) ? (payload as any).items : [];
         items.forEach((row: any) => {
           const id = String(row?.establishment_id || '').trim();
@@ -2347,17 +2360,21 @@ const AdminDashboard = () => {
 
           const ts = new Date(String(row?.paid_at || row?.updated_at || '')).getTime();
           if (!Number.isFinite(ts)) return;
+          const provider = String(row?.payment_provider || 'mercadopago').trim();
 
-          if (!Number.isFinite(next[id]) || ts > next[id]) {
-            next[id] = ts;
+          if (!next[id] || ts > next[id].timestamp) {
+            next[id] = {
+              timestamp: ts,
+              paymentProvider: provider,
+            };
           }
         });
 
-        if (alive) setAutomaticPaymentTimestampByEstablishment(next);
+        if (alive) setAutomaticPaymentInfoByEstablishment(next);
       } catch (error) {
         console.error('Erro ao classificar pagamentos automáticos:', error);
         if (alive) {
-          setAutomaticPaymentTimestampByEstablishment({});
+          setAutomaticPaymentInfoByEstablishment({});
           setLastPaymentsSourcesWarning('Não foi possível classificar pagamentos automáticos agora.');
         }
       } finally {
@@ -3267,12 +3284,39 @@ const AdminDashboard = () => {
     .sort((a, b) => getPaymentTimestamp(b) - getPaymentTimestamp(a));
   const isAutomaticPaymentInLastDays = (est: Establishment): boolean => {
     const paymentTs = getPaymentTimestamp(est);
-    const automaticTs = Number(automaticPaymentTimestampByEstablishment[est.id]);
+    const automaticInfo = automaticPaymentInfoByEstablishment[est.id];
+    const automaticTs = Number(automaticInfo?.timestamp);
     if (!Number.isFinite(paymentTs) || !Number.isFinite(automaticTs)) return false;
 
     // Aceita pequena variação de horário entre webhook e atualização do establishment.
     const toleranceMs = 24 * 60 * 60 * 1000;
     return Math.abs(paymentTs - automaticTs) <= toleranceMs;
+  };
+  const getLastPaymentMethodLabel = (est: Establishment): string => {
+    const automaticInfo = automaticPaymentInfoByEstablishment[est.id];
+    if (!isAutomaticPaymentInLastDays(est) || !automaticInfo) {
+      return 'Manual (não informado)';
+    }
+
+    const provider = String(automaticInfo.paymentProvider || '').toLowerCase();
+    if (
+      provider.includes('subscription') ||
+      provider.includes('card') ||
+      provider.includes('credit') ||
+      provider.includes('credito')
+    ) {
+      return 'Crédito';
+    }
+
+    if (
+      provider.includes('pix') ||
+      provider.includes('mercadopago') ||
+      provider.includes('pagarme')
+    ) {
+      return 'PIX';
+    }
+
+    return 'Automático';
   };
   const automaticLastTenDaysPayments = lastTenDaysPayments.filter((est) => isAutomaticPaymentInLastDays(est));
   const manualLastTenDaysPayments = lastTenDaysPayments.filter((est) => !isAutomaticPaymentInLastDays(est));
@@ -5013,6 +5057,9 @@ const AdminDashboard = () => {
                                         <div className="text-xs text-gray-500 mt-0.5">
                                           Status atual: {est.payment_status === 'paid' ? 'Pago' : est.payment_status === 'expired' ? 'Vencido' : 'Pendente'}
                                         </div>
+                                        <div className="text-xs text-gray-500 mt-0.5">
+                                          Forma de pagamento: {getLastPaymentMethodLabel(est)}
+                                        </div>
                                       </div>
                                       <div className="text-right shrink-0">
                                         <div className="text-xs text-gray-500">Pago em</div>
@@ -5055,6 +5102,9 @@ const AdminDashboard = () => {
                                         </div>
                                         <div className="text-xs text-gray-500 mt-0.5">
                                           Status atual: {est.payment_status === 'paid' ? 'Pago' : est.payment_status === 'expired' ? 'Vencido' : 'Pendente'}
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-0.5">
+                                          Forma de pagamento: {getLastPaymentMethodLabel(est)}
                                         </div>
                                       </div>
                                       <div className="text-right shrink-0">

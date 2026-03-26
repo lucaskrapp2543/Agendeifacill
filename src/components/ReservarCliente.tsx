@@ -1990,7 +1990,14 @@ export default function ReservarCliente({
                     {!showAddClientInline ? (
                       <button
                         type="button"
-                        onClick={() => setShowAddClientInline(true)}
+                        onClick={() => {
+                          const suggestedName = String(clientSearchQuery || '').trim();
+                          setShowAddClientInline(true);
+                          if (suggestedName) {
+                            // UX: reaproveita a busca digitada como sugestao de nome.
+                            setNewKnownClientName(suggestedName);
+                          }
+                        }}
                         className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
                       >
                         Adicionar cliente novo

@@ -68,6 +68,13 @@ const formatPhoneChat = (raw: string) => {
   if (digits.length <= 3) return `${digits.slice(0, 2)} ${digits.slice(2)}`;
   return `${digits.slice(0, 2)} ${digits.slice(2, 3)} ${digits.slice(3)}`;
 };
+const formatCpfChat = (raw: string) => {
+  const digits = onlyDigits(raw).slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+};
 
 const weekdayPtMap: Record<string, string> = {
   monday: 'segunda-feira',
@@ -134,6 +141,7 @@ export function BookingChatFlow({
   const [selectedSubscriberExtraIds, setSelectedSubscriberExtraIds] = useState<string[]>([]);
   const [selectedBookingProductIds, setSelectedBookingProductIds] = useState<string[]>([]);
   const [selectedBookingProductImagePreview, setSelectedBookingProductImagePreview] = useState<{ url: string; name: string } | null>(null);
+  const [chatClientCpf, setChatClientCpf] = useState('');
   const [invalidSubscriberDateMessage, setInvalidSubscriberDateMessage] = useState('');
   const [visibleSlotsCountForSelectedProfessional, setVisibleSlotsCountForSelectedProfessional] = useState<number | null>(null);
   const [subscriberLimitStatus, setSubscriberLimitStatus] = useState<{
@@ -694,6 +702,8 @@ export function BookingChatFlow({
   }, [selectedProfessionalId, selectedDateKey, computedSelection.duration, step]);
 
   const isPhoneValid = (raw: string) => onlyDigits(raw).length === 11;
+  const shouldRequireCpf = Boolean(establishment?.require_cpf) && !isSubscriberFlow;
+  const isCpfValidForRequiredBooking = !shouldRequireCpf || onlyDigits(chatClientCpf).length === 11;
 
   const canProceedFromStep = () => {
     if (step === 'name') return String(draftInput || '').trim().length >= 3;
@@ -950,6 +960,10 @@ export function BookingChatFlow({
       toast.error(`Limite mensal atingido: ${subscriberLimitStatus.currentUsage}/${limitLabel}.`);
       return;
     }
+    if (shouldRequireCpf && !isCpfValidForRequiredBooking) {
+      toast.error('Este estabelecimento exige CPF. Informe um CPF válido com 11 dígitos para confirmar.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       const payload = {
@@ -959,6 +973,7 @@ export function BookingChatFlow({
         professional: selectedProfessionalId,
         appointment_date: format(selectedDate, 'yyyy-MM-dd'),
         appointment_time: selectedTime,
+        client_cpf: shouldRequireCpf ? onlyDigits(chatClientCpf) : null,
         duration: computedSelection.duration,
         price: computedSelection.price,
         total_price: Number(computedSelection.price || 0) + Number(bookingProductsTotal || 0),
@@ -1546,6 +1561,25 @@ export function BookingChatFlow({
                   </div>
                 )}
                 <div><strong>Total final:</strong> {toMoney(Number(computedSelection.price || 0) + Number(bookingProductsTotal || 0))}</div>
+                {shouldRequireCpf && (
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-white/90">
+                      CPF obrigatório para confirmar
+                    </label>
+                    <input
+                      type="tel"
+                      value={chatClientCpf}
+                      onChange={(event) => setChatClientCpf(formatCpfChat(event.target.value))}
+                      placeholder="000.000.000-00"
+                      className="w-full px-3 py-2 rounded-lg bg-[#151515] border border-white/20"
+                    />
+                    <div className={`text-xs ${isCpfValidForRequiredBooking ? 'text-emerald-300' : 'text-amber-300'}`}>
+                      {isCpfValidForRequiredBooking
+                        ? 'CPF preenchido com sucesso.'
+                        : 'Informe CPF com 11 dígitos para continuar.'}
+                    </div>
+                  </div>
+                )}
                 {requireAdvancePayment && !isSubscriberFlow && (
                   <div className="text-amber-300 font-semibold">
                     Pagamento antecipado obrigatório: ao confirmar, abrirá a tela de pagamento.
@@ -1580,7 +1614,7 @@ export function BookingChatFlow({
                 type="button"
                 onClick={handleConfirmBooking}
                 className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-sm font-semibold"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isCpfValidForRequiredBooking}
               >
                 {isSubmitting ? 'Confirmando...' : 'Confirmar Agendamento'}
               </button>

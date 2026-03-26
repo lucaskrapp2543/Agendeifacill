@@ -62,7 +62,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
   const [instance, setInstance] = useState<InstanceRow | null>(null);
   const [settings, setSettings] = useState<SettingsRow | null>(null);
   const [mercadoPagoConnected, setMercadoPagoConnected] = useState(false);
-  const [logFilter, setLogFilter] = useState<'sent' | 'failed' | 'delivered'>('sent');
+  const [logFilter, setLogFilter] = useState<'sent' | 'failed'>('sent');
   const [logRows, setLogRows] = useState<ReminderLogView[]>([]);
   const [logCounters, setLogCounters] = useState({ sent: 0, failed: 0, delivered: 0 });
   const [logLoadError, setLogLoadError] = useState<string | null>(null);
@@ -362,7 +362,11 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
   }, [establishmentId]);
 
   const filteredLogRows = useMemo(() => {
-    return logRows.filter(row => row.kind === logFilter);
+    if (logFilter === 'failed') {
+      return logRows.filter(row => row.kind === 'failed');
+    }
+    // "Enviadas/Entregues": tudo que nao falhou (inclui entregue e aguardando retorno da Meta)
+    return logRows.filter(row => row.kind !== 'failed');
   }, [logRows, logFilter]);
 
   return (
@@ -404,7 +408,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
                       : 'border-gray-600 bg-black/30 text-gray-200 hover:bg-black/50'
                   }`}
                 >
-                  Enviados ({logCounters.sent})
+                  Enviadas/Entregues ({logCounters.sent + logCounters.delivered})
                 </button>
                 <button
                   type="button"
@@ -417,17 +421,9 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
                 >
                   Falhos ({logCounters.failed})
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setLogFilter('delivered')}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    logFilter === 'delivered'
-                      ? 'border-cyan-400/60 bg-cyan-500/20 text-cyan-200'
-                      : 'border-gray-600 bg-black/30 text-gray-200 hover:bg-black/50'
-                  }`}
-                >
-                  Entregues ({logCounters.delivered})
-                </button>
+              </div>
+              <div className="mt-2 text-[11px] text-gray-400">
+                Enviadas/Entregues = mensagens enviadas para a Meta (inclui as que ja foram entregues).
               </div>
 
               <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">

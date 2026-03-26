@@ -166,6 +166,7 @@ interface Establishment {
   limit_client_pending_booking?: boolean;
   closed_time_enabled?: boolean;
   booking_chat_enabled?: boolean;
+  booking_simple_page_enabled?: boolean;
   show_best_of_brazil_image?: boolean;
   payment_methods_enabled?: string[];
   plan_prata_active?: boolean; // ✅ ativado via botão PRATA no Admin (limites de recursos)
@@ -2975,6 +2976,7 @@ const EstablishmentDashboard = () => {
   // Tempo fechado: mantém horários presos ao grid de exibição
   const [closedTimeEnabled, setClosedTimeEnabled] = useState<boolean>(false);
   const [bookingChatEnabled, setBookingChatEnabled] = useState<boolean>(true);
+  const [bookingSimplePageEnabled, setBookingSimplePageEnabled] = useState<boolean>(false);
 
   // Lembrete para descer e salvar configuracoes manuais da pagina
   const [showSettingsSaveReminder, setShowSettingsSaveReminder] = useState(false);
@@ -10159,6 +10161,7 @@ Estamos te aguardando! 😎✂️`;
         setRequireCancellationRequest(establishmentData.require_cancellation_request ?? false); // Exigir solicitação de cancelamento
         setPreventSameDayReschedule(establishmentData.prevent_same_day_reschedule ?? false); // Impedir remarcação no mesmo dia
         setRequireCpf(establishmentData.require_cpf ?? false); // Solicitar CPF no agendamento
+        setBookingSimplePageEnabled(Boolean((establishmentData as any).booking_simple_page_enabled ?? false));
         setExigirPagamentoAntecipado((establishmentData as any).exigir_pagamento_antecipado ?? false); // Pagamento antecipado
         setPagamentoAdiantadoOpcional((establishmentData as any).pagamento_adiantado_opcional ?? false);
         setExigirPagamentoAntecipadoMercadoPago((establishmentData as any).exigir_pagamento_antecipado_mercadopago ?? false); // Pagamento antecipado Mercado Pago
@@ -17624,7 +17627,7 @@ Estamos te aguardando! 😎✂️`;
   ]);
 
   // ✅ Auto-save para Configuração de Horários
-  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceMinutes?: number; limitClientPendingBooking?: boolean; closedTimeEnabled?: boolean; showBestOfBrazilImage?: boolean; bookingChatEnabled?: boolean }) => {
+  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceMinutes?: number; limitClientPendingBooking?: boolean; closedTimeEnabled?: boolean; showBestOfBrazilImage?: boolean; bookingChatEnabled?: boolean; bookingSimplePageEnabled?: boolean }) => {
     if (!establishment?.id) return;
 
     const configToSave = {
@@ -17636,6 +17639,7 @@ Estamos te aguardando! 😎✂️`;
       closedTimeEnabled: config?.closedTimeEnabled ?? closedTimeEnabled,
       showBestOfBrazilImage: config?.showBestOfBrazilImage ?? showBestOfBrazilImage,
       bookingChatEnabled: config?.bookingChatEnabled ?? bookingChatEnabled,
+      bookingSimplePageEnabled: config?.bookingSimplePageEnabled ?? bookingSimplePageEnabled,
     };
     const bookingMinAdvanceHoursCompatibility =
       configToSave.bookingMinAdvanceMinutes > 0
@@ -17653,6 +17657,7 @@ Estamos te aguardando! 😎✂️`;
         closed_time_enabled: configToSave.closedTimeEnabled,
         show_best_of_brazil_image: configToSave.showBestOfBrazilImage,
         booking_chat_enabled: configToSave.bookingChatEnabled,
+        booking_simple_page_enabled: configToSave.bookingSimplePageEnabled,
       };
 
       const runScheduleUpdate = async (payload: Record<string, any>) =>
@@ -17673,6 +17678,7 @@ Estamos te aguardando! 😎✂️`;
           'limit_client_pending_booking',
           'closed_time_enabled',
           'booking_chat_enabled',
+          'booking_simple_page_enabled',
         ];
         const missingColumns = removableColumns.filter((column) => message.includes(column));
 
@@ -17709,11 +17715,12 @@ Estamos te aguardando! 😎✂️`;
         closed_time_enabled: configToSave.closedTimeEnabled,
         show_best_of_brazil_image: configToSave.showBestOfBrazilImage,
         booking_chat_enabled: configToSave.bookingChatEnabled,
+        booking_simple_page_enabled: configToSave.bookingSimplePageEnabled,
       });
     } catch (error) {
       console.error('❌ Erro ao salvar configuração de horários automaticamente:', error);
     }
-  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceMinutes, limitClientPendingBooking, closedTimeEnabled, showBestOfBrazilImage, bookingChatEnabled]);
+  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceMinutes, limitClientPendingBooking, closedTimeEnabled, showBestOfBrazilImage, bookingChatEnabled, bookingSimplePageEnabled]);
 
   const notifySettingsNeedManualSave = useCallback((showToastMessage = true) => {
     setShowSettingsSaveReminder(true);
@@ -19879,9 +19886,10 @@ Estamos te aguardando! 😎✂️`;
       setIsLoadingMonthlyTopWinner(true);
       const now = new Date();
       const monthStart = startOfMonth(now);
-      const monthEnd = endOfMonth(now);
+      const rankingRangeEnd = endOfDay(now);
       const monthKey = format(monthStart, 'yyyy-MM');
       const cacheKey = `agendeifacil_top1_mensal_${monthKey}`;
+      const monthlyTopCacheTtlMs = 20_000;
 
       type MonthlyTopCache = {
         monthKey: string;
@@ -19894,7 +19902,9 @@ Estamos te aguardando! 😎✂️`;
           const cachedRaw = localStorage.getItem(cacheKey);
           if (cachedRaw) {
             const cached = JSON.parse(cachedRaw) as MonthlyTopCache;
-            if (cached?.monthKey === monthKey) {
+            const cachedSavedAtMs = cached?.savedAt ? new Date(cached.savedAt).getTime() : Number.NaN;
+            const cacheIsFresh = Number.isFinite(cachedSavedAtMs) && Date.now() - cachedSavedAtMs <= monthlyTopCacheTtlMs;
+            if (cached?.monthKey === monthKey && cacheIsFresh) {
               setMonthlyTopWinner(cached.winner || null);
               return;
             }
@@ -19967,7 +19977,7 @@ Estamos te aguardando! 😎✂️`;
           .from('appointments')
           .select('establishment_id,appointment_date,appointment_time,created_at')
           .gte('appointment_date', format(monthStart, 'yyyy-MM-dd'))
-          .lte('appointment_date', format(monthEnd, 'yyyy-MM-dd'))
+          .lte('appointment_date', format(rankingRangeEnd, 'yyyy-MM-dd'))
           .eq('status', 'completed')
       );
 
@@ -20327,7 +20337,10 @@ Estamos te aguardando! 😎✂️`;
           : 'Participação no TOP 5 ativada. Sua barbearia voltou para a competição.',
         'success'
       );
-      await loadTop10BarbershopsLeaderboard(true);
+      await Promise.all([
+        loadTop10BarbershopsLeaderboard(true),
+        loadMonthlyTopWinner(true),
+      ]);
     } catch (rawError: any) {
       const message = String(rawError?.message || '');
       const lowerMessage = message.toLowerCase();
@@ -20344,7 +20357,14 @@ Estamos te aguardando! 😎✂️`;
     } finally {
       setIsUpdatingTop10Visibility(false);
     }
-  }, [establishment, loadTop10BarbershopsLeaderboard, toast]);
+  }, [establishment, loadMonthlyTopWinner, loadTop10BarbershopsLeaderboard, toast]);
+
+  const handleRefreshTopRankings = useCallback(async () => {
+    await Promise.all([
+      loadTop10BarbershopsLeaderboard(true),
+      loadMonthlyTopWinner(true),
+    ]);
+  }, [loadMonthlyTopWinner, loadTop10BarbershopsLeaderboard]);
 
   useEffect(() => {
     if (activeTab !== 'top10-clientes') return;
@@ -23111,7 +23131,7 @@ Estamos te aguardando! 😎✂️`;
                         </button>
                         <button
                           type="button"
-                          onClick={() => loadTop10BarbershopsLeaderboard(true)}
+                          onClick={handleRefreshTopRankings}
                           disabled={isLoadingTop10Leaderboard}
                           className="w-full sm:w-auto px-3 py-2 rounded-lg border border-cyan-400/50 text-cyan-100 hover:bg-cyan-500/10 transition-colors text-sm font-bold disabled:opacity-50"
                         >
@@ -25362,6 +25382,32 @@ Estamos te aguardando! 😎✂️`;
                               <HelpCircle className="h-3 w-3" />
                               Ver mais informações
                             </button>
+                          </div>
+                        </label>
+
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={bookingSimplePageEnabled}
+                            onChange={(e) => {
+                              const newValue = e.target.checked;
+                              setBookingSimplePageEnabled(newValue);
+                              if (scheduleConfigAutoSaveTimeoutRef.current) {
+                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                              }
+                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveScheduleConfig({
+                                  bookingSimplePageEnabled: newValue
+                                });
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
+                          />
+                          <div className="flex flex-col flex-1">
+                            <span className="text-white text-sm sm:text-base">Pagina de agendamentos simples</span>
+                            <span className="hidden sm:inline text-xs text-gray-400 mt-1">
+                              Ao ativar essa opção, sua pagina de agendamentos fica modo simples: mostra somente botão de agendamento, foto de perfil e suas assinaturas mensais (se tiver).
+                            </span>
                           </div>
                         </label>
 

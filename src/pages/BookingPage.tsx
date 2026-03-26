@@ -2917,6 +2917,7 @@ export default function BookingPage() {
     return algumGatewayExigePagamento && !pagamentoAdiantadoOpcional;
   })();
   const bookingChatEnabled = Boolean((establishment as any)?.booking_chat_enabled ?? true);
+  const isSimpleBookingPageEnabled = Boolean((establishment as any)?.booking_simple_page_enabled ?? false);
 
   return (
     <div
@@ -2976,7 +2977,7 @@ export default function BookingPage() {
 
 
           {/* Carrossel atrás do perfil (se configurado) */}
-          {establishment?.carousel_position === 'behind' && hasCarouselPhotos && (
+          {!isSimpleBookingPageEnabled && establishment?.carousel_position === 'behind' && hasCarouselPhotos && (
             <div className="relative mb-12">
               {/* Container do carrossel */}
               <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-hidden bg-gray-100 border-2 border-gray-300 shadow-lg">
@@ -3054,7 +3055,7 @@ export default function BookingPage() {
           )}
 
           {/* Logo do Estabelecimento - Só aparece quando carrossel não está atrás */}
-          {(establishment?.carousel_position !== 'behind' || !hasCarouselPhotos) && (
+          {(isSimpleBookingPageEnabled || establishment?.carousel_position !== 'behind' || !hasCarouselPhotos) && (
             <div className="flex justify-center mb-6">
               <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white/15 shadow-2xl bg-black/30">
                 <img
@@ -3073,7 +3074,7 @@ export default function BookingPage() {
           {/* Informações do Estabelecimento */}
           <div className="text-center space-y-2 relative z-30" style={{ marginTop: establishment?.carousel_position === 'behind' && hasCarouselPhotos ? '80px' : '20px' }}>
             <h1 className="text-2xl font-extrabold tracking-tight text-white">{establishment?.name}</h1>
-            {establishment?.description && (
+            {!isSimpleBookingPageEnabled && establishment?.description && (
               <p className="text-white/70">
                 <ReadMore
                   text={establishment.description}
@@ -3083,7 +3084,7 @@ export default function BookingPage() {
               </p>
             )}
 
-            {!establishment?.hide_booking_reviews && (
+            {!isSimpleBookingPageEnabled && !establishment?.hide_booking_reviews && (
               <div className="flex items-center justify-center">
                 <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-white/10 bg-white/5">
                   <span className="text-[#E6C78B] tracking-wide">⭐⭐⭐⭐⭐</span>
@@ -3117,55 +3118,55 @@ export default function BookingPage() {
                     'radial-gradient(140% 140% at 50% 0%, rgba(230,199,139,0.14) 0%, rgba(0,0,0,0.35) 45%, rgba(0,0,0,0.65) 100%)',
                 }}
               >
-                <div className="px-4 pt-5 pb-4 text-center">
-                  <div
-                    className="text-base text-white/80"
-                    style={{ fontFamily: "'Segoe Script','Brush Script MT',cursive" }}
-                  >
-                    Bem-vindo ao nosso
-                  </div>
-                  <div className="mt-1 text-3xl sm:text-4xl font-extrabold tracking-wide text-[#E6C78B] drop-shadow">
-                    ESTABELECIMENTO
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-3 gap-3">
-                    {/* Item 1 */}
-                    <div className="flex flex-col items-center">
-                      <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
-                        <div className="-rotate-45">
-                          <Home className="w-6 h-6 text-[#E6C78B]" />
-                        </div>
-                      </div>
-                      <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
-                        Ambiente<br />Aconchegante
-                      </div>
+                  <div className="px-4 pt-5 pb-4 text-center">
+                    <div
+                      className="text-base text-white/80"
+                      style={{ fontFamily: "'Segoe Script','Brush Script MT',cursive" }}
+                    >
+                      Bem-vindo ao nosso
+                    </div>
+                    <div className="mt-1 text-3xl sm:text-4xl font-extrabold tracking-wide text-[#E6C78B] drop-shadow">
+                      ESTABELECIMENTO
                     </div>
 
-                    {/* Item 2 */}
-                    <div className="flex flex-col items-center">
-                      <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
-                        <div className="-rotate-45">
-                          <Users className="w-6 h-6 text-[#E6C78B]" />
+                    <div className="mt-4 grid grid-cols-3 gap-3">
+                      {/* Item 1 */}
+                      <div className="flex flex-col items-center">
+                        <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
+                          <div className="-rotate-45">
+                            <Home className="w-6 h-6 text-[#E6C78B]" />
+                          </div>
+                        </div>
+                        <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
+                          Ambiente<br />Aconchegante
                         </div>
                       </div>
-                      <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
-                        Profissionais<br />Experientes
-                      </div>
-                    </div>
 
-                    {/* Item 3 */}
-                    <div className="flex flex-col items-center">
-                      <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
-                        <div className="-rotate-45">
-                          <ThumbsUp className="w-6 h-6 text-[#E6C78B]" />
+                      {/* Item 2 */}
+                      <div className="flex flex-col items-center">
+                        <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
+                          <div className="-rotate-45">
+                            <Users className="w-6 h-6 text-[#E6C78B]" />
+                          </div>
+                        </div>
+                        <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
+                          Profissionais<br />Experientes
                         </div>
                       </div>
-                      <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
-                        Atendimento<br />de Qualidade
+
+                      {/* Item 3 */}
+                      <div className="flex flex-col items-center">
+                        <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
+                          <div className="-rotate-45">
+                            <ThumbsUp className="w-6 h-6 text-[#E6C78B]" />
+                          </div>
+                        </div>
+                        <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
+                          Atendimento<br />de Qualidade
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
                 <div className="-mt-2">
                   {/* CTA igual ao exemplo: tarja grande + botão menor escuro "encaixado" */}
@@ -3190,7 +3191,7 @@ export default function BookingPage() {
                       </div>
 
                       {/* ✅ Botão Fila de Espera (aba/modal) */}
-                      {filaEsperaAtiva && (
+                      {!isSimpleBookingPageEnabled && filaEsperaAtiva && (
                         <div className="flex justify-center mt-3">
                           <button
                             type="button"
@@ -3210,7 +3211,7 @@ export default function BookingPage() {
                       )}
 
                       {/* ✅ Link Segunda Unidade: só mostra se o código estiver preenchido (não zerado) */}
-                      {(() => {
+                      {!isSimpleBookingPageEnabled && (() => {
                         const code = String((establishment as any)?.second_unit_booking_code ?? '').trim();
                         return code.length > 0;
                       })() && (
@@ -3409,7 +3410,7 @@ export default function BookingPage() {
 
 
               {/* Imagens INSTAGRAM, PIX e WHATSAPP lado a lado */}
-              {(() => {
+              {!isSimpleBookingPageEnabled && (() => {
                 const normalizedPixKey = String(establishment?.pix_key || '').trim();
                 const hasPixKey = normalizedPixKey.length > 0 && normalizedPixKey.toLowerCase() !== 'naotenhopix';
                 const lineOffsetPx = hasPixKey ? 120 : 80;
@@ -3548,7 +3549,8 @@ export default function BookingPage() {
               })()}
 
               {/* Botões NOS AVALIE e LOCAL - Abaixo dos ícones */}
-              <div className="flex gap-3 mt-6">
+              {!isSimpleBookingPageEnabled && (
+                <div className="flex gap-3 mt-6">
                 {/* Botão NOS AVALIE */}
                 <a
                   href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
@@ -3578,7 +3580,8 @@ export default function BookingPage() {
                   <span className="relative z-10 whitespace-nowrap text-[#e6d7b1]">LOCAL</span>
                   {establishment?.location_link && <ChevronRight className="h-4 w-4 relative z-10 opacity-80 flex-shrink-0 text-white/70" />}
                 </a>
-              </div>
+                </div>
+              )}
 
               {/* Tela de Agendamento Assinante - Posicionada após os botões */}
               {showSubscriberBooking && (
@@ -3832,7 +3835,7 @@ export default function BookingPage() {
               )}
 
               {/* Carrossel de Fotos embaixo (se configurado ou padrão) */}
-              {(establishment?.carousel_position === 'below' || !establishment?.carousel_position) && hasCarouselPhotos && (
+              {!isSimpleBookingPageEnabled && (establishment?.carousel_position === 'below' || !establishment?.carousel_position) && hasCarouselPhotos && (
                 <div className="mt-4 mb-2 rounded-lg overflow-hidden">
                   <div className="relative">
                     <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-hidden bg-gray-100">
@@ -3896,7 +3899,7 @@ export default function BookingPage() {
               )}
 
               {/* Seção de Profissionais (premium) - acima de Comodidades */}
-              {establishment?.professionals && establishment.professionals.filter((p: any) => !p.hidden_from_booking).length > 0 && (
+              {!isSimpleBookingPageEnabled && establishment?.professionals && establishment.professionals.filter((p: any) => !p.hidden_from_booking).length > 0 && (
                 <div className="mt-8 mb-6">
                   <div
                     className="rounded-2xl px-4 py-4 border shadow-[0_18px_55px_rgba(0,0,0,0.55)]"
@@ -3956,7 +3959,7 @@ export default function BookingPage() {
               )}
 
               {/* Seção de Comodidades - Só mostra se houver pelo menos 1 ativa */}
-              {(establishment?.has_wifi || establishment?.has_parking || establishment?.has_accessibility || establishment?.has_air_conditioning || enabledCustomAmenities.length > 0) && (
+              {!isSimpleBookingPageEnabled && (establishment?.has_wifi || establishment?.has_parking || establishment?.has_accessibility || establishment?.has_air_conditioning || enabledCustomAmenities.length > 0) && (
                 <div
                   className="mt-8 mb-6 p-6"
                   style={{
@@ -4100,7 +4103,8 @@ export default function BookingPage() {
               )}
 
               {/* Seção de Horário de Atendimento */}
-              <div className="mt-8 mb-6 bg-white/5 rounded-2xl p-6 shadow-[0_20px_60px_rgba(0,0,0,0.35)] border border-white/10">
+              {!isSimpleBookingPageEnabled && (
+                <div className="mt-8 mb-6 bg-white/5 rounded-2xl p-6 shadow-[0_20px_60px_rgba(0,0,0,0.35)] border border-white/10">
                 <button
                   onClick={() => setShowBusinessHours(!showBusinessHours)}
                   className="w-full flex items-center justify-between gap-3 mb-4 hover:bg-white/5 p-2 rounded-xl transition-colors"
@@ -4182,10 +4186,11 @@ export default function BookingPage() {
                     })}
                   </div>
                 )}
-              </div>
+                </div>
+              )}
 
               {/* Imagem Melhor do Brasil */}
-              {establishment?.show_best_of_brazil_image && (
+              {!isSimpleBookingPageEnabled && establishment?.show_best_of_brazil_image && (
                 <div className="mt-6 mb-4">
                   <img
                     src="/melhordobrasil.png"
@@ -4208,7 +4213,7 @@ export default function BookingPage() {
               )}
 
               {/* Modal bonito com instruções de instalação */}
-              {showInstallGuide && (
+              {!isSimpleBookingPageEnabled && showInstallGuide && (
                 <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
                   <div className="bg-[#0f0f10] rounded-2xl border border-white/10 shadow-[0_30px_100px_rgba(0,0,0,0.7)] w-full max-w-md overflow-hidden">
                     <div className="bg-gradient-to-r from-[#e6d7b1] to-[#d9c08c] p-5">
@@ -4253,16 +4258,18 @@ export default function BookingPage() {
               )}
 
               {/* Link para Agendei Fácil */}
-              <div className="mt-6 text-center">
-                <a
-                  href={id === '8160' ? '/conhecerv4' : 'https://agendeifacil.com'}
-                  target={id === '8160' ? '_self' : '_blank'}
-                  rel="noopener noreferrer"
-                  className="text-[#e6d7b1] hover:text-[#f3e7c7] text-sm font-semibold transition-colors underline"
-                >
-                  Quero Agendei Fácil no meu estabelecimento
-                </a>
-              </div>
+              {!isSimpleBookingPageEnabled && (
+                <div className="mt-6 text-center">
+                  <a
+                    href={id === '8160' ? '/conhecerv4' : 'https://agendeifacil.com'}
+                    target={id === '8160' ? '_self' : '_blank'}
+                    rel="noopener noreferrer"
+                    className="text-[#e6d7b1] hover:text-[#f3e7c7] text-sm font-semibold transition-colors underline"
+                  >
+                    Quero Agendei Fácil no meu estabelecimento
+                  </a>
+                </div>
+              )}
             </div>
           </div>
 
