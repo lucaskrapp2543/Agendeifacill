@@ -5098,30 +5098,36 @@ const EstablishmentDashboard = () => {
           .from('client_subscriptions')
           .select(`
             id,
+            subscription_id,
             start_date,
             end_date,
             payment_status,
             last_payment_date,
-            subscription_payment_provider
+            subscription_payment_provider,
+            custom_subscription_value
           `)
           .eq('establishment_id', establishment.id)
       : await supabase
           .from('client_subscriptions')
           .select(`
             id,
+            subscription_id,
             start_date,
             end_date,
             payment_status,
             last_payment_date,
             subscription_payment_provider,
             subscription_value,
+            custom_subscription_value,
             subscriptions(value)
           `)
           .eq('establishment_id', establishment.id);
 
     if (subscriptionsError) {
       const subscriptionErrorMsg = String(subscriptionsError.message || '').toLowerCase();
-      const missingSubscriptionValue = subscriptionErrorMsg.includes('subscription_value');
+      const missingSubscriptionValue =
+        subscriptionErrorMsg.includes('subscription_value') ||
+        subscriptionErrorMsg.includes('custom_subscription_value');
       const relationIssue =
         subscriptionErrorMsg.includes('subscriptions') &&
         (subscriptionErrorMsg.includes('relation') ||
@@ -5137,11 +5143,13 @@ const EstablishmentDashboard = () => {
           .from('client_subscriptions')
           .select(`
             id,
+            subscription_id,
             start_date,
             end_date,
             payment_status,
             last_payment_date,
             subscription_payment_provider,
+            custom_subscription_value,
             subscriptions(value)
           `)
           .eq('establishment_id', establishment.id);
@@ -5154,11 +5162,13 @@ const EstablishmentDashboard = () => {
             .from('client_subscriptions')
             .select(`
               id,
+              subscription_id,
               start_date,
               end_date,
               payment_status,
               last_payment_date,
-              subscription_payment_provider
+              subscription_payment_provider,
+              custom_subscription_value
             `)
             .eq('establishment_id', establishment.id);
           clientSubscriptions = fallbackOnlyClientSubscription.data;
@@ -5195,6 +5205,33 @@ const EstablishmentDashboard = () => {
     const commissionRows = saleCommissionsResult.data || [];
     const repassesPagosRows = repassesPagosResult.data || [];
     const subscriptionsRows = clientSubscriptions || [];
+    const subscriptionIds = Array.from(
+      new Set(
+        (subscriptionsRows as any[])
+          .map((row) => String((row as any)?.subscription_id || '').trim())
+          .filter(Boolean)
+      )
+    );
+    const subscriptionValueById = new Map<string, number>();
+
+    if (subscriptionIds.length > 0) {
+      try {
+        const { data: subscriptionsCatalogRows } = await supabase
+          .from('subscriptions')
+          .select('id,value')
+          .in('id', subscriptionIds);
+
+        (subscriptionsCatalogRows || []).forEach((row: any) => {
+          const id = String(row?.id || '').trim();
+          const value = Number(row?.value || 0);
+          if (!id) return;
+          if (!Number.isFinite(value) || value <= 0) return;
+          subscriptionValueById.set(id, value);
+        });
+      } catch {
+        // Fallback silencioso para bancos sem acesso/relação.
+      }
+    }
 
     const totalRepassesAtendimentos = attendanceRows.reduce(
       (sum, row: any) => sum + (Number(row?.repass_value) || 0),
@@ -5205,7 +5242,7 @@ const EstablishmentDashboard = () => {
       0
     );
     const totalRepasses = totalRepassesAtendimentos + totalRepassesComissaoVenda;
-    const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+    const monthKey = `${referenceMonth.getFullYear()}-${String(referenceMonth.getMonth() + 1).padStart(2, '0')}`;
     const totalRepassesPagosMes = (repassesPagosRows as any[]).reduce((sum, row: any) => {
       const amount = Number(row?.amount || 0);
       if (!Number.isFinite(amount) || amount <= 0) return sum;
@@ -5218,21 +5255,28 @@ const EstablishmentDashboard = () => {
       const paymentDate = new Date(String(row?.payment_date || ''));
       if (Number.isNaN(paymentDate.getTime())) return sum;
       const isSameMonth =
-        paymentDate.getFullYear() === selectedMonth.getFullYear() &&
-        paymentDate.getMonth() === selectedMonth.getMonth();
+        paymentDate.getFullYear() === referenceMonth.getFullYear() &&
+        paymentDate.getMonth() === referenceMonth.getMonth();
       return isSameMonth ? sum + amount : sum;
     }, 0);
 
     const getSubscriptionValue = (cs: any) => {
+      const customValue = Number(cs?.custom_subscription_value ?? NaN);
+      if (Number.isFinite(customValue) && customValue > 0) return customValue;
+
       const rawSubscription = cs?.subscriptions;
       const subscriptionValueFromRelation = Array.isArray(rawSubscription)
         ? Number(rawSubscription[0]?.value || 0)
         : Number(rawSubscription?.value || 0);
       const fallbackSubscriptionValue = hasSubscriptionValueColumn ? Number(cs?.subscription_value || 0) : 0;
+      const subscriptionId = String(cs?.subscription_id || '').trim();
+      const subscriptionValueFromCatalog = subscriptionId ? Number(subscriptionValueById.get(subscriptionId) || 0) : 0;
       const subscriptionValue =
         Number.isFinite(subscriptionValueFromRelation) && subscriptionValueFromRelation > 0
           ? subscriptionValueFromRelation
-          : fallbackSubscriptionValue;
+          : Number.isFinite(fallbackSubscriptionValue) && fallbackSubscriptionValue > 0
+            ? fallbackSubscriptionValue
+            : subscriptionValueFromCatalog;
       return Number.isFinite(subscriptionValue) ? subscriptionValue : 0;
     };
 
@@ -5268,13 +5312,13 @@ const EstablishmentDashboard = () => {
       if (paymentStatus !== 'paid') return false;
 
       const rawLastPaymentDate = String(cs?.last_payment_date || '').trim();
-      if (rawLastPaymentDate) {
-        const paymentDate = parseISO(rawLastPaymentDate);
-        if (!Number.isNaN(paymentDate.getTime())) {
-          return paymentDate >= start && paymentDate <= end;
-        }
-      }
-      return false;
+      const rawFallbackDate = String(cs?.start_date || '').trim();
+      const dateToCheckRaw = rawLastPaymentDate || rawFallbackDate;
+      if (!dateToCheckRaw) return false;
+
+      const paymentDate = parseISO(dateToCheckRaw);
+      if (Number.isNaN(paymentDate.getTime())) return false;
+      return paymentDate >= start && paymentDate <= end;
     };
 
     const totalArrecadado = subscriptionsRows.reduce((sum, cs: any) => {
@@ -5282,10 +5326,7 @@ const EstablishmentDashboard = () => {
       return sum + getSubscriptionValue(cs);
     }, 0);
 
-    const isSubscriberActiveNow = (cs: any) => {
-      const paymentStatus = String(cs?.payment_status || '').toLowerCase();
-      if (paymentStatus !== 'paid') return false;
-
+    const isSubscriberActiveByEndDate = (cs: any) => {
       const rawEndDate = String(cs?.end_date || '').trim();
       if (!rawEndDate) return true;
 
@@ -5295,14 +5336,20 @@ const EstablishmentDashboard = () => {
       return endDate >= now;
     };
 
-    const activeSubscribers = subscriptionsRows.filter((cs: any) => isSubscriberActiveNow(cs));
+    const isSubscriberActiveAndPaidNow = (cs: any) => {
+      const paymentStatus = String(cs?.payment_status || '').toLowerCase();
+      if (paymentStatus !== 'paid') return false;
+      return isSubscriberActiveByEndDate(cs);
+    };
+
+    const activeSubscribers = subscriptionsRows.filter((cs: any) => isSubscriberActiveAndPaidNow(cs));
     const brutoAtivo = activeSubscribers.reduce((sum, cs: any) => sum + getSubscriptionValue(cs), 0);
     const liquidoAtivo = activeSubscribers.reduce((sum, cs: any) => {
       const bruto = getSubscriptionValue(cs);
       return sum + getSubscriptionNetValue(bruto, cs?.subscription_payment_provider);
     }, 0);
 
-    const totalAssinantes = activeSubscribers.length;
+    const totalAssinantes = subscriptionsRows.filter((cs: any) => isSubscriberActiveByEndDate(cs)).length;
 
     const assinantesNaoPagos = subscriptionsRows.filter((cs: any) => cs?.payment_status === 'unpaid').length;
 
@@ -5336,7 +5383,7 @@ const EstablishmentDashboard = () => {
       lucroLiquido: totalArrecadado - totalRepasses,
       brutoAtivo,
       liquidoAtivo,
-      emContaMes: totalArrecadado,
+      emContaMes: Math.max(0, totalArrecadado - totalRepassesPagosMes),
       totalAssinantes,
       assinantesNaoPagos,
       saldoAssinantes,
@@ -28501,12 +28548,14 @@ Estamos te aguardando! 😎✂️`;
                       const appointmentsGrossCurrent = calculateTotalGrossForMonth(monthlyAppointments, selectedMonth);
                       const appointmentsLiquidCurrent = calculateTotalEstablishmentLiquidForMonth(monthlyAppointments, expensesTotal, selectedMonth);
                       const totalBrutoMes = appointmentsGrossCurrent + subscribersFinancialSummary.totalArrecadado + productsGrossRevenue;
-                      const subscribersNetForDiscountCard =
-                        subscribersFinancialSummary.totalArrecadado - (subscribersFinancialSummary.totalRepassesPagosMes || 0);
+                      const subscribersNetForDiscountCard = subscribersFinancialSummary.emContaMes || 0;
                       const totalLiquidoMes = appointmentsLiquidCurrent + subscribersNetForDiscountCard + productsNetProfit;
                       const totalDescontosMes = totalBrutoMes - totalLiquidoMes;
                       const descontosAgendamentos = appointmentsGrossCurrent - appointmentsLiquidCurrent;
-                      const descontosAssinaturas = subscribersFinancialSummary.totalRepassesPagosMes || 0;
+                      const descontosAssinaturas = Math.max(
+                        0,
+                        Number(subscribersFinancialSummary.totalArrecadado || 0) - Number(subscribersNetForDiscountCard || 0)
+                      );
                       const descontosProdutos = productsGrossRevenue - productsNetProfit;
                       const hasMercadoPagoConnected = !!String((establishment as any)?.mercadopago_access_token || '').trim();
                       const hasPagarmeConnected = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
@@ -28527,7 +28576,7 @@ Estamos te aguardando! 😎✂️`;
                               <p className="text-xs text-sky-700">Líquido total do mês (no bolso)</p>
                               <p className="text-2xl font-extrabold text-gray-900 mt-1">{formatCurrency(totalLiquidoMes)}</p>
                               <p className="text-[11px] text-gray-600 mt-2">
-                                Líquido estabelecimento {formatCurrency(appointmentsLiquidCurrent)} + Líquido assinaturas {formatCurrency(subscribersFinancialSummary.lucroLiquido)} + Lucro produtos {formatCurrency(productsNetProfit)}
+                                Líquido estabelecimento {formatCurrency(appointmentsLiquidCurrent)} + Em conta assinaturas {formatCurrency(subscribersNetForDiscountCard)} + Lucro produtos {formatCurrency(productsNetProfit)}
                               </p>
                             </div>
                             <div className="rounded-xl border border-violet-400 bg-gradient-to-br from-violet-300 via-violet-200 to-violet-400 p-4">
