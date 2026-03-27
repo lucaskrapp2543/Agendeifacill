@@ -190,8 +190,6 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
     setStatusMessage('');
     setConfigError('');
     setSubscriptionCheckoutUrl('');
-    // Abrir a aba imediatamente no clique reduz bloqueio de popup em navegadores mobile/in-app.
-    const pendingPopup = window.open('', '_blank', 'noopener,noreferrer');
     try {
       const endpoint = import.meta.env.PROD
         ? '/.netlify/functions/mercadopago-create-establishment-billing-subscription'
@@ -201,7 +199,6 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
       const isPublicHttpsUrl = /^https:\/\//i.test(origin);
       const payerEmail = String(subscriptionPayerEmail || '').trim().toLowerCase();
       if (!isValidEmail(payerEmail)) {
-        if (pendingPopup && !pendingPopup.closed) pendingPopup.close();
         throw new Error('Informe um e-mail válido para criar a assinatura.');
       }
 
@@ -224,7 +221,6 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        if (pendingPopup && !pendingPopup.closed) pendingPopup.close();
         const message = String((payload as any)?.userMessage || (payload as any)?.error || `Erro ${response.status}`);
         setConfigError(message);
         throw new Error(message);
@@ -237,19 +233,19 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
 
       const checkoutUrl = String((payload as any)?.init_point || (payload as any)?.sandbox_init_point || '').trim();
       if (!checkoutUrl) {
-        if (pendingPopup && !pendingPopup.closed) pendingPopup.close();
         throw new Error('Assinatura criada, mas o link de confirmação não foi retornado pelo Mercado Pago.');
       }
 
       setSubscriptionCheckoutUrl(checkoutUrl);
-      if (pendingPopup && !pendingPopup.closed) {
-        pendingPopup.location.href = checkoutUrl;
+      const openedWindow = window.open(checkoutUrl, '_blank', 'noopener,noreferrer');
+      if (!openedWindow) {
+        setStatusMessage(
+          `Não foi possível abrir automaticamente. Clique em "Abrir confirmação manualmente" e use o e-mail ${payerEmail}.`
+        );
       } else {
-        window.location.href = checkoutUrl;
+        setStatusMessage(`Abrimos a confirmação do cartão em nova aba. Use o e-mail ${payerEmail} para confirmar a assinatura.`);
       }
-      setStatusMessage(`Abrimos a confirmação do cartão em nova aba. Use o e-mail ${payerEmail} para confirmar a assinatura.`);
     } catch (error: any) {
-      if (pendingPopup && !pendingPopup.closed) pendingPopup.close();
       console.error('Erro ao criar assinatura recorrente no cartão:', error);
       const isAbort = String(error?.name || '').toLowerCase() === 'aborterror';
       setStatusMessage(
