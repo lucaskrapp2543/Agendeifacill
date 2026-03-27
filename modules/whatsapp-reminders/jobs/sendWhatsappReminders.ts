@@ -210,6 +210,33 @@ function isMetaProvider(provider: string): boolean {
   return value === 'meta' || value === 'meta_cloud' || value === 'meta_cloud_api' || value === 'cloud_api';
 }
 
+function extractMetaErrorCode(payload: unknown): string | null {
+  if (!payload) return null;
+
+  if (typeof payload === 'object') {
+    const obj = payload as Record<string, any>;
+    const direct = String(obj?.code || obj?.error_code || '').trim();
+    if (direct) return direct;
+
+    const errorCode = String(obj?.error?.code || obj?.error?.error_code || '').trim();
+    if (errorCode) return errorCode;
+
+    const errors = Array.isArray(obj?.errors) ? obj.errors : [];
+    if (errors.length > 0) {
+      const nestedCode = String(errors[0]?.code || errors[0]?.error_code || '').trim();
+      if (nestedCode) return nestedCode;
+    }
+  }
+
+  const raw = String(payload || '');
+  const match = raw.match(/(?:code|error_code)\s*[:=]\s*"?(\d{3,})"?/i);
+  return match?.[1] ? String(match[1]) : null;
+}
+
+function hasMeta130472(payload: unknown): boolean {
+  return extractMetaErrorCode(payload) === '130472';
+}
+
 export async function runSendWhatsappRemindersOnce() {
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -246,6 +273,11 @@ export async function runSendWhatsappRemindersOnce() {
   for (const r of rows) {
     try {
       const apiKey = decryptApiKey(r.api_key_encrypted);
+      const { data: existingLog } = await supabase
+        .from('whatsapp_reminder_logs')
+        .select('attempt_count,last_error')
+        .eq('appointment_id', r.appointment_id)
+        .maybeSingle();
 
       const template = (r.message_template || '').trim() || defaultTemplate();
       const appointmentDateLabel = formatReminderDateLabel(r.appointment_date, tz);
@@ -260,6 +292,10 @@ export async function runSendWhatsappRemindersOnce() {
       });
       const useMetaTemplate = isMetaProvider(r.provider);
       const metaTemplateName = String(process.env.META_TEMPLATE_APPOINTMENT_REMINDER || 'lembrete_agendamento_v1a').trim();
+      const metaTemplateNameFallback = String(process.env.META_TEMPLATE_APPOINTMENT_REMINDER_FALLBACK || '').trim();
+      const canUseAltTemplate = useMetaTemplate && metaTemplateNameFallback && metaTemplateNameFallback !== metaTemplateName;
+      const previousFailedByExperiment = hasMeta130472(String((existingLog as any)?.last_error || ''));
+      const preferredMetaTemplateName = canUseAltTemplate && previousFailedByExperiment ? metaTemplateNameFallback : metaTemplateName;
 
       const toCandidates = normalizePhoneCandidates(r.client_whatsapp);
       if (toCandidates.length === 0) {
@@ -268,6 +304,7 @@ export async function runSendWhatsappRemindersOnce() {
 
       let sendRes = { ok: false, status: 0, data: undefined as any, errorText: undefined as any };
       let usedTo = toCandidates[0];
+      let usedFallbackTemplate = false;
       for (const cand of toCandidates) {
         usedTo = cand;
         sendRes = await sendWhatsappByProvider({
@@ -278,9 +315,9 @@ export async function runSendWhatsappRemindersOnce() {
           to: cand,
           text: msg,
           metaTemplate:
-            useMetaTemplate && metaTemplateName
+            useMetaTemplate && preferredMetaTemplateName
               ? {
-                  name: metaTemplateName,
+                  name: preferredMetaTemplateName,
                   languageCode: 'pt_BR',
                   parameters: [
                     r.client_name || 'cliente',
@@ -293,22 +330,51 @@ export async function runSendWhatsappRemindersOnce() {
                 }
               : undefined,
         });
+
+        // Se a Meta devolver 130472 no template primário, tenta um template alternativo Utility.
+        if (!sendRes.ok && canUseAltTemplate && !usedFallbackTemplate && preferredMetaTemplateName === metaTemplateName) {
+          const failedByExperiment = hasMeta130472(sendRes.data) || hasMeta130472(sendRes.errorText);
+          if (failedByExperiment) {
+            const fallbackRes = await sendWhatsappByProvider({
+              provider: String(r.provider || 'wasender'),
+              encryptedApiKeyDecrypted: apiKey,
+              wasenderBaseUrl,
+              metaPhoneNumberId: String(r.instance_phone_number || '').trim(),
+              to: cand,
+              text: msg,
+              metaTemplate: {
+                name: metaTemplateNameFallback,
+                languageCode: 'pt_BR',
+                parameters: [
+                  r.client_name || 'cliente',
+                  r.establishment_name || 'a barbearia',
+                  appointmentDateLabel,
+                  String(appointmentTimeLabel || ''),
+                  r.service_name || 'serviço',
+                  r.professional_name || 'profissional',
+                ],
+              },
+            });
+            sendRes = fallbackRes;
+            usedFallbackTemplate = true;
+          }
+        }
+
         if (sendRes.ok) break;
       }
 
       const status = sendRes.ok ? 'sent' : 'failed';
-      const providerResponse = JSON.stringify(sendRes.data ?? sendRes.errorText ?? null);
+      const providerResponse = JSON.stringify({
+        used_fallback_template: usedFallbackTemplate,
+        preferred_template: preferredMetaTemplateName || null,
+        fallback_template: usedFallbackTemplate ? metaTemplateNameFallback : null,
+        response: sendRes.data ?? sendRes.errorText ?? null,
+      });
       const attemptInc = 1;
       const nextAttemptAt = sendRes.ok ? null : computeNextAttemptAt(attemptInc);
       const metaMessageId = sendRes.ok ? getMetaMessageIdFromSendResponse(sendRes.data) : null;
 
       // ✅ UPSERT para permitir retries (tabela tem UNIQUE(appointment_id))
-      const { data: existingLog } = await supabase
-        .from('whatsapp_reminder_logs')
-        .select('attempt_count')
-        .eq('appointment_id', r.appointment_id)
-        .maybeSingle();
-
       const nextAttemptCount = Number((existingLog as any)?.attempt_count || 0) + 1;
       const { error: logErr } = await upsertReminderLogWithCompatibility({
         supabase,
@@ -337,7 +403,11 @@ export async function runSendWhatsappRemindersOnce() {
 
       if (sendRes.ok) {
         sent += 1;
-        console.log(`✅ Enviado: appointment_id=${r.appointment_id} to=${usedTo}${metaMessageId ? ` wamid=${metaMessageId}` : ''}`);
+        console.log(
+          `✅ Enviado: appointment_id=${r.appointment_id} to=${usedTo}${metaMessageId ? ` wamid=${metaMessageId}` : ''}${
+            usedFallbackTemplate ? ' (fallback template)' : ''
+          }`
+        );
       } else {
         failed += 1;
         console.warn(

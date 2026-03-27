@@ -34,6 +34,7 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
   const [statusMessage, setStatusMessage] = useState('');
   const [configError, setConfigError] = useState('');
   const [subscriptionPayerEmail, setSubscriptionPayerEmail] = useState('');
+  const [subscriptionCheckoutUrl, setSubscriptionCheckoutUrl] = useState('');
 
   const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
 
@@ -48,6 +49,7 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
     setBillingAmount(0);
     setIsLoadingAmount(false);
     setSubscriptionPayerEmail('');
+    setSubscriptionCheckoutUrl('');
   }, [isOpen]);
 
   useEffect(() => {
@@ -187,6 +189,9 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
     setIsCreatingSubscription(true);
     setStatusMessage('');
     setConfigError('');
+    setSubscriptionCheckoutUrl('');
+    // Abrir a aba imediatamente no clique reduz bloqueio de popup em navegadores mobile/in-app.
+    const pendingPopup = window.open('', '_blank', 'noopener,noreferrer');
     try {
       const endpoint = import.meta.env.PROD
         ? '/.netlify/functions/mercadopago-create-establishment-billing-subscription'
@@ -196,9 +201,12 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
       const isPublicHttpsUrl = /^https:\/\//i.test(origin);
       const payerEmail = String(subscriptionPayerEmail || '').trim().toLowerCase();
       if (!isValidEmail(payerEmail)) {
+        if (pendingPopup && !pendingPopup.closed) pendingPopup.close();
         throw new Error('Informe um e-mail válido para criar a assinatura.');
       }
 
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 25000);
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -210,10 +218,13 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
             email: payerEmail,
           },
         }),
+        signal: controller.signal,
       });
+      window.clearTimeout(timeout);
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (pendingPopup && !pendingPopup.closed) pendingPopup.close();
         const message = String((payload as any)?.userMessage || (payload as any)?.error || `Erro ${response.status}`);
         setConfigError(message);
         throw new Error(message);
@@ -226,14 +237,26 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
 
       const checkoutUrl = String((payload as any)?.init_point || (payload as any)?.sandbox_init_point || '').trim();
       if (!checkoutUrl) {
+        if (pendingPopup && !pendingPopup.closed) pendingPopup.close();
         throw new Error('Assinatura criada, mas o link de confirmação não foi retornado pelo Mercado Pago.');
       }
 
-      window.open(checkoutUrl, '_blank');
+      setSubscriptionCheckoutUrl(checkoutUrl);
+      if (pendingPopup && !pendingPopup.closed) {
+        pendingPopup.location.href = checkoutUrl;
+      } else {
+        window.location.href = checkoutUrl;
+      }
       setStatusMessage(`Abrimos a confirmação do cartão em nova aba. Use o e-mail ${payerEmail} para confirmar a assinatura.`);
     } catch (error: any) {
+      if (pendingPopup && !pendingPopup.closed) pendingPopup.close();
       console.error('Erro ao criar assinatura recorrente no cartão:', error);
-      setStatusMessage(String(error?.message || 'Erro ao iniciar assinatura recorrente.'));
+      const isAbort = String(error?.name || '').toLowerCase() === 'aborterror';
+      setStatusMessage(
+        isAbort
+          ? 'A conexão demorou e o pedido expirou. Verifique sua internet e tente novamente.'
+          : String(error?.message || 'Erro ao iniciar assinatura recorrente.')
+      );
     } finally {
       setIsCreatingSubscription(false);
     }
@@ -378,6 +401,16 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
               }`}>
               {configError || statusMessage}
             </div>
+          )}
+          {selectedMethod === 'credit_card' && subscriptionCheckoutUrl && (
+            <a
+              href={subscriptionCheckoutUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="block w-full text-center rounded-lg border border-blue-500/40 bg-blue-500/10 py-2 text-sm font-semibold text-blue-100 hover:bg-blue-500/20"
+            >
+              Abrir confirmação manualmente
+            </a>
           )}
 
           {paymentId && (
