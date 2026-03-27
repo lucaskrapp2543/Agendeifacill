@@ -8,6 +8,26 @@ function parseUnixTimestampToIso(value: unknown): string {
   return new Date(n * 1000).toISOString();
 }
 
+function buildMetaStatusError(st: any): string | null {
+  const errors = Array.isArray(st?.errors) ? st.errors : [];
+  if (errors.length === 0) return null;
+
+  const first = errors[0] || {};
+  const code = String(first?.code || '').trim();
+  const title = String(first?.title || '').trim();
+  const details =
+    String(first?.details || first?.message || first?.error_data?.details || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const composed = [code ? `code=${code}` : '', title ? `title=${title}` : '', details ? `details=${details}` : '']
+    .filter(Boolean)
+    .join(' | ');
+
+  if (composed) return composed.slice(0, 500);
+  return JSON.stringify(first).slice(0, 500);
+}
+
 export const handler: Handler = async event => {
   const verifyToken = String(process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || '').trim();
 
@@ -62,14 +82,22 @@ export const handler: Handler = async event => {
       const metaConversationId = String(st?.conversation?.id || '').trim() || null;
       const metaPricingCategory = String(st?.pricing?.category || '').trim() || null;
       const metaStatusUpdatedAt = parseUnixTimestampToIso(st?.timestamp);
+      const statusError = buildMetaStatusError(st);
 
-      const updatePayload = {
+      const updatePayload: Record<string, any> = {
         meta_status: metaStatus,
         meta_status_updated_at: metaStatusUpdatedAt,
         meta_recipient_id: metaRecipientId,
         meta_conversation_id: metaConversationId,
         meta_pricing_category: metaPricingCategory,
       };
+      if (metaStatus === 'failed') {
+        updatePayload.status = 'failed';
+        if (statusError) updatePayload.last_error = statusError;
+      } else if (metaStatus === 'delivered' || metaStatus === 'read') {
+        // Mantém log limpo após recuperação de status.
+        updatePayload.last_error = null;
+      }
 
       const { error, count } = await supabase
         .from('whatsapp_reminder_logs')

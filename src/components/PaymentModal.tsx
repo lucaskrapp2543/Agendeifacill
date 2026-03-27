@@ -1539,24 +1539,43 @@ export const PaymentModal = ({
         // ✅ Buscar dados do estabelecimento (nome e código)
         const { data: establishmentData } = await supabase
           .from('establishments')
-          .select('name, code')
+          .select('name, code, professionals')
           .eq('id', establishmentId)
           .single();
 
-        // ✅ Buscar nome do profissional (pode ser ID ou nome direto)
+        // ✅ Buscar nome do profissional (ID ou nome), priorizando establishments.professionals.
         let professionalName = '';
         if (appointmentData.professional) {
-          // Se professional é um ID (UUID), buscar nome
-          if (String(appointmentData.professional).length > 20) {
+          const professionalRef = String(appointmentData.professional || '').trim();
+          const normalize = (v: any) =>
+            String(v || '')
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase()
+              .trim();
+          const professionals = Array.isArray((establishmentData as any)?.professionals)
+            ? ((establishmentData as any).professionals as any[])
+            : [];
+          const refNorm = normalize(professionalRef);
+          const byEstablishmentJson = professionals.find((p: any) => {
+            const id = String(p?.id || '').trim();
+            const nameNorm = normalize(p?.name);
+            return (id && id === professionalRef) || (nameNorm && nameNorm === refNorm);
+          });
+
+          if (byEstablishmentJson?.name) {
+            professionalName = String(byEstablishmentJson.name).trim();
+          } else if (professionalRef.length > 20) {
+            // Fallback legado: algumas bases usam tabela professionals.
             const { data: professionalData } = await supabase
               .from('professionals')
               .select('name, full_name')
-              .eq('id', appointmentData.professional)
-              .single();
-            professionalName = professionalData?.full_name || professionalData?.name || String(appointmentData.professional);
+              .eq('id', professionalRef)
+              .maybeSingle();
+            professionalName = String(professionalData?.full_name || professionalData?.name || '').trim();
           } else {
-            // Se é nome direto (string)
-            professionalName = String(appointmentData.professional);
+            // Se já veio nome direto
+            professionalName = professionalRef;
           }
         }
 
@@ -1578,7 +1597,7 @@ export const PaymentModal = ({
           serviceName: Array.isArray(appointmentData.service)
             ? appointmentData.service.join(' + ')
             : String(appointmentData.service || ''),
-          professionalName,
+          professionalName: professionalName || 'Não especificado',
           establishmentName: establishmentData?.name || '',
           establishmentCode: establishmentData?.code || '',
           paymentMethod: appointmentData.payment_method === 'pix'

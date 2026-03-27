@@ -532,9 +532,9 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
                           </button>
                         </div>
                       )}
-                      {row.kind === 'failed' && row.errorText && (
+                      {row.kind === 'failed' && (
                         <div className="mt-2 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-[11px] text-red-100">
-                          Erro: {row.errorText}
+                          Falha no envio. Entre em contato com o suporte.
                         </div>
                       )}
                     </div>

@@ -29,6 +29,16 @@ type ReminderMetrics = {
   read: number;
 };
 
+type FailedLogRow = {
+  created_at?: string | null;
+  phone_to?: string | null;
+  status?: string | null;
+  meta_status?: string | null;
+  meta_message_id?: string | null;
+  last_error?: string | null;
+  provider_response?: string | null;
+};
+
 /**
  * Seção isolada para ser embutida no Admin (por estabelecimento).
  *
@@ -82,6 +92,7 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
     delivered: 0,
     read: 0,
   });
+  const [recentFailures, setRecentFailures] = useState<FailedLogRow[]>([]);
 
   const readCachedMetaPhoneId = (): string => {
     try {
@@ -180,6 +191,27 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
         .gte('created_at', monthStartIso);
       if (logsErr) throw logsErr;
 
+      const failureSelectCandidates = [
+        'created_at,phone_to,status,meta_status,meta_message_id,last_error,provider_response',
+        'created_at,phone_to,status,meta_status,meta_message_id,provider_response',
+        'created_at,phone_to,status,meta_status,meta_message_id',
+        'created_at,phone_to,status,meta_message_id',
+      ];
+      let failureRows: FailedLogRow[] = [];
+      for (const fields of failureSelectCandidates) {
+        const { data, error } = await supabase
+          .from('whatsapp_reminder_logs')
+          .select(fields)
+          .eq('establishment_id', establishmentId)
+          .or('meta_status.eq.failed,status.eq.failed')
+          .order('created_at', { ascending: false })
+          .limit(12);
+        if (!error) {
+          failureRows = (data as FailedLogRow[]) || [];
+          break;
+        }
+      }
+
       const logs = (logsData as Array<{ status?: string | null; meta_status?: string | null }>) || [];
       const sent = logs.filter(l => String(l.status || '').toLowerCase() === 'sent').length;
       const failed = logs.filter(l => String(l.status || '').toLowerCase() === 'failed').length;
@@ -214,12 +246,29 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
         delivered,
         read,
       });
+      setRecentFailures(failureRows);
     } catch (e) {
       console.error(e);
       toast.error('Erro ao carregar config de WhatsApp');
     } finally {
       setLoading(false);
     }
+  };
+
+  const formatFailureDate = (iso?: string | null) => {
+    const raw = String(iso || '').trim();
+    if (!raw) return '-';
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return raw;
+    return d.toLocaleString('pt-BR');
+  };
+
+  const getFailureReason = (row: FailedLogRow) => {
+    const fromLastError = String(row.last_error || '').trim();
+    if (fromLastError) return fromLastError;
+    const fromProvider = String(row.provider_response || '').trim();
+    if (fromProvider) return fromProvider.slice(0, 300);
+    return 'Sem detalhe técnico no log (webhook/erro não informado).';
   };
 
   useEffect(() => {
@@ -465,6 +514,27 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
             <div className="text-base font-bold text-violet-400">{metrics.read}</div>
           </div>
         </div>
+      </div>
+
+      <div className="mt-4 rounded-md border border-red-500/30 bg-red-500/5 p-3">
+        <div className="text-sm font-semibold text-red-200">Falhas recentes (somente Admin)</div>
+        {recentFailures.length === 0 ? (
+          <div className="mt-2 text-xs text-gray-300">Nenhuma falha recente encontrada para este estabelecimento.</div>
+        ) : (
+          <div className="mt-2 max-h-56 space-y-2 overflow-y-auto pr-1">
+            {recentFailures.map((row, idx) => (
+              <div key={`${String(row.meta_message_id || 'no-wamid')}-${idx}`} className="rounded border border-red-500/20 bg-black/30 p-2">
+                <div className="text-[11px] text-gray-300">
+                  {formatFailureDate(row.created_at)} • Destino: {String(row.phone_to || '-')}
+                </div>
+                <div className="text-[11px] text-gray-300">
+                  status={String(row.status || '-')} • meta_status={String(row.meta_status || '-')}
+                </div>
+                <div className="mt-1 break-all text-[11px] text-red-200">{getFailureReason(row)}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="mt-4 flex items-center justify-end gap-2">
