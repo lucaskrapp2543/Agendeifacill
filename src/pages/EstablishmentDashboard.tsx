@@ -9203,6 +9203,52 @@ const EstablishmentDashboard = () => {
     setShowReminderConfirm(true);
   };
 
+  const openWhatsAppWithBusinessPriority = (phoneDigits: string, message: string) => {
+    const cleanPhone = String(phoneDigits || '').replace(/\D/g, '');
+    if (!cleanPhone) return;
+
+    const encodedMessage = encodeURIComponent(message);
+    const waBusinessScheme = `whatsapp-business://send?phone=${cleanPhone}&text=${encodedMessage}`;
+    const waRegularScheme = `whatsapp://send?phone=${cleanPhone}&text=${encodedMessage}`;
+    const waWeb = `https://wa.me/${cleanPhone}?text=${encodedMessage}`;
+
+    const userAgent = String(navigator?.userAgent || '');
+    const isAndroid = /Android/i.test(userAgent);
+    const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
+    const isMobile = isAndroid || isIOS;
+
+    // Desktop/web: não há como forçar WhatsApp Business com confiabilidade.
+    if (!isMobile) {
+      window.open(waWeb, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    // Mobile: tenta Business primeiro, depois WhatsApp normal, e por último wa.me.
+    if (isAndroid) {
+      const androidBusinessIntent = `intent://send?phone=${cleanPhone}&text=${encodedMessage}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`;
+      window.location.href = androidBusinessIntent;
+      setTimeout(() => {
+        window.location.href = waBusinessScheme;
+        setTimeout(() => {
+          window.location.href = waRegularScheme;
+          setTimeout(() => {
+            window.open(waWeb, '_blank', 'noopener,noreferrer');
+          }, 500);
+        }, 350);
+      }, 300);
+      return;
+    }
+
+    // iOS
+    window.location.href = waBusinessScheme;
+    setTimeout(() => {
+      window.location.href = waRegularScheme;
+      setTimeout(() => {
+        window.open(waWeb, '_blank', 'noopener,noreferrer');
+      }, 500);
+    }, 500);
+  };
+
   // Função para enviar lembrete via WhatsApp
   const handleSendReminder = () => {
     if (!appointmentForReminder) return;
@@ -9254,9 +9300,8 @@ Estamos te aguardando! 😎✂️`;
         phoneNumber = '55' + phoneNumber;
       }
 
-      // Abrir WhatsApp
-      const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(reminderMessage)}`;
-      window.open(whatsappUrl, '_blank');
+      // Abrir WhatsApp com prioridade para WhatsApp Business em mobile.
+      openWhatsAppWithBusinessPriority(phoneNumber, reminderMessage);
 
       // Fechar modal e mostrar sucesso
       setShowReminderConfirm(false);
