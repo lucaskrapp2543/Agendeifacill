@@ -50,6 +50,7 @@ type ReminderLogView = {
   phoneTo: string;
   metaMessageId: string | null;
   errorText: string | null;
+  invalidClientPhone: boolean;
 };
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -234,6 +235,36 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
     return parts || 'Erro inesperado ao carregar histórico.';
   };
 
+  const extractMetaErrorCode = (raw: string | null | undefined): string | null => {
+    const text = String(raw || '').trim();
+    if (!text) return null;
+
+    const parsedByRegex = text.match(/(?:code|error_code)\s*[:=]\s*"?(\d{3,6})"?/i);
+    if (parsedByRegex?.[1]) return parsedByRegex[1];
+
+    if (text.startsWith('{') || text.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(text);
+        const fromDirect = String((parsed as any)?.code || (parsed as any)?.error_code || '').trim();
+        if (fromDirect) return fromDirect;
+        const fromError = String((parsed as any)?.error?.code || (parsed as any)?.error?.error_code || '').trim();
+        if (fromError) return fromError;
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    return null;
+  };
+
+  const isInvalidClientPhoneError = (raw: string | null | undefined): boolean => {
+    const text = String(raw || '').toLowerCase();
+    if (!text) return false;
+    const code = extractMetaErrorCode(raw);
+    if (code === '131026' || code === '131020') return true;
+    return text.includes('message undeliverable') || text.includes('recipient phone number');
+  };
+
   const loadReminderLogs = async () => {
     if (!establishmentId) return;
     setLogsLoading(true);
@@ -345,6 +376,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
         const metaMessageId = String(row.meta_message_id || '').trim() || null;
         const errorTextRaw = row.last_error || row.provider_response || null;
         const errorText = errorTextRaw ? String(errorTextRaw).slice(0, 220) : null;
+        const invalidClientPhone = isInvalidClientPhoneError(errorTextRaw);
 
         return {
           id: `${String(row.appointment_id || 'sem-id')}-${idx}`,
@@ -357,6 +389,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
           phoneTo,
           metaMessageId,
           errorText,
+          invalidClientPhone,
         };
       });
 
@@ -531,9 +564,15 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
                         </div>
                       )}
                       {row.kind === 'failed' && (
-                        <div className="mt-2 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-[11px] text-red-100">
-                          Falha no envio. Entre em contato com o suporte.
-                        </div>
+                        row.invalidClientPhone ? (
+                          <div className="mt-2 rounded-lg border border-amber-400/40 bg-amber-500/15 p-2 text-[11px] text-amber-100">
+                            Numero do cliente invalido ou inexistente no WhatsApp. Corrija o telefone do cliente e tente novamente.
+                          </div>
+                        ) : (
+                          <div className="mt-2 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-[11px] text-red-100">
+                            Falha no envio. Entre em contato com o suporte.
+                          </div>
+                        )
                       )}
                     </div>
                   ))
