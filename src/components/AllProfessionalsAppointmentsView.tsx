@@ -3,6 +3,7 @@ import { Calendar, ChevronLeft, ChevronRight, Clock, Crown, Package, Phone, Plus
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
 import { ChangeAppointmentServiceModal } from './ChangeAppointmentServiceModal';
 import { ProfessionalInfoModal } from './ProfessionalInfoModal';
 import { RescheduleAppointmentModal } from './RescheduleAppointmentModal';
@@ -4930,9 +4931,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         )}
                                         {apt.client_whatsapp && (
                                           <a
-                                            href={`https://wa.me/55${apt.client_whatsapp.replace(/\D/g, '')}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
+                                            href="#"
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              const phoneNumber = `55${String(apt.client_whatsapp || '').replace(/\D/g, '')}`;
+                                              openWhatsAppWithBusinessPriority(phoneNumber, '');
+                                            }}
                                             className="text-white/90 text-xs flex items-center gap-1 hover:text-white"
                                           >
                                             <Phone className="w-3 h-3" />
@@ -5305,11 +5309,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
                                                   phoneNumber = '55' + phoneNumber;
                                                 }
-                                                const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
                                                 void logAppointmentCardActionClick(apt, 'imprevisto_click', 'Clique em Imprevisto (envio WhatsApp).', {
                                                   whatsapp_target: phoneNumber,
                                                 });
-                                                window.open(whatsappUrl, '_blank');
+                                                openWhatsAppWithBusinessPriority(phoneNumber, message);
                                               }}
                                               data-tutorial-id="appointments-detalhes-imprevisto"
                                               className="px-2 py-1.5 text-xs bg-gray-800 text-white rounded hover:bg-gray-700"

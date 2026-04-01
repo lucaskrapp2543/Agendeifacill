@@ -239,9 +239,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
     setLogsLoading(true);
     setLogLoadError(null);
     try {
-      const monthStart = new Date();
-      monthStart.setDate(1);
-      monthStart.setHours(0, 0, 0, 0);
+      const logsWindowStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
       // Compatibilidade com bancos em versões diferentes (com/sem colunas novas).
       const logSelectCandidates = [
@@ -260,7 +258,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
           .from('whatsapp_reminder_logs')
           .select(selectCols)
           .eq('establishment_id', establishmentId)
-          .gte('created_at', monthStart.toISOString())
+          .gte('created_at', logsWindowStart.toISOString())
           .order('created_at', { ascending: false });
         if (!error) {
           rows = (data as ReminderLogRaw[]) || [];
@@ -451,7 +449,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
           {ativo && (
             <div className="lg:col-span-2 rounded-2xl border border-cyan-500/20 bg-black/40 p-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm font-bold text-cyan-200">Histórico de envios Meta (mês atual)</div>
+                <div className="text-sm font-bold text-cyan-200">Histórico de envios Meta (últimos 30 dias)</div>
                 <button
                   type="button"
                   onClick={() => void loadReminderLogs()}
@@ -496,7 +494,7 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
                   <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{logLoadError}</div>
                 ) : filteredLogRows.length === 0 ? (
                   <div className="rounded-xl border border-gray-700 bg-black/30 p-3 text-sm text-gray-400">
-                    Nenhum registro Meta nesse filtro no mês atual.
+                    Nenhum registro Meta nesse filtro nos últimos 30 dias.
                   </div>
                 ) : (
                   filteredLogRows.map(row => (

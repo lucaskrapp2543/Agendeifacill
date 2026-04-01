@@ -547,7 +547,8 @@ const AdminDashboard = () => {
   const [lucroCreditoMesDetalhe, setLucroCreditoMesDetalhe] = useState<number>(0);
   const [lucroPixMesTotal, setLucroPixMesTotal] = useState<number>(0);
   const [isLoadingLucroPixMes, setIsLoadingLucroPixMes] = useState(false);
-  const DELETED_CONTAINMENT_STORAGE_KEY = 'admin_deleted_containment_ids_v1';
+  const DELETED_CONTAINMENT_STORAGE_KEY = `admin_deleted_containment_ids_v2_${String(user?.id || 'global')}`;
+  const DELETED_CONTAINMENT_STORAGE_KEY_LEGACY = 'admin_deleted_containment_ids_v1';
 
   const togglePagamentoAdiantadoAdmin = async (establishmentId: string, current: boolean) => {
     try {
@@ -2032,13 +2033,27 @@ const AdminDashboard = () => {
   const moveDeletedToContainment = (establishmentId: string) => {
     setDeletedContainmentIds((prev) => {
       if (prev.includes(establishmentId)) return prev;
-      return [...prev, establishmentId];
+      const next = [...prev, establishmentId];
+      try {
+        localStorage.setItem(DELETED_CONTAINMENT_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // noop
+      }
+      return next;
     });
     toast.success('Movido para a lixeira de contenção.');
   };
 
   const moveDeletedBackToNormalTrash = (establishmentId: string) => {
-    setDeletedContainmentIds((prev) => prev.filter((id) => id !== establishmentId));
+    setDeletedContainmentIds((prev) => {
+      const next = prev.filter((id) => id !== establishmentId);
+      try {
+        localStorage.setItem(DELETED_CONTAINMENT_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // noop
+      }
+      return next;
+    });
     toast.success('Movido de volta para a lixeira normal.');
   };
 
@@ -2118,8 +2133,7 @@ const AdminDashboard = () => {
         .from('establishments')
         .select('id', { count: 'exact', head: true })
         .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString())
-        .or('is_deleted.is.null,is_deleted.eq.false');
+        .lte('created_at', end.toISOString());
 
       if (error) throw error;
       setClientsMonthCount(count || 0);
@@ -2269,17 +2283,28 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(DELETED_CONTAINMENT_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        const safeIds = parsed.filter((id) => typeof id === 'string' && id.trim().length > 0);
+      const currentRaw = localStorage.getItem(DELETED_CONTAINMENT_STORAGE_KEY);
+      const legacyRaw = localStorage.getItem(DELETED_CONTAINMENT_STORAGE_KEY_LEGACY);
+      const merged = new Set<string>();
+      const loadIds = (raw: string | null) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return;
+        parsed.forEach((id) => {
+          if (typeof id === 'string' && id.trim().length > 0) merged.add(id.trim());
+        });
+      };
+      loadIds(currentRaw);
+      loadIds(legacyRaw);
+      const safeIds = Array.from(merged);
+      if (safeIds.length > 0) {
         setDeletedContainmentIds(safeIds);
+        localStorage.setItem(DELETED_CONTAINMENT_STORAGE_KEY, JSON.stringify(safeIds));
       }
     } catch (error) {
       console.warn('Falha ao carregar lixeira de contenção:', error);
     }
-  }, [DELETED_CONTAINMENT_STORAGE_KEY]);
+  }, [DELETED_CONTAINMENT_STORAGE_KEY, DELETED_CONTAINMENT_STORAGE_KEY_LEGACY]);
 
   useEffect(() => {
     try {
@@ -3156,6 +3181,19 @@ const AdminDashboard = () => {
     .filter(deletedSearchMatches)
     .sort((a, b) => getTrashOrderTimestamp(b) - getTrashOrderTimestamp(a));
 
+  // Fonte única para métricas históricas (inclui ativos + lixeira, sem duplicar por id).
+  // Isso evita "sumir" cliente novo/pago do mês quando ele é movido para lixeira depois.
+  const metricsEstablishments = (() => {
+    const byId = new Map<string, Establishment>();
+    [...establishments, ...deletedEstablishments].forEach((est) => {
+      const id = String(est?.id || '').trim();
+      if (!id) return;
+      if (deletedContainmentIdSet.has(id)) return;
+      if (!byId.has(id)) byId.set(id, est);
+    });
+    return Array.from(byId.values());
+  })();
+
   // Saldo (lucro) manual total — não inclui lixeira pois establishments já vem filtrado
   const totalAdminProfit = establishments.reduce((sum, est) => {
     const v = Number(est.admin_profit_value ?? 0);
@@ -3183,7 +3221,7 @@ const AdminDashboard = () => {
   };
   const { start: saldoLucroMonthStart, end: saldoLucroMonthEndRaw } = getMonthRange(saldoLucroMonth);
   const saldoLucroMonthEnd = isSameMonthYear(saldoLucroMonth, now) ? now : saldoLucroMonthEndRaw;
-  const paidInSaldoLucroMonth = establishments.filter(est => isPaidInDateRange(est, saldoLucroMonthStart, saldoLucroMonthEnd));
+  const paidInSaldoLucroMonth = metricsEstablishments.filter(est => isPaidInDateRange(est, saldoLucroMonthStart, saldoLucroMonthEnd));
   const totalAdminProfitInMonth = paidInSaldoLucroMonth.reduce((sum, est) => {
     const v = Number(est.admin_profit_value ?? 0);
     return sum + (Number.isFinite(v) ? v : 0);
@@ -3192,36 +3230,58 @@ const AdminDashboard = () => {
   // Saldo do mês: soma do lucro manual apenas de quem PAGOU neste mês (do dia 1 até AGORA)
   const { start: saldoMesMonthStart, end: saldoMesMonthEndRaw } = getMonthRange(saldoMesMonth);
   const saldoMesMonthEnd = isSameMonthYear(saldoMesMonth, now) ? now : saldoMesMonthEndRaw;
-  const paidInSaldoMesMonth = establishments.filter(est => {
+  const paidInSaldoMesMonth = metricsEstablishments.filter(est => {
     return isPaidInDateRange(est, saldoMesMonthStart, saldoMesMonthEnd);
   });
   const saldoMesProfit = paidInSaldoMesMonth.reduce((sum, est) => {
     const v = Number(est.admin_profit_value ?? 0);
     return sum + (Number.isFinite(v) ? v : 0);
   }, 0);
-  const newClientsInSaldoMesMonth = establishments.filter(est => {
+  const newClientsInSaldoMesMonth = metricsEstablishments.filter(est => {
     const createdAt = new Date(est.created_at).getTime();
     if (!Number.isFinite(createdAt)) return false;
     return createdAt >= saldoMesMonthStart.getTime() && createdAt <= saldoMesMonthEnd.getTime();
   });
-  const newClientsAuditRows = newClientsInSaldoMesMonth.map(est => {
+  const hasAdvancedDueDateFromCreation = (est: Establishment): boolean => {
+    const createdAt = new Date(est.created_at).getTime();
+    const dueAt = est.payment_due_date ? new Date(est.payment_due_date).getTime() : NaN;
+    return Number.isFinite(createdAt) && Number.isFinite(dueAt) && dueAt > createdAt;
+  };
+  const wasNewClientPaidInSelectedMonth = (est: Establishment): { included: boolean; reason: string } => {
     const paidAtTime = est.payment_paid_at ? new Date(est.payment_paid_at).getTime() : NaN;
-    if (Number.isFinite(paidAtTime)) {
-      const paidInPeriod = paidAtTime >= saldoMesMonthStart.getTime() && paidAtTime <= saldoMesMonthEnd.getTime();
+    const paidInSelectedMonth =
+      Number.isFinite(paidAtTime) &&
+      paidAtTime >= saldoMesMonthStart.getTime() &&
+      paidAtTime <= saldoMesMonthEnd.getTime();
+    if (paidInSelectedMonth) {
+      return { included: true, reason: 'payment_paid_at no período' };
+    }
+
+    const hasLegacyEvidence = hasAdvancedDueDateFromCreation(est);
+    if (hasLegacyEvidence) {
+      // Compatibilidade: payment_paid_at pode ter sido sobrescrito por renovação.
+      // Se o cliente foi criado no mês e há evidência de 1º pagamento (vencimento avançado),
+      // mantemos no cálculo de "clientes novos" do mês de entrada.
       return {
-        establishment: est,
-        included: paidInPeriod,
-        reason: paidInPeriod ? 'payment_paid_at no período' : 'payment_paid_at fora do período'
+        included: true,
+        reason: Number.isFinite(paidAtTime)
+          ? 'payment_paid_at sobrescrito por renovação; mantido por evidência de 1º pagamento'
+          : 'fallback legado (vencimento avançado)',
       };
     }
 
-    const createdAt = new Date(est.created_at).getTime();
-    const dueAt = est.payment_due_date ? new Date(est.payment_due_date).getTime() : NaN;
-    const hasAdvancedDueDate = Number.isFinite(dueAt) && Number.isFinite(createdAt) && dueAt > createdAt;
+    if (Number.isFinite(paidAtTime)) {
+      return { included: false, reason: 'payment_paid_at fora do período e sem evidência de 1º pagamento' };
+    }
+
+    return { included: false, reason: 'sem evidência de pagamento no período' };
+  };
+  const newClientsAuditRows = newClientsInSaldoMesMonth.map(est => {
+    const audit = wasNewClientPaidInSelectedMonth(est);
     return {
       establishment: est,
-      included: hasAdvancedDueDate,
-      reason: hasAdvancedDueDate ? 'fallback legado (vencimento avançado)' : 'sem evidência de pagamento no período'
+      included: audit.included,
+      reason: audit.reason
     };
   });
   const paidNewClientsInSaldoMesMonth = newClientsAuditRows
@@ -3279,7 +3339,7 @@ const AdminDashboard = () => {
   };
   const nowTs = Date.now();
   const tenDaysAgo = nowTs - (10 * 24 * 60 * 60 * 1000);
-  const lastTenDaysPayments = [...establishments]
+  const lastTenDaysPayments = [...metricsEstablishments]
     .filter((est) => {
       const paidAt = getPaymentTimestamp(est);
       return Number.isFinite(paidAt) && paidAt >= tenDaysAgo && paidAt <= nowTs;
@@ -3325,7 +3385,7 @@ const AdminDashboard = () => {
   const manualLastTenDaysPayments = lastTenDaysPayments.filter((est) => !isAutomaticPaymentInLastDays(est));
   // Usa somente a lista visível na tela (mesmo critério da tabela),
   // para não incluir lixeira/itens fora do filtro atual.
-  const visibleEstablishments = filteredEstablishments;
+  const visibleEstablishments = metricsEstablishments;
   const renewalExpectedInClientesMeusPagosMonth = visibleEstablishments.filter(est => {
     const createdAt = new Date(est.created_at).getTime();
     if (!Number.isFinite(createdAt) || createdAt >= clientesMeusPagosMonthStart.getTime()) return false;
@@ -3374,7 +3434,7 @@ const AdminDashboard = () => {
   // nesse caso, se o cliente foi criado no dia e já está pago, também entra no saldo.
   const dayStart = startOfDay(saldoDiaDate);
   const dayEnd = endOfDay(saldoDiaDate);
-  const paidOnDay = establishments.filter(est => {
+  const paidOnDay = metricsEstablishments.filter(est => {
     const paidAt = est.payment_paid_at ? new Date(est.payment_paid_at).getTime() : NaN;
     if (Number.isFinite(paidAt)) {
       return paidAt >= dayStart.getTime() && paidAt <= dayEnd.getTime();
@@ -3387,7 +3447,7 @@ const AdminDashboard = () => {
     if (!Number.isFinite(createdAt)) return false;
     return createdAt >= dayStart.getTime() && createdAt <= dayEnd.getTime();
   });
-  const newOnDay = establishments.filter(est => {
+  const newOnDay = metricsEstablishments.filter(est => {
     const createdAt = new Date(est.created_at).getTime();
     if (!Number.isFinite(createdAt)) return false;
     return createdAt >= dayStart.getTime() && createdAt <= dayEnd.getTime();
@@ -3396,7 +3456,7 @@ const AdminDashboard = () => {
     ...paidOnDay.map((est) => est.id),
     ...newOnDay.map((est) => est.id),
   ]);
-  const saldoDiaEntities = establishments.filter((est) => saldoDiaIds.has(est.id));
+  const saldoDiaEntities = metricsEstablishments.filter((est) => saldoDiaIds.has(est.id));
   const saldoDiaProfit = paidOnDay.reduce((sum, est) => {
     const v = Number(est.admin_profit_value ?? 0);
     return sum + (Number.isFinite(v) ? v : 0);
@@ -3407,7 +3467,7 @@ const AdminDashboard = () => {
   }, 0);
 
   // Clientes (estabelecimentos) criados hoje (para controle rápido, sem query extra)
-  const clientesDiaCount = establishments.filter(est => {
+  const clientesDiaCount = metricsEstablishments.filter(est => {
     const t = new Date(est.created_at).getTime();
     if (!Number.isFinite(t)) return false;
     return t >= dayStart.getTime() && t <= dayEnd.getTime();
@@ -3430,30 +3490,34 @@ const AdminDashboard = () => {
     return time >= cardsRangeStartDate.getTime() && time <= cardsRangeEndDate.getTime();
   };
   const establishmentsInCardsRange = hasCardsRange
-    ? establishments.filter((est) => {
+    ? metricsEstablishments.filter((est) => {
       const createdAt = new Date(est.created_at).getTime();
       const paidAt = est.payment_paid_at ? new Date(est.payment_paid_at).getTime() : NaN;
       const dueAt = parseDateOnlyLocal(est.payment_due_date);
       return isInCardsRange(createdAt) || isInCardsRange(paidAt) || isInCardsRange(dueAt);
     })
-    : establishments;
+    : metricsEstablishments;
   const deletedEstablishmentsInCardsRange = hasCardsRange
-    ? deletedEstablishments.filter((est) => isInCardsRange(new Date(est.created_at).getTime()))
-    : deletedEstablishments;
+    ? deletedNormalBase.filter((est) => isInCardsRange(new Date(est.created_at).getTime()))
+    : deletedNormalBase;
   const paidInCardsRange = hasCardsRange
-    ? establishments.filter((est) => {
+    ? metricsEstablishments.filter((est) => {
       if (!est.payment_paid_at) return false;
       return isInCardsRange(new Date(est.payment_paid_at).getTime());
     })
     : paidInSaldoLucroMonth;
   const newInCardsRange = hasCardsRange
-    ? establishments.filter((est) => isInCardsRange(new Date(est.created_at).getTime()))
+    ? metricsEstablishments.filter((est) => isInCardsRange(new Date(est.created_at).getTime()))
     : [];
   const paidNewInCardsRange = hasCardsRange
-    ? newInCardsRange.filter((est) => est.payment_paid_at && isInCardsRange(new Date(est.payment_paid_at).getTime()))
+    ? newInCardsRange.filter((est) => {
+      const paidAt = est.payment_paid_at ? new Date(est.payment_paid_at).getTime() : NaN;
+      if (Number.isFinite(paidAt) && isInCardsRange(paidAt)) return true;
+      return hasAdvancedDueDateFromCreation(est);
+    })
     : [];
   const paidRenewalsInCardsRange = hasCardsRange && cardsRangeStartDate
-    ? establishments.filter((est) => {
+    ? metricsEstablishments.filter((est) => {
       if (est.plan_type !== 'monthly') return false;
       const createdAt = new Date(est.created_at).getTime();
       if (!Number.isFinite(createdAt) || createdAt >= cardsRangeStartDate.getTime()) return false;
@@ -3462,7 +3526,7 @@ const AdminDashboard = () => {
     })
     : paidRenewalsInClientesMeusPagosMonth;
   const renewalExpectedInCardsRange = hasCardsRange && cardsRangeStartDate
-    ? establishments.filter((est) => {
+    ? metricsEstablishments.filter((est) => {
       if (est.plan_type !== 'monthly') return false;
       const createdAt = new Date(est.created_at).getTime();
       if (!Number.isFinite(createdAt) || createdAt >= cardsRangeStartDate.getTime()) return false;
@@ -3499,7 +3563,7 @@ const AdminDashboard = () => {
     ...paidInCardsRange.map((est) => est.id),
     ...newInCardsRange.map((est) => est.id),
   ]);
-  const saldoPeriodoEntities = establishments.filter((est) => saldoPeriodoIds.has(est.id));
+  const saldoPeriodoEntities = metricsEstablishments.filter((est) => saldoPeriodoIds.has(est.id));
   const saldoPeriodoCombinedProfit = saldoPeriodoEntities.reduce((sum, est) => {
     const v = Number(est.admin_profit_value ?? 0);
     return sum + (Number.isFinite(v) ? v : 0);
@@ -3513,7 +3577,7 @@ const AdminDashboard = () => {
     e.payment_status === 'expired' || isExpired(e.payment_due_date)
   ).length;
   const bloqueadosDisplay = establishmentsInCardsRange.filter((e) => e.is_blocked).length;
-  const lixeiraDisplay = hasCardsRange ? deletedEstablishmentsInCardsRange.length : deletedEstablishments.length;
+  const lixeiraDisplay = hasCardsRange ? deletedEstablishmentsInCardsRange.length : deletedNormalBase.length;
   const setRenewalInSelectedMonth = async (establishment: Establishment, shouldInclude: boolean) => {
     const key = `renewal:${establishment.id}`;
     setIsAdjustingRenewalByEstablishment(prev => ({ ...prev, [key]: true }));

@@ -18,17 +18,54 @@ import { runSendWhatsappRemindersOnce } from '../../modules/whatsapp-reminders/j
  */
 export const handler: Handler = async (event) => {
   try {
-    // Proteção opcional contra disparo público (recomendado).
-    // Configure no Netlify: WHATSAPP_REMINDERS_CRON_TOKEN
-    // E chame a function como:
-    //   /.netlify/functions/send-whatsapp-reminders?token=SEU_TOKEN
-    const tokenEnv = process.env.WHATSAPP_REMINDERS_CRON_TOKEN;
-    if (tokenEnv) {
-      const token = event.queryStringParameters?.token || '';
-      if (token !== tokenEnv) {
+    // Proteção contra disparo público.
+    // Aceita token por query/header/bearer e múltiplas envs por compatibilidade.
+    const configuredTokens = [
+      process.env.WHATSAPP_REMINDERS_CRON_TOKEN,
+      process.env.WHATSAPP_REMINDERS_MASTER_KEY,
+      process.env.WHATSAPP_REMINDERS_TOKEN,
+    ]
+      .map(v => String(v || '').trim())
+      .filter(Boolean);
+
+    const decode = (v: string) => {
+      try {
+        return decodeURIComponent(v);
+      } catch {
+        return v;
+      }
+    };
+
+    const authHeader = String(event.headers?.authorization || event.headers?.Authorization || '').trim();
+    const bearerToken = authHeader.toLowerCase().startsWith('bearer ')
+      ? authHeader.slice(7).trim()
+      : '';
+
+    const providedCandidates = [
+      String(event.queryStringParameters?.token || ''),
+      String(event.queryStringParameters?.key || ''),
+      String(event.headers?.['x-cron-token'] || ''),
+      String(event.headers?.['x-reminder-token'] || ''),
+      bearerToken,
+    ]
+      .map(v => decode(String(v || '').trim()))
+      .filter(Boolean);
+
+    if (configuredTokens.length > 0) {
+      const ok = providedCandidates.some(candidate => configuredTokens.includes(candidate));
+      if (!ok) {
         return {
           statusCode: 401,
-          body: JSON.stringify({ ok: false, error: 'unauthorized' }),
+          body: JSON.stringify({
+            ok: false,
+            error: 'unauthorized',
+            hint: 'token_invalido_ou_nao_informado',
+            auth_debug: {
+              configured_tokens: configuredTokens.length,
+              provided_candidates: providedCandidates.length,
+              has_authorization_header: Boolean(authHeader),
+            },
+          }),
           headers: { 'content-type': 'application/json; charset=utf-8' },
         };
       }

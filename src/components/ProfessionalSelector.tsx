@@ -240,6 +240,16 @@ export function ProfessionalSelector({
         return professional;
       });
 
+      const hadProfessionals = Array.isArray(establishmentData.professionals) && establishmentData.professionals.length > 0;
+      if (hadProfessionals && updatedProfessionals.length === 0) {
+        throw new Error('Proteção ativada: bloqueado para evitar apagar profissionais');
+      }
+
+      const targetFound = updatedProfessionals.some((professional: any) => professional.id === professionalId);
+      if (!targetFound) {
+        throw new Error('Profissional não encontrado no estabelecimento. Operação cancelada por segurança.');
+      }
+
       const { error: updateError } = await supabase
         .from('establishments')
         .update({ professionals: updatedProfessionals })

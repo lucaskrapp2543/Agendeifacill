@@ -107,10 +107,15 @@ AS $$
     -- Isso garante que só envie para números que realmente foram cadastrados no agendamento
     AND NULLIF(trim(COALESCE(a.client_whatsapp, '')), '') IS NOT NULL
     AND (
-      -- Robustez contra atraso do cron: pega lembretes "vencidos" nos últimos 5 minutos.
-      (a.appt_at_minute - (a.remind_before_minutes || ' minutes')::interval) >= (ctx.now_local - interval '5 minutes')
+      -- Robustez contra atraso do cron:
+      -- 1) aceita lembrete vencido até 120 min atrás
+      -- 2) só enquanto o horário do agendamento ainda não passou
+      -- Assim evita "sumir" no histórico quando o cron atrasa.
+      (a.appt_at_minute - (a.remind_before_minutes || ' minutes')::interval) >= (ctx.now_local - interval '120 minutes')
       AND
       (a.appt_at_minute - (a.remind_before_minutes || ' minutes')::interval) < (ctx.now_local + interval '1 minute')
+      AND
+      a.appt_at_minute > ctx.now_local
     );
 $$;
 

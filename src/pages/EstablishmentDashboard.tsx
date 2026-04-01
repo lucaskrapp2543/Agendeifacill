@@ -40,6 +40,7 @@ import { ValidityHeader } from '../components/ValidityHeader';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../hooks/useNotifications';
 import { addExpense, createEstablishment, deleteExpense, getEstablishmentGoals, getEstablishmentPremiumSubscribers, getExpensesByMonth, getProfessionalGoal, isNewClient, setProfessionalGoal, supabase, updateEstablishment } from '../lib/supabase';
+import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
 
 interface BusinessHours {
   enabled: boolean;
@@ -86,7 +87,7 @@ interface ProfessionalPin {
 interface EmergencyRecoveredProfessionalCandidate {
   id: string;
   name: string;
-  source: 'appointments' | 'professional_payments';
+  source: 'appointments' | 'professional_payments' | 'snapshot';
   matchedBy: 'id' | 'name';
 }
 
@@ -3850,7 +3851,7 @@ const EstablishmentDashboard = () => {
       'Olá, quero subir meu plano para o OURO (R$ 47,90).\n' +
       'Desejo liberar o sistema de assinantes e o controle de estoque\n' +
       'para vendas de produtos no meu estabelecimento.';
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+    openWhatsAppWithBusinessPriority(phone, message);
   };
 
   const redirectUpgradeToDiamanteWhatsapp = () => {
@@ -3862,7 +3863,7 @@ const EstablishmentDashboard = () => {
       '- Mensagens ilimitadas para clientes que sumiram\n' +
       '- Mensagens ilimitadas para clientes aniversariantes\n\n' +
       'Quero adicionar +R$ 49,99 na minha fatura mensal.';
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+    openWhatsAppWithBusinessPriority(phone, message);
   };
 
   const getClienteChanceFalta = (client: Client) => {
@@ -7743,8 +7744,47 @@ const EstablishmentDashboard = () => {
     };
 
     try {
-      const updatedProfessionals = [...professionals, newProfessional];
-      const updatedPins = [...(establishment.professionals_pins || []), newPin];
+      // Proteção anti-perda: usar base do banco + estado local para não sobrescrever lista em cenários de estado transitório.
+      const { data: establishmentDataSafe, error: fetchSafeError } = await supabase
+        .from('establishments')
+        .select('professionals, professionals_pins')
+        .eq('id', establishment.id)
+        .single();
+
+      if (fetchSafeError) {
+        throw fetchSafeError;
+      }
+
+      const dbProfessionalsSafe = Array.isArray((establishmentDataSafe as any)?.professionals)
+        ? ((establishmentDataSafe as any).professionals as any[])
+        : [];
+      const dbPinsSafe = Array.isArray((establishmentDataSafe as any)?.professionals_pins)
+        ? ((establishmentDataSafe as any).professionals_pins as any[])
+        : [];
+
+      const baseProfessionalsById = new Map<string, any>();
+      dbProfessionalsSafe.forEach((p: any) => {
+        const id = String(p?.id || '').trim();
+        if (id) baseProfessionalsById.set(id, p);
+      });
+      professionals.forEach((p: any) => {
+        const id = String(p?.id || '').trim();
+        if (id) baseProfessionalsById.set(id, p);
+      });
+
+      const updatedProfessionals = [...Array.from(baseProfessionalsById.values()), newProfessional];
+
+      const pinsByProfessionalId = new Map<string, any>();
+      dbPinsSafe.forEach((pin: any) => {
+        const professionalId = String(pin?.professional_id || '').trim();
+        if (professionalId) pinsByProfessionalId.set(professionalId, pin);
+      });
+      (establishment.professionals_pins || []).forEach((pin: any) => {
+        const professionalId = String(pin?.professional_id || '').trim();
+        if (professionalId) pinsByProfessionalId.set(professionalId, pin);
+      });
+      pinsByProfessionalId.set(newPin.professional_id, newPin);
+      const updatedPins = Array.from(pinsByProfessionalId.values());
 
       const { error } = await supabase
         .from('establishments')
@@ -7922,6 +7962,90 @@ const EstablishmentDashboard = () => {
     });
   };
 
+  const persistProfessionalSnapshot = async (
+    reason: string,
+    payload?: {
+      professionals?: any[];
+      professionals_pins?: any[];
+      services_with_prices?: any[];
+    }
+  ) => {
+    if (!establishment?.id) return;
+    try {
+      let professionalsForSnapshot = payload?.professionals;
+      let pinsForSnapshot = payload?.professionals_pins;
+      let servicesForSnapshot = payload?.services_with_prices;
+
+      if (!Array.isArray(professionalsForSnapshot) || !Array.isArray(pinsForSnapshot) || !Array.isArray(servicesForSnapshot)) {
+        const { data, error } = await supabase
+          .from('establishments')
+          .select('professionals, professionals_pins, services_with_prices')
+          .eq('id', establishment.id)
+          .single();
+        if (error) throw error;
+        professionalsForSnapshot = Array.isArray(data?.professionals) ? (data.professionals as any[]) : [];
+        pinsForSnapshot = Array.isArray((data as any)?.professionals_pins) ? ((data as any).professionals_pins as any[]) : [];
+        servicesForSnapshot = Array.isArray((data as any)?.services_with_prices) ? ((data as any).services_with_prices as any[]) : [];
+      }
+
+      const snapshotPayload = {
+        version: 1,
+        professionals: professionalsForSnapshot || [],
+        professionals_pins: pinsForSnapshot || [],
+        services_with_prices: servicesForSnapshot || [],
+      };
+
+      const { error: snapshotError } = await (supabase as any)
+        .from('establishment_professional_snapshots')
+        .insert({
+          establishment_id: establishment.id,
+          reason,
+          snapshot: snapshotPayload,
+          created_by_user_id: String(user?.id || '').trim() || null,
+        });
+
+      if (snapshotError) {
+        const code = String((snapshotError as any)?.code || '');
+        const message = String((snapshotError as any)?.message || '').toLowerCase();
+        const isMissingTable = code === '42P01' || message.includes('does not exist');
+        if (!isMissingTable) {
+          console.warn('Falha ao salvar snapshot de profissionais:', snapshotError);
+        }
+      }
+    } catch (error) {
+      console.warn('Falha ao criar snapshot de profissionais:', error);
+    }
+  };
+
+  const getLatestSnapshotProfessionalById = async (professionalId: string): Promise<any | null> => {
+    if (!establishment?.id || !professionalId) return null;
+    try {
+      const { data, error } = await (supabase as any)
+        .from('establishment_professional_snapshots')
+        .select('snapshot, created_at')
+        .eq('establishment_id', establishment.id)
+        .order('created_at', { ascending: false })
+        .limit(30);
+      if (error) {
+        const code = String((error as any)?.code || '');
+        const message = String((error as any)?.message || '').toLowerCase();
+        if (code === '42P01' || message.includes('does not exist')) return null;
+        throw error;
+      }
+
+      for (const row of data || []) {
+        const snapshot = (row as any)?.snapshot || {};
+        const snapshotProfessionals = Array.isArray(snapshot?.professionals) ? snapshot.professionals : [];
+        const match = snapshotProfessionals.find((p: any) => String(p?.id || '').trim() === professionalId);
+        if (match) return match;
+      }
+      return null;
+    } catch (error) {
+      console.warn('Falha ao buscar profissional em snapshot:', error);
+      return null;
+    }
+  };
+
   const saveProfessionalsSafely = async (nextProfessionals: any[]) => {
     if (!establishment?.id) {
       return {
@@ -7942,6 +8066,26 @@ const EstablishmentDashboard = () => {
 
     const dbProfessionals = (establishmentData?.professionals || []) as any[];
     const safeProfessionals = mergeProfessionalsPreservingCriticalFields(nextProfessionals, dbProfessionals);
+
+    // Proteção anti-perda: evita sobrescrever com lista vazia por retorno inconsistente.
+    if (dbProfessionals.length === 0 && Array.isArray(nextProfessionals) && nextProfessionals.length > 0) {
+      return {
+        error: new Error('Proteção ativada: banco retornou profissionais vazios. Operação bloqueada para evitar perda de dados.'),
+        professionals: nextProfessionals
+      };
+    }
+    if (Array.isArray(nextProfessionals) && nextProfessionals.length > 0 && safeProfessionals.length === 0) {
+      return {
+        error: new Error('Proteção ativada: atualização bloqueada para evitar gravar profissionais vazios.'),
+        professionals: nextProfessionals
+      };
+    }
+
+    await persistProfessionalSnapshot('before_save_professionals', {
+      professionals: dbProfessionals,
+      professionals_pins: establishment.professionals_pins || [],
+      services_with_prices: servicesWithPrices || [],
+    });
 
     const { error: updateError } = await supabase
       .from('establishments')
@@ -8649,6 +8793,36 @@ const EstablishmentDashboard = () => {
         });
       });
 
+      try {
+        const { data: snapshotRows, error: snapshotsError } = await (supabase as any)
+          .from('establishment_professional_snapshots')
+          .select('snapshot')
+          .eq('establishment_id', establishment.id)
+          .order('created_at', { ascending: false })
+          .limit(20);
+
+        if (!snapshotsError) {
+          (snapshotRows || []).forEach((snapshotRow: any) => {
+            const snapshotProfessionals = Array.isArray(snapshotRow?.snapshot?.professionals)
+              ? snapshotRow.snapshot.professionals
+              : [];
+            snapshotProfessionals.forEach((p: any) => {
+              const id = String(p?.id || '').trim();
+              const name = String(p?.name || '').trim();
+              if (!id) return;
+              addCandidate({
+                id,
+                name,
+                source: 'snapshot',
+                matchedBy: activeById.has(id) ? 'id' : 'name',
+              });
+            });
+          });
+        }
+      } catch (snapshotLookupError) {
+        console.warn('Falha ao consultar snapshots para recuperação de urgência:', snapshotLookupError);
+      }
+
       const sorted = Array.from(found.values()).sort((a, b) =>
         String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' })
       );
@@ -8697,14 +8871,21 @@ const EstablishmentDashboard = () => {
         return;
       }
 
-      const restoredProfessional: Professional = {
-        id,
-        name,
-        specialties: [],
-        percentage: 100,
-        whatsapp: '',
-        specific_services: [],
-      };
+      const snapshotProfessional = await getLatestSnapshotProfessionalById(id);
+      const restoredProfessional: Professional = snapshotProfessional
+        ? {
+          ...snapshotProfessional,
+          id,
+          name,
+        }
+        : {
+          id,
+          name,
+          specialties: [],
+          percentage: 100,
+          whatsapp: '',
+          specific_services: [],
+        };
 
       const updatedProfessionals = [...professionals, restoredProfessional];
       const updatedPins = [...(establishment.professionals_pins || [])];
@@ -8721,6 +8902,8 @@ const EstablishmentDashboard = () => {
 
       const dbProfessionals = (establishmentData?.professionals || []) as any[];
       const safeProfessionals = mergeProfessionalsPreservingCriticalFields(updatedProfessionals, dbProfessionals);
+
+      await persistProfessionalSnapshot('before_restore_emergency_professional');
 
       const { error } = await supabase
         .from('establishments')
@@ -9201,52 +9384,6 @@ const EstablishmentDashboard = () => {
   const handleOpenReminderModal = (appointment: Appointment) => {
     setAppointmentForReminder(appointment);
     setShowReminderConfirm(true);
-  };
-
-  const openWhatsAppWithBusinessPriority = (phoneDigits: string, message: string) => {
-    const cleanPhone = String(phoneDigits || '').replace(/\D/g, '');
-    if (!cleanPhone) return;
-
-    const encodedMessage = encodeURIComponent(message);
-    const waBusinessScheme = `whatsapp-business://send?phone=${cleanPhone}&text=${encodedMessage}`;
-    const waRegularScheme = `whatsapp://send?phone=${cleanPhone}&text=${encodedMessage}`;
-    const waWeb = `https://wa.me/${cleanPhone}?text=${encodedMessage}`;
-
-    const userAgent = String(navigator?.userAgent || '');
-    const isAndroid = /Android/i.test(userAgent);
-    const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
-    const isMobile = isAndroid || isIOS;
-
-    // Desktop/web: não há como forçar WhatsApp Business com confiabilidade.
-    if (!isMobile) {
-      window.open(waWeb, '_blank', 'noopener,noreferrer');
-      return;
-    }
-
-    // Mobile: tenta Business primeiro, depois WhatsApp normal, e por último wa.me.
-    if (isAndroid) {
-      const androidBusinessIntent = `intent://send?phone=${cleanPhone}&text=${encodedMessage}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`;
-      window.location.href = androidBusinessIntent;
-      setTimeout(() => {
-        window.location.href = waBusinessScheme;
-        setTimeout(() => {
-          window.location.href = waRegularScheme;
-          setTimeout(() => {
-            window.open(waWeb, '_blank', 'noopener,noreferrer');
-          }, 500);
-        }, 350);
-      }, 300);
-      return;
-    }
-
-    // iOS
-    window.location.href = waBusinessScheme;
-    setTimeout(() => {
-      window.location.href = waRegularScheme;
-      setTimeout(() => {
-        window.open(waWeb, '_blank', 'noopener,noreferrer');
-      }, 500);
-    }, 500);
   };
 
   // Função para enviar lembrete via WhatsApp
@@ -16712,6 +16849,12 @@ Estamos te aguardando! 😎✂️`;
       }
 
       const dbProfessionals = (establishmentData?.professionals || []) as any[];
+      const localProfessionalsSafe = Array.isArray(professionals) ? professionals : [];
+
+      if (dbProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
+        toast.error('Proteção ativada: ausências não salvas para evitar apagar profissionais. Recarregue e tente novamente.');
+        return;
+      }
 
       // ✅ MESCLAR DADOS DO BANCO COM ALTERAÇÕES LOCAIS
       const updatedProfessionals = dbProfessionals.map((dbProfessional: any) => {
@@ -16742,6 +16885,11 @@ Estamos te aguardando! 😎✂️`;
         }
       });
 
+      if (updatedProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
+        toast.error('Proteção ativada: ausências bloqueadas para evitar apagar profissionais.');
+        return;
+      }
+
       // Salvar no banco de dados
       const { error: updateError } = await supabase
         .from('establishments')
@@ -16753,6 +16901,12 @@ Estamos te aguardando! 😎✂️`;
         toast.error('Erro ao salvar ausências do profissional');
         return;
       }
+
+      await persistProfessionalSnapshot('after_save_absences', {
+        professionals: updatedProfessionals,
+        professionals_pins: establishment.professionals_pins || [],
+        services_with_prices: servicesWithPrices || [],
+      });
 
       // Atualizar estados locais com dados do banco
       setProfessionals(updatedProfessionals);
@@ -18446,6 +18600,14 @@ Estamos te aguardando! 😎✂️`;
       }
 
       const dbProfessionals = (establishmentData?.professionals || []) as any[];
+      const localProfessionalsSafe = Array.isArray(professionals) ? professionals : [];
+
+      // Proteção anti-perda: se o banco retornar vazio, nunca sobrescrever com lista vazia
+      // quando ainda há profissionais carregados no estado local.
+      if (dbProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
+        toast.error('Proteção ativada: bloqueio não salvo para evitar apagar profissionais. Recarregue a página e tente novamente.');
+        return;
+      }
 
       // ✅ MESCLAR DADOS DO BANCO COM ALTERAÇÕES LOCAIS
       const updatedProfessionals = dbProfessionals.map((dbProfessional: any) => {
@@ -18498,6 +18660,11 @@ Estamos te aguardando! 😎✂️`;
         'Profissional'
       );
 
+      if (updatedProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
+        toast.error('Proteção ativada: atualização bloqueada para evitar apagar profissionais.');
+        return;
+      }
+
       const { error: updateError } = await supabase
         .from('establishments')
         .update({ professionals: updatedProfessionals })
@@ -18509,6 +18676,12 @@ Estamos te aguardando! 😎✂️`;
         toast.error(`Erro ao salvar horários bloqueados: ${details || 'Erro desconhecido'}`);
         return;
       }
+
+      await persistProfessionalSnapshot('after_save_blocked_hours', {
+        professionals: updatedProfessionals,
+        professionals_pins: establishment.professionals_pins || [],
+        services_with_prices: servicesWithPrices || [],
+      });
 
       await persistBlockedHourHistoryEvents(
         selectedProfessionalForBlock,
@@ -18549,6 +18722,13 @@ Estamos te aguardando! 😎✂️`;
         return;
       }
       const dbProfessionals = (establishmentData?.professionals || []) as any[];
+      const localProfessionalsSafe = Array.isArray(professionals) ? professionals : [];
+
+      // Proteção anti-perda: impede reset gravar lista vazia de profissionais por acidente.
+      if (dbProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
+        toast.error('Proteção ativada: reset não executado para evitar apagar profissionais. Recarregue a página e tente novamente.');
+        return;
+      }
       const selectedProfessionalInDb = dbProfessionals.find((professional: any) => professional.id === selectedProfessionalForBlock);
       const previousBlockedMap = normalizeBlockedHoursMap(selectedProfessionalInDb?.blocked_hours || {});
       const updatedProfessionals = dbProfessionals.map((p: any) => {
@@ -18561,6 +18741,11 @@ Estamos te aguardando! 😎✂️`;
         }
         return p;
       });
+      if (updatedProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
+        toast.error('Proteção ativada: reset bloqueado para evitar apagar profissionais.');
+        return;
+      }
+
       const { error: updateError } = await supabase
         .from('establishments')
         .update({ professionals: updatedProfessionals })
@@ -18570,6 +18755,12 @@ Estamos te aguardando! 😎✂️`;
         toast.error(`Erro ao remover bloqueios: ${details || 'Erro desconhecido'}`);
         return;
       }
+
+      await persistProfessionalSnapshot('after_reset_blocked_hours', {
+        professionals: updatedProfessionals,
+        professionals_pins: establishment.professionals_pins || [],
+        services_with_prices: servicesWithPrices || [],
+      });
 
       const historyDiffEvents = buildBlockedHoursDiffEvents(previousBlockedMap, {});
       const selectedProfessionalName = String(
@@ -21799,8 +21990,8 @@ Estamos te aguardando! 😎✂️`;
                             <button
                               onClick={() => {
                                 const whatsappNumber = '5548991265320';
-                                const message = encodeURIComponent('Quero regularizar meu pagamento agora');
-                                window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
+                                const message = 'Quero regularizar meu pagamento agora';
+                                openWhatsAppWithBusinessPriority(whatsappNumber, message);
                               }}
                               className="w-full px-4 py-3 md:px-6 md:py-4 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-medium md:text-lg flex items-center justify-center gap-2"
                             >
@@ -22625,8 +22816,7 @@ Estamos te aguardando! 😎✂️`;
                                                   if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
                                                     phoneNumber = '55' + phoneNumber;
                                                   }
-                                                  const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
-                                                  window.open(whatsappUrl, '_blank');
+                                                  openWhatsAppWithBusinessPriority(phoneNumber, message);
                                                 }}
                                                 className="px-2 py-1 text-xs font-medium rounded transition-colors bg-orange-600 text-white hover:bg-orange-700"
                                                 title="Enviar mensagem de imprevisto"
@@ -23961,11 +24151,11 @@ Estamos te aguardando! 😎✂️`;
                       </p>
                       <button
                         onClick={() => {
-                          const whatsappNumber = '48991265320';
+                          const whatsappNumber = '5548991265320';
                           const establishmentName = establishment?.name || 'Minha Barbearia';
                           const establishmentCode = establishment?.code || '';
-                          const message = encodeURIComponent(`ola preciso de um suporte | ${establishmentName} e codigo ${establishmentCode}`);
-                          window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
+                          const message = `ola preciso de um suporte | ${establishmentName} e codigo ${establishmentCode}`;
+                          openWhatsAppWithBusinessPriority(whatsappNumber, message);
                         }}
                         className="w-full sm:w-auto px-8 py-4 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-semibold text-lg flex items-center justify-center gap-3 shadow-lg"
                       >
@@ -24136,8 +24326,8 @@ Estamos te aguardando! 😎✂️`;
                           onClick={() => {
                             const whatsappNumber = '5548991265320';
                             const establishmentCode = String(establishment?.code || '').trim();
-                            const message = encodeURIComponent(`quero placa e qrcod pro meu estabelecimento codigo (${establishmentCode})`);
-                            window.open(`https://wa.me/${whatsappNumber}?text=${message}`, '_blank');
+                            const message = `quero placa e qrcod pro meu estabelecimento codigo (${establishmentCode})`;
+                            openWhatsAppWithBusinessPriority(whatsappNumber, message);
                           }}
                           className="px-8 py-4 rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-700 text-white font-extrabold text-lg hover:from-cyan-600 hover:via-blue-700 hover:to-indigo-800 transition-all shadow-lg"
                         >
@@ -25673,7 +25863,7 @@ Estamos te aguardando! 😎✂️`;
                                     const whatsappNumber = '5548991265320';
                                     const valorSaldo = fmtBRL(saldoEmVendas);
                                     const message = `Quero sacar meu valor: ${valorSaldo}\nBarbearia: ${establishment?.name || ''}\nCódigo: ${establishment?.code || ''}`;
-                                    window.open(`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`, '_blank');
+                                    openWhatsAppWithBusinessPriority(whatsappNumber, message);
                                   }}
                                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
                                 >

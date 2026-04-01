@@ -121,8 +121,9 @@
       AND (
         -- Caso 1: lembrete dentro da janela (robustez pro cron)
         (
-          a.due_at_minute >= (ctx.now_local - interval '5 minutes')
+          a.due_at_minute >= (ctx.now_local - interval '120 minutes')
           AND a.due_at_minute < (ctx.now_local + interval '1 minute')
+          AND a.appt_at_minute > ctx.now_local
           AND (l.id IS NULL OR l.status <> 'sent')
         )
         OR
