@@ -1357,12 +1357,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
           return;
         }
 
-        // Nova regra de negócio:
-        // sem "Dividir valor total", o atendimento só registra consumo da assinatura (repasso = 0).
-        // com divisão ativa, mantém cálculo antigo por atendimento.
-        let repassValue = 0;
+        // Regra:
+        // - sem "Dividir valor total": lança repasse normal da assinatura.
+        // - com divisão ativa: divide o repasse pelo número de atendimentos.
+        let repassValue = round2(baseFixed * multiplier);
         if (divideEnabled) {
-          repassValue = round2(baseFixed * multiplier);
           repassValue = round2(repassValue / divideCount);
         }
 

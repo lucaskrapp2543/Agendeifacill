@@ -1445,6 +1445,16 @@ export default function BookingPage() {
     const subscription =
       subscriptions.find((sub: any) => String(sub?.id || '').trim() === selectedId) ||
       subscriptions.find((sub: any) => String(sub?.name || '').trim() === selectedName);
+    const hasCustomLink = Boolean(subscription && String(subscription.custom_link || '').trim());
+    let showSubscriptionsFullpageEnabled = false;
+    try {
+      showSubscriptionsFullpageEnabled =
+        Boolean((establishment as any)?.show_subscriptions_fullpage === true) ||
+        localStorage.getItem(`show_subscriptions_fullpage_${String(establishment?.id || '')}`) === 'true';
+    } catch {
+      showSubscriptionsFullpageEnabled = Boolean((establishment as any)?.show_subscriptions_fullpage === true);
+    }
+    const shouldPreferCustomLink = !showSubscriptionsFullpageEnabled;
 
     // Verificar Pagar.me: SEMPRE priorizar valor do banco de dados
     // Se estiver false no banco, NÃO usar Pagar.me mesmo que localStorage diga true
@@ -1464,6 +1474,17 @@ export default function BookingPage() {
     const hasMercadoPagoAccessToken = !!String((establishment as any)?.mercadopago_access_token || '').trim();
 
     const pixEnabledForThisSubscription = isSubscriptionPixEnabled(subscription);
+
+    // Regra solicitada:
+    // Se "Mostrar assinaturas toda na pagina" estiver DESATIVADO, priorizar o link personalizado (custom_link)
+    // nesta ocasião específica.
+    if (shouldPreferCustomLink && pixEnabledForThisSubscription && hasCustomLink) {
+      setSubscriptionPixInitialFlow('default');
+      setSelectedSubscriptionForPix(subscription);
+      setShowSubscriptionPixModal(true);
+      setShowSubscriptionsDropdown(false);
+      return;
+    }
 
     // Se Mercado Pago estiver ativado e conectado, usar Mercado Pago
     if (pixEnabledForThisSubscription && isMercadoPagoSubscriptionPixEnabled && hasMercadoPagoAccessToken) {

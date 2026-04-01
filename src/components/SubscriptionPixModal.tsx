@@ -256,6 +256,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     hasMercadoPago || (paymentProvider !== 'mercadopago' && Boolean(String(recipientId || '').trim()));
   const canPix = Boolean(allowedPix) && canPixInfra;
   const canCard = Boolean(allowedCard) && (hasMercadoPago || Boolean(creditCardLink));
+  const canExternalLinkPayment = Boolean(externalLink) && !hasMercadoPago;
 
   // Quando abrir a área do crédito, descer automaticamente
   useEffect(() => {
@@ -1420,15 +1421,16 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                {/* Se tiver link externo (custom_link) e NÃO estiver usando Mercado Pago, mostrar o fluxo do link */}
-                {canPix && externalLink && !hasMercadoPago ? (
+                {/* Se tiver link externo (custom_link) e NÃO estiver usando Mercado Pago, mostrar o fluxo do link
+                    mesmo quando PIX/cartão interno estiver desativado. */}
+                {canExternalLinkPayment ? (
                   <button
                     type="button"
                     onClick={() => setShowExternalInstructions(true)}
                     disabled={isProcessing}
                     className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    Pagar assinatura
+                    Efetuar pagamento
                   </button>
                 ) : canPix ? (
                   <button
@@ -1504,7 +1506,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                 ) : null}
               </div>
 
-              {!canPix && !canCard && (
+              {!canPix && !canCard && !canExternalLinkPayment && (
                 <div className="mt-4 rounded-lg border border-rose-500/40 bg-rose-500/10 p-3">
                   <p className="text-sm text-rose-100 font-semibold">
                     Esta assinatura está sem forma de pagamento ativa no momento.
@@ -1515,7 +1517,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                 </div>
               )}
 
-              {showExternalInstructions && externalLink && !hasMercadoPago ? (
+              {showExternalInstructions && canExternalLinkPayment ? (
                 <div ref={externalSectionRef} className="mt-4 space-y-3 border-t border-gray-800 pt-4">
                   <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4">
                     <p className="text-sm text-yellow-200 font-extrabold">

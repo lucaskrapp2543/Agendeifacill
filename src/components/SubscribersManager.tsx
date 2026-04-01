@@ -1701,7 +1701,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     try {
       const sub = subscriptions.find((s: any) => String(s.id) === String((selectedClientForAttendance as any)?.subscription_id));
       const divideEnabled = Boolean((sub as any)?.divide_total_enabled);
-      if (divideEnabled && !attendanceValue) {
+      if (!attendanceValue) {
         toast.error('Informe o valor repassado ao profissional para adicionar o atendimento.');
         setIsSavingAttendance(false);
         return;
@@ -1710,12 +1710,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       const saleData = await resolveSaleCommissionMultiplier(String((selectedClientForAttendance as any)?.id || ''), subscriptionValue);
       const hasSaleDiscount = saleData.hasSaleDiscount;
       const salePercent = saleData.salePercent;
-      // Compatibilidade de fluxo:
-      // sem "Dividir valor total", o atendimento conta consumo da assinatura,
-      // mas não lança repasse financeiro automático.
-      let repassValueToSave = divideEnabled
-        ? Math.round(attendanceValue * saleData.multiplier * 100) / 100
-        : 0;
+      // Regra:
+      // - sem "Dividir valor total": lança repasse normal informado.
+      // - com divisão ativa: divide o repasse pelo total de atendimentos.
+      let repassValueToSave = Math.round(attendanceValue * saleData.multiplier * 100) / 100;
 
       // ✅ "Dividir valor total" (configurado NA ASSINATURA)
       // A comissão de venda já foi aplicada no multiplicador. Se dividir estiver ligado,
@@ -5331,9 +5329,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           const subscription = subscriptions.find(sub => sub.id === cs.subscription_id);
                           const divideEnabled = Boolean((subscription as any)?.divide_total_enabled);
                           const fixedCommission = subscription?.fixed_commission_value;
-                          // Sem divisão, atendimento é apenas de consumo (repasso fica zerado)
+                          // Sem divisão, usa o repasse normal configurado na assinatura
                           setAttendanceValue(
-                            divideEnabled && fixedCommission && fixedCommission > 0
+                            fixedCommission && fixedCommission > 0
                               ? fixedCommission
                               : 0
                           );
