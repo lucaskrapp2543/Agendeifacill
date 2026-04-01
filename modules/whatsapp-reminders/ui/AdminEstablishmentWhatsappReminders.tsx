@@ -49,6 +49,7 @@ type FailedLogRow = {
  */
 export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) {
   const META_PHONE_ID_CACHE_KEY = 'agendeifacil_meta_phone_number_id';
+  const META_TOKEN_MASK_CACHE_PREFIX = 'agendeifacil_meta_token_mask_v1_';
   const [loading, setLoading] = useState(false);
   const [instance, setInstance] = useState<InstanceRow | null>(null);
   const [settings, setSettings] = useState<SettingsRow | null>(null);
@@ -84,6 +85,7 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
   const [remindBeforeMinutes, setRemindBeforeMinutes] = useState(60);
   const [messageTemplate, setMessageTemplate] = useState<string>('');
   const [apiKeyEncrypted, setApiKeyEncrypted] = useState('');
+  const [apiKeyEncryptedMaskedHint, setApiKeyEncryptedMaskedHint] = useState('');
   const [metrics, setMetrics] = useState<ReminderMetrics>({
     monthLabel: '',
     total: 0,
@@ -107,6 +109,37 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
     if (!v) return;
     try {
       window.localStorage.setItem(META_PHONE_ID_CACHE_KEY, v);
+    } catch {
+      // ignore
+    }
+  };
+
+  const getMaskedTokenCacheKey = () => `${META_TOKEN_MASK_CACHE_PREFIX}${String(establishmentId || '').trim()}`;
+
+  const maskCiphertextPreview = (ciphertextB64: string) => {
+    const normalized = String(ciphertextB64 || '').replace(/\s+/g, '').trim();
+    if (!normalized) return '';
+    const start = normalized.slice(0, 8);
+    const end = normalized.slice(-6);
+    return `${start}...${end} (${normalized.length} chars)`;
+  };
+
+  const readCachedMaskedToken = (): string => {
+    const key = getMaskedTokenCacheKey();
+    if (!key) return '';
+    try {
+      return String(window.localStorage.getItem(key) || '').trim();
+    } catch {
+      return '';
+    }
+  };
+
+  const writeCachedMaskedToken = (masked: string) => {
+    const key = getMaskedTokenCacheKey();
+    const value = String(masked || '').trim();
+    if (!key || !value) return;
+    try {
+      window.localStorage.setItem(key, value);
     } catch {
       // ignore
     }
@@ -231,6 +264,7 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
       setEnabled(Boolean((cfg as any)?.enabled ?? false));
       setRemindBeforeMinutes(Number((cfg as any)?.remind_before_minutes ?? 60));
       setMessageTemplate(String((cfg as any)?.message_template || '').trim() || templatePadrao);
+      setApiKeyEncryptedMaskedHint(readCachedMaskedToken());
 
       if (currentPhoneNumber && isLikelyMetaPhoneNumberId(currentPhoneNumber)) {
         writeCachedMetaPhoneId(currentPhoneNumber);
@@ -328,6 +362,11 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
       }
 
       toast.success('Configuração de WhatsApp salva');
+      const masked = apiKeyEncrypted.trim() ? maskCiphertextPreview(apiKeyEncrypted) : '';
+      if (masked) {
+        setApiKeyEncryptedMaskedHint(masked);
+        writeCachedMaskedToken(masked);
+      }
       setApiKeyEncrypted('');
       await load();
     } catch (e: any) {
@@ -484,8 +523,13 @@ export function AdminEstablishmentWhatsappReminders({ establishmentId }: Props) 
             placeholder="(cole aqui o ciphertext gerado pelo encryptApiKey.ts)"
             disabled={loading}
           />
+          {apiKeyEncryptedMaskedHint ? (
+            <div className="mt-1 text-xs text-emerald-300">
+              Chave salva neste navegador (mascarada): <span className="font-mono">{apiKeyEncryptedMaskedHint}</span>
+            </div>
+          ) : null}
           <div className="mt-1 text-xs text-gray-400" style={{ color: '#9ca3af' }}>
-            Por segurança, após salvar este campo é limpo e a chave não é exibida novamente. Isso não significa que “não salvou”.
+            Por segurança, após salvar o campo continua limpo. O resumo mascarado acima confirma que voce salvou.
           </div>
         </div>
       </div>

@@ -1644,35 +1644,123 @@ export default function ReservarCliente({
         return true;
       });
 
-      const askBlockedOverrideConfirmation = () =>
-        window.confirm(
-          'Esse horário está bloqueado, deseja agendar mesmo assim?\n\n' +
-          `Data: ${selectedDate}\nHorário: ${selectedTime}`
-        );
-
-      // Regra solicitada:
-      // No agendamento interno (Reservar Cliente), se for HOJE e o horário estiver bloqueado,
-      // perguntar se deseja agendar mesmo assim.
-      const todayDateKey = format(new Date(), 'yyyy-MM-dd');
-      const isTodayReservation = selectedDate === todayDateKey;
-      let allowBlockedOverride = false;
-      if (isTodayReservation) {
-        const blockedByDate = ((selectedProfessional as any)?.blocked_hours || {})[selectedDate] || [];
+      const isBlockedConflictForDate = (dateStr: string) => {
+        const blockedByDate = ((selectedProfessional as any)?.blocked_hours || {})[dateStr] || [];
         const blockedTimes = Array.isArray(blockedByDate) ? blockedByDate : [];
-        const hasBlockedConflict = blockedTimes.some((blocked: string) => {
+        return blockedTimes.some((blocked: string) => {
           const blockedStart = parseTimeToMinutes(String(blocked || ''));
           const blockedDuration = 15; // compatível com trigger no banco
           return hasOverlap(novoInicioMin, totalDuration, blockedStart, blockedDuration);
         });
+      };
 
-        if (hasBlockedConflict) {
-          const shouldProceed = askBlockedOverrideConfirmation();
-          if (!shouldProceed) {
-            setLoading(false);
-            return;
-          }
-          allowBlockedOverride = true;
+      const datesWithBlockedConflict = datasSemConflito.filter((dateStr) => isBlockedConflictForDate(dateStr));
+      const askUnlockBlockedConfirmation = (dates: string[]) =>
+        window.confirm(
+          'Esse horário está bloqueado para uma ou mais datas selecionadas.\n' +
+          'Deseja DESBLOQUEAR esse horário nessas datas e agendar?\n\n' +
+          `Horário: ${selectedTime}\n` +
+          `Datas com bloqueio: ${dates.slice(0, 8).join(', ')}${dates.length > 8 ? ` (+${dates.length - 8})` : ''}`
+        );
+
+      const unlockBlockedHoursForDates = async (datesToUnlock: string[]): Promise<boolean> => {
+        const uniqueDates = Array.from(new Set((datesToUnlock || []).filter(Boolean)));
+        if (uniqueDates.length === 0) return true;
+
+        const { data: establishmentRow, error: establishmentError } = await supabase
+          .from('establishments')
+          .select('professionals')
+          .eq('id', establishmentId)
+          .single();
+        if (establishmentError) {
+          alert('Erro ao carregar profissionais para desbloquear horário.');
+          return false;
         }
+
+        const dbProfessionals = Array.isArray((establishmentRow as any)?.professionals)
+          ? ([...(establishmentRow as any).professionals] as any[])
+          : [];
+        if (dbProfessionals.length === 0) return true;
+
+        const selectedProfessionalIdNormDb = normalizeText(selectedProfessional?.id);
+        const selectedProfessionalNameNormDb = normalizeText(selectedProfessional?.name);
+        const targetIdx = dbProfessionals.findIndex((p: any) => {
+          const pid = normalizeText(p?.id);
+          const pname = normalizeText(p?.name);
+          return (
+            (selectedProfessionalIdNormDb.length > 0 && pid === selectedProfessionalIdNormDb) ||
+            (selectedProfessionalNameNormDb.length > 0 && pname === selectedProfessionalNameNormDb)
+          );
+        });
+        if (targetIdx < 0) return true;
+
+        const targetProfessional = { ...(dbProfessionals[targetIdx] || {}) } as any;
+        const blockedMapRaw = targetProfessional?.blocked_hours;
+        const blockedMap: Record<string, string[]> =
+          blockedMapRaw && typeof blockedMapRaw === 'object' && !Array.isArray(blockedMapRaw)
+            ? { ...blockedMapRaw }
+            : {};
+
+        let changed = false;
+        uniqueDates.forEach((dateKey) => {
+          const dayBlockedRaw = blockedMap[dateKey];
+          const dayBlocked = Array.isArray(dayBlockedRaw) ? dayBlockedRaw : [];
+          if (dayBlocked.length === 0) return;
+
+          const remaining = dayBlocked.filter((blocked: string) => {
+            const blockedStart = parseTimeToMinutes(normalizeTimeHHmm(String(blocked || '')));
+            const blockedDuration = 15;
+            const isConflict = hasOverlap(novoInicioMin, totalDuration, blockedStart, blockedDuration);
+            return !isConflict;
+          });
+
+          if (remaining.length !== dayBlocked.length) {
+            changed = true;
+            if (remaining.length > 0) blockedMap[dateKey] = remaining;
+            else delete blockedMap[dateKey];
+          }
+        });
+
+        if (!changed) return true;
+
+        targetProfessional.blocked_hours = blockedMap;
+        const nextProfessionals = [...dbProfessionals];
+        nextProfessionals[targetIdx] = targetProfessional;
+
+        const { error: updateError } = await supabase
+          .from('establishments')
+          .update({ professionals: nextProfessionals })
+          .eq('id', establishmentId);
+        if (updateError) {
+          alert('Erro ao salvar desbloqueio de horário.');
+          return false;
+        }
+
+        setProfessionals(nextProfessionals as any);
+        setSelectedProfessional((prev) => {
+          if (!prev) return prev;
+          const updated = nextProfessionals[targetIdx];
+          return updated ? ({ ...prev, ...updated } as any) : prev;
+        });
+        return true;
+      };
+
+      // Regra solicitada:
+      // No agendamento interno (Reservar Cliente), se o horário estiver bloqueado em qualquer data selecionada,
+      // perguntar se deseja DESBLOQUEAR nas datas selecionadas e agendar.
+      let didUnlockBlockedHours = false;
+      if (datesWithBlockedConflict.length > 0) {
+        const shouldUnlock = askUnlockBlockedConfirmation(datesWithBlockedConflict);
+        if (!shouldUnlock) {
+          setLoading(false);
+          return;
+        }
+        const unlocked = await unlockBlockedHoursForDates(datesWithBlockedConflict);
+        if (!unlocked) {
+          setLoading(false);
+          return;
+        }
+        didUnlockBlockedHours = true;
       }
 
       // Barbeiro cria a reserva: client_id tem que ser um id que existe em auth.users (NOT NULL + FK).
@@ -1695,8 +1783,9 @@ export default function ReservarCliente({
           is_avulso: isAvulso,
           is_subscriber: isSubscriber
         };
-        // Só permitir bypass no contexto interno e no dia atual.
-        if (allowBlockedOverride && dateStr === todayDateKey) {
+        // Segurança adicional: quando o dono confirmou desbloqueio no fluxo interno,
+        // também envia override para não falhar por divergência de bloqueio legado.
+        if (didUnlockBlockedHours) {
           payload.allow_blocked_override = true;
         }
         return payload;
@@ -1718,27 +1807,86 @@ export default function ReservarCliente({
         return errorCode === 'P0001' && errorMessage.includes('bloqueado para este profissional');
       };
 
+      const isOverlapByTriggerError = (err: any) => {
+        const errorCode = String(err?.code ?? '').trim();
+        const errorMessage = String(err?.message ?? '').toLowerCase();
+        return (
+          errorCode === 'P0001' &&
+          (
+            errorMessage.includes('conflito de horário') ||
+            errorMessage.includes('conflito de horario') ||
+            errorMessage.includes('já está reservado') ||
+            errorMessage.includes('ja esta reservado') ||
+            errorMessage.includes('já existe agendamento') ||
+            errorMessage.includes('ja existe agendamento')
+          )
+        );
+      };
+
       let inserted = insertedData;
       let insertError = initialInsertError;
+      let skippedByDbConflict = 0;
 
       // Fallback de compatibilidade:
-      // Se o frontend não detectou bloqueio local, mas o banco bloqueou (P0001),
-      // oferece override no contexto interno de HOJE e tenta novamente.
-      if (insertError && isTodayReservation && !allowBlockedOverride && isBlockedByTriggerError(insertError)) {
-        const shouldOverrideAfterDbError = askBlockedOverrideConfirmation();
-        if (shouldOverrideAfterDbError) {
+      // Se o banco bloquear (P0001), sempre faz uma segunda tentativa com override forçado.
+      if (insertError && isBlockedByTriggerError(insertError)) {
+        let unlockedAfterDbError = true;
+        if (!didUnlockBlockedHours) {
+          const shouldUnlockAfterDbError = askUnlockBlockedConfirmation(datasSemConflito);
+          if (!shouldUnlockAfterDbError) {
+            unlockedAfterDbError = false;
+          } else {
+            unlockedAfterDbError = await unlockBlockedHoursForDates(datasSemConflito);
+          }
+        }
+
+        if (unlockedAfterDbError) {
           const retryPayloads = payloads.map((payload) => ({
             ...payload,
-            allow_blocked_override: payload.appointment_date === todayDateKey,
+            allow_blocked_override: true,
           }));
-
           const { data: retryInserted, error: retryError } = await supabase
             .from('appointments')
             .insert(retryPayloads)
             .select('id');
-
           inserted = retryInserted;
           insertError = retryError;
+        }
+      }
+
+      // Fallback robusto para lote anual:
+      // se 1 data conflitar, não perde o lote inteiro; grava as demais.
+      if (insertError && payloads.length > 1 && isOverlapByTriggerError(insertError)) {
+        const insertedRows: Array<{ id: string }> = [];
+        let fatalError: any = null;
+
+        for (const payload of payloads) {
+          const { data: rowInserted, error: rowError } = await supabase
+            .from('appointments')
+            .insert(payload)
+            .select('id');
+
+          if (!rowError) {
+            if (Array.isArray(rowInserted)) {
+              insertedRows.push(...(rowInserted as Array<{ id: string }>));
+            }
+            continue;
+          }
+
+          if (isOverlapByTriggerError(rowError)) {
+            skippedByDbConflict += 1;
+            continue;
+          }
+
+          fatalError = rowError;
+          break;
+        }
+
+        if (!fatalError) {
+          inserted = insertedRows;
+          insertError = null;
+        } else {
+          insertError = fatalError;
         }
       }
 
@@ -1763,13 +1911,13 @@ export default function ReservarCliente({
       }));
 
       const createdCount = Array.isArray(inserted) ? inserted.length : 1;
-      const skippedCount = datasMensais.length - datasSemConflito.length;
+      const skippedCount = (datasMensais.length - datasSemConflito.length) + skippedByDbConflict;
       onAppointmentCreated?.({
         isAvulso: Boolean(isAvulso),
         createdCount,
       });
       const msg = reservarMensal
-        ? `Reservas criadas: ${createdCount}.\n${skippedCount > 0 ? `Ignoradas por conflito: ${skippedCount}.` : ''}`
+        ? `Reservas criadas: ${createdCount}.\n${skippedCount > 0 ? `Ignoradas por conflito (já havia cliente agendado): ${skippedCount}.` : ''}`
         : 'Reserva criada com sucesso!';
       alert(msg);
       onClose();
@@ -1783,6 +1931,18 @@ export default function ReservarCliente({
         'Erro ao criar reserva';
       const details = String(err?.details || '').trim();
       const hint = String(err?.hint || '').trim();
+      const isBlockedByTriggerNow =
+        code === 'P0001' && msg.toLowerCase().includes('bloqueado para este profissional');
+      const isOverlapByTriggerNow =
+        code === 'P0001' &&
+        (
+          msg.toLowerCase().includes('conflito de horário') ||
+          msg.toLowerCase().includes('conflito de horario') ||
+          msg.toLowerCase().includes('já está reservado') ||
+          msg.toLowerCase().includes('ja esta reservado') ||
+          msg.toLowerCase().includes('já existe agendamento') ||
+          msg.toLowerCase().includes('ja existe agendamento')
+        );
 
       // 23503 = foreign_key_violation (client_id não existe em users) — geralmente sessão expirada
       if (code === '23503' || (details && details.toLowerCase().includes('key is not present in table'))) {
@@ -1800,8 +1960,31 @@ export default function ReservarCliente({
       if (missingOverrideColumn) {
         setLoading(false);
         alert(
-          'Seu banco ainda não recebeu a atualização para permitir "agendar por cima do bloqueio" no dia atual.\n\n' +
+          'Seu banco ainda não recebeu a atualização para permitir "agendar por cima do bloqueio" no Reservar Cliente.\n\n' +
           'Aplique a migration do projeto e tente novamente.'
+        );
+        return;
+      }
+
+      // Se ainda vier P0001 após confirmação de override, avisar sem acusar
+      // "regra antiga" de forma incorreta.
+      if (isBlockedByTriggerNow) {
+        setLoading(false);
+        alert(
+          'O banco ainda bloqueou este horário.\n\n' +
+          'Se você já aplicou a migration de override interno, recarregue a página e tente de novo.\n' +
+          'Se persistir, pode haver outra regra/trilha de validação ativa no banco.'
+        );
+        return;
+      }
+
+      if (isOverlapByTriggerNow) {
+        setLoading(false);
+        alert(
+          reservarMensal
+            ? 'Conflito de horário: em uma ou mais datas selecionadas já existe cliente agendado para este profissional nesse horário.\n\n' +
+              'Escolha outro horário ou mantenha este horário e aceite que algumas datas sejam ignoradas.'
+            : 'Conflito de horário: já existe cliente agendado para este profissional nesse horário.\n\nEscolha outro horário.'
         );
         return;
       }

@@ -66,6 +66,15 @@ interface AdminTopRankingRow {
   hiddenFromPublicTop5: boolean;
 }
 
+interface MetaErrorSummaryRow {
+  establishmentId: string;
+  establishmentName: string;
+  establishmentCode: string;
+  totalErrors: number;
+  lastErrorAt: string | null;
+  lastCause: string;
+}
+
 // (removido) AdminCostRow
 
 const AdminDashboard = () => {
@@ -93,6 +102,9 @@ const AdminDashboard = () => {
   const [showClientesPagosHistoryModal, setShowClientesPagosHistoryModal] = useState(false);
   const [showClientesNovosHistoryModal, setShowClientesNovosHistoryModal] = useState(false);
   const [showTop5DetailsModal, setShowTop5DetailsModal] = useState(false);
+  const [showMetaErrorsModal, setShowMetaErrorsModal] = useState(false);
+  const [isLoadingMetaErrors, setIsLoadingMetaErrors] = useState(false);
+  const [metaErrorRows, setMetaErrorRows] = useState<MetaErrorSummaryRow[]>([]);
   const [isLoadingTop5Details, setIsLoadingTop5Details] = useState(false);
   const [top5DetailsMonth, setTop5DetailsMonth] = useState<Date>(new Date());
   const [top5DetailsRows, setTop5DetailsRows] = useState<AdminTopRankingRow[]>([]);
@@ -2451,6 +2463,165 @@ const AdminDashboard = () => {
     return Number(normalized);
   };
 
+  const buildMetaErrorReason = (row: any): string => {
+    const pretty = (value: unknown) => String(value || '').replace(/\s+/g, ' ').trim();
+    const rawLastError = pretty(row?.last_error);
+    const rawProviderResponse = pretty(row?.provider_response);
+    const rawCombined = pretty(rawLastError || rawProviderResponse || '');
+
+    const codeMatch = rawCombined.match(/(?:^|[\s|,{])code\s*[:=]\s*(\d{3,6})/i);
+    const titleMatch = rawCombined.match(/(?:^|[\s|,{])title\s*[:=]\s*([^|,}]{3,120})/i);
+    const detailsMatch = rawCombined.match(/(?:^|[\s|,{])details?\s*[:=]\s*([^|}]{3,200})/i);
+
+    let code = codeMatch?.[1] || '';
+    let title = titleMatch?.[1] || '';
+    let details = detailsMatch?.[1] || '';
+    let message = '';
+
+    const tryParseJson = (input: string): any | null => {
+      if (!input) return null;
+      const first = input[0];
+      if (first !== '{' && first !== '[') return null;
+      try {
+        return JSON.parse(input);
+      } catch {
+        return null;
+      }
+    };
+
+    const parsedLastError = tryParseJson(rawLastError);
+    const parsedProviderResponse = tryParseJson(rawProviderResponse);
+    const parsed = parsedLastError || parsedProviderResponse;
+
+    if (parsed && typeof parsed === 'object') {
+      const err = (parsed as any)?.error || parsed;
+      code = code || pretty(err?.code || err?.error_code);
+      title = title || pretty(err?.title || err?.error_user_title || err?.type);
+      details = details || pretty(err?.details || err?.error_user_msg || err?.error_data?.details);
+      message = pretty(
+        err?.message ||
+        (parsed as any)?.message ||
+        (parsed as any)?.response?.message ||
+        (parsed as any)?.response?.error ||
+        (parsed as any)?.response?.details
+      );
+    }
+
+    if (!code && !title && !details && !message) {
+      return rawCombined ? rawCombined.slice(0, 220) : 'Sem detalhe do motivo.';
+    }
+
+    const knownCauseByCode: Record<string, string> = {
+      '131042': 'Conta WhatsApp Business com pendencia de pagamento/eligibilidade.',
+      '131020': 'Numero do destinatario indisponivel, invalido ou bloqueado.',
+      '130472': 'Template nao permitido para este contexto/conteudo.',
+      '401': 'Credenciais/token invalidos para envio.',
+    };
+
+    const known = code ? knownCauseByCode[code] : '';
+    const parts = [
+      code ? `code=${code}` : '',
+      title ? `titulo=${title}` : '',
+      details ? `detalhe=${details}` : '',
+      message ? `mensagem=${message}` : '',
+      known ? `motivo=${known}` : '',
+    ].filter(Boolean);
+
+    return pretty(parts.join(' | ')).slice(0, 260);
+  };
+
+  const loadMetaErrorsToday = async () => {
+    setIsLoadingMetaErrors(true);
+    try {
+      const startTodayIso = startOfDay(new Date()).toISOString();
+      const selectCandidates = [
+        'establishment_id,created_at,status,meta_status,last_error,provider_response,meta_message_id',
+        'establishment_id,created_at,status,meta_status,provider_response,meta_message_id',
+        'establishment_id,created_at,status,meta_status,provider_response',
+        'establishment_id,created_at,status,meta_status',
+        'establishment_id,created_at,status',
+      ];
+
+      let rows: any[] = [];
+      let loaded = false;
+      let lastError: any = null;
+
+      for (const selectCols of selectCandidates) {
+        const { data, error } = await supabase
+          .from('whatsapp_reminder_logs')
+          .select(selectCols)
+          .gte('created_at', startTodayIso)
+          .or('meta_status.eq.failed,status.eq.failed')
+          .order('created_at', { ascending: false })
+          .limit(5000);
+
+        if (!error) {
+          rows = (data as any[]) || [];
+          loaded = true;
+          break;
+        }
+        lastError = error;
+      }
+
+      if (!loaded) throw lastError || new Error('Falha ao carregar erros Meta.');
+
+      const establishmentById = new Map<string, Establishment>();
+      [...establishments, ...deletedEstablishments].forEach((est) => {
+        const id = String(est?.id || '').trim();
+        if (!id || establishmentById.has(id)) return;
+        establishmentById.set(id, est);
+      });
+
+      const aggregate = new Map<string, MetaErrorSummaryRow>();
+      rows.forEach((row: any) => {
+        const establishmentId = String(row?.establishment_id || '').trim();
+        if (!establishmentId) return;
+
+        const status = String(row?.status || '').toLowerCase();
+        const metaStatus = String(row?.meta_status || '').toLowerCase();
+        if (status !== 'failed' && metaStatus !== 'failed') return;
+
+        const est = establishmentById.get(establishmentId);
+        const createdAt = String(row?.created_at || '').trim() || null;
+        const cause = buildMetaErrorReason(row);
+
+        const current = aggregate.get(establishmentId);
+        if (!current) {
+          aggregate.set(establishmentId, {
+            establishmentId,
+            establishmentName: String(est?.name || 'Estabelecimento não encontrado'),
+            establishmentCode: String(est?.code || '-'),
+            totalErrors: 1,
+            lastErrorAt: createdAt,
+            lastCause: cause || 'Sem detalhe',
+          });
+          return;
+        }
+
+        current.totalErrors += 1;
+        if (createdAt && (!current.lastErrorAt || new Date(createdAt).getTime() > new Date(current.lastErrorAt).getTime())) {
+          current.lastErrorAt = createdAt;
+          current.lastCause = cause || current.lastCause;
+        }
+      });
+
+      const sorted = Array.from(aggregate.values()).sort((a, b) => {
+        const ta = a.lastErrorAt ? new Date(a.lastErrorAt).getTime() : 0;
+        const tb = b.lastErrorAt ? new Date(b.lastErrorAt).getTime() : 0;
+        if (tb !== ta) return tb - ta; // Mais recente primeiro
+        return b.totalErrors - a.totalErrors; // Desempate por quantidade
+      });
+
+      setMetaErrorRows(sorted);
+    } catch (error) {
+      console.error('Erro ao carregar Erros Meta de hoje:', error);
+      toast.error('Erro ao carregar Erros Meta de hoje.');
+      setMetaErrorRows([]);
+    } finally {
+      setIsLoadingMetaErrors(false);
+    }
+  };
+
   const savePaymentLink = async (establishment: Establishment) => {
     const raw = (paymentLinkInputByEstablishment[establishment.id] ?? '').trim();
     const nextLink = raw.length ? raw : null;
@@ -3873,6 +4044,17 @@ const AdminDashboard = () => {
                         title="Próximo mês"
                       >
                         <ChevronRight className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowMetaErrorsModal(true);
+                          void loadMetaErrorsToday();
+                        }}
+                        className="ml-2 px-2 py-1 rounded border border-red-400/60 bg-red-500/15 text-red-800 hover:bg-red-500/25 text-[11px] font-bold"
+                        title="Ver estabelecimentos com falhas Meta de hoje"
+                      >
+                        Erros Meta
                       </button>
                     </div>
                   </div>
@@ -5722,6 +5904,71 @@ const AdminDashboard = () => {
                       <div className="text-right shrink-0">
                         <p className="text-sm font-bold text-emerald-700">{row.completedAppointments}</p>
                         <p className="text-[11px] text-gray-500">concluídos no mês</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMetaErrorsModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-4xl rounded-xl shadow-2xl border border-gray-200 max-h-[90vh] overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Erros Meta</h3>
+                <p className="text-xs text-gray-600">Somente erros de hoje (00:00 até agora), agrupados por estabelecimento.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void loadMetaErrorsToday()}
+                  className="px-3 py-1.5 rounded-lg text-sm border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                >
+                  Atualizar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowMetaErrorsModal(false)}
+                  className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                  title="Fechar"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 sm:p-6 overflow-auto max-h-[72vh]">
+              {isLoadingMetaErrors ? (
+                <div className="py-10 text-center">
+                  <RefreshCw className="h-7 w-7 text-red-600 animate-spin mx-auto mb-3" />
+                  <p className="text-sm text-gray-600">Carregando erros Meta...</p>
+                </div>
+              ) : metaErrorRows.length === 0 ? (
+                <div className="py-10 text-center">
+                  <p className="text-sm text-gray-600">Nenhum erro Meta encontrado hoje.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {metaErrorRows.map((row) => (
+                    <div key={row.establishmentId} className="rounded-lg border border-red-200 bg-red-50/30 px-3 py-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">
+                            {row.establishmentName} <span className="text-gray-500">({row.establishmentCode})</span>
+                          </p>
+                          <p className="text-xs text-gray-700 mt-1 break-words">{row.lastCause}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-bold text-red-700">{row.totalErrors}</p>
+                          <p className="text-[11px] text-gray-500">erro(s) hoje</p>
+                          <p className="text-[11px] text-gray-500 mt-1">
+                            {row.lastErrorAt ? new Date(row.lastErrorAt).toLocaleString('pt-BR') : '-'}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   ))}

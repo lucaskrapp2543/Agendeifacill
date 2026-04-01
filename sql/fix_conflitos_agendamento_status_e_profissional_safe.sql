@@ -1,7 +1,7 @@
 -- Correção segura de conflitos de agendamento:
 -- 1) Não revalidar bloqueio/conflito quando o UPDATE altera apenas status/campos administrativos.
 -- 2) Comparar profissional por referência canônica (id OU nome), evitando divergência entre fluxos interno/booking.
--- 3) Manter compatibilidade com regra de override de bloqueio no dia atual.
+-- 3) Manter compatibilidade com regra de override de bloqueio no agendamento interno.
 --
 -- Seguro para rodar mais de uma vez.
 
@@ -96,9 +96,8 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Override de bloqueio permitido apenas com flag explícita no dia atual.
-  can_override_blocked := COALESCE(NEW.allow_blocked_override, false) = true
-    AND NEW.appointment_date = CURRENT_DATE;
+  -- Override de bloqueio permitido apenas com flag explícita no agendamento interno.
+  can_override_blocked := COALESCE(NEW.allow_blocked_override, false) = true;
 
   IF NOT can_override_blocked AND public.is_appointment_time_blocked(
     NEW.establishment_id,

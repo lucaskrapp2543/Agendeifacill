@@ -207,7 +207,15 @@ function computeNextAttemptAt(attemptCount: number): string | null {
 
 function isMetaProvider(provider: string): boolean {
   const value = String(provider || '').trim().toLowerCase();
-  return value === 'meta' || value === 'meta_cloud' || value === 'meta_cloud_api' || value === 'cloud_api';
+  return (
+    value === 'meta' ||
+    value === 'meta_cloud' ||
+    value === 'meta_cloud_api' ||
+    value === 'cloud_api' ||
+    value.includes('meta') ||
+    value.includes('cloud api') ||
+    value.includes('cloud_api')
+  );
 }
 
 function extractMetaErrorCode(payload: unknown): string | null {
@@ -237,12 +245,58 @@ function hasMeta130472(payload: unknown): boolean {
   return extractMetaErrorCode(payload) === '130472';
 }
 
+function isRetryableMetaCode(code: string | null): boolean {
+  const c = String(code || '').trim();
+  if (!c) return false;
+  // Transitórios/comuns de infra/limite. Evitar retry para erros definitivos.
+  const retryable = new Set(['1', '2', '4', '17', '32', '613', '80007', '131016', '131021']);
+  return retryable.has(c);
+}
+
+function isNonRetryableMetaCode(code: string | null): boolean {
+  const c = String(code || '').trim();
+  if (!c) return false;
+  const nonRetryable = new Set(['401', '130472', '131020', '131042']);
+  return nonRetryable.has(c);
+}
+
+function isRetryableHttpStatus(status: number): boolean {
+  if (!Number.isFinite(status) || status <= 0) return false;
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+}
+
+function isRetryableException(error: unknown): boolean {
+  const txt = String(error || '').toLowerCase();
+  if (!txt) return false;
+  return (
+    txt.includes('timeout') ||
+    txt.includes('timed out') ||
+    txt.includes('network') ||
+    txt.includes('fetch failed') ||
+    txt.includes('econnreset') ||
+    txt.includes('ecconnreset') ||
+    txt.includes('etimedout') ||
+    txt.includes('enotfound') ||
+    txt.includes('socket hang up')
+  );
+}
+
+function isRetryableSendFailure(result: { status?: number; data?: unknown; errorText?: unknown }): boolean {
+  const code = extractMetaErrorCode(result?.data) || extractMetaErrorCode(result?.errorText);
+  if (isNonRetryableMetaCode(code)) return false;
+  if (isRetryableMetaCode(code)) return true;
+  if (isRetryableHttpStatus(Number(result?.status || 0))) return true;
+  return false;
+}
+
 export async function runSendWhatsappRemindersOnce() {
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const wasenderBaseUrl = process.env.WASENDER_BASE_URL;
 
   const delayMs = Number(process.env.WHATSAPP_REMINDERS_DELAY_MS ?? 650);
+  const maxSendAttempts = Math.max(1, Number(process.env.WHATSAPP_REMINDERS_MAX_SEND_ATTEMPTS ?? 2)); // inclui primeira tentativa
+  const retryDelayMs = Math.max(250, Number(process.env.WHATSAPP_REMINDERS_RETRY_DELAY_MS ?? 1200));
   const tz = process.env.WHATSAPP_REMINDERS_TIMEZONE ?? 'America/Sao_Paulo';
 
   if (!supabaseUrl || !serviceKey) {
@@ -305,56 +359,63 @@ export async function runSendWhatsappRemindersOnce() {
       let sendRes = { ok: false, status: 0, data: undefined as any, errorText: undefined as any };
       let usedTo = toCandidates[0];
       let usedFallbackTemplate = false;
+      let providerAttempts = 0;
       for (const cand of toCandidates) {
         usedTo = cand;
-        sendRes = await sendWhatsappByProvider({
-          provider: String(r.provider || 'wasender'),
-          encryptedApiKeyDecrypted: apiKey,
-          wasenderBaseUrl,
-          metaPhoneNumberId: String(r.instance_phone_number || '').trim(),
-          to: cand,
-          text: msg,
-          metaTemplate:
-            useMetaTemplate && preferredMetaTemplateName
-              ? {
-                  name: preferredMetaTemplateName,
-                  languageCode: 'pt_BR',
-                  parameters: [
-                    r.client_name || 'cliente',
-                    r.establishment_name || 'a barbearia',
-                    appointmentDateLabel,
-                    String(appointmentTimeLabel || ''),
-                    r.service_name || 'serviço',
-                    r.professional_name || 'profissional',
-                  ],
-                }
-              : undefined,
-        });
+        const sendWithResilience = async (metaTemplateNameToUse?: string) => {
+          let attempt = 0;
+          let lastRes = { ok: false, status: 0, data: undefined as any, errorText: undefined as any };
+          while (attempt < maxSendAttempts) {
+            attempt += 1;
+            providerAttempts += 1;
+            try {
+              lastRes = await sendWhatsappByProvider({
+                provider: String(r.provider || 'wasender'),
+                encryptedApiKeyDecrypted: apiKey,
+                wasenderBaseUrl,
+                metaPhoneNumberId: String(r.instance_phone_number || '').trim(),
+                to: cand,
+                text: msg,
+                metaTemplate:
+                  useMetaTemplate && metaTemplateNameToUse
+                    ? {
+                        name: metaTemplateNameToUse,
+                        languageCode: 'pt_BR',
+                        parameters: [
+                          r.client_name || 'cliente',
+                          r.establishment_name || 'a barbearia',
+                          appointmentDateLabel,
+                          String(appointmentTimeLabel || ''),
+                          r.service_name || 'serviço',
+                          r.professional_name || 'profissional',
+                        ],
+                      }
+                    : undefined,
+              });
+            } catch (sendErr) {
+              const errText = String((sendErr as any)?.message || sendErr || 'send_exception');
+              lastRes = { ok: false, status: 0, errorText: errText, data: undefined };
+              if (attempt < maxSendAttempts && isRetryableException(sendErr)) {
+                await sleep(retryDelayMs * attempt);
+                continue;
+              }
+              break;
+            }
+
+            if (lastRes.ok) break;
+            if (attempt >= maxSendAttempts || !isRetryableSendFailure(lastRes)) break;
+            await sleep(retryDelayMs * attempt);
+          }
+          return lastRes;
+        };
+
+        sendRes = await sendWithResilience(preferredMetaTemplateName);
 
         // Se a Meta devolver 130472 no template primário, tenta um template alternativo Utility.
         if (!sendRes.ok && canUseAltTemplate && !usedFallbackTemplate && preferredMetaTemplateName === metaTemplateName) {
           const failedByExperiment = hasMeta130472(sendRes.data) || hasMeta130472(sendRes.errorText);
           if (failedByExperiment) {
-            const fallbackRes = await sendWhatsappByProvider({
-              provider: String(r.provider || 'wasender'),
-              encryptedApiKeyDecrypted: apiKey,
-              wasenderBaseUrl,
-              metaPhoneNumberId: String(r.instance_phone_number || '').trim(),
-              to: cand,
-              text: msg,
-              metaTemplate: {
-                name: metaTemplateNameFallback,
-                languageCode: 'pt_BR',
-                parameters: [
-                  r.client_name || 'cliente',
-                  r.establishment_name || 'a barbearia',
-                  appointmentDateLabel,
-                  String(appointmentTimeLabel || ''),
-                  r.service_name || 'serviço',
-                  r.professional_name || 'profissional',
-                ],
-              },
-            });
+            const fallbackRes = await sendWithResilience(metaTemplateNameFallback);
             sendRes = fallbackRes;
             usedFallbackTemplate = true;
           }
@@ -365,6 +426,7 @@ export async function runSendWhatsappRemindersOnce() {
 
       const status = sendRes.ok ? 'sent' : 'failed';
       const providerResponse = JSON.stringify({
+        provider_attempts: providerAttempts,
         used_fallback_template: usedFallbackTemplate,
         preferred_template: preferredMetaTemplateName || null,
         fallback_template: usedFallbackTemplate ? metaTemplateNameFallback : null,

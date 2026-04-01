@@ -3,6 +3,9 @@
 
 BEGIN;
 
+ALTER TABLE public.appointments
+  ADD COLUMN IF NOT EXISTS allow_blocked_override boolean NOT NULL DEFAULT false;
+
 CREATE OR REPLACE FUNCTION public.is_appointment_time_blocked(
   p_establishment_id uuid,
   p_professional text,
@@ -82,6 +85,7 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
   conflicting_appointment public.appointments;
+  can_override_blocked boolean := false;
 BEGIN
   IF NEW.status IS NOT NULL AND NEW.status::text = 'cancelled' THEN
     RETURN NEW;
@@ -91,7 +95,11 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  IF public.is_appointment_time_blocked(
+  -- Override permitido apenas no agendamento interno com flag explicita.
+  -- Booking público e demais fluxos antigos continuam bloqueados normalmente.
+  can_override_blocked := COALESCE(NEW.allow_blocked_override, false) = true;
+
+  IF NOT can_override_blocked AND public.is_appointment_time_blocked(
     NEW.establishment_id,
     NEW.professional,
     NEW.appointment_date,

@@ -11,6 +11,9 @@ export type ProviderSendResult = {
 const normalizeProvider = (provider: string): string => {
   const value = String(provider || '').trim().toLowerCase();
   if (!value) return 'wasender';
+  // Compat: qualquer alias de "Meta oficial (Cloud API)" deve cair no fluxo Meta.
+  if (value.includes('meta')) return 'meta';
+  if (value.includes('cloud_api') || value.includes('cloud api')) return 'meta';
   return value;
 };
 
