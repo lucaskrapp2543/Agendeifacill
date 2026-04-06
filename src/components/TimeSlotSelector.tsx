@@ -42,6 +42,7 @@ interface TimeSlotSelectorProps {
   use60MinuteSchedule?: boolean; // Nova prop para horários de 1 em 1 hora
   closedTimeEnabled?: boolean; // Se true, mantém grade fechada (não libera fim fora do grid)
   filterPastTimes?: boolean; // Nova prop para filtrar horários passados
+  minimumAdvanceMinutes?: number; // Antecedência mínima para booking público
   selectedProfessional?: string; // Profissional selecionado
   professionalAbsences?: string[]; // Dias de ausência do profissional
   professionalBlockedHours?: string[]; // Horários bloqueados do profissional para a data selecionada
@@ -71,6 +72,7 @@ export function TimeSlotSelector({
   use60MinuteSchedule = false, // Valor padrão false (horários de 1 em 1 hora)
   closedTimeEnabled = false,
   filterPastTimes = false, // Valor padrão false (não filtrar horários passados)
+  minimumAdvanceMinutes = 0,
   selectedProfessional,
   professionalAbsences = [],
   professionalBlockedHours = [],
@@ -92,31 +94,37 @@ export function TimeSlotSelector({
     return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
   };
 
-  // Função para verificar se um horário já passou
-  const isTimeInPast = (timeString: string): boolean => {
-    if (!filterPastTimes) return false;
-
+  // Função para verificar se um horário está indisponível por tempo (passado/antecedência mínima)
+  const getTimeWindowConflictReason = (timeString: string): string | null => {
+    if (!filterPastTimes && Number(minimumAdvanceMinutes || 0) <= 0) return null;
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const selectedDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
 
-    // Se não é hoje, não filtrar
+    // Regra só se aplica para o dia atual
     if (selectedDay.getTime() !== today.getTime()) {
-      return false;
+      return null;
     }
 
-    // Se é hoje, verificar se o horário já passou
     const [hours, minutes] = timeString.split(':').map(Number);
     const slotTime = new Date(today.getTime() + hours * 60 * 60 * 1000 + minutes * 60 * 1000);
+    const minAdvance = Math.max(0, Math.floor(Number(minimumAdvanceMinutes || 0)));
 
-    const isPast = slotTime <= now;
-
-    // Log de debug
-    if (isPast) {
-      console.log(`🕒 TimeSlotSelector - Horário ${timeString} já passou (agora: ${now.toLocaleTimeString()})`);
+    if (minAdvance > 0) {
+      const minAllowedTime = new Date(now.getTime() + minAdvance * 60 * 1000);
+      if (slotTime < minAllowedTime) {
+        console.log(`🕒 TimeSlotSelector - Horário ${timeString} bloqueado por antecedência mínima (${minAdvance} min)`);
+        return 'Antecedência mínima';
+      }
+      return null;
     }
 
-    return isPast;
+    const isPast = slotTime <= now;
+    if (isPast && filterPastTimes) {
+      console.log(`🕒 TimeSlotSelector - Horário ${timeString} já passou (agora: ${now.toLocaleTimeString()})`);
+      return 'Horário já passou';
+    }
+    return null;
   };
 
   // Função para obter o dia da semana em inglês
@@ -444,10 +452,11 @@ export function TimeSlotSelector({
           conflictReason = 'Serviço ultrapassaria horário';
         }
 
-        // Verificar se o horário já passou (apenas para clientes logados)
-        if (isTimeInPast(timeString)) {
+        // Verificar regras de janela temporal (passado / antecedência mínima)
+        const timeWindowReason = getTimeWindowConflictReason(timeString);
+        if (timeWindowReason) {
           isAvailable = false;
-          conflictReason = 'Horário já passou';
+          conflictReason = timeWindowReason;
         }
 
         slots.push({
@@ -610,10 +619,11 @@ export function TimeSlotSelector({
           conflictReason = 'Serviço ultrapassaria horário';
         }
 
-        // Verificar se o horário já passou (apenas para clientes logados)
-        if (isTimeInPast(timeString)) {
+        // Verificar regras de janela temporal (passado / antecedência mínima)
+        const timeWindowReason = getTimeWindowConflictReason(timeString);
+        if (timeWindowReason) {
           isAvailable = false;
-          conflictReason = 'Horário já passou';
+          conflictReason = timeWindowReason;
         }
 
         slots.push({
@@ -677,7 +687,8 @@ export function TimeSlotSelector({
           const isIntervalTime = reason === 'Horário de Intervalo';
           const isUltrapassedTime = reason === 'Serviço ultrapassaria horário';
           const isPastTime = reason === 'Horário já passou';
-          const isDisabled = !isAvailable || isReserved || isAvulso || isBlocked || isIntervalTime || isUltrapassedTime || isPastTime;
+          const isMinAdvanceTime = reason === 'Antecedência mínima';
+          const isDisabled = !isAvailable || isReserved || isAvulso || isBlocked || isIntervalTime || isUltrapassedTime || isPastTime || isMinAdvanceTime;
           const isBlockedGroup = isDisabled && !isReserved && !isAvulso;
           const blockedLabel = isIntervalTime
             ? 'INTERVALO'
@@ -685,6 +696,8 @@ export function TimeSlotSelector({
               ? 'FORA DO HORÁRIO'
               : isPastTime
                 ? 'PASSOU'
+                : isMinAdvanceTime
+                  ? 'EM CIMA DA HORA'
                 : 'BLOQUEADO';
 
           return (
@@ -728,6 +741,9 @@ export function TimeSlotSelector({
                   <span className="text-[10px] mt-1 font-extrabold text-white/80">{blockedLabel}</span>
                 )}
                 {isPastTime && (
+                  <span className="text-[10px] mt-1 font-extrabold text-white/80">{blockedLabel}</span>
+                )}
+                {isMinAdvanceTime && (
                   <span className="text-[10px] mt-1 font-extrabold text-white/80">{blockedLabel}</span>
                 )}
               </div>

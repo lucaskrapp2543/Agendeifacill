@@ -87,6 +87,8 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
       // Filtrar despesas pelo mês selecionado
       const startDate = startOfMonth(selectedMonth);
       const endDate = endOfMonth(selectedMonth);
+      const startDay = format(startDate, 'yyyy-MM-dd');
+      const endDay = format(endDate, 'yyyy-MM-dd');
 
       console.log('💰 Carregando despesas para o mês:', format(selectedMonth, 'MMMM yyyy', { locale: ptBR }));
       console.log('📅 Período:', startDate.toISOString(), 'até', endDate.toISOString());
@@ -97,12 +99,23 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
       console.log('- startDate:', startDate.toISOString());
       console.log('- endDate:', endDate.toISOString());
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('establishment_expenses')
         .select('*')
         .eq('establishment_id', establishmentId)
-        .gte('created_at', startDate.toISOString())
-        .lte('created_at', endDate.toISOString());
+        .gte('expense_date', startDay)
+        .lte('expense_date', endDay);
+
+      if (error && String(error.message || '').toLowerCase().includes('expense_date')) {
+        const legacy = await supabase
+          .from('establishment_expenses')
+          .select('*')
+          .eq('establishment_id', establishmentId)
+          .gte('created_at', startDate.toISOString())
+          .lte('created_at', endDate.toISOString());
+        data = legacy.data as any;
+        error = legacy.error as any;
+      }
 
       if (error) {
         console.error('Erro ao carregar despesas:', error);
@@ -116,7 +129,7 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
       if (data && data.length > 0) {
         console.log('📅 Datas das despesas:');
         data.forEach((expense, index) => {
-          console.log(`  ${index + 1}. ${expense.name}: ${expense.created_at}`);
+          console.log(`  ${index + 1}. ${expense.name}: ${expense.expense_date || expense.created_at}`);
         });
       }
 

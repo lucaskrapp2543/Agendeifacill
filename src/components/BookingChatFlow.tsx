@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
 import { checkWhatsAppSubscriber as checkLegacySubscriber, checkMonthlyServiceLimit } from '../lib/supabase';
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
+import { validatePendingClientBookingLimit } from '../utils/pendingClientBookingValidation';
 import { TimeSlotSelector } from './TimeSlotSelector';
 
 type ChatStep = 'name' | 'phone' | 'subscriberChoice' | 'professional' | 'service' | 'datetime' | 'products' | 'confirm';
@@ -111,6 +112,14 @@ const buildBusinessHoursForDate = (establishment: any, selectedDate: Date) => {
   };
 };
 
+const getMinimumAdvanceMinutes = (establishment: any): number => {
+  const rawMinutes = Number((establishment as any)?.booking_min_advance_minutes ?? 0);
+  if (Number.isFinite(rawMinutes) && rawMinutes > 0) return Math.max(0, Math.floor(rawMinutes));
+  const rawHours = Number((establishment as any)?.booking_min_advance_hours ?? 0);
+  if (!Number.isFinite(rawHours) || rawHours <= 0) return 0;
+  return Math.max(0, Math.floor(rawHours * 60));
+};
+
 export function BookingChatFlow({
   establishment,
   guestClientData,
@@ -134,6 +143,8 @@ export function BookingChatFlow({
   const [selectedTime, setSelectedTime] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCheckingSubscriber, setIsCheckingSubscriber] = useState(false);
+  const [isCheckingPendingClientBooking, setIsCheckingPendingClientBooking] = useState(false);
+  const [pendingClientBookingMessage, setPendingClientBookingMessage] = useState<string | null>(null);
   const [detectedSubscriber, setDetectedSubscriber] = useState<any>(null);
   const [isSubscriberFlow, setIsSubscriberFlow] = useState(false);
   const [selectedSubscriberServiceId, setSelectedSubscriberServiceId] = useState('');
@@ -495,6 +506,7 @@ export function BookingChatFlow({
     [selectedProfessional]
   );
   const selectedServiceDuration = Math.max(1, Number(effectiveSelectedService?.duration || 30));
+  const minimumAdvanceMinutes = getMinimumAdvanceMinutes(establishment);
 
   const getAvailableSlotsCountForProfessional = (professional: any): number => {
     if (!professional) return 0;
@@ -600,6 +612,10 @@ export function BookingChatFlow({
       if (selectedDay.getTime() > today.getTime()) return false;
       const [hours, minutes] = String(timeString).split(':').map(Number);
       const slotDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), hours || 0, minutes || 0, 0);
+      if (minimumAdvanceMinutes > 0) {
+        const minAllowedDate = new Date(now.getTime() + minimumAdvanceMinutes * 60 * 1000);
+        return slotDate.getTime() < minAllowedDate.getTime();
+      }
       return slotDate.getTime() <= now.getTime();
     };
 
@@ -767,6 +783,28 @@ export function BookingChatFlow({
     }
   };
 
+  const validatePendingClientBlocking = async (phoneRaw: string) => {
+    const establishmentId = String(establishment?.id || establishment?.establishment_id || '').trim();
+    const normalizedPhone = String(phoneRaw || '').trim();
+
+    if (!establishmentId || !normalizedPhone) {
+      return { blocked: false, message: null as string | null };
+    }
+
+    const validation = await validatePendingClientBookingLimit(
+      normalizedPhone,
+      establishmentId,
+      Boolean(establishment?.limit_client_pending_booking)
+    );
+
+    return {
+      blocked: !validation.canBook,
+      message:
+        validation.message ||
+        'Voce ainda tem servico pendente nesta barbearia. Aguarde o profissional concluir o atendimento para fazer um novo agendamento.',
+    };
+  };
+
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
@@ -860,10 +898,28 @@ export function BookingChatFlow({
     if (step === 'phone') {
       const nextPhone = formatPhoneChat(String(draftInput || '').trim());
       setChatClientPhone(nextPhone);
+      setPendingClientBookingMessage(null);
       const nextName = String(chatClientName || '').trim();
       if (nextName && nextPhone && onGuestClientDataCollected) {
         onGuestClientDataCollected(nextName, nextPhone);
       }
+
+      setIsCheckingPendingClientBooking(true);
+      try {
+        const pendingValidation = await validatePendingClientBlocking(nextPhone);
+        if (pendingValidation.blocked) {
+          setPendingClientBookingMessage(pendingValidation.message);
+          toast.error(pendingValidation.message || 'Cliente com atendimento pendente nesta barbearia.');
+          setDraftInput(nextPhone);
+          setStep('phone');
+          return;
+        }
+      } catch (error) {
+        console.error('Erro ao validar pendencia no chat:', error);
+      } finally {
+        setIsCheckingPendingClientBooking(false);
+      }
+
       setIsCheckingSubscriber(true);
       const subscriber = await detectSubscriber(nextPhone);
       setIsCheckingSubscriber(false);
@@ -940,6 +996,10 @@ export function BookingChatFlow({
   const handleConfirmBooking = async () => {
     if (!chatClientName || !chatClientPhone || !selectedProfessionalId || !selectedTime) return;
     if (!computedSelection.serviceName || computedSelection.duration <= 0) return;
+    if (pendingClientBookingMessage) {
+      toast.error(pendingClientBookingMessage);
+      return;
+    }
     if (isSubscriberFlow && !isSelectedDateAllowedForSubscriber) {
       const allowedDays = subscriberAllowedWeekdays.map((day) => weekdayPtMap[day] || day).join(', ');
       toast.error(`Esse plano permite agendamento somente em: ${allowedDays}.`);
@@ -1114,6 +1174,41 @@ export function BookingChatFlow({
     return messages;
   }, [chatClientName, chatClientPhone, computedSelection.serviceName, detectedSubscriber, establishment?.name, hasBookingHighlightedProducts, invalidSubscriberDateMessage, isSubscriberFlow, selectedBookingProducts, selectedDate, selectedProfessional?.name, selectedTime, step, subscriberLimitStatus]);
 
+  useEffect(() => {
+    if (step !== 'confirm') return;
+    let cancelled = false;
+
+    const run = async () => {
+      const phoneRaw = String(chatClientPhone || '').trim();
+      if (!phoneRaw) {
+        if (!cancelled) setPendingClientBookingMessage(null);
+        return;
+      }
+
+      setIsCheckingPendingClientBooking(true);
+      try {
+        const pendingValidation = await validatePendingClientBlocking(phoneRaw);
+        if (cancelled) return;
+        if (pendingValidation.blocked) {
+          setPendingClientBookingMessage(pendingValidation.message);
+        } else {
+          setPendingClientBookingMessage(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Erro ao validar pendencia na confirmacao do chat:', error);
+        }
+      } finally {
+        if (!cancelled) setIsCheckingPendingClientBooking(false);
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, chatClientPhone, establishment?.id, establishment?.establishment_id, establishment?.limit_client_pending_booking]);
+
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const serviceIntroRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -1179,7 +1274,14 @@ export function BookingChatFlow({
                 <input
                   type={step === 'phone' ? 'tel' : 'text'}
                   value={draftInput}
-                  onChange={(e) => setDraftInput(step === 'phone' ? formatPhoneChat(e.target.value) : e.target.value)}
+                  onChange={(e) => {
+                    if (step === 'phone') {
+                      setPendingClientBookingMessage(null);
+                      setDraftInput(formatPhoneChat(e.target.value));
+                      return;
+                    }
+                    setDraftInput(e.target.value);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
@@ -1196,11 +1298,20 @@ export function BookingChatFlow({
                 <button
                   type="button"
                   onClick={() => void goNext()}
-                  disabled={!canProceedFromStep() || isCheckingSubscriber}
-                  className={`w-full px-4 py-2 rounded-lg text-sm font-semibold ${canProceedFromStep() && !isCheckingSubscriber ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-white/10 text-white/60 cursor-not-allowed'}`}
+                  disabled={!canProceedFromStep() || isCheckingSubscriber || isCheckingPendingClientBooking}
+                  className={`w-full px-4 py-2 rounded-lg text-sm font-semibold ${canProceedFromStep() && !isCheckingSubscriber && !isCheckingPendingClientBooking ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-white/10 text-white/60 cursor-not-allowed'}`}
                 >
-                  {isCheckingSubscriber ? 'Verificando assinante...' : 'Enviar'}
+                  {isCheckingPendingClientBooking
+                    ? 'Validando pendencias...'
+                    : isCheckingSubscriber
+                      ? 'Verificando assinante...'
+                      : 'Enviar'}
                 </button>
+                {step === 'phone' && pendingClientBookingMessage && (
+                  <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+                    {pendingClientBookingMessage}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1402,9 +1513,23 @@ export function BookingChatFlow({
                       onTimeSelect={(value) => {
                         setSelectedTime(value);
                         setInvalidSubscriberDateMessage('');
-                        setStep(hasBookingHighlightedProducts ? 'products' : 'confirm');
+                        if (hasBookingHighlightedProducts) {
+                          setStep('products');
+                          return;
+                        }
+                        void (async () => {
+                          const pendingValidation = await validatePendingClientBlocking(chatClientPhone);
+                          if (pendingValidation.blocked) {
+                            setPendingClientBookingMessage(pendingValidation.message);
+                            toast.error(pendingValidation.message || 'Cliente com atendimento pendente nesta barbearia.');
+                            return;
+                          }
+                          setPendingClientBookingMessage(null);
+                          setStep('confirm');
+                        })();
                       }}
                       filterPastTimes={true}
+                      minimumAdvanceMinutes={minimumAdvanceMinutes}
                       businessHours={businessHoursForDate}
                       use15MinuteInterval={Boolean(establishment?.use_15_minute_interval)}
                       use20MinuteSchedule={Boolean(establishment?.use_20_minute_schedule)}
@@ -1537,7 +1662,16 @@ export function BookingChatFlow({
                 )}
                 <button
                   type="button"
-                  onClick={() => setStep('confirm')}
+                  onClick={async () => {
+                    const pendingValidation = await validatePendingClientBlocking(chatClientPhone);
+                    if (pendingValidation.blocked) {
+                      setPendingClientBookingMessage(pendingValidation.message);
+                      toast.error(pendingValidation.message || 'Cliente com atendimento pendente nesta barbearia.');
+                      return;
+                    }
+                    setPendingClientBookingMessage(null);
+                    setStep('confirm');
+                  }}
                   className="w-full px-4 py-2.5 rounded-xl bg-[#E6C78B] hover:bg-[#f1ddb0] text-black text-sm font-extrabold transition-colors"
                 >
                   Continuar para confirmação
@@ -1547,6 +1681,11 @@ export function BookingChatFlow({
 
             {step === 'confirm' && (
               <div className="space-y-2 text-sm">
+                {pendingClientBookingMessage && (
+                  <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200 font-semibold">
+                    {pendingClientBookingMessage}
+                  </div>
+                )}
                 <div><strong>Cliente:</strong> {chatClientName}</div>
                 <div><strong>WhatsApp:</strong> {chatClientPhone}</div>
                 <div><strong>Profissional:</strong> {selectedProfessional?.name || '-'}</div>
@@ -1609,12 +1748,12 @@ export function BookingChatFlow({
                 Próximo
               </button>
             )}
-            {step === 'confirm' && (
+            {step === 'confirm' && !pendingClientBookingMessage && (
               <button
                 type="button"
                 onClick={handleConfirmBooking}
                 className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-sm font-semibold"
-                disabled={isSubmitting || !isCpfValidForRequiredBooking}
+                disabled={isSubmitting || !isCpfValidForRequiredBooking || isCheckingPendingClientBooking}
               >
                 {isSubmitting ? 'Confirmando...' : 'Confirmar Agendamento'}
               </button>

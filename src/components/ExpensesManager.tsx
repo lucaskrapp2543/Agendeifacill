@@ -44,8 +44,22 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
-  const [newExpense, setNewExpense] = useState({ name: '', amount: '', professional: '', professional_id: '', expense_date: '', observation: '' });
+  const [newExpense, setNewExpense] = useState({
+    name: '',
+    amount: '',
+    professional: '',
+    professional_id: '',
+    expense_date: format(selectedMonth, 'yyyy-MM-dd'),
+    observation: ''
+  });
   const { toast } = useToast();
+
+  const getExpenseDateKey = (value?: string | null) => {
+    const raw = String(value || '').trim();
+    const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match?.[1]) return match[1];
+    return raw;
+  };
 
   // Carregar despesas
   const loadExpenses = useCallback(async () => {
@@ -63,18 +77,21 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
 
       console.log('📅 Período:', startDate.toISOString(), 'até', endDate.toISOString());
 
-      // Filtrar despesas por mês usando created_at (data de criação)
+      const startDay = format(startDate, 'yyyy-MM-dd');
+      const endDay = format(endDate, 'yyyy-MM-dd');
+
+      // Filtrar despesas por mês usando expense_date (data real da despesa)
       let { data, error } = await supabase
         .from('establishment_expenses')
         .select('*')
         .eq('establishment_id', establishmentId)
-        .gte('created_at', startDate.toISOString())
-        .lte('created_at', endDate.toISOString())
+        .gte('expense_date', startDay)
+        .lte('expense_date', endDay)
         .or('expense_context.is.null,expense_context.eq.sidebar')
-        .order('created_at', { ascending: false });
+        .order('expense_date', { ascending: false });
 
-      // Compatibilidade com bancos antigos sem a coluna expense_context
-      if (error && String(error.message || '').toLowerCase().includes('expense_context')) {
+      // Compatibilidade com bancos antigos sem colunas novas
+      if (error && (String(error.message || '').toLowerCase().includes('expense_context') || String(error.message || '').toLowerCase().includes('expense_date'))) {
         const legacyResult = await supabase
           .from('establishment_expenses')
           .select('*')
@@ -135,6 +152,10 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
       toast('Preencha todos os campos', 'error');
       return;
     }
+    if (!String(newExpense.expense_date || '').trim()) {
+      toast('Informe a data da despesa', 'error');
+      return;
+    }
 
     const amount = parseFloat(newExpense.amount.replace(',', '.'));
     if (isNaN(amount) || amount <= 0) {
@@ -148,6 +169,7 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
         establishment_id: establishmentId,
         name: newExpense.name.trim(),
         amount: amount,
+        expense_date: getExpenseDateKey(newExpense.expense_date),
         professional: newExpense.professional.trim() || null,
         professional_id: newExpense.professional_id || null,
         observation: normalizedObservation.length > 0 ? normalizedObservation : null,
@@ -161,10 +183,11 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
         .single();
 
       const addErrMsg = String(error?.message || '').toLowerCase();
-      if (error && (addErrMsg.includes('observation') || addErrMsg.includes('expense_context'))) {
+      if (error && (addErrMsg.includes('observation') || addErrMsg.includes('expense_context') || addErrMsg.includes('expense_date'))) {
         const fallbackPayload: any = { ...payload };
         delete fallbackPayload.observation;
         delete fallbackPayload.expense_context;
+        if (addErrMsg.includes('expense_date')) delete fallbackPayload.expense_date;
         ({ data, error } = await supabase
           .from('establishment_expenses')
           .insert(fallbackPayload)
@@ -179,7 +202,14 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
       }
 
       setExpenses(prev => [data, ...prev]);
-      setNewExpense({ name: '', amount: '', professional: '', professional_id: '', expense_date: '', observation: '' });
+      setNewExpense({
+        name: '',
+        amount: '',
+        professional: '',
+        professional_id: '',
+        expense_date: format(selectedMonth, 'yyyy-MM-dd'),
+        observation: ''
+      });
       setShowAddModal(false);
       toast('Despesa adicionada com sucesso!', 'success');
     } catch (error) {
@@ -194,6 +224,10 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
       toast('Preencha todos os campos', 'error');
       return;
     }
+    if (!String(newExpense.expense_date || '').trim()) {
+      toast('Informe a data da despesa', 'error');
+      return;
+    }
 
     const amount = parseFloat(newExpense.amount.replace(',', '.'));
     if (isNaN(amount) || amount <= 0) {
@@ -206,6 +240,7 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
       const payload: any = {
         name: newExpense.name.trim(),
         amount: amount,
+        expense_date: getExpenseDateKey(newExpense.expense_date),
         professional: newExpense.professional.trim() || null,
         professional_id: newExpense.professional_id || null,
         observation: normalizedObservation.length > 0 ? normalizedObservation : null,
@@ -220,10 +255,11 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
         .single();
 
       const editErrMsg = String(error?.message || '').toLowerCase();
-      if (error && (editErrMsg.includes('observation') || editErrMsg.includes('expense_context'))) {
+      if (error && (editErrMsg.includes('observation') || editErrMsg.includes('expense_context') || editErrMsg.includes('expense_date'))) {
         const fallbackPayload: any = { ...payload };
         delete fallbackPayload.observation;
         delete fallbackPayload.expense_context;
+        if (editErrMsg.includes('expense_date')) delete fallbackPayload.expense_date;
         ({ data, error } = await supabase
           .from('establishment_expenses')
           .update(fallbackPayload)
@@ -240,7 +276,14 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
 
       setExpenses(prev => prev.map(exp => exp.id === editingExpense.id ? data : exp));
       setEditingExpense(null);
-      setNewExpense({ name: '', amount: '', professional: '', professional_id: '', expense_date: '', observation: '' });
+      setNewExpense({
+        name: '',
+        amount: '',
+        professional: '',
+        professional_id: '',
+        expense_date: format(selectedMonth, 'yyyy-MM-dd'),
+        observation: ''
+      });
       setShowEditModal(false);
       toast('Despesa editada com sucesso!', 'success');
     } catch (error) {
@@ -283,7 +326,7 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
       amount: expense.amount.toString(),
       professional: expense.professional || '',
       professional_id: expense.professional_id || '',
-      expense_date: expense.expense_date || '',
+      expense_date: getExpenseDateKey(expense.expense_date || ''),
       observation: expense.observation || ''
     });
     setShowEditModal(true);
@@ -302,12 +345,22 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
 
   // Formatar data
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('pt-BR', {
+    const raw = getExpenseDateKey(dateString);
+    if (!raw) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const [year, month, day] = raw.split('-').map((part) => Number(part));
+      return new Date(year, month - 1, day).toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    }
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toLocaleDateString('pt-BR', {
       day: '2-digit',
       month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+      year: 'numeric'
     });
   };
 
@@ -346,7 +399,10 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
           </div>
         </div>
         <button
-          onClick={() => setShowAddModal(true)}
+          onClick={() => {
+            setNewExpense(prev => ({ ...prev, expense_date: format(selectedMonth, 'yyyy-MM-dd') }));
+            setShowAddModal(true);
+          }}
           className="flex items-center gap-2 bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
         >
           <Plus className="h-4 w-4" />
@@ -448,7 +504,7 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
                       </p>
                     )}
                     <div className="flex items-center gap-4 text-sm text-gray-400">
-                      <span>{formatDate(expense.created_at)}</span>
+                      <span>{formatDate(String(expense.expense_date || expense.created_at || ''))}</span>
                       {expense.professional && (
                         <span className="text-gray-300 font-medium">
                           👤 {expense.professional}
@@ -547,6 +603,17 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Data da Despesa
+                </label>
+                <input
+                  type="date"
+                  value={newExpense.expense_date}
+                  onChange={(e) => setNewExpense(prev => ({ ...prev, expense_date: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-white bg-[#1a1b1c]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
                   Observação (opcional)
                 </label>
                 <textarea
@@ -567,7 +634,14 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
               <button
                 onClick={() => {
                   setShowAddModal(false);
-                  setNewExpense({ name: '', amount: '', professional: '', professional_id: '', expense_date: '', observation: '' });
+                  setNewExpense({
+                    name: '',
+                    amount: '',
+                    professional: '',
+                    professional_id: '',
+                    expense_date: format(selectedMonth, 'yyyy-MM-dd'),
+                    observation: ''
+                  });
                 }}
                 className="flex-1 px-4 py-2 border border-gray-700 text-gray-300 rounded-lg hover:bg-[#1a1b1c] transition-colors"
               >
@@ -647,6 +721,17 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Data da Despesa
+                </label>
+                <input
+                  type="date"
+                  value={newExpense.expense_date}
+                  onChange={(e) => setNewExpense(prev => ({ ...prev, expense_date: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-700 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-white bg-[#1a1b1c]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
                   Observação (opcional)
                 </label>
                 <textarea
@@ -668,7 +753,14 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
                 onClick={() => {
                   setShowEditModal(false);
                   setEditingExpense(null);
-                  setNewExpense({ name: '', amount: '', professional: '', professional_id: '', expense_date: '', observation: '' });
+                  setNewExpense({
+                    name: '',
+                    amount: '',
+                    professional: '',
+                    professional_id: '',
+                    expense_date: format(selectedMonth, 'yyyy-MM-dd'),
+                    observation: ''
+                  });
                 }}
                 className="flex-1 px-4 py-2 border border-gray-700 text-gray-300 rounded-lg hover:bg-[#1a1b1c] transition-colors"
               >

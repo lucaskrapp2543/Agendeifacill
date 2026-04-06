@@ -3778,11 +3778,13 @@ const EstablishmentDashboard = () => {
   const [showExpensesList, setShowExpensesList] = useState(false);
   const [newExpenseName, setNewExpenseName] = useState('');
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
+  const [newExpenseDate, setNewExpenseDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [newExpenseObservation, setNewExpenseObservation] = useState('');
   const [showFinancialReportTypeModal, setShowFinancialReportTypeModal] = useState(false);
   const [isGeneratingFinancialReport, setIsGeneratingFinancialReport] = useState(false);
   const [editExpenseName, setEditExpenseName] = useState('');
   const [editExpenseAmount, setEditExpenseAmount] = useState('');
+  const [editExpenseDate, setEditExpenseDate] = useState('');
   const [editExpenseObservation, setEditExpenseObservation] = useState('');
   const [openExtraProductsDropdown, setOpenExtraProductsDropdown] = useState<string | null>(null);
   const [openDailyRevenueDropdown, setOpenDailyRevenueDropdown] = useState(false);
@@ -3798,6 +3800,25 @@ const EstablishmentDashboard = () => {
 
   // Estado para modal informativo de lembrete
   const [showReminderInfoModal, setShowReminderInfoModal] = useState(false);
+
+  const getExpenseDateKey = (value?: string | null) => {
+    const raw = String(value || '').trim();
+    const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match?.[1]) return match[1];
+    return raw;
+  };
+
+  const formatExpenseDateForUi = (value?: string | null) => {
+    const raw = getExpenseDateKey(value);
+    if (!raw) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const [year, month, day] = raw.split('-').map((part) => Number(part));
+      return new Date(year, month - 1, day).toLocaleDateString('pt-BR');
+    }
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toLocaleDateString('pt-BR');
+  };
 
   // Layout claro/escuro do dashboard (apenas para este dashboard)
   const [useLightLayout, setUseLightLayout] = useState<boolean>(false);
@@ -9404,8 +9425,19 @@ const EstablishmentDashboard = () => {
       const establishmentName = establishment?.name || 'nossa barbearia';
       const serviceName = appointmentForReminder.service;
 
-      // Montar mensagem do lembrete
-      let reminderMessage = `💈 Olá! Passando aqui pra relembrar do seu agendamento com ${establishmentName} ✂️
+      // Montar mensagem do lembrete.
+      // Compatibilidade: mantém o texto antigo para todos os estabelecimentos,
+      // com customização exclusiva para o código 2092 (salão de beleza).
+      const isYonneSalon = String(establishment?.code || '').trim() === '2092';
+      let reminderMessage = isYonneSalon
+        ? `✨ Olá! Passando aqui pra relembrar do seu agendamento com ${establishmentName} 💖
+
+📅 Data e horário: ${appointmentDate} às ${appointmentTime}
+💇‍♀️ Profissional: ${professionalName}
+⭐ Serviço: ${serviceName}
+
+Estamos te aguardando! 💖✨`
+        : `💈 Olá! Passando aqui pra relembrar do seu agendamento com ${establishmentName} ✂️
 
 📅 Data e horário: ${appointmentDate} às ${appointmentTime}
 💇‍♂️ Profissional: ${professionalName}
@@ -13967,6 +13999,10 @@ Estamos te aguardando! 😎✂️`;
       toast('Nome e valor são obrigatórios!', 'error');
       return;
     }
+    if (!String(newExpenseDate || '').trim()) {
+      toast('Data da despesa é obrigatória!', 'error');
+      return;
+    }
 
     const amount = parseFloat(newExpenseAmount.replace(',', '.'));
     if (isNaN(amount) || amount <= 0) {
@@ -13980,7 +14016,8 @@ Estamos te aguardando! 😎✂️`;
         newExpenseName.trim(),
         amount,
         newExpenseObservation.trim().slice(0, 150),
-        'financial'
+        'financial',
+        getExpenseDateKey(newExpenseDate)
       );
 
       toast('Despesa adicionada com sucesso!', 'success');
@@ -13988,6 +14025,7 @@ Estamos te aguardando! 😎✂️`;
       // Limpar formulário
       setNewExpenseName('');
       setNewExpenseAmount('');
+      setNewExpenseDate(format(new Date(), 'yyyy-MM-dd'));
       setNewExpenseObservation('');
       setShowAddExpenseModal(false);
 
@@ -14014,6 +14052,7 @@ Estamos te aguardando! 😎✂️`;
     setEditingExpenseId(String(expense?.id || ''));
     setEditExpenseName(String(expense?.name || ''));
     setEditExpenseAmount(String(Number(expense?.amount || 0)).replace('.', ','));
+    setEditExpenseDate(getExpenseDateKey(String(expense?.expense_date || expense?.created_at || '')));
     setEditExpenseObservation(String(expense?.observation || ''));
     setShowEditExpenseModal(true);
   };
@@ -14022,6 +14061,10 @@ Estamos te aguardando! 😎✂️`;
     if (!editingExpenseId) return;
     if (!editExpenseName.trim() || !editExpenseAmount.trim()) {
       toast('Nome e valor são obrigatórios!', 'error');
+      return;
+    }
+    if (!String(editExpenseDate || '').trim()) {
+      toast('Data da despesa é obrigatória!', 'error');
       return;
     }
 
@@ -14034,6 +14077,7 @@ Estamos te aguardando! 😎✂️`;
     const payload: any = {
       name: editExpenseName.trim(),
       amount,
+      expense_date: getExpenseDateKey(editExpenseDate) || null,
       observation: editExpenseObservation.trim().slice(0, 150) || null,
       expense_context: 'financial',
     };
@@ -14045,10 +14089,11 @@ Estamos te aguardando! 😎✂️`;
         .eq('id', editingExpenseId);
 
       const errMsg = String(error?.message || '').toLowerCase();
-      if (error && (errMsg.includes('observation') || errMsg.includes('expense_context'))) {
+      if (error && (errMsg.includes('observation') || errMsg.includes('expense_context') || errMsg.includes('expense_date'))) {
         const fallbackPayload: any = { ...payload };
         delete fallbackPayload.observation;
         delete fallbackPayload.expense_context;
+        if (errMsg.includes('expense_date')) delete fallbackPayload.expense_date;
         ({ error } = await supabase
           .from('establishment_expenses')
           .update(fallbackPayload)
@@ -14064,6 +14109,7 @@ Estamos te aguardando! 😎✂️`;
       setEditingExpenseId(null);
       setEditExpenseName('');
       setEditExpenseAmount('');
+      setEditExpenseDate('');
       setEditExpenseObservation('');
       await loadExpenses();
     } catch (error) {
@@ -19759,7 +19805,8 @@ Estamos te aguardando! 😎✂️`;
       const formatDateSafe = (value?: string, pattern = 'dd/MM/yyyy') => {
         if (!value) return '';
         try {
-          return format(parseISO(String(value)), pattern);
+          const normalized = getExpenseDateKey(String(value));
+          return format(parseISO(normalized), pattern);
         } catch {
           return '';
         }
@@ -19827,7 +19874,7 @@ Estamos te aguardando! 😎✂️`;
       appendSheetWithLayout('Resumo_Geral', summaryRows);
 
       const expenseRows = expenses.map((expense: any) => ({
-        Data: formatDateSafe(String(expense.created_at)),
+        Data: formatDateSafe(String(expense.expense_date || expense.created_at || '')),
         'Nome da despesa': String(expense.name || ''),
         'Valor (R$)': formatMoneyForExcel(Number(expense.amount || 0)),
         Observacao: String(expense.observation || ''),
@@ -28817,7 +28864,10 @@ Estamos te aguardando! 😎✂️`;
                           {isGeneratingFinancialReport ? 'Gerando...' : 'Baixar relatório completo'}
                         </button>
                         <button
-                          onClick={() => setShowAddExpenseModal(true)}
+                          onClick={() => {
+                            setNewExpenseDate(format(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1), 'yyyy-MM-dd'));
+                            setShowAddExpenseModal(true);
+                          }}
                           className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2"
                         >
                           <Plus className="h-4 w-4" />
@@ -29186,7 +29236,7 @@ Estamos te aguardando! 😎✂️`;
                                     </p>
                                   )}
                                   <p className="text-sm text-gray-600">
-                                    {new Date(expense.created_at).toLocaleDateString('pt-BR')}
+                                    {formatExpenseDateForUi(expense.expense_date || expense.created_at)}
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -31973,6 +32023,9 @@ Estamos te aguardando! 😎✂️`;
                   <button
                     onClick={() => {
                       setShowAddExpenseModal(false);
+                      setNewExpenseName('');
+                      setNewExpenseAmount('');
+                      setNewExpenseDate(format(new Date(), 'yyyy-MM-dd'));
                       setNewExpenseObservation('');
                     }}
                     className="text-gray-400 hover:text-gray-600"
@@ -32014,6 +32067,20 @@ Estamos te aguardando! 😎✂️`;
                     </div>
 
                     <div>
+                      <label htmlFor="expenseDate" className="block text-sm font-medium text-gray-700 mb-1">
+                        Data da Despesa
+                      </label>
+                      <input
+                        type="date"
+                        id="expenseDate"
+                        value={newExpenseDate}
+                        onChange={(e) => setNewExpenseDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                        required
+                      />
+                    </div>
+
+                    <div>
                       <label htmlFor="expenseObservation" className="block text-sm font-medium text-gray-700 mb-1">
                         Observação (opcional)
                       </label>
@@ -32036,6 +32103,9 @@ Estamos te aguardando! 😎✂️`;
                         type="button"
                         onClick={() => {
                           setShowAddExpenseModal(false);
+                          setNewExpenseName('');
+                          setNewExpenseAmount('');
+                          setNewExpenseDate(format(new Date(), 'yyyy-MM-dd'));
                           setNewExpenseObservation('');
                         }}
                         className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
@@ -32065,6 +32135,10 @@ Estamos te aguardando! 😎✂️`;
                     onClick={() => {
                       setShowEditExpenseModal(false);
                       setEditingExpenseId(null);
+                      setEditExpenseName('');
+                      setEditExpenseAmount('');
+                      setEditExpenseDate('');
+                      setEditExpenseObservation('');
                     }}
                     className="text-gray-400 hover:text-gray-600"
                   >
@@ -32105,6 +32179,20 @@ Estamos te aguardando! 😎✂️`;
                     </div>
 
                     <div>
+                      <label htmlFor="editExpenseDate" className="block text-sm font-medium text-gray-700 mb-1">
+                        Data da Despesa
+                      </label>
+                      <input
+                        type="date"
+                        id="editExpenseDate"
+                        value={editExpenseDate}
+                        onChange={(e) => setEditExpenseDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                        required
+                      />
+                    </div>
+
+                    <div>
                       <label htmlFor="editExpenseObservation" className="block text-sm font-medium text-gray-700 mb-1">
                         Observação (opcional)
                       </label>
@@ -32128,6 +32216,10 @@ Estamos te aguardando! 😎✂️`;
                         onClick={() => {
                           setShowEditExpenseModal(false);
                           setEditingExpenseId(null);
+                          setEditExpenseName('');
+                          setEditExpenseAmount('');
+                          setEditExpenseDate('');
+                          setEditExpenseObservation('');
                         }}
                         className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                       >

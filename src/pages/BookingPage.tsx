@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { createGuestClientAndLogin, getSubscriptions, supabase, updateClientLastAccess } from '../lib/supabase';
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
+import { validatePendingClientBookingLimit } from '../utils/pendingClientBookingValidation';
 import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
 
 type PublicBookingReview = {
@@ -941,6 +942,7 @@ export default function BookingPage() {
             social_media_link,
             pix_key,
             whatsapp,
+            limit_client_pending_booking,
             custom_photo_4_url,
             custom_photo_5_url,
             custom_photo_6_url,
@@ -1689,6 +1691,32 @@ export default function BookingPage() {
       // Lógica para agendamentos reais
       const isEstablishmentOwner = currentUser?.id === establishment.owner_id;
       const isSubscriberAppointment = appointmentData?.is_subscriber === true;
+      const bookingClientWhatsapp = String(
+        appointmentData?.client_whatsapp || guestClientData?.phone || ''
+      ).trim();
+
+      // Trava central: impede novo agendamento quando há atendimento pendente do mesmo cliente.
+      // Colocando aqui, a regra vale para formulário clássico e chat guiado.
+      if (bookingClientWhatsapp) {
+        console.log('🛡️ [Booking] Validando bloqueio por pendencia de atendimento', {
+          establishmentId: establishment.id,
+          limitPendingBookingEnabled: Boolean((establishment as any)?.limit_client_pending_booking),
+          bookingClientWhatsapp,
+        });
+        const pendingValidation = await validatePendingClientBookingLimit(
+          bookingClientWhatsapp,
+          establishment.id,
+          Boolean((establishment as any)?.limit_client_pending_booking)
+        );
+
+        if (!pendingValidation.canBook) {
+          toast.error(
+            pendingValidation.message ||
+            'Voce ainda tem servico pendente nesta barbearia. Aguarde concluir o atendimento.'
+          );
+          return;
+        }
+      }
 
       // Trava de segurança: assinante só agenda com o plano ativo detectado.
       if (isSubscriberAppointment) {

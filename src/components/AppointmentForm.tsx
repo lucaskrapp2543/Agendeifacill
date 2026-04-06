@@ -3543,6 +3543,7 @@ export function AppointmentForm({
                   }
                 }}
                 filterPastTimes={true} // Sempre filtrar horários passados
+                minimumAdvanceMinutes={getMinimumAdvanceMinutes()}
                 businessHours={businessHours}
                 use15MinuteInterval={establishment.use_15_minute_interval ?? false}
                 use20MinuteSchedule={(establishment as any).use_20_minute_schedule ?? false}

@@ -2823,14 +2823,18 @@ export const addExpense = async (
   name: string,
   amount: number,
   observation?: string,
-  source: 'financial' | 'sidebar' = 'sidebar'
+  source: 'financial' | 'sidebar' = 'sidebar',
+  expenseDate?: string
 ) => {
   try {
     const normalizedObservation = String(observation || '').trim().slice(0, 150);
+    const rawExpenseDate = String(expenseDate || '').trim();
+    const normalizedExpenseDate = (rawExpenseDate.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] || rawExpenseDate);
     const payload: any = {
       establishment_id: establishmentId,
       name: name,
       amount: amount,
+      expense_date: normalizedExpenseDate || new Date().toISOString().slice(0, 10),
       observation: normalizedObservation.length > 0 ? normalizedObservation : null,
       expense_context: source,
     };
@@ -2842,10 +2846,13 @@ export const addExpense = async (
       .single();
 
     const errMsg = String(error?.message || '').toLowerCase();
-    if (error && (errMsg.includes('observation') || errMsg.includes('expense_context'))) {
+    if (error && (errMsg.includes('observation') || errMsg.includes('expense_context') || errMsg.includes('expense_date'))) {
       const fallbackPayload: any = { ...payload };
       delete fallbackPayload.observation;
       delete fallbackPayload.expense_context;
+      if (errMsg.includes('expense_date')) {
+        delete fallbackPayload.expense_date;
+      }
       ({ data, error } = await supabase
         .from('establishment_expenses')
         .insert(fallbackPayload)
@@ -2870,11 +2877,21 @@ export const addExpense = async (
  */
 export const getExpenses = async (establishmentId: string) => {
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('establishment_expenses')
       .select('*')
       .eq('establishment_id', establishmentId)
-      .order('created_at', { ascending: false });
+      .order('expense_date', { ascending: false });
+
+    if (error && String(error.message || '').toLowerCase().includes('expense_date')) {
+      const legacy = await supabase
+        .from('establishment_expenses')
+        .select('*')
+        .eq('establishment_id', establishmentId)
+        .order('created_at', { ascending: false });
+      data = legacy.data as any;
+      error = legacy.error as any;
+    }
 
     if (error) {
       console.error('Erro ao buscar despesas:', error);
@@ -2893,13 +2910,29 @@ export const getExpenses = async (establishmentId: string) => {
  */
 export const getExpensesByMonth = async (establishmentId: string, startDate: string, endDate: string) => {
   try {
-    const { data, error } = await supabase
+    const startDay = String(startDate).slice(0, 10);
+    const endDay = String(endDate).slice(0, 10);
+
+    let { data, error } = await supabase
       .from('establishment_expenses')
       .select('*')
       .eq('establishment_id', establishmentId)
-      .gte('created_at', startDate)
-      .lte('created_at', endDate)
-      .order('created_at', { ascending: false });
+      .gte('expense_date', startDay)
+      .lte('expense_date', endDay)
+      .order('expense_date', { ascending: false });
+
+    // Compatibilidade com bases antigas sem expense_date
+    if (error && String(error.message || '').toLowerCase().includes('expense_date')) {
+      const legacy = await supabase
+        .from('establishment_expenses')
+        .select('*')
+        .eq('establishment_id', establishmentId)
+        .gte('created_at', startDate)
+        .lte('created_at', endDate)
+        .order('created_at', { ascending: false });
+      data = legacy.data as any;
+      error = legacy.error as any;
+    }
 
     if (error) {
       console.error('Erro ao buscar despesas por mês:', error);

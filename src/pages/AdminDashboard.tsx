@@ -15,8 +15,8 @@ import {
   LogOut,
   RefreshCw,
   Search,
-  Trophy,
   Trash2,
+  Trophy,
   Unlock,
   Users,
   X,
@@ -4746,9 +4746,9 @@ const AdminDashboard = () => {
                         ? 'border-l-red-600'
                         : isRowDueToday
                           ? 'border-l-orange-600'
-                        : isRowPaid
-                          ? 'border-l-emerald-600'
-                          : 'border-l-amber-500';
+                          : isRowPaid
+                            ? 'border-l-emerald-600'
+                            : 'border-l-amber-500';
 
                     // Cor de fundo por status (bem mais visível)
                     const bg = establishment.is_blocked
@@ -4757,9 +4757,9 @@ const AdminDashboard = () => {
                         ? 'bg-red-300'
                         : isRowDueToday
                           ? 'bg-orange-200'
-                        : isRowPaid
-                          ? 'bg-emerald-300'
-                          : 'bg-amber-300';
+                          : isRowPaid
+                            ? 'bg-emerald-300'
+                            : 'bg-amber-300';
 
                     return (
                       <tr
