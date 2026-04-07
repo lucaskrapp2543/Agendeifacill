@@ -26,7 +26,8 @@ export const openWhatsAppWithBusinessPriority = (phoneDigits: string, message: s
   const isAndroid = /Android/i.test(userAgent);
   const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
 
-  // Android: força app Business pelo package, com fallback seguro.
+  // Android: força app Business pelo package, com fallback seguro na mesma aba
+  // (evita popup bloqueado por não estar em gesto direto do usuário).
   if (isAndroid) {
     const androidBusinessIntent = `intent://send?phone=${cleanPhone}&text=${encodedMessage}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`;
     window.location.href = androidBusinessIntent;
@@ -35,28 +36,44 @@ export const openWhatsAppWithBusinessPriority = (phoneDigits: string, message: s
       setTimeout(() => {
         window.location.href = waRegularScheme;
         setTimeout(() => {
-          window.open(waWeb, '_blank', 'noopener,noreferrer');
+          window.location.href = waWeb;
         }, 500);
       }, 350);
     }, 300);
     return;
   }
 
-  // iOS + Desktop: tenta Business scheme primeiro; depois normal; depois web.
-  window.location.href = waBusinessScheme;
-  setTimeout(() => {
-    if (isIOS) {
+  // iOS: usar navegação direta na mesma aba (mais confiável que popup).
+  if (isIOS) {
+    window.location.href = waBusinessScheme;
+    setTimeout(() => {
       window.location.href = waRegularScheme;
       setTimeout(() => {
-        window.open(waWeb, '_blank', 'noopener,noreferrer');
+        window.location.href = waWeb;
       }, 500);
-      return;
-    }
+    }, 450);
+    return;
+  }
 
-    // Desktop: tentar abrir app instalado (Business ou comum), com fallback web.
-    window.location.href = waRegularScheme;
+  // Desktop: abrir aba imediatamente durante o clique para evitar bloqueio de popup.
+  const popup = window.open('about:blank', '_blank');
+  if (popup) {
+    // Tenta abrir o app primeiro e, se não abrir, cai no WhatsApp Web na mesma aba.
+    popup.location.href = waBusinessScheme;
     setTimeout(() => {
-      window.open(waWeb, '_blank', 'noopener,noreferrer');
-    }, 500);
-  }, 450);
+      if (popup.closed) return;
+      popup.location.href = waRegularScheme;
+      setTimeout(() => {
+        if (popup.closed) return;
+        popup.location.href = waWeb;
+      }, 500);
+    }, 350);
+    return;
+  }
+
+  // Fallback extremo: se o popup for bloqueado mesmo abrindo em gesto do usuário.
+  window.location.href = waRegularScheme;
+  setTimeout(() => {
+    window.location.href = waWeb;
+  }, 500);
 };
