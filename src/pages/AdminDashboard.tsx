@@ -1868,6 +1868,12 @@ const AdminDashboard = () => {
   // Função para bloquear/desbloquear booking
   const toggleBookingBlock = async (establishmentId: string, isBlocked: boolean) => {
     try {
+      const establishment = establishments.find((est) => est.id === establishmentId);
+      if (establishment?.payment_status === 'paid') {
+        toast.error('Estabelecimento já está pago. O bloqueio de PG só pode ser alterado quando estiver pendente/vencido.');
+        return;
+      }
+
       const { error } = await supabase
         .from('establishments')
         .update({ booking_blocked: !isBlocked })
@@ -5024,11 +5030,20 @@ const AdminDashboard = () => {
                             </button>
                             <button
                               onClick={() => toggleBookingBlock(establishment.id, establishment.booking_blocked || false)}
-                              className={`text-xs px-2 py-0.5 border rounded font-medium ${establishment.booking_blocked
-                                ? 'text-red-600 border-red-300 bg-red-50 hover:bg-red-100'
-                                : 'text-gray-600 border-gray-300 hover:bg-gray-50'
+                              disabled={establishment.payment_status === 'paid'}
+                              className={`text-xs px-2 py-0.5 border rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed ${establishment.payment_status === 'paid'
+                                ? 'text-gray-400 border-gray-200 bg-gray-50'
+                                : establishment.booking_blocked
+                                  ? 'text-red-600 border-red-300 bg-red-50 hover:bg-red-100'
+                                  : 'text-gray-600 border-gray-300 hover:bg-gray-50'
                                 }`}
-                              title={establishment.booking_blocked ? 'Desbloquear PG' : 'Bloquear PG'}
+                              title={
+                                establishment.payment_status === 'paid'
+                                  ? 'Bloqueio de PG desativado porque está pago'
+                                  : establishment.booking_blocked
+                                    ? 'Desbloquear PG'
+                                    : 'Bloquear PG'
+                              }
                             >
                               Bloquear PG
                             </button>
