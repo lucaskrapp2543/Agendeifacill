@@ -58,6 +58,63 @@ interface Establishment {
   pagamento_adiantado_liberado_admin?: boolean; // Liberação pelo admin para mostrar "Pagamento adiantado" ao barbeiro
 }
 
+/** Mesma regra da coluna STATUS: "Pago" com vencimento futuro pode ocorrer mesmo com payment_status !== 'paid'. */
+function getAdminGridDisplayPaymentState(
+  establishment: Pick<Establishment, 'payment_status' | 'payment_due_date'>
+): 'expired' | 'due_today' | 'paid' | 'pending' {
+  const parseDateOnlySafe = (value?: string | null): number => {
+    const raw = String(value || '').trim();
+    if (!raw) return NaN;
+    const onlyDate = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+    if (onlyDate) {
+      const y = Number(onlyDate[1]);
+      const m = Number(onlyDate[2]) - 1;
+      const d = Number(onlyDate[3]);
+      return new Date(y, m, d, 12, 0, 0, 0).getTime();
+    }
+    const t = new Date(raw).getTime();
+    return Number.isFinite(t) ? t : NaN;
+  };
+  const isExpiredDue = (dueDate: string) => {
+    const dueAt = parseDateOnlySafe(dueDate);
+    if (!Number.isFinite(dueAt)) return false;
+    const dueEndOfDay = endOfDay(new Date(dueAt)).getTime();
+    return dueEndOfDay < Date.now();
+  };
+  const isDueTodayDue = (dueDate: string) => {
+    const dueAt = parseDateOnlySafe(dueDate);
+    if (!Number.isFinite(dueAt)) return false;
+    const dueDateLocal = new Date(dueAt);
+    const now = new Date();
+    return (
+      dueDateLocal.getFullYear() === now.getFullYear() &&
+      dueDateLocal.getMonth() === now.getMonth() &&
+      dueDateLocal.getDate() === now.getDate()
+    );
+  };
+  if (establishment.payment_status === 'expired' || isExpiredDue(establishment.payment_due_date)) {
+    return 'expired';
+  }
+  if (isDueTodayDue(establishment.payment_due_date)) {
+    return 'due_today';
+  }
+  const dueAt = parseDateOnlySafe(establishment.payment_due_date);
+  if (Number.isFinite(dueAt)) {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+    if (dueAt >= todayStart) {
+      return 'paid';
+    }
+  }
+  if (establishment.payment_status === 'paid') {
+    return 'paid';
+  }
+  return 'pending';
+}
+
+const isAdminGridPaymentEmDia = (establishment: Pick<Establishment, 'payment_status' | 'payment_due_date'>) =>
+  getAdminGridDisplayPaymentState(establishment) === 'paid';
+
 interface AdminTopRankingRow {
   establishmentId: string;
   establishmentName: string;
@@ -1568,15 +1625,9 @@ const AdminDashboard = () => {
         })
       );
 
+      // Em dia na grade (= vencimento futuro / status coerente): alerta não deve permanecer ligado.
       const paidWithAlertIds = establishmentsWithEmails
-        .filter((est) => {
-          const paymentStatus = String(est.payment_status || '').toLowerCase().trim();
-          if (paymentStatus !== 'paid') return false;
-          const dueDate = String(est.payment_due_date || '').trim();
-          const isDueOrExpired = Boolean(dueDate) && (isDueToday(dueDate) || isExpired(dueDate));
-          // Mantém alerta ligado para casos críticos (vence hoje / vencido), mesmo se status vier como "paid".
-          return Boolean(est.payment_alert_enabled) && !isDueOrExpired;
-        })
+        .filter((est) => Boolean(est.payment_alert_enabled) && getAdminGridDisplayPaymentState(est) === 'paid')
         .map((est) => est.id);
 
       if (paidWithAlertIds.length > 0) {
@@ -1595,6 +1646,30 @@ const AdminDashboard = () => {
         establishmentsWithEmails.forEach((est) => {
           if (paidWithAlertIds.includes(est.id)) {
             est.payment_alert_enabled = false;
+          }
+        });
+      }
+
+      const bookingUnblockEmDiaIds = establishmentsWithEmails
+        .filter((est) => Boolean(est.booking_blocked) && getAdminGridDisplayPaymentState(est) === 'paid')
+        .map((est) => est.id);
+
+      if (bookingUnblockEmDiaIds.length > 0) {
+        await Promise.all(
+          bookingUnblockEmDiaIds.map(async (id) => {
+            const { error } = await supabase
+              .from('establishments')
+              .update({ booking_blocked: false })
+              .eq('id', id);
+            if (error) {
+              console.warn('Falha ao desbloquear booking automaticamente (estabelecimento em dia na grade):', id, error);
+            }
+          })
+        );
+
+        establishmentsWithEmails.forEach((est) => {
+          if (bookingUnblockEmDiaIds.includes(est.id)) {
+            est.booking_blocked = false;
           }
         });
       }
@@ -1692,6 +1767,7 @@ const AdminDashboard = () => {
 
         updateData.payment_due_date = nextDueDate.toISOString().split('T')[0];
         updateData.payment_alert_enabled = false;
+        updateData.booking_blocked = false;
         // Importante para cards de "saldo do dia"/"saldo mês":
         // quando marcar pago manualmente, registrar o instante do pagamento.
         updateData.payment_paid_at = new Date().toISOString();
@@ -1712,7 +1788,8 @@ const AdminDashboard = () => {
               payment_status: status,
               payment_due_date: status === 'paid' ? updateData.payment_due_date : est.payment_due_date,
               payment_paid_at: status === 'paid' ? updateData.payment_paid_at : est.payment_paid_at,
-              payment_alert_enabled: status === 'paid' ? false : est.payment_alert_enabled
+              payment_alert_enabled: status === 'paid' ? false : est.payment_alert_enabled,
+              booking_blocked: status === 'paid' ? false : est.booking_blocked
             }
             : est
         )
@@ -1807,8 +1884,8 @@ const AdminDashboard = () => {
   const togglePaymentAlert = async (establishmentId: string, isEnabled: boolean) => {
     try {
       const establishment = establishments.find((est) => est.id === establishmentId);
-      if (establishment?.payment_status === 'paid' && !isEnabled) {
-        toast.error('Estabelecimento já está pago. O alerta só pode ser ativado quando estiver pendente/vencido.');
+      if (establishment && isAdminGridPaymentEmDia(establishment) && !isEnabled) {
+        toast.error('Estabelecimento em dia na grade. O alerta só pode ser ativado quando estiver pendente/vencido.');
         return;
       }
 
@@ -1869,8 +1946,10 @@ const AdminDashboard = () => {
   const toggleBookingBlock = async (establishmentId: string, isBlocked: boolean) => {
     try {
       const establishment = establishments.find((est) => est.id === establishmentId);
-      if (establishment?.payment_status === 'paid') {
-        toast.error('Estabelecimento já está pago. O bloqueio de PG só pode ser alterado quando estiver pendente/vencido.');
+      if (establishment && isAdminGridPaymentEmDia(establishment)) {
+        toast.error(
+          'Estabelecimento em dia (vencimento futuro). O bloqueio de PG só pode ser alterado quando estiver pendente/vencido.'
+        );
         return;
       }
 
@@ -2108,29 +2187,7 @@ const AdminDashboard = () => {
     );
   };
 
-  const getDisplayPaymentState = (establishment: Establishment): 'expired' | 'due_today' | 'paid' | 'pending' => {
-    if (establishment.payment_status === 'expired' || isExpired(establishment.payment_due_date)) {
-      return 'expired';
-    }
-    if (isDueToday(establishment.payment_due_date)) {
-      return 'due_today';
-    }
-
-    const dueAt = parseDateOnlySafe(establishment.payment_due_date);
-    if (Number.isFinite(dueAt)) {
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
-      if (dueAt >= todayStart) {
-        return 'paid';
-      }
-    }
-
-    if (establishment.payment_status === 'paid') {
-      return 'paid';
-    }
-
-    return 'pending';
-  };
+  const getDisplayPaymentState = (establishment: Establishment) => getAdminGridDisplayPaymentState(establishment);
 
   const isSameMonthYear = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
   const isSameDay = (a: Date, b: Date) =>
@@ -5011,16 +5068,16 @@ const AdminDashboard = () => {
                           <div className="flex flex-wrap gap-1">
                             <button
                               onClick={() => togglePaymentAlert(establishment.id, establishment.payment_alert_enabled || false)}
-                              disabled={establishment.payment_status === 'paid'}
-                              className={`text-xs px-2 py-0.5 border rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed ${establishment.payment_status === 'paid'
+                              disabled={isAdminGridPaymentEmDia(establishment)}
+                              className={`text-xs px-2 py-0.5 border rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed ${isAdminGridPaymentEmDia(establishment)
                                 ? 'text-gray-400 border-gray-200 bg-gray-50'
                                 : establishment.payment_alert_enabled
                                   ? 'text-orange-600 border-orange-300 bg-orange-50 hover:bg-orange-100'
                                   : 'text-gray-600 border-gray-300 hover:bg-gray-50'
                                 }`}
                               title={
-                                establishment.payment_status === 'paid'
-                                  ? 'Alerta desativado automaticamente porque está pago'
+                                isAdminGridPaymentEmDia(establishment)
+                                  ? 'Em dia na grade: alerta indisponível (vencimento futuro ou já pago)'
                                   : establishment.payment_alert_enabled
                                     ? 'Desativar Alerta'
                                     : 'Ativar Alerta'
@@ -5030,16 +5087,16 @@ const AdminDashboard = () => {
                             </button>
                             <button
                               onClick={() => toggleBookingBlock(establishment.id, establishment.booking_blocked || false)}
-                              disabled={establishment.payment_status === 'paid'}
-                              className={`text-xs px-2 py-0.5 border rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed ${establishment.payment_status === 'paid'
+                              disabled={isAdminGridPaymentEmDia(establishment)}
+                              className={`text-xs px-2 py-0.5 border rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed ${isAdminGridPaymentEmDia(establishment)
                                 ? 'text-gray-400 border-gray-200 bg-gray-50'
                                 : establishment.booking_blocked
                                   ? 'text-red-600 border-red-300 bg-red-50 hover:bg-red-100'
                                   : 'text-gray-600 border-gray-300 hover:bg-gray-50'
                                 }`}
                               title={
-                                establishment.payment_status === 'paid'
-                                  ? 'Bloqueio de PG desativado porque está pago'
+                                isAdminGridPaymentEmDia(establishment)
+                                  ? 'Em dia na grade: bloquear PG indisponível; booking é desbloqueado automaticamente se estava travado'
                                   : establishment.booking_blocked
                                     ? 'Desbloquear PG'
                                     : 'Bloquear PG'
