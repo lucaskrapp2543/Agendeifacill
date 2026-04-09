@@ -4122,6 +4122,24 @@ const EstablishmentDashboard = () => {
   const [blockedHourHistoryEvents, setBlockedHourHistoryEvents] = useState<BlockedHourHistoryEvent[]>([]);
   const [isLoadingBlockedHourHistory, setIsLoadingBlockedHourHistory] = useState(false);
 
+  /**
+   * Evita condição de corrida em produção: várias leituras+escritas do JSON `professionals`
+   * (bloqueio de um profissional + salvar outro) podem intercalar e a última gravação
+   * sobrescrever bloqueios/absências recém-salvos de outro profissional.
+   */
+  const establishmentProfessionalsWriteChainRef = useRef<Promise<unknown>>(Promise.resolve());
+  const enqueueEstablishmentProfessionalsWrite = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
+    const run = establishmentProfessionalsWriteChainRef.current.then(
+      () => task(),
+      () => task()
+    );
+    establishmentProfessionalsWriteChainRef.current = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  }, []);
+
   // Estados para gerenciar horários de trabalho dos profissionais
   const [showWorkHoursModal, setShowWorkHoursModal] = useState(false);
   const [selectedProfessionalForWorkHours, setSelectedProfessionalForWorkHours] = useState<string | null>(null);
@@ -7764,7 +7782,8 @@ const EstablishmentDashboard = () => {
       pin: '0000'
     };
 
-    try {
+    await enqueueEstablishmentProfessionalsWrite(async () => {
+      try {
       // Proteção anti-perda: usar base do banco + estado local para não sobrescrever lista em cenários de estado transitório.
       const { data: establishmentDataSafe, error: fetchSafeError } = await supabase
         .from('establishments')
@@ -7872,6 +7891,7 @@ const EstablishmentDashboard = () => {
       console.error('Erro ao adicionar profissional:', error);
       toast.error('Erro ao adicionar profissional');
     }
+    });
   };
 
   const handleRemoveProfessional = async (id: string) => {
@@ -7884,7 +7904,8 @@ const EstablishmentDashboard = () => {
     const professionalToRemove = professionals.find((p) => String(p.id) === String(id));
     if (!professionalToRemove) return;
 
-    try {
+    await enqueueEstablishmentProfessionalsWrite(async () => {
+      try {
       const { data: establishmentData, error: fetchError } = await supabase
         .from('establishments')
         .select('professionals, professionals_pins, deleted_professionals')
@@ -7936,6 +7957,7 @@ const EstablishmentDashboard = () => {
         'error'
       );
     }
+    });
   };
 
   const handleProfessionalChange = (id: string, field: keyof Professional, value: string | string[] | number) => {
@@ -8075,45 +8097,47 @@ const EstablishmentDashboard = () => {
       };
     }
 
-    const { data: establishmentData, error: fetchError } = await supabase
-      .from('establishments')
-      .select('professionals')
-      .eq('id', establishment.id)
-      .single();
+    return enqueueEstablishmentProfessionalsWrite(async () => {
+      const { data: establishmentData, error: fetchError } = await supabase
+        .from('establishments')
+        .select('professionals')
+        .eq('id', establishment.id)
+        .single();
 
-    if (fetchError) {
-      return { error: fetchError, professionals: nextProfessionals };
-    }
+      if (fetchError) {
+        return { error: fetchError, professionals: nextProfessionals };
+      }
 
-    const dbProfessionals = (establishmentData?.professionals || []) as any[];
-    const safeProfessionals = mergeProfessionalsPreservingCriticalFields(nextProfessionals, dbProfessionals);
+      const dbProfessionals = (establishmentData?.professionals || []) as any[];
+      const safeProfessionals = mergeProfessionalsPreservingCriticalFields(nextProfessionals, dbProfessionals);
 
-    // Proteção anti-perda: evita sobrescrever com lista vazia por retorno inconsistente.
-    if (dbProfessionals.length === 0 && Array.isArray(nextProfessionals) && nextProfessionals.length > 0) {
-      return {
-        error: new Error('Proteção ativada: banco retornou profissionais vazios. Operação bloqueada para evitar perda de dados.'),
-        professionals: nextProfessionals
-      };
-    }
-    if (Array.isArray(nextProfessionals) && nextProfessionals.length > 0 && safeProfessionals.length === 0) {
-      return {
-        error: new Error('Proteção ativada: atualização bloqueada para evitar gravar profissionais vazios.'),
-        professionals: nextProfessionals
-      };
-    }
+      // Proteção anti-perda: evita sobrescrever com lista vazia por retorno inconsistente.
+      if (dbProfessionals.length === 0 && Array.isArray(nextProfessionals) && nextProfessionals.length > 0) {
+        return {
+          error: new Error('Proteção ativada: banco retornou profissionais vazios. Operação bloqueada para evitar perda de dados.'),
+          professionals: nextProfessionals
+        };
+      }
+      if (Array.isArray(nextProfessionals) && nextProfessionals.length > 0 && safeProfessionals.length === 0) {
+        return {
+          error: new Error('Proteção ativada: atualização bloqueada para evitar gravar profissionais vazios.'),
+          professionals: nextProfessionals
+        };
+      }
 
-    await persistProfessionalSnapshot('before_save_professionals', {
-      professionals: dbProfessionals,
-      professionals_pins: establishment.professionals_pins || [],
-      services_with_prices: servicesWithPrices || [],
+      await persistProfessionalSnapshot('before_save_professionals', {
+        professionals: dbProfessionals,
+        professionals_pins: establishment.professionals_pins || [],
+        services_with_prices: servicesWithPrices || [],
+      });
+
+      const { error: updateError } = await supabase
+        .from('establishments')
+        .update({ professionals: safeProfessionals })
+        .eq('id', establishment.id);
+
+      return { error: updateError, professionals: safeProfessionals };
     });
-
-    const { error: updateError } = await supabase
-      .from('establishments')
-      .update({ professionals: safeProfessionals })
-      .eq('id', establishment.id);
-
-    return { error: updateError, professionals: safeProfessionals };
   };
 
   // Função para alternar serviço infantil do profissional
@@ -8426,6 +8450,7 @@ const EstablishmentDashboard = () => {
       }
     }
 
+    await enqueueEstablishmentProfessionalsWrite(async () => {
     try {
       console.log('💾 Salvando profissionais:', professionals);
       console.log('🔍 Verificando percentuais:', professionals.map(p => ({ name: p.name, percentage: p.percentage })));
@@ -8653,6 +8678,7 @@ const EstablishmentDashboard = () => {
       console.error('❌ Erro ao salvar profissionais:', error);
       toast.error('Erro ao salvar profissionais');
     }
+    });
   };
 
   const handleAddService = () => {
@@ -8677,7 +8703,8 @@ const EstablishmentDashboard = () => {
     if (!newPins.find((p: any) => p.professional_id === id)) {
       newPins.push({ professional_id: id, pin: '0000' });
     }
-    try {
+    await enqueueEstablishmentProfessionalsWrite(async () => {
+      try {
       const { data: establishmentData, error: fetchError } = await supabase
         .from('establishments')
         .select('professionals')
@@ -8705,6 +8732,7 @@ const EstablishmentDashboard = () => {
       console.error('Erro ao reativar profissional:', e);
       toast(e?.message || 'Erro ao reativar profissional', 'error');
     }
+    });
   };
 
   const handleFindEmergencyRecoveredProfessionals = async () => {
@@ -8873,7 +8901,8 @@ const EstablishmentDashboard = () => {
 
   const handleRestoreEmergencyProfessional = async (candidate: EmergencyRecoveredProfessionalCandidate) => {
     if (!establishment) return;
-    try {
+    await enqueueEstablishmentProfessionalsWrite(async () => {
+      try {
       const id = String(candidate.id || '').trim();
       const draftName = String(emergencyRecoveredNameDrafts[id] || '').trim();
       const fallbackName = String(candidate.name || '').trim();
@@ -8951,6 +8980,7 @@ const EstablishmentDashboard = () => {
         'error'
       );
     }
+    });
   };
 
   const handleCloseDeletedProfessionalsModal = () => {
@@ -16878,7 +16908,8 @@ Estamos te aguardando! 😎✂️`;
   const handleSaveAbsences = async () => {
     if (!selectedProfessionalForAbsence || !establishment) return;
 
-    try {
+    await enqueueEstablishmentProfessionalsWrite(async () => {
+      try {
       const absences = professionalAbsences[selectedProfessionalForAbsence] || [];
 
       // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS
@@ -16968,6 +16999,7 @@ Estamos te aguardando! 😎✂️`;
       console.error('Erro ao salvar ausências:', error);
       toast.error('Erro ao salvar ausências do profissional');
     }
+    });
   };
 
   // Função para verificar se uma data é de ausência para um profissional
@@ -18630,7 +18662,8 @@ Estamos te aguardando! 😎✂️`;
   const handleSaveBlockedHours = async () => {
     if (!selectedProfessionalForBlock || !establishment) return;
 
-    try {
+    await enqueueEstablishmentProfessionalsWrite(async () => {
+      try {
       // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS
       const { data: establishmentData, error: fetchError } = await supabase
         .from('establishments')
@@ -18751,12 +18784,14 @@ Estamos te aguardando! 😎✂️`;
       const details = formatSupabaseErrorDetails(error);
       toast.error(`Erro ao salvar horários bloqueados: ${details || 'Erro desconhecido'}`);
     }
+    });
   };
 
   const handleResetBlockedHours = async () => {
     if (!selectedProfessionalForBlock || !establishment) return;
     setShowResetBlockConfirm(false);
-    try {
+    await enqueueEstablishmentProfessionalsWrite(async () => {
+      try {
       const { data: establishmentData, error: fetchError } = await supabase
         .from('establishments')
         .select('professionals')
@@ -18831,6 +18866,7 @@ Estamos te aguardando! 😎✂️`;
       const details = formatSupabaseErrorDetails(error);
       toast.error(`Erro ao remover bloqueios: ${details || 'Erro desconhecido'}`);
     }
+    });
   };
 
   // Função para verificar se um horário está bloqueado para um profissional
