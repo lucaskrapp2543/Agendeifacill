@@ -8,7 +8,7 @@
  * O Brick renderiza campos seguros em iframes.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { initMercadoPago, CardPayment } from '@mercadopago/sdk-react';
 
 // ✅ Evitar re-inicializar o SDK a cada abrir/fechar modal.
@@ -47,8 +47,17 @@ export const CardPaymentBrick = ({
   payerData,
 }: CardPaymentBrickProps) => {
   const [isInitialized, setIsInitialized] = useState(false);
-  const [isReady, setIsReady] = useState(false);
   const initializationRef = useRef(false);
+
+  /** Evita remount do Brick a cada render do pai (ex.: digitar CEP). O CardPayment do SDK depende de onSubmit/onError. */
+  const onSubmitRef = useRef(onSubmit);
+  const onErrorRef = useRef(onError);
+  const onReadyRef = useRef(onReady);
+  useEffect(() => {
+    onSubmitRef.current = onSubmit;
+    onErrorRef.current = onError;
+    onReadyRef.current = onReady;
+  }, [onSubmit, onError, onReady]);
 
   // ✅ Inicializar Mercado Pago SDK apenas uma vez
   useEffect(() => {
@@ -87,25 +96,24 @@ export const CardPaymentBrick = ({
       console.log('✅ [MP Brick] Mercado Pago SDK inicializado');
     } catch (error) {
       console.error('❌ [MP Brick] Erro ao inicializar SDK:', error);
-      onError?.(error);
+      onErrorRef.current?.(error);
     }
-  }, [publicKey, onError]);
+  }, [publicKey]);
 
   // ✅ Handler para quando o Brick está pronto
-  const handleReady = () => {
+  const handleReady = useCallback(() => {
     console.log('✅ [MP Brick] Card Payment Brick está pronto');
-    setIsReady(true);
-    onReady?.();
-  };
+    onReadyRef.current?.();
+  }, []);
 
   // ✅ Handler para erros do Brick
-  const handleError = (error: any) => {
+  const handleError = useCallback((error: any) => {
     console.error('❌ [MP Brick] Erro no Brick:', error);
-    onError?.(error);
-  };
+    onErrorRef.current?.(error);
+  }, []);
 
   // ✅ Handler para submit do formulário
-  const handleSubmit = async (formData: any) => {
+  const handleSubmit = useCallback(async (formData: any) => {
     console.log('📦 [MP Brick] Dados completos do formulário recebidos:', JSON.stringify(formData, null, 2));
 
     // ✅ O formData do Brick pode ter campos diferentes dependendo da região
@@ -130,7 +138,7 @@ export const CardPaymentBrick = ({
     if (!token) {
       const error = new Error('Token do cartão não foi retornado pelo Brick');
       console.error('❌ [MP Brick]', error);
-      onError?.(error);
+      onErrorRef.current?.(error);
       return;
     }
 
@@ -169,14 +177,14 @@ export const CardPaymentBrick = ({
     if (!finalPaymentMethodId) {
       const error = new Error('payment_method_id não foi retornado pelo Brick e não foi possível buscar via backend');
       console.error('❌ [MP Brick]', error);
-      onError?.(error);
+      onErrorRef.current?.(error);
       return;
     }
 
     if (!finalIssuerId) {
       const error = new Error('issuer_id não foi retornado pelo Brick e não foi possível buscar via backend');
       console.error('❌ [MP Brick]', error);
-      onError?.(error);
+      onErrorRef.current?.(error);
       return;
     }
 
@@ -200,12 +208,71 @@ export const CardPaymentBrick = ({
     // ✅ Chamar callback do componente pai
     console.log('✅ [MP Brick] Chamando onSubmit do componente pai com dados validados');
     try {
-      await onSubmit(brickData);
+      await onSubmitRef.current(brickData);
     } catch (error) {
       console.error('❌ [MP Brick] Erro ao chamar onSubmit:', error);
-      onError?.(error as Error);
+      onErrorRef.current?.(error as Error);
     }
-  };
+  }, []);
+
+  // ✅ Preparar dados de inicialização (hooks antes de qualquer return condicional)
+  const initialization = useMemo(() => {
+    const payerEmail = String(payerData?.email || '').trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const docDigits = String(payerData?.identificationNumber || '').replace(/\D/g, '');
+    const hasValidPayer = Boolean(
+      payerData &&
+        emailRegex.test(payerEmail) &&
+        (docDigits.length === 11 || docDigits.length === 14) &&
+        (payerData.identificationType === 'CPF' || payerData.identificationType === 'CNPJ')
+    );
+
+    const safeAmount =
+      typeof amount === 'number' && Number.isFinite(amount) ? amount : Number(amount);
+    const init: Record<string, unknown> = {
+      amount: safeAmount,
+    };
+    if (hasValidPayer && payerData) {
+      init.payer = {
+        email: payerEmail,
+        identification: {
+          type: payerData.identificationType,
+          number: docDigits,
+        },
+        ...(payerData.firstName && payerData.lastName
+          ? {
+              firstName: payerData.firstName,
+              lastName: payerData.lastName,
+              first_name: payerData.firstName,
+              last_name: payerData.lastName,
+            }
+          : {}),
+      };
+    }
+    return init;
+  }, [
+    amount,
+    payerData?.email,
+    payerData?.identificationNumber,
+    payerData?.identificationType,
+    payerData?.firstName,
+    payerData?.lastName,
+  ]);
+
+  const customization = useMemo(
+    () => ({
+      paymentMethods: {
+        creditCard: 'all',
+        debitCard: 'all',
+      },
+      visual: {
+        style: {
+          theme: 'dark' as const,
+        },
+      },
+    }),
+    []
+  );
 
   // ✅ Não renderizar até o SDK estar inicializado
   if (!isInitialized || !publicKey) {
@@ -215,56 +282,6 @@ export const CardPaymentBrick = ({
       </div>
     );
   }
-
-  // ✅ Preparar dados de inicialização
-  // O Brick espera amount em reais (não centavos)
-  const payerEmail = String(payerData?.email || '').trim();
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const docDigits = String(payerData?.identificationNumber || '').replace(/\D/g, '');
-  const hasValidPayer = Boolean(
-    payerData &&
-      emailRegex.test(payerEmail) &&
-      (docDigits.length === 11 || docDigits.length === 14) &&
-      (payerData.identificationType === 'CPF' || payerData.identificationType === 'CNPJ')
-  );
-
-  const initialization: any = {
-    amount: amount, // Valor em reais (ex: 10.00)
-    ...(hasValidPayer
-      ? {
-          payer: {
-            email: payerEmail,
-            identification: {
-              type: payerData!.identificationType,
-              number: docDigits, // Apenas dígitos
-            },
-            ...(payerData!.firstName && payerData!.lastName
-              ? {
-                  // Alguns ambientes aceitam camelCase, outros preferem snake_case.
-                  // Enviamos ambos para reduzir inconsistências do Secure Fields.
-                  firstName: payerData!.firstName,
-                  lastName: payerData!.lastName,
-                  first_name: payerData!.firstName,
-                  last_name: payerData!.lastName,
-                }
-              : {}),
-          },
-        }
-      : {}),
-  };
-
-  // ✅ Customização do Brick (opcional)
-  const customization = {
-    paymentMethods: {
-      creditCard: 'all',
-      debitCard: 'all',
-    },
-    visual: {
-      style: {
-        theme: 'dark', // ou 'light' - ajustar conforme tema do app
-      },
-    },
-  };
 
   return (
     <div className="w-full">
