@@ -1,4 +1,4 @@
-import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
+import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Accessibility, AlertTriangle, Armchair, Bell, Building2, Calendar, CarFront, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Coffee, Copy, CreditCard, Crown, CupSoda, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Music2, Package, Phone, Plus, Receipt, Shuffle, Snowflake, Star, Tag, Trash2, TrendingUp, Tv, User, Users, UtensilsCrossed, Wifi, X, type LucideIcon } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -5118,8 +5118,8 @@ const EstablishmentDashboard = () => {
 
     let { data: clientSubscriptions, error: subscriptionsError } = subscriptionsSafeMode
       ? await supabase
-          .from('client_subscriptions')
-          .select(`
+        .from('client_subscriptions')
+        .select(`
             id,
             subscription_id,
             start_date,
@@ -5129,10 +5129,10 @@ const EstablishmentDashboard = () => {
             subscription_payment_provider,
             custom_subscription_value
           `)
-          .eq('establishment_id', establishment.id)
+        .eq('establishment_id', establishment.id)
       : await supabase
-          .from('client_subscriptions')
-          .select(`
+        .from('client_subscriptions')
+        .select(`
             id,
             subscription_id,
             start_date,
@@ -5144,7 +5144,7 @@ const EstablishmentDashboard = () => {
             custom_subscription_value,
             subscriptions(value)
           `)
-          .eq('establishment_id', establishment.id);
+        .eq('establishment_id', establishment.id);
 
     if (subscriptionsError) {
       const subscriptionErrorMsg = String(subscriptionsError.message || '').toLowerCase();
@@ -10099,15 +10099,15 @@ Estamos te aguardando! 😎✂️`;
               window.sessionStorage.getItem('manual_clients_safe_select') === '1');
           const withExtra = manualClientsSafeMode
             ? await supabase
-                .from('manual_clients')
-                .select('whatsapp')
-                .eq('establishment_id', establishment.id)
-                .limit(10000)
+              .from('manual_clients')
+              .select('whatsapp')
+              .eq('establishment_id', establishment.id)
+              .limit(10000)
             : await supabase
-                .from('manual_clients')
-                .select('whatsapp, cpf, street')
-                .eq('establishment_id', establishment.id)
-                .limit(10000);
+              .from('manual_clients')
+              .select('whatsapp, cpf, street')
+              .eq('establishment_id', establishment.id)
+              .limit(10000);
           if (withExtra.error) {
             const message = String(withExtra.error?.message || '').toLowerCase();
             const missingColumn =
@@ -24232,8 +24232,8 @@ Estamos te aguardando! 😎✂️`;
                           type="button"
                           onClick={toggleHideBookingReviews}
                           className={`px-4 py-2 rounded-lg transition-colors text-sm font-semibold ${establishment?.hide_booking_reviews
-                              ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                              : 'bg-amber-600 text-white hover:bg-amber-700'
+                            ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                            : 'bg-amber-600 text-white hover:bg-amber-700'
                             }`}
                         >
                           {establishment?.hide_booking_reviews ? 'Mostrar avaliações' : 'Ocultar avaliações'}
@@ -24260,8 +24260,8 @@ Estamos te aguardando! 😎✂️`;
                           type="button"
                           onClick={() => setReviewsStatusFilter(opt.id as any)}
                           className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${reviewsStatusFilter === opt.id
-                              ? 'bg-black text-white'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            ? 'bg-black text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                             }`}
                         >
                           {opt.label}
@@ -30613,295 +30613,295 @@ Estamos te aguardando! 😎✂️`;
                             </div>
 
                             {isExpandedClientCard && (
-                            <>
-                              <div className="flex items-center justify-between gap-2 mb-2">
-                                <span className={`px-2 py-1 rounded-lg text-[11px] font-extrabold ${nivelUi.badge}`}>
-                                  {getNivelLabel(nivel)} {chance}% {chance > 40 ? '⚠️' : ''}
-                                </span>
-                                <span className="text-[11px] text-gray-600">
-                                  Faltas: <strong className="text-gray-900">{Number(client.faltas || 0)}</strong>
-                                </span>
-                              </div>
-                            <p className="text-gray-700 flex items-center gap-2 mb-1">
-                              <Calendar className="h-4 w-4 text-gray-600" />
-                              Agendamentos: {client.appointmentCount}
-                            </p>
-                            <p className="text-gray-700 flex items-center gap-2 mb-1">
-                              <span className="text-gray-600">✅</span>
-                              Realizados: {Number(client.completedCount || 0)}
-                            </p>
-                            {editingClientContact === client.whatsapp ? (
-                              <div className="mb-3 rounded-lg border border-gray-300 bg-gray-50 p-3 space-y-2">
-                                <input
-                                  type="text"
-                                  value={newClientContactCpf}
-                                  onChange={(e) => setNewClientContactCpf(e.target.value)}
-                                  placeholder="CPF (opcional)"
-                                  className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary text-gray-900 bg-white placeholder-gray-500"
-                                />
-                                <input
-                                  type="text"
-                                  value={newClientContactStreet}
-                                  onChange={(e) => setNewClientContactStreet(e.target.value)}
-                                  placeholder="Rua / Endereço (opcional)"
-                                  className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary text-gray-900 bg-white placeholder-gray-500"
-                                />
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    disabled={isSavingClientContact}
-                                    onClick={() => handleSaveClientContact(client)}
-                                    className="px-3 py-1 rounded bg-black text-white text-xs font-bold disabled:opacity-60"
-                                  >
-                                    Salvar contato
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={isSavingClientContact}
-                                    onClick={() => {
-                                      setEditingClientContact(null);
-                                      setNewClientContactCpf('');
-                                      setNewClientContactStreet('');
-                                    }}
-                                    className="px-3 py-1 rounded bg-gray-200 text-gray-800 text-xs font-bold"
-                                  >
-                                    Cancelar
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="mb-2">
-                                <p className="text-gray-700 flex items-center gap-2 mb-1">
-                                  <span className="text-gray-600">🪪</span>
-                                  CPF: {client.cpf ? formatCpfDisplay(client.cpf) : 'Não informado'}
-                                </p>
-                                <p className="text-gray-700 flex items-center gap-2 mb-1">
-                                  <span className="text-gray-600">📍</span>
-                                  Rua: {client.street ? client.street : 'Não informado'}
-                                </p>
-                                <button
-                                  type="button"
-                                  onClick={() => handleEditClientContact(client)}
-                                  className="text-xs text-gray-700 hover:text-black font-semibold underline"
-                                >
-                                  {client.cpf || client.street ? 'Editar CPF/endereço' : 'Adicionar CPF/endereço'}
-                                </button>
-                              </div>
-                            )}
-
-                            {/* Campo de aniversário */}
-                            <div className="text-gray-700 flex items-center gap-2 mb-4">
-                              <span className="text-gray-500">🎂</span>
-                              {editingClientBirthday === client.whatsapp ? (
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={newBirthday}
-                                    onChange={(e) => setNewBirthday(formatBirthdayMask(e.target.value))}
-                                    placeholder="DD/MM/AAAA"
-                                    maxLength={10}
-                                    className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary"
-                                  />
-                                  <button
-                                    onClick={() => saveBirthday(client.whatsapp, newBirthday)}
-                                    className="text-gray-700 hover:text-black"
-                                    title="Salvar"
-                                  >
-                                    ✓
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setEditingClientBirthday(null);
-                                      setNewBirthday('');
-                                    }}
-                                    className="text-gray-600 hover:text-gray-900"
-                                    title="Cancelar"
-                                  >
-                                    ✗
-                                  </button>
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm">
-                                    {client.birthday
-                                      ? new Date(client.birthday + 'T12:00:00').toLocaleDateString('pt-BR')
-                                      : 'Não informado'
-                                    }
+                              <>
+                                <div className="flex items-center justify-between gap-2 mb-2">
+                                  <span className={`px-2 py-1 rounded-lg text-[11px] font-extrabold ${nivelUi.badge}`}>
+                                    {getNivelLabel(nivel)} {chance}% {chance > 40 ? '⚠️' : ''}
                                   </span>
-                                  <button
-                                    onClick={() => {
-                                      console.log('🎯 Cliente clicado para editar:', {
-                                        clientWhatsapp: client.whatsapp,
-                                        clientName: client.name,
-                                        currentBirthday: client.birthday
-                                      });
-                                      setEditingClientBirthday(client.whatsapp);
-                                      setNewBirthday(isoBirthdayToDisplay(client.birthday || ''));
-                                    }}
-                                    className="text-gray-600 hover:text-black text-xs"
-                                    title="Editar aniversário"
-                                  >
-                                    ✏️
-                                  </button>
+                                  <span className="text-[11px] text-gray-600">
+                                    Faltas: <strong className="text-gray-900">{Number(client.faltas || 0)}</strong>
+                                  </span>
                                 </div>
-                              )}
-                              {client.birthday && isBirthdayThisMonth(client.birthday) && (
-                                <span className="text-gray-700 text-xs font-medium">• Aniversário este mês!</span>
-                              )}
-                            </div>
+                                <p className="text-gray-700 flex items-center gap-2 mb-1">
+                                  <Calendar className="h-4 w-4 text-gray-600" />
+                                  Agendamentos: {client.appointmentCount}
+                                </p>
+                                <p className="text-gray-700 flex items-center gap-2 mb-1">
+                                  <span className="text-gray-600">✅</span>
+                                  Realizados: {Number(client.completedCount || 0)}
+                                </p>
+                                {editingClientContact === client.whatsapp ? (
+                                  <div className="mb-3 rounded-lg border border-gray-300 bg-gray-50 p-3 space-y-2">
+                                    <input
+                                      type="text"
+                                      value={newClientContactCpf}
+                                      onChange={(e) => setNewClientContactCpf(e.target.value)}
+                                      placeholder="CPF (opcional)"
+                                      className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary text-gray-900 bg-white placeholder-gray-500"
+                                    />
+                                    <input
+                                      type="text"
+                                      value={newClientContactStreet}
+                                      onChange={(e) => setNewClientContactStreet(e.target.value)}
+                                      placeholder="Rua / Endereço (opcional)"
+                                      className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary text-gray-900 bg-white placeholder-gray-500"
+                                    />
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        disabled={isSavingClientContact}
+                                        onClick={() => handleSaveClientContact(client)}
+                                        className="px-3 py-1 rounded bg-black text-white text-xs font-bold disabled:opacity-60"
+                                      >
+                                        Salvar contato
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={isSavingClientContact}
+                                        onClick={() => {
+                                          setEditingClientContact(null);
+                                          setNewClientContactCpf('');
+                                          setNewClientContactStreet('');
+                                        }}
+                                        className="px-3 py-1 rounded bg-gray-200 text-gray-800 text-xs font-bold"
+                                      >
+                                        Cancelar
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="mb-2">
+                                    <p className="text-gray-700 flex items-center gap-2 mb-1">
+                                      <span className="text-gray-600">🪪</span>
+                                      CPF: {client.cpf ? formatCpfDisplay(client.cpf) : 'Não informado'}
+                                    </p>
+                                    <p className="text-gray-700 flex items-center gap-2 mb-1">
+                                      <span className="text-gray-600">📍</span>
+                                      Rua: {client.street ? client.street : 'Não informado'}
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleEditClientContact(client)}
+                                      className="text-xs text-gray-700 hover:text-black font-semibold underline"
+                                    >
+                                      {client.cpf || client.street ? 'Editar CPF/endereço' : 'Adicionar CPF/endereço'}
+                                    </button>
+                                  </div>
+                                )}
 
-                            {/* Campo de alerta */}
-                            <div className="text-gray-700 flex items-center gap-2 mb-4">
-                              <span className="text-red-500">⚠️</span>
-                              {editingClientAlert === client.whatsapp ? (
-                                <div className="flex items-center gap-2 flex-1">
-                                  <input
-                                    type="text"
-                                    value={newAlert}
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      if (value.length <= 100) {
-                                        setNewAlert(value);
+                                {/* Campo de aniversário */}
+                                <div className="text-gray-700 flex items-center gap-2 mb-4">
+                                  <span className="text-gray-500">🎂</span>
+                                  {editingClientBirthday === client.whatsapp ? (
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={newBirthday}
+                                        onChange={(e) => setNewBirthday(formatBirthdayMask(e.target.value))}
+                                        placeholder="DD/MM/AAAA"
+                                        maxLength={10}
+                                        className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                                      />
+                                      <button
+                                        onClick={() => saveBirthday(client.whatsapp, newBirthday)}
+                                        className="text-gray-700 hover:text-black"
+                                        title="Salvar"
+                                      >
+                                        ✓
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setEditingClientBirthday(null);
+                                          setNewBirthday('');
+                                        }}
+                                        className="text-gray-600 hover:text-gray-900"
+                                        title="Cancelar"
+                                      >
+                                        ✗
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm">
+                                        {client.birthday
+                                          ? new Date(client.birthday + 'T12:00:00').toLocaleDateString('pt-BR')
+                                          : 'Não informado'
+                                        }
+                                      </span>
+                                      <button
+                                        onClick={() => {
+                                          console.log('🎯 Cliente clicado para editar:', {
+                                            clientWhatsapp: client.whatsapp,
+                                            clientName: client.name,
+                                            currentBirthday: client.birthday
+                                          });
+                                          setEditingClientBirthday(client.whatsapp);
+                                          setNewBirthday(isoBirthdayToDisplay(client.birthday || ''));
+                                        }}
+                                        className="text-gray-600 hover:text-black text-xs"
+                                        title="Editar aniversário"
+                                      >
+                                        ✏️
+                                      </button>
+                                    </div>
+                                  )}
+                                  {client.birthday && isBirthdayThisMonth(client.birthday) && (
+                                    <span className="text-gray-700 text-xs font-medium">• Aniversário este mês!</span>
+                                  )}
+                                </div>
+
+                                {/* Campo de alerta */}
+                                <div className="text-gray-700 flex items-center gap-2 mb-4">
+                                  <span className="text-red-500">⚠️</span>
+                                  {editingClientAlert === client.whatsapp ? (
+                                    <div className="flex items-center gap-2 flex-1">
+                                      <input
+                                        type="text"
+                                        value={newAlert}
+                                        onChange={(e) => {
+                                          const value = e.target.value;
+                                          if (value.length <= 100) {
+                                            setNewAlert(value);
+                                          }
+                                        }}
+                                        maxLength={100}
+                                        placeholder="Digite o alerta (máx. 100 caracteres)"
+                                        className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary flex-1"
+                                      />
+                                      <span className="text-xs text-gray-500">{newAlert.length}/100</span>
+                                      <button
+                                        onClick={() => saveAlert(client.whatsapp, newAlert)}
+                                        className="text-gray-700 hover:text-black"
+                                        title="Salvar"
+                                      >
+                                        ✓
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setEditingClientAlert(null);
+                                          setNewAlert('');
+                                        }}
+                                        className="text-gray-600 hover:text-gray-900"
+                                        title="Cancelar"
+                                      >
+                                        ✗
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-2 flex-1">
+                                      <span className={`text-sm ${client.alert ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
+                                        {client.alert || 'Nenhum alerta'}
+                                      </span>
+                                      <button
+                                        onClick={() => {
+                                          setEditingClientAlert(client.whatsapp);
+                                          setNewAlert(client.alert || '');
+                                        }}
+                                        className="text-gray-600 hover:text-black text-xs"
+                                        title="Editar alerta"
+                                      >
+                                        ✏️
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="mb-4 rounded-lg border border-gray-300 bg-gray-50 p-3">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                      <p className="text-sm font-semibold text-gray-900">Cobrança obrigatória</p>
+                                      <p className="text-xs text-gray-600">
+                                        Se ativado, este cliente só agenda mediante pagamento.
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleClientMandatoryCharge(client)}
+                                      disabled={!canUseClientMandatoryCharge}
+                                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${!canUseClientMandatoryCharge
+                                        ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                                        : client.forceAdvancePayment
+                                          ? 'bg-red-600 text-white hover:bg-red-700'
+                                          : 'bg-gray-900 text-white hover:bg-black'
+                                        }`}
+                                      title={
+                                        canUseClientMandatoryCharge
+                                          ? 'Ativar/desativar cobrança obrigatória para este cliente'
+                                          : 'Conecte Mercado Pago e deixe pagamento adiantado como opcional para liberar'
                                       }
-                                    }}
-                                    maxLength={100}
-                                    placeholder="Digite o alerta (máx. 100 caracteres)"
-                                    className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary flex-1"
-                                  />
-                                  <span className="text-xs text-gray-500">{newAlert.length}/100</span>
-                                  <button
-                                    onClick={() => saveAlert(client.whatsapp, newAlert)}
-                                    className="text-gray-700 hover:text-black"
-                                    title="Salvar"
-                                  >
-                                    ✓
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setEditingClientAlert(null);
-                                      setNewAlert('');
-                                    }}
-                                    className="text-gray-600 hover:text-gray-900"
-                                    title="Cancelar"
-                                  >
-                                    ✗
-                                  </button>
+                                    >
+                                      {client.forceAdvancePayment ? 'ATIVADO' : 'DESATIVADO'}
+                                    </button>
+                                  </div>
+                                  {!canUseClientMandatoryCharge && (
+                                    <p className="mt-2 text-[11px] text-amber-700">
+                                      Disponível somente com Mercado Pago conectado e opção global de pagamento adiantado opcional ativa.
+                                    </p>
+                                  )}
                                 </div>
-                              ) : (
-                                <div className="flex items-center gap-2 flex-1">
-                                  <span className={`text-sm ${client.alert ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
-                                    {client.alert || 'Nenhum alerta'}
-                                  </span>
-                                  <button
-                                    onClick={() => {
-                                      setEditingClientAlert(client.whatsapp);
-                                      setNewAlert(client.alert || '');
-                                    }}
-                                    className="text-gray-600 hover:text-black text-xs"
-                                    title="Editar alerta"
-                                  >
-                                    ✏️
-                                  </button>
-                                </div>
-                              )}
-                            </div>
 
-                            <div className="mb-4 rounded-lg border border-gray-300 bg-gray-50 p-3">
-                              <div className="flex items-center justify-between gap-3">
-                                <div>
-                                  <p className="text-sm font-semibold text-gray-900">Cobrança obrigatória</p>
-                                  <p className="text-xs text-gray-600">
-                                    Se ativado, este cliente só agenda mediante pagamento.
-                                  </p>
+                                <div className="flex items-center gap-2 mb-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenClientFutureAppointments(client)}
+                                    className="w-full px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors text-xs font-extrabold"
+                                  >
+                                    AGENDAMENTOS FUTUROS
+                                  </button>
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleClientMandatoryCharge(client)}
-                                  disabled={!canUseClientMandatoryCharge}
-                                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${!canUseClientMandatoryCharge
-                                      ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                                      : client.forceAdvancePayment
-                                        ? 'bg-red-600 text-white hover:bg-red-700'
-                                        : 'bg-gray-900 text-white hover:bg-black'
-                                    }`}
-                                  title={
-                                    canUseClientMandatoryCharge
-                                      ? 'Ativar/desativar cobrança obrigatória para este cliente'
-                                      : 'Conecte Mercado Pago e deixe pagamento adiantado como opcional para liberar'
-                                  }
+
+                                <div className="flex items-center gap-2 mb-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedClientInfo(client);
+                                      setShowClientInfoModal(true);
+                                    }}
+                                    className="flex-1 px-3 py-2 rounded-lg bg-gray-200 text-gray-900 hover:bg-gray-300 transition-colors text-xs font-extrabold"
+                                  >
+                                    INFORMAÇÕES
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isSavingFalta}
+                                    onClick={() => ajustarFaltaCliente(client, 1)}
+                                    className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-colors ${isSavingFalta ? 'bg-red-200 text-red-900 opacity-70 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-700'
+                                      }`}
+                                  >
+                                    FALTOU
+                                  </button>
+                                </div>
+
+                                <a
+                                  href={(() => {
+                                    let phoneNumber = client.whatsapp.replace(/\D/g, '');
+                                    // Lista de códigos de países comuns
+                                    const countryCodes = [
+                                      { code: '351', minLength: 12 },
+                                      { code: '244', minLength: 12 },
+                                      { code: '54', minLength: 12 },
+                                      { code: '56', minLength: 11 },
+                                      { code: '55', minLength: 12 },
+                                      { code: '34', minLength: 11 },
+                                      { code: '1', minLength: 11 }
+                                    ];
+                                    const hasCountryCode = countryCodes.some(({ code, minLength }) =>
+                                      phoneNumber.startsWith(code) && phoneNumber.length >= minLength
+                                    );
+                                    if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
+                                      phoneNumber = '55' + phoneNumber;
+                                    }
+                                    return `https://wa.me/${phoneNumber}`;
+                                  })()}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
                                 >
-                                  {client.forceAdvancePayment ? 'ATIVADO' : 'DESATIVADO'}
-                                </button>
-                              </div>
-                              {!canUseClientMandatoryCharge && (
-                                <p className="mt-2 text-[11px] text-amber-700">
-                                  Disponível somente com Mercado Pago conectado e opção global de pagamento adiantado opcional ativa.
-                                </p>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-2 mb-3">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenClientFutureAppointments(client)}
-                                className="w-full px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors text-xs font-extrabold"
-                              >
-                                AGENDAMENTOS FUTUROS
-                              </button>
-                            </div>
-
-                            <div className="flex items-center gap-2 mb-3">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedClientInfo(client);
-                                  setShowClientInfoModal(true);
-                                }}
-                                className="flex-1 px-3 py-2 rounded-lg bg-gray-200 text-gray-900 hover:bg-gray-300 transition-colors text-xs font-extrabold"
-                              >
-                                INFORMAÇÕES
-                              </button>
-                              <button
-                                type="button"
-                                disabled={isSavingFalta}
-                                onClick={() => ajustarFaltaCliente(client, 1)}
-                                className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-colors ${isSavingFalta ? 'bg-red-200 text-red-900 opacity-70 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-700'
-                                  }`}
-                              >
-                                FALTOU
-                              </button>
-                            </div>
-
-                              <a
-                              href={(() => {
-                                let phoneNumber = client.whatsapp.replace(/\D/g, '');
-                                // Lista de códigos de países comuns
-                                const countryCodes = [
-                                  { code: '351', minLength: 12 },
-                                  { code: '244', minLength: 12 },
-                                  { code: '54', minLength: 12 },
-                                  { code: '56', minLength: 11 },
-                                  { code: '55', minLength: 12 },
-                                  { code: '34', minLength: 11 },
-                                  { code: '1', minLength: 11 }
-                                ];
-                                const hasCountryCode = countryCodes.some(({ code, minLength }) =>
-                                  phoneNumber.startsWith(code) && phoneNumber.length >= minLength
-                                );
-                                if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
-                                  phoneNumber = '55' + phoneNumber;
-                                }
-                                return `https://wa.me/${phoneNumber}`;
-                              })()}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
-                              >
-                                <MessageSquare className="h-5 w-5" />
-                                Enviar Mensagem
-                              </a>
-                            </>
+                                  <MessageSquare className="h-5 w-5" />
+                                  Enviar Mensagem
+                                </a>
+                              </>
                             )}
                           </div>
                         );
@@ -34210,15 +34210,15 @@ Estamos te aguardando! 😎✂️`;
                                   <button
                                     onClick={() => handleToggleProductHighlightForBooking(product)}
                                     className={`w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors ${Boolean((product as any)?.highlight_for_client_booking)
-                                        ? 'bg-emerald-100 hover:bg-emerald-200'
-                                        : 'bg-gray-100 hover:bg-gray-200'
+                                      ? 'bg-emerald-100 hover:bg-emerald-200'
+                                      : 'bg-gray-100 hover:bg-gray-200'
                                       }`}
                                   >
                                     <span className="text-black">🛍️ Destacar produto para cliente</span>
                                     <span
                                       className={`text-xs font-bold px-2 py-1 rounded ${Boolean((product as any)?.highlight_for_client_booking)
-                                          ? 'bg-emerald-600 text-white'
-                                          : 'bg-gray-300 text-gray-700'
+                                        ? 'bg-emerald-600 text-white'
+                                        : 'bg-gray-300 text-gray-700'
                                         }`}
                                     >
                                       {Boolean((product as any)?.highlight_for_client_booking) ? 'ATIVADO' : 'DESATIVADO'}

@@ -681,10 +681,21 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
       process.env.MERCADOPAGO_CREDIT_PLATFORM_FEE_CENTS ||
       process.env.PLATFORM_CREDIT_FEE_CENTS ||
       '100';
-    const applicationFeeCents = Number(String(applicationFeeCentsRaw).trim());
-    const applicationFee = Number.isFinite(applicationFeeCents)
-      ? Number((applicationFeeCents / 100).toFixed(2))
+    const applicationFeeCentsParsed = Number(String(applicationFeeCentsRaw).trim());
+    const txAmountBrl = Number(amount.toFixed(2));
+    const rawFeeBrl = Number.isFinite(applicationFeeCentsParsed)
+      ? Number((applicationFeeCentsParsed / 100).toFixed(2))
       : 1;
+    // MP exige taxa de marketplace < valor da cobrança; senão o checkout recusa (ex.: assinatura R$ 1 com fee R$ 1).
+    let applicationFee = rawFeeBrl > 0 && rawFeeBrl < txAmountBrl ? rawFeeBrl : 0;
+    if (rawFeeBrl > 0 && applicationFee === 0) {
+      console.warn('[MP preapproval] application_fee omitida: valor da assinatura insuficiente para o split', {
+        txAmountBrl,
+        rawFeeBrl,
+        establishmentId: String(establishmentId),
+        subscriptionId: String(subscriptionId),
+      });
+    }
 
     const externalReference = `subscription_preapproval:${String(establishmentId)}:${String(subscriptionId)}:${Date.now()}`;
     const title = String((subscription as any)?.name || 'Assinatura').trim();
@@ -697,11 +708,9 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
       auto_recurring: {
         frequency: 1,
         frequency_type: 'months',
-        transaction_amount: Number(amount.toFixed(2)),
+        transaction_amount: txAmountBrl,
         currency_id: 'BRL',
       },
-      // Fatia da plataforma em recorrência (R$ 1,00 por padrão no crédito)
-      application_fee: applicationFee,
       metadata: {
         type: 'subscription_preapproval',
         establishment_id: String(establishmentId),
@@ -710,6 +719,9 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
       },
       status: 'pending',
     };
+    if (applicationFee > 0) {
+      payload.application_fee = applicationFee;
+    }
 
     if (!/^https:\/\//i.test(backUrlCandidate)) {
       return res.status(400).json({
@@ -738,6 +750,7 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
       amount_cents_used: Math.round(amount * 100),
       application_fee_brl_used: applicationFee,
       application_fee_cents_used: Math.round(applicationFee * 100),
+      application_fee_applied: applicationFee > 0,
     });
   } catch (error: any) {
     return res.status(500).json({

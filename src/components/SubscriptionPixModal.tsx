@@ -2,6 +2,7 @@ import { CheckCircle2, CreditCard, Loader2, MessageCircle, QrCode, X } from 'luc
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
+import { CardPaymentBrick } from './CardPaymentBrick';
 
 const onlyDigits = (v: string) => String(v || '').replace(/\D/g, '');
 
@@ -109,9 +110,13 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const [hasOpenedCreditLink, setHasOpenedCreditLink] = useState(false);
   const [creditCardLink, setCreditCardLink] = useState<string>('');
   const [isCreditClaimed, setIsCreditClaimed] = useState(false);
-  const [mpSubscriptionExternalReference, setMpSubscriptionExternalReference] = useState('');
-  const [mpSubscriptionCheckoutUrl, setMpSubscriptionCheckoutUrl] = useState('');
-  const [mpSubscriptionPreapprovalId, setMpSubscriptionPreapprovalId] = useState('');
+  /** Cobrança única no cartão (MP): endereço exigido pela API de pagamentos */
+  const [billingCep, setBillingCep] = useState('');
+  const [billingRua, setBillingRua] = useState('');
+  const [billingNumero, setBillingNumero] = useState('');
+  const [billingBairro, setBillingBairro] = useState('');
+  const [billingCidade, setBillingCidade] = useState('');
+  const [billingUf, setBillingUf] = useState('');
 
   // 🔗 Link externo (custom_link): estados do fluxo
   const [showExternalInstructions, setShowExternalInstructions] = useState(false);
@@ -222,9 +227,12 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setShowCreditInstructions(false);
     setHasOpenedCreditLink(false);
     setIsCreditClaimed(false);
-    setMpSubscriptionExternalReference('');
-    setMpSubscriptionCheckoutUrl('');
-    setMpSubscriptionPreapprovalId('');
+    setBillingCep('');
+    setBillingRua('');
+    setBillingNumero('');
+    setBillingBairro('');
+    setBillingCidade('');
+    setBillingUf('');
     setShowExternalInstructions(false);
     setHasOpenedExternalLink(false);
     setIsExternalClaimed(false);
@@ -766,127 +774,129 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     }
   };
 
-  const createExternalMercadoPagoSubscriptionCheckout = async () => {
+  /**
+   * Cartão Mercado Pago na assinatura: cobrança **única** (API /payments), não preapproval/recorrência automática.
+   * O cliente precisa pagar de novo a cada período (renovação mensal manual).
+   */
+  const handleMercadoPagoSubscriptionBrickSubmit = async (brickData: {
+    token: string;
+    payment_method_id: string;
+    issuer_id: string;
+    installments: number;
+  }) => {
     const customer = getCustomerForManualCredit();
-    if (!customer) return null;
+    if (!customer) return;
 
-    const createCheckoutUrl = import.meta.env.PROD
-      ? '/.netlify/functions/mercadopago-create-subscription-checkout'
-      : '/api/mercadopago/create-subscription-checkout';
+    const cepDigits = onlyDigits(billingCep);
+    const rua = String(billingRua || '').trim();
+    const numero = String(billingNumero || '').replace(/\D/g, '');
+    const cidade = String(billingCidade || '').trim();
+    const uf = String(billingUf || '').trim().toUpperCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    const currentUrl = new URL(window.location.href);
-    // Remove params de retorno do próprio Mercado Pago para evitar URL "poluída" em reaberturas.
-    [
-      'collection_id',
-      'collection_status',
-      'payment_id',
-      'status',
-      'external_reference',
-      'payment_type',
-      'merchant_order_id',
-      'preference_id',
-      'site_id',
-      'processing_mode',
-      'merchant_account_id',
-    ].forEach((key) => currentUrl.searchParams.delete(key));
-
-    const backUrlCandidate = currentUrl.toString();
-    const backUrl = /^https:\/\//i.test(backUrlCandidate) ? backUrlCandidate : undefined;
-
-    const resp = await fetch(createCheckoutUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        establishmentId,
-        subscriptionId: subscription.id,
-        payer: {
-          email: customer.email,
-          name: customer.name,
-          document: customer.document,
-        },
-        ...(backUrl ? { backUrl } : {}),
-      }),
-    });
-
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      const errMsg = String(data?.error || data?.message || `Erro ${resp.status}`);
-      const details = String(data?.userMessage || data?.details || '').trim();
-      throw new Error(details ? `${errMsg} (${details})` : errMsg);
+    if (cepDigits.length !== 8) {
+      toast.error('CEP inválido. Informe 8 dígitos.');
+      return;
+    }
+    if (!rua || !numero || !cidade || uf.length !== 2) {
+      toast.error('Preencha rua, número, cidade e UF do endereço de cobrança.');
+      return;
+    }
+    if (!customer.email || !emailRegex.test(customer.email)) {
+      toast.error('Email inválido.');
+      return;
     }
 
-    const checkoutUrl = String(data?.init_point || data?.sandbox_init_point || '').trim();
-    const preapprovalId = String(data?.preapproval_id || '').trim();
-    const externalReference = String(data?.external_reference || '').trim();
-    if (!checkoutUrl || !externalReference || !preapprovalId) {
-      throw new Error('Mercado Pago não retornou link externo da assinatura.');
-    }
+    const parts = String(nome || '').trim().split(/\s+/).filter(Boolean);
+    const firstName = parts[0] || 'Cliente';
+    const lastName = parts.slice(1).join(' ') || firstName;
 
-    setMpSubscriptionCheckoutUrl(checkoutUrl);
-    setMpSubscriptionExternalReference(externalReference);
-    setMpSubscriptionPreapprovalId(preapprovalId);
-    return { checkoutUrl, externalReference, preapprovalId };
-  };
+    setSelectedMethod('credit_card');
+    setIsProcessing(true);
+    setCardRefusedReason('');
 
-  const verifyExternalMercadoPagoSubscriptionPayment = async () => {
-    const externalReference = String(mpSubscriptionExternalReference || '').trim();
-    const preapprovalId = String(mpSubscriptionPreapprovalId || '').trim();
-    if (!externalReference && !preapprovalId) {
-      throw new Error('Nenhuma cobrança externa encontrada. Clique em "Pagar agora" para abrir o Mercado Pago.');
-    }
+    try {
+      const createPaymentUrl = import.meta.env.PROD
+        ? '/.netlify/functions/mercadopago-create-payment'
+        : '/api/mercadopago/create-payment';
 
-    if (preapprovalId) {
-      const preapprovalCheckUrl = import.meta.env.PROD
-        ? '/.netlify/functions/mercadopago-get-preapproval-status'
-        : '/api/mercadopago/get-preapproval-status';
-
-      const preapprovalResp = await fetch(preapprovalCheckUrl, {
+      const response = await fetch(createPaymentUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           establishmentId,
-          preapprovalId,
+          amount: amountInCents,
+          description: `Assinatura ${subscription.name} (mensal — pagamento único)`,
+          payment_method_id: brickData.payment_method_id,
+          token: brickData.token,
+          issuer_id: brickData.issuer_id,
+          installments: brickData.installments,
+          payer: {
+            email: customer.email,
+            identification: {
+              type: onlyDigits(cpf).length === 11 ? 'CPF' : 'CNPJ',
+              number: onlyDigits(cpf),
+            },
+            first_name: firstName,
+            last_name: lastName,
+            address: {
+              zip_code: cepDigits,
+              street_name: rua,
+              street_number: Number(numero) || 0,
+              neighborhood: String(billingBairro || '').trim() || '—',
+              city: cidade,
+              federal_unit: uf,
+            },
+          },
+          metadata: {
+            establishment_id: establishmentId,
+            subscription_id: subscription.id,
+            subscription_name: subscription.name,
+            subscription_oneoff_card: true,
+          },
         }),
       });
-      const preapprovalData = await preapprovalResp.json().catch(() => ({}));
-      if (preapprovalResp.ok) {
-        const preapprovalStatus = String(preapprovalData?.preapproval?.status || '').toLowerCase().trim();
-        if (preapprovalStatus === 'authorized') {
-          return {
-            paymentId: preapprovalId,
-            status: 'authorized',
-            statusDetail: 'preapproval_authorized',
-            isPreapproval: true,
-          };
-        }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          String(errorData.message || errorData.error || `Erro ${response.status}`)
+        );
       }
+
+      const result = await response.json();
+      const pid = String((result as any)?.id || '').trim();
+      const st = String((result as any)?.status || '').toLowerCase();
+
+      if (!pid) {
+        throw new Error('Mercado Pago não retornou ID do pagamento.');
+      }
+
+      setCurrentPaymentId(pid);
+      setCurrentPaymentProvider('mercadopago_card');
+      setHasOpenedCreditLink(true);
+
+      if (st === 'approved' || st === 'authorized') {
+        try {
+          await confirmSubscription(pid, 'mercadopago_card');
+          setIsPaid(true);
+          setShowCreditInstructions(false);
+          setHasOpenedCreditLink(false);
+          toast.success('Pagamento aprovado! Sua assinatura foi ativada.');
+        } catch (e: any) {
+          toast.error(`Pagamento aprovado, mas falhou ao registrar: ${e?.message || 'erro'}`);
+        }
+        return;
+      }
+
+      await createPendingSubscription(pid, 'mercadopago_card');
+      setIsCheckingPayment(true);
+      checkPaymentStatusPeriodically(pid, 'mercadopago_card');
+    } catch (err: any) {
+      toast.error(String(err?.message || 'Erro ao processar cartão'));
+    } finally {
+      setIsProcessing(false);
     }
-
-    const checkUrl = import.meta.env.PROD
-      ? '/.netlify/functions/mercadopago-get-payment-by-external-reference'
-      : '/api/mercadopago/get-payment-by-external-reference';
-
-    const response = await fetch(checkUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        establishmentId,
-        externalReference,
-      }),
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const errMsg = String(data?.error || data?.message || `Erro ${response.status}`);
-      throw new Error(errMsg);
-    }
-
-    return {
-      paymentId: String(data?.payment?.id || '').trim(),
-      status: String(data?.payment?.status || '').toLowerCase().trim(),
-      statusDetail: String(data?.payment?.status_detail || '').trim(),
-      isPreapproval: false,
-    };
   };
 
   const createPendingSubscription = async (
@@ -975,30 +985,10 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     };
 
     try {
+      // Mercado Pago: cartão = cobrança única no Brick (não abre link externo / preapproval).
       if (hasMercadoPago) {
-        const existingCheckoutUrl = String(mpSubscriptionCheckoutUrl || '').trim();
-        const existingExternalReference = String(mpSubscriptionExternalReference || '').trim();
-        const existingPreapprovalId = String(mpSubscriptionPreapprovalId || '').trim();
-        const checkout =
-          existingCheckoutUrl && existingExternalReference && existingPreapprovalId
-            ? {
-              checkoutUrl: existingCheckoutUrl,
-              externalReference: existingExternalReference,
-              preapprovalId: existingPreapprovalId,
-            }
-            : await createExternalMercadoPagoSubscriptionCheckout();
-        if (!checkout) return false;
-
-        // Pré-cria em "Meus Assinantes" como pendente já na abertura do checkout externo.
-        await createPendingSubscription(checkout.preapprovalId, 'mercadopago_card');
-        setHasOpenedCreditLink(true);
-        setSelectedMethod('credit_card');
-        const opened = openTarget(checkout.checkoutUrl);
-        if (!opened) {
-          toast.error('O navegador bloqueou a nova aba. Permita pop-ups para continuar no cartão.');
-          return false;
-        }
-        return true;
+        toast.error('Use o formulário de cartão abaixo (pagamento único neste mês).');
+        return false;
       }
 
       const customer = getCustomerForManualCredit();
@@ -1029,9 +1019,12 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   };
 
   const handleCreditNotSucceeded = () => {
-    toast.error('voce teve um erro no credito, temos opçao de pagar no pix');
+    toast.error('Não deu certo no cartão. Você pode tentar de novo ou pagar com PIX.');
     setShowCreditInstructions(false);
     setHasOpenedCreditLink(false);
+    setCurrentPaymentId('');
+    setCurrentPaymentProvider('');
+    setIsCheckingPayment(false);
   };
 
   const handleCreditPaid = async () => {
@@ -1039,44 +1032,38 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     if (!customer) return;
 
     if (hasMercadoPago) {
+      const pid = String(currentPaymentId || '').trim();
+      if (!pid) {
+        toast.error('Nenhum pagamento no cartão encontrado. Preencha o cartão acima primeiro.');
+        return;
+      }
       setIsProcessing(true);
       try {
-        const payment = await verifyExternalMercadoPagoSubscriptionPayment();
-        if (!payment.paymentId) {
-          toast.error('Ainda não encontramos o pagamento no Mercado Pago. Aguarde alguns segundos e clique em "Paguei" novamente.');
-          return;
-        }
-
-        if (payment.status === 'approved' || payment.status === 'authorized' || payment.status === 'paid') {
-          await confirmSubscription(payment.paymentId, 'mercadopago_card');
+        const { normalized, reason } = await checkPaymentStatusOnce(pid, 'mercadopago_card');
+        if (normalized === 'paid' || normalized === 'authorized' || normalized === 'approved') {
+          await confirmSubscription(pid, 'mercadopago_card');
           setIsPaid(true);
-          setCurrentPaymentId(payment.paymentId);
           setCurrentPaymentProvider('mercadopago_card');
           setShowCreditInstructions(false);
           setHasOpenedCreditLink(false);
-          toast.success(
-            payment.isPreapproval
-              ? 'Recorrência autorizada! A ativação é automática em instantes.'
-              : 'Pagamento confirmado! Sua assinatura foi ativada.'
-          );
+          setIsCheckingPayment(false);
+          toast.success('Pagamento confirmado! Sua assinatura foi ativada.');
           return;
         }
-
         if (
-          payment.status === 'rejected' ||
-          payment.status === 'refused' ||
-          payment.status === 'cancelled' ||
-          payment.status === 'canceled'
+          normalized === 'refused' ||
+          normalized === 'rejected' ||
+          normalized === 'cancelled' ||
+          normalized === 'canceled'
         ) {
           toast.error(
-            payment.statusDetail
-              ? `Pagamento não aprovado: ${payment.statusDetail}`
+            reason
+              ? `Pagamento não aprovado: ${reason}`
               : 'Pagamento não aprovado no Mercado Pago.'
           );
           return;
         }
-
-        toast.error('Pagamento ainda pendente no Mercado Pago. Finalize o checkout e tente novamente.');
+        toast.error('Pagamento ainda pendente. Aguarde alguns segundos e tente de novo.');
       } catch (e: any) {
         toast.error(String(e?.message || 'Erro ao verificar pagamento no Mercado Pago'));
       } finally {
@@ -1201,15 +1188,22 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   };
 
   const handleCreditConfirmYes = async () => {
-    const popup = window.open('', '_blank');
-    if (!popup) {
-      toast.error('Seu navegador bloqueou pop-up. Libere pop-ups para o agendeifacil.com.');
-      return;
-    }
-
     setShowCreditConfirm(false);
     setShowCreditInstructions(true);
     setHasOpenedCreditLink(false);
+
+    // Mercado Pago: pagamento único no cartão dentro do modal (Brick). Link externo só para legado Pagar.me/link.
+    if (hasMercadoPago) {
+      return;
+    }
+
+    const popup = window.open('', '_blank');
+    if (!popup) {
+      toast.error('Seu navegador bloqueou pop-up. Libere pop-ups para o agendeifacil.com.');
+      setShowCreditInstructions(false);
+      return;
+    }
+
     const opened = await handleOpenCreditPaymentLink(popup);
     if (!opened) {
       if (!popup.closed) popup.close();
@@ -1297,8 +1291,15 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
               Valor: <span className="font-semibold">R$ {Number(subscription.value || 0).toFixed(2).replace('.', ',')}</span>
             </p>
             <p className="text-xs text-gray-400 mt-2">
-              Todo mês você será lembrado para renovar sua assinatura automaticamente.
+              O plano vale por um período (geralmente 1 mês). Quando vencer, você renova com um novo pagamento.
             </p>
+            {hasMercadoPago && allowedCard ? (
+              <p className="text-xs text-amber-100/95 mt-2 rounded border border-amber-600/40 bg-amber-500/10 p-2">
+                <span className="font-semibold">Cartão (Mercado Pago):</span> cobrança <strong>única</strong> que cobre{' '}
+                <strong>este período</strong> — não há débito automático no cartão todo mês. No próximo período, pague
+                de novo aqui (cartão ou PIX).
+              </p>
+            ) : null}
           </div>
 
           {(isPaid || isCreditClaimed || isExternalClaimed) ? (
@@ -1562,54 +1563,178 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
               {showCreditInstructions ? (
                 <div ref={creditSectionRef} className="mt-4 space-y-3 border-t border-gray-800 pt-4">
-                  <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4">
-                    <p className="text-sm text-yellow-200 font-extrabold">
-                      Após pagar, volte nesta página para concluir e ativar.
-                    </p>
-                    <p className="text-xs text-yellow-200/90 mt-2">
-                      {hasMercadoPago
-                        ? (
-                          <>
-                            Você será redirecionado para o checkout oficial do Mercado Pago. Depois do pagamento,
-                            clique em <span className="font-semibold">“Paguei”</span> para validar e ativar aqui.
-                          </>
-                        )
-                        : (
-                          <>
-                            Atenção: se você pagar e não voltar aqui para clicar em <span className="font-semibold">“Paguei”</span>, mesmo que esteja pago, o sistema não conclui sua conta automaticamente.
-                          </>
-                        )}
-                    </p>
-                  </div>
+                  {hasMercadoPago ? (
+                    <>
+                      <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-4">
+                        <p className="text-sm text-amber-100 font-extrabold">Cartão — pagamento único (Mercado Pago)</p>
+                        <p className="text-xs text-amber-100/90 mt-2">
+                          Preencha o <strong>endereço de cobrança</strong> e os dados do cartão abaixo. É uma cobrança
+                          avulsa (não é recorrência automática no cartão). Cobre <strong>só este período</strong>; para
+                          renovar depois, pague de novo aqui.
+                        </p>
+                      </div>
 
-                  <button
-                    type="button"
-                    onClick={handleOpenCreditPaymentLink}
-                    disabled={isProcessing}
-                    className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {hasMercadoPago ? 'Abrir checkout Mercado Pago' : 'Pagar agora'}
-                  </button>
+                      {!(
+                        currentPaymentId &&
+                        currentPaymentProvider === 'mercadopago_card' &&
+                        isCheckingPayment
+                      ) ? (
+                        <div className="space-y-2 rounded-lg border border-gray-700 bg-[#111213] p-3">
+                          <p className="text-xs font-semibold text-gray-300">Endereço de cobrança (obrigatório)</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              value={billingCep}
+                              onChange={(e) => setBillingCep(onlyDigits(e.target.value).slice(0, 8))}
+                              className="px-2 py-1.5 rounded bg-[#1a1b1c] border border-gray-600 text-white text-sm"
+                              placeholder="CEP"
+                              inputMode="numeric"
+                            />
+                            <input
+                              value={billingUf}
+                              onChange={(e) => setBillingUf(e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2))}
+                              className="px-2 py-1.5 rounded bg-[#1a1b1c] border border-gray-600 text-white text-sm"
+                              placeholder="UF"
+                            />
+                          </div>
+                          <input
+                            value={billingRua}
+                            onChange={(e) => setBillingRua(e.target.value)}
+                            className="w-full px-2 py-1.5 rounded bg-[#1a1b1c] border border-gray-600 text-white text-sm"
+                            placeholder="Rua"
+                          />
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              value={billingNumero}
+                              onChange={(e) => setBillingNumero(e.target.value)}
+                              className="px-2 py-1.5 rounded bg-[#1a1b1c] border border-gray-600 text-white text-sm"
+                              placeholder="Número"
+                            />
+                            <input
+                              value={billingBairro}
+                              onChange={(e) => setBillingBairro(e.target.value)}
+                              className="px-2 py-1.5 rounded bg-[#1a1b1c] border border-gray-600 text-white text-sm"
+                              placeholder="Bairro"
+                            />
+                          </div>
+                          <input
+                            value={billingCidade}
+                            onChange={(e) => setBillingCidade(e.target.value)}
+                            className="w-full px-2 py-1.5 rounded bg-[#1a1b1c] border border-gray-600 text-white text-sm"
+                            placeholder="Cidade"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-2 py-4 text-blue-200">
+                          <Loader2 className="h-8 w-8 animate-spin" />
+                          <p className="text-sm">Confirmando pagamento no cartão...</p>
+                        </div>
+                      )}
 
-                  {hasOpenedCreditLink && (
-                    <div ref={creditActionsRef} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {String(import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY || '').trim() ? (
+                        !(currentPaymentId &&
+                          currentPaymentProvider === 'mercadopago_card' &&
+                          isCheckingPayment) ? (
+                          <div className="rounded-lg border border-gray-700 bg-[#111213] p-2">
+                            <CardPaymentBrick
+                              publicKey={String(import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY || '').trim()}
+                              amount={Number(subscription.value || 0)}
+                              payerData={{
+                                email: String(email || '').trim(),
+                                identificationType: onlyDigits(cpf).length === 14 ? 'CNPJ' : 'CPF',
+                                identificationNumber: onlyDigits(cpf),
+                                firstName: String(nome || '').trim().split(/\s+/)[0] || 'Cliente',
+                                lastName:
+                                  String(nome || '')
+                                    .trim()
+                                    .split(/\s+/)
+                                    .slice(1)
+                                    .join(' ') || 'Cliente',
+                              }}
+                              onSubmit={handleMercadoPagoSubscriptionBrickSubmit}
+                              onError={(err: any) => {
+                                const msg = String(err?.message || '').trim();
+                                if (msg.toLowerCase().includes('secure fields')) {
+                                  toast.error(
+                                    'Cartão indisponível no momento. Tente PIX ou desative bloqueador de anúncios.'
+                                  );
+                                } else if (msg) {
+                                  toast.error(msg);
+                                }
+                              }}
+                            />
+                          </div>
+                        ) : null
+                      ) : (
+                        <p className="text-sm text-red-300">
+                          Configure VITE_MERCADOPAGO_PUBLIC_KEY para pagar no cartão aqui.
+                        </p>
+                      )}
+
+                      {(hasOpenedCreditLink || Boolean(String(currentPaymentId || '').trim())) &&
+                      currentPaymentProvider === 'mercadopago_card' ? (
+                        <div ref={creditActionsRef} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={handleCreditPaid}
+                            disabled={isProcessing}
+                            className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            Paguei / Verificar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCreditNotSucceeded}
+                            disabled={isProcessing}
+                            className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
+                          >
+                            Não consegui
+                          </button>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4">
+                        <p className="text-sm text-yellow-200 font-extrabold">
+                          Após pagar, volte nesta página para concluir e ativar.
+                        </p>
+                        <p className="text-xs text-yellow-200/90 mt-2">
+                          Atenção: se você pagar e não voltar aqui para clicar em{' '}
+                          <span className="font-semibold">“Paguei”</span>, mesmo que esteja pago, o sistema pode não
+                          concluir sua conta automaticamente.
+                        </p>
+                      </div>
+
                       <button
                         type="button"
-                        onClick={handleCreditPaid}
+                        onClick={() => handleOpenCreditPaymentLink()}
                         disabled={isProcessing}
-                        className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                        className="w-full px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                       >
-                        Paguei
+                        Pagar agora
                       </button>
-                      <button
-                        type="button"
-                        onClick={handleCreditNotSucceeded}
-                        disabled={isProcessing}
-                        className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
-                      >
-                        Não consegui
-                      </button>
-                    </div>
+
+                      {hasOpenedCreditLink && (
+                        <div ref={creditActionsRef} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={handleCreditPaid}
+                            disabled={isProcessing}
+                            className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            Paguei
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCreditNotSucceeded}
+                            disabled={isProcessing}
+                            className="w-full px-4 py-3 rounded-lg bg-[#2a2b2c] hover:bg-[#343536] text-white font-extrabold transition-colors disabled:opacity-60 disabled:cursor-not-allowed border border-gray-700"
+                          >
+                            Não consegui
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               ) : null}

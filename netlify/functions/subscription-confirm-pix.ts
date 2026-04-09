@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
-import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
+import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { checkPaymentStatus } from '../../src/lib/pagarme-server';

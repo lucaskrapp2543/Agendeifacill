@@ -2321,8 +2321,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         return;
       }
     }
-      if (nextDividedServices.length === 0) {
-        toast.error('Adicione pelo menos 1 serviço válido em “Serviços oferecidos na assinatura” (nome, duração e limite).');
+    if (nextDividedServices.length === 0) {
+      toast.error('Adicione pelo menos 1 serviço válido em “Serviços oferecidos na assinatura” (nome, duração e limite).');
       return;
     }
 
@@ -3745,8 +3745,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           })()}
                         </p>
                       </div>
-                    <p className={`text-sm font-extrabold whitespace-nowrap ${Number(payment.amount || 0) >= 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
-                      {Number(payment.amount || 0) >= 0 ? '- ' : '+ '}{fmtBRL(Math.abs(Number(payment.amount || 0)))}
+                      <p className={`text-sm font-extrabold whitespace-nowrap ${Number(payment.amount || 0) >= 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
+                        {Number(payment.amount || 0) >= 0 ? '- ' : '+ '}{fmtBRL(Math.abs(Number(payment.amount || 0)))}
                       </p>
                     </div>
                   ))}
@@ -4313,7 +4313,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       Remover
                     </button>
                   </div>
-                    <div className="space-y-2">
+                  <div className="space-y-2">
                     <input
                       type="text"
                       value={service.name}
@@ -4325,43 +4325,43 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       placeholder="Nome do serviço"
                       className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500"
                     />
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="block text-[11px] text-gray-400 mb-1">Tempo (minutos)</label>
-                          <input
-                            type="number"
-                            min={5}
-                            step={5}
-                            value={service.duration}
-                            onChange={(e) =>
-                              setNewDividedServices((prev) =>
-                                prev.map((item) => (item.id === service.id ? { ...item, duration: Number(e.target.value || 0) } : item))
-                              )
-                            }
-                            placeholder="Ex: 30"
-                            className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[11px] text-gray-400 mb-1">Limite de atendimentos</label>
-                          <input
-                            type="number"
-                            min={1}
-                            step={1}
-                            value={service.limit}
-                            onChange={(e) =>
-                              setNewDividedServices((prev) =>
-                                prev.map((item) => (item.id === service.id ? { ...item, limit: Number(e.target.value || 0) } : item))
-                              )
-                            }
-                            placeholder="Ex: 4"
-                            className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500"
-                          />
-                        </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] text-gray-400 mb-1">Tempo (minutos)</label>
+                        <input
+                          type="number"
+                          min={5}
+                          step={5}
+                          value={service.duration}
+                          onChange={(e) =>
+                            setNewDividedServices((prev) =>
+                              prev.map((item) => (item.id === service.id ? { ...item, duration: Number(e.target.value || 0) } : item))
+                            )
+                          }
+                          placeholder="Ex: 30"
+                          className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-gray-400 mb-1">Limite de atendimentos</label>
+                        <input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={service.limit}
+                          onChange={(e) =>
+                            setNewDividedServices((prev) =>
+                              prev.map((item) => (item.id === service.id ? { ...item, limit: Number(e.target.value || 0) } : item))
+                            )
+                          }
+                          placeholder="Ex: 4"
+                          className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500"
+                        />
+                      </div>
                     </div>
-                      <p className="text-[11px] text-gray-500">
-                        Tempo = duração do serviço no agendamento. Limite = quantas vezes esse serviço pode ser usado na assinatura.
-                      </p>
+                    <p className="text-[11px] text-gray-500">
+                      Tempo = duração do serviço no agendamento. Limite = quantas vezes esse serviço pode ser usado na assinatura.
+                    </p>
                   </div>
                 </div>
               ))}
@@ -4735,11 +4735,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     <button
                       type="button"
                       onClick={() => handleToggleSubscriptionPaymentMethod(sub.id, 'pix')}
-                      className={`px-2.5 py-1 rounded-md text-xs font-extrabold border transition-colors ${
-                        isSubscriptionPixEnabled(sub)
+                      className={`px-2.5 py-1 rounded-md text-xs font-extrabold border transition-colors ${isSubscriptionPixEnabled(sub)
                           ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30'
                           : 'bg-white/5 border-white/20 text-gray-300 hover:bg-white/10'
-                      }`}
+                        }`}
                       title={isSubscriptionPixEnabled(sub) ? 'Desativar PIX nesta assinatura' : 'Ativar PIX nesta assinatura'}
                     >
                       PIX {isSubscriptionPixEnabled(sub) ? 'ATIVO' : 'OFF'}
@@ -4747,11 +4746,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     <button
                       type="button"
                       onClick={() => handleToggleSubscriptionPaymentMethod(sub.id, 'card')}
-                      className={`px-2.5 py-1 rounded-md text-xs font-extrabold border transition-colors ${
-                        isSubscriptionCardEnabled(sub)
+                      className={`px-2.5 py-1 rounded-md text-xs font-extrabold border transition-colors ${isSubscriptionCardEnabled(sub)
                           ? 'bg-sky-600/20 border-sky-500/40 text-sky-300 hover:bg-sky-600/30'
                           : 'bg-white/5 border-white/20 text-gray-300 hover:bg-white/10'
-                      }`}
+                        }`}
                       title={isSubscriptionCardEnabled(sub) ? 'Desativar Cartão nesta assinatura' : 'Ativar Cartão nesta assinatura'}
                     >
                       Cartão {isSubscriptionCardEnabled(sub) ? 'ATIVO' : 'OFF'}

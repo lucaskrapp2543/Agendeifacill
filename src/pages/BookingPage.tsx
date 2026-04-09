@@ -1,5 +1,5 @@
 import { format } from 'date-fns';
-import { Accessibility, AlertCircle, Armchair, CarFront, ChevronDown, ChevronLeft, ChevronRight, Coffee, CupSoda, Download, Home, LogOut, Music2, Snowflake, Star, ThumbsUp, Tv, type LucideIcon, Users, UtensilsCrossed, Wifi } from 'lucide-react';
+import { Accessibility, AlertCircle, Armchair, CarFront, ChevronDown, ChevronLeft, ChevronRight, Coffee, CupSoda, Download, Home, LogOut, Music2, Snowflake, Star, ThumbsUp, Tv, Users, UtensilsCrossed, Wifi, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -3178,55 +3178,55 @@ export default function BookingPage() {
                     'radial-gradient(140% 140% at 50% 0%, rgba(230,199,139,0.14) 0%, rgba(0,0,0,0.35) 45%, rgba(0,0,0,0.65) 100%)',
                 }}
               >
-                  <div className="px-4 pt-5 pb-4 text-center">
-                    <div
-                      className="text-base text-white/80"
-                      style={{ fontFamily: "'Segoe Script','Brush Script MT',cursive" }}
-                    >
-                      Bem-vindo ao nosso
-                    </div>
-                    <div className="mt-1 text-3xl sm:text-4xl font-extrabold tracking-wide text-[#E6C78B] drop-shadow">
-                      ESTABELECIMENTO
-                    </div>
+                <div className="px-4 pt-5 pb-4 text-center">
+                  <div
+                    className="text-base text-white/80"
+                    style={{ fontFamily: "'Segoe Script','Brush Script MT',cursive" }}
+                  >
+                    Bem-vindo ao nosso
+                  </div>
+                  <div className="mt-1 text-3xl sm:text-4xl font-extrabold tracking-wide text-[#E6C78B] drop-shadow">
+                    ESTABELECIMENTO
+                  </div>
 
-                    <div className="mt-4 grid grid-cols-3 gap-3">
-                      {/* Item 1 */}
-                      <div className="flex flex-col items-center">
-                        <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
-                          <div className="-rotate-45">
-                            <Home className="w-6 h-6 text-[#E6C78B]" />
-                          </div>
-                        </div>
-                        <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
-                          Ambiente<br />Aconchegante
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    {/* Item 1 */}
+                    <div className="flex flex-col items-center">
+                      <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
+                        <div className="-rotate-45">
+                          <Home className="w-6 h-6 text-[#E6C78B]" />
                         </div>
                       </div>
+                      <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
+                        Ambiente<br />Aconchegante
+                      </div>
+                    </div>
 
-                      {/* Item 2 */}
-                      <div className="flex flex-col items-center">
-                        <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
-                          <div className="-rotate-45">
-                            <Users className="w-6 h-6 text-[#E6C78B]" />
-                          </div>
-                        </div>
-                        <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
-                          Profissionais<br />Experientes
+                    {/* Item 2 */}
+                    <div className="flex flex-col items-center">
+                      <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
+                        <div className="-rotate-45">
+                          <Users className="w-6 h-6 text-[#E6C78B]" />
                         </div>
                       </div>
+                      <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
+                        Profissionais<br />Experientes
+                      </div>
+                    </div>
 
-                      {/* Item 3 */}
-                      <div className="flex flex-col items-center">
-                        <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
-                          <div className="-rotate-45">
-                            <ThumbsUp className="w-6 h-6 text-[#E6C78B]" />
-                          </div>
+                    {/* Item 3 */}
+                    <div className="flex flex-col items-center">
+                      <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
+                        <div className="-rotate-45">
+                          <ThumbsUp className="w-6 h-6 text-[#E6C78B]" />
                         </div>
-                        <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
-                          Atendimento<br />de Qualidade
-                        </div>
+                      </div>
+                      <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
+                        Atendimento<br />de Qualidade
                       </div>
                     </div>
                   </div>
+                </div>
 
                 <div className="-mt-2">
                   {/* CTA igual ao exemplo: tarja grande + botão menor escuro "encaixado" */}
@@ -3611,35 +3611,35 @@ export default function BookingPage() {
               {/* Botões NOS AVALIE e LOCAL - Abaixo dos ícones */}
               {!isSimpleBookingPageEnabled && (
                 <div className="flex gap-3 mt-6">
-                {/* Botão NOS AVALIE */}
-                <a
-                  href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`flex-1 font-extrabold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group rounded-2xl border shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${establishment?.review_link
-                    ? 'bg-white/5 border-white/10 text-white hover:bg-white/10'
-                    : 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed opacity-60'
-                    }`}
-                >
-                  <img src="/google.png" alt="Google" className="h-5 w-5 relative z-10" />
-                  <span className="relative z-10 whitespace-nowrap text-[#e6d7b1]">AVALIE-NOS</span>
-                  {establishment?.review_link && <ChevronRight className="h-4 w-4 relative z-10 opacity-80 flex-shrink-0 text-white/70" />}
-                </a>
+                  {/* Botão NOS AVALIE */}
+                  <a
+                    href={establishment?.review_link && !establishment.review_link.startsWith('http') ? `https://${establishment.review_link}` : establishment.review_link || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`flex-1 font-extrabold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group rounded-2xl border shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${establishment?.review_link
+                      ? 'bg-white/5 border-white/10 text-white hover:bg-white/10'
+                      : 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed opacity-60'
+                      }`}
+                  >
+                    <img src="/google.png" alt="Google" className="h-5 w-5 relative z-10" />
+                    <span className="relative z-10 whitespace-nowrap text-[#e6d7b1]">AVALIE-NOS</span>
+                    {establishment?.review_link && <ChevronRight className="h-4 w-4 relative z-10 opacity-80 flex-shrink-0 text-white/70" />}
+                  </a>
 
-                {/* Botão LOCAL */}
-                <a
-                  href={establishment?.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`flex-1 font-extrabold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group rounded-2xl border shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${establishment?.location_link
-                    ? 'bg-white/5 border-white/10 text-white hover:bg-white/10'
-                    : 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed opacity-60'
-                    }`}
-                >
-                  <img src="/LOCAL.png" alt="Localização" className="h-5 w-5 relative z-10" />
-                  <span className="relative z-10 whitespace-nowrap text-[#e6d7b1]">LOCAL</span>
-                  {establishment?.location_link && <ChevronRight className="h-4 w-4 relative z-10 opacity-80 flex-shrink-0 text-white/70" />}
-                </a>
+                  {/* Botão LOCAL */}
+                  <a
+                    href={establishment?.location_link && !establishment.location_link.startsWith('http') ? `https://${establishment.location_link}` : establishment.location_link || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`flex-1 font-extrabold py-3 px-4 text-sm uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 relative group rounded-2xl border shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${establishment?.location_link
+                      ? 'bg-white/5 border-white/10 text-white hover:bg-white/10'
+                      : 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed opacity-60'
+                      }`}
+                  >
+                    <img src="/LOCAL.png" alt="Localização" className="h-5 w-5 relative z-10" />
+                    <span className="relative z-10 whitespace-nowrap text-[#e6d7b1]">LOCAL</span>
+                    {establishment?.location_link && <ChevronRight className="h-4 w-4 relative z-10 opacity-80 flex-shrink-0 text-white/70" />}
+                  </a>
                 </div>
               )}
 
@@ -3740,11 +3740,10 @@ export default function BookingPage() {
                               key={service.id}
                               type="button"
                               onClick={() => handleToggleDividedSubscriberService(service)}
-                              className={`w-full text-left border rounded-2xl p-4 transition-colors ${
-                                selectedDividedSubscriberServices.some((item: any) => String(item?.id || '').trim() === String(service.id || '').trim())
+                              className={`w-full text-left border rounded-2xl p-4 transition-colors ${selectedDividedSubscriberServices.some((item: any) => String(item?.id || '').trim() === String(service.id || '').trim())
                                   ? 'border-emerald-300/70 bg-emerald-500/20'
                                   : 'border-white/10 bg-black/30 hover:bg-white/5'
-                              }`}
+                                }`}
                             >
                               <div className="flex items-center justify-between gap-3">
                                 <div>
@@ -3763,11 +3762,10 @@ export default function BookingPage() {
                             type="button"
                             onClick={() => setHasConfirmedDividedSubscriberServices(true)}
                             disabled={selectedDividedSubscriberServices.length === 0}
-                            className={`w-full rounded-lg py-2.5 font-semibold transition-colors ${
-                              selectedDividedSubscriberServices.length === 0
+                            className={`w-full rounded-lg py-2.5 font-semibold transition-colors ${selectedDividedSubscriberServices.length === 0
                                 ? 'bg-white/10 text-white/50 cursor-not-allowed'
                                 : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                            }`}
+                              }`}
                           >
                             Continuar com {selectedDividedSubscriberServices.length} serviço(s)
                           </button>
@@ -4165,87 +4163,87 @@ export default function BookingPage() {
               {/* Seção de Horário de Atendimento */}
               {!isSimpleBookingPageEnabled && (
                 <div className="mt-8 mb-6 bg-white/5 rounded-2xl p-6 shadow-[0_20px_60px_rgba(0,0,0,0.35)] border border-white/10">
-                <button
-                  onClick={() => setShowBusinessHours(!showBusinessHours)}
-                  className="w-full flex items-center justify-between gap-3 mb-4 hover:bg-white/5 p-2 rounded-xl transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-6 h-6 bg-white/10 rounded-full flex items-center justify-center border border-white/10">
-                      <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                      </svg>
+                  <button
+                    onClick={() => setShowBusinessHours(!showBusinessHours)}
+                    className="w-full flex items-center justify-between gap-3 mb-4 hover:bg-white/5 p-2 rounded-xl transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-6 h-6 bg-white/10 rounded-full flex items-center justify-center border border-white/10">
+                        <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <div className="text-left">
+                        <h3 className="text-lg font-extrabold text-white">Horário de atendimento</h3>
+                        <p className="text-sm text-white/60">Clique para ver os horários</p>
+                      </div>
                     </div>
-                    <div className="text-left">
-                      <h3 className="text-lg font-extrabold text-white">Horário de atendimento</h3>
-                      <p className="text-sm text-white/60">Clique para ver os horários</p>
-                    </div>
-                  </div>
-                  <ChevronDown
-                    className={`w-5 h-5 text-white/60 transition-transform duration-200 ${showBusinessHours ? 'rotate-180' : ''
-                      }`}
-                  />
-                </button>
+                    <ChevronDown
+                      className={`w-5 h-5 text-white/60 transition-transform duration-200 ${showBusinessHours ? 'rotate-180' : ''
+                        }`}
+                    />
+                  </button>
 
-                {showBusinessHours && establishment?.business_hours && (
-                  <div className="space-y-2">
-                    {[
-                      { dia: 'Segunda', key: 'monday' },
-                      { dia: 'Terça', key: 'tuesday' },
-                      { dia: 'Quarta', key: 'wednesday' },
-                      { dia: 'Quinta', key: 'thursday' },
-                      { dia: 'Sexta', key: 'friday' },
-                      { dia: 'Sábado', key: 'saturday' },
-                      { dia: 'Domingo', key: 'sunday' }
-                    ].map(({ dia, key }) => {
-                      const hoje = new Date().getDay();
-                      const diaDaSemana = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-                      const isHoje = diaDaSemana[hoje] === key;
-                      const horarios = establishment.business_hours[key];
+                  {showBusinessHours && establishment?.business_hours && (
+                    <div className="space-y-2">
+                      {[
+                        { dia: 'Segunda', key: 'monday' },
+                        { dia: 'Terça', key: 'tuesday' },
+                        { dia: 'Quarta', key: 'wednesday' },
+                        { dia: 'Quinta', key: 'thursday' },
+                        { dia: 'Sexta', key: 'friday' },
+                        { dia: 'Sábado', key: 'saturday' },
+                        { dia: 'Domingo', key: 'sunday' }
+                      ].map(({ dia, key }) => {
+                        const hoje = new Date().getDay();
+                        const diaDaSemana = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+                        const isHoje = diaDaSemana[hoje] === key;
+                        const horarios = establishment.business_hours[key];
 
-                      if (!horarios?.enabled) return null;
+                        if (!horarios?.enabled) return null;
 
-                      const formatHorario = (horarios: any) => {
-                        if (!horarios?.open1) return 'Fechado';
+                        const formatHorario = (horarios: any) => {
+                          if (!horarios?.open1) return 'Fechado';
 
-                        let horario = `${horarios.open1} - `;
+                          let horario = `${horarios.open1} - `;
 
-                        if (horarios.open2 && horarios.close2) {
-                          horario += `${horarios.close1} e ${horarios.open2} - ${horarios.close2}`;
-                        } else {
-                          horario += horarios.close1;
-                        }
+                          if (horarios.open2 && horarios.close2) {
+                            horario += `${horarios.close1} e ${horarios.open2} - ${horarios.close2}`;
+                          } else {
+                            horario += horarios.close1;
+                          }
 
-                        return horario;
-                      };
+                          return horario;
+                        };
 
-                      const isOpen = horarios?.enabled && horarios?.open1;
-                      const horarioText = formatHorario(horarios);
+                        const isOpen = horarios?.enabled && horarios?.open1;
+                        const horarioText = formatHorario(horarios);
 
-                      return (
-                        <div
-                          key={dia}
-                          className={`flex justify-between items-center p-3 rounded-xl border border-white/10 ${isOpen ? 'bg-emerald-500/10' : 'bg-white/5'
-                            }`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className={`w-2 h-2 rounded-full ${isOpen ? 'bg-emerald-400' : 'bg-white/30'
-                              }`}></div>
-                            <span className="text-sm font-semibold text-white">{dia}</span>
-                            {isHoje && (
-                              <span className="text-xs px-2 py-1 bg-emerald-500/15 text-emerald-200 rounded-full border border-emerald-400/20">
-                                Hoje
-                              </span>
-                            )}
+                        return (
+                          <div
+                            key={dia}
+                            className={`flex justify-between items-center p-3 rounded-xl border border-white/10 ${isOpen ? 'bg-emerald-500/10' : 'bg-white/5'
+                              }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={`w-2 h-2 rounded-full ${isOpen ? 'bg-emerald-400' : 'bg-white/30'
+                                }`}></div>
+                              <span className="text-sm font-semibold text-white">{dia}</span>
+                              {isHoje && (
+                                <span className="text-xs px-2 py-1 bg-emerald-500/15 text-emerald-200 rounded-full border border-emerald-400/20">
+                                  Hoje
+                                </span>
+                              )}
+                            </div>
+                            <span className={`text-sm font-semibold ${isOpen ? 'text-emerald-200' : 'text-white/60'
+                              }`}>
+                              {horarioText}
+                            </span>
                           </div>
-                          <span className={`text-sm font-semibold ${isOpen ? 'text-emerald-200' : 'text-white/60'
-                            }`}>
-                            {horarioText}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -4492,11 +4490,10 @@ export default function BookingPage() {
                           key={service.id}
                           type="button"
                           onClick={() => handleToggleDividedSubscriberService(service)}
-                          className={`w-full text-left border rounded-lg p-4 transition-colors ${
-                            selectedDividedSubscriberServices.some((item: any) => String(item?.id || '').trim() === String(service.id || '').trim())
+                          className={`w-full text-left border rounded-lg p-4 transition-colors ${selectedDividedSubscriberServices.some((item: any) => String(item?.id || '').trim() === String(service.id || '').trim())
                               ? 'border-emerald-300 bg-emerald-50'
                               : 'border-gray-200 hover:bg-gray-50'
-                          }`}
+                            }`}
                         >
                           <div className="flex items-center justify-between gap-3">
                             <div>
@@ -4515,11 +4512,10 @@ export default function BookingPage() {
                         type="button"
                         onClick={() => setHasConfirmedDividedSubscriberServices(true)}
                         disabled={selectedDividedSubscriberServices.length === 0}
-                        className={`w-full rounded-lg py-2.5 font-semibold transition-colors ${
-                          selectedDividedSubscriberServices.length === 0
+                        className={`w-full rounded-lg py-2.5 font-semibold transition-colors ${selectedDividedSubscriberServices.length === 0
                             ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
                             : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                        }`}
+                          }`}
                       >
                         Continuar com {selectedDividedSubscriberServices.length} serviço(s)
                       </button>

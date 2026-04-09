@@ -46,10 +46,11 @@ if (process.env.MERCADOPAGO_REDIRECT_URI) {
   console.log('   Redirect URI:', process.env.MERCADOPAGO_REDIRECT_URI);
 }
 
+import { createClient } from '@supabase/supabase-js';
 import cors from 'cors';
 import express from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
+import { checkMPPaymentStatus } from '../src/lib/mercadopago/mp-service';
 import {
   checkPaymentStatus,
   createPayment,
@@ -57,7 +58,6 @@ import {
   getOrderDetails,
   getRecipientStatus,
 } from '../src/lib/pagarme-server';
-import { checkMPPaymentStatus } from '../src/lib/mercadopago/mp-service';
 import mercadopagoRoutes from './mercadopago/mp.routes';
 
 const app = express();
@@ -69,8 +69,8 @@ const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY |
 const supabaseAdmin =
   SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
     ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      })
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
     : null;
 const SUPPORT_ADMIN_EMAILS = String(process.env.SUPPORT_ADMIN_EMAILS || 'suporteagendeifacil@gmail.com')
   .split(',')
@@ -412,7 +412,7 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
     const providerNormalized = String(provider || 'pagarme_pix').toLowerCase().trim();
     const providerFinal =
       providerNormalized === 'pagarme_card' || providerNormalized === 'pagarme_pix' ||
-      providerNormalized === 'mercadopago_card' || providerNormalized === 'mercadopago_pix'
+        providerNormalized === 'mercadopago_card' || providerNormalized === 'mercadopago_pix'
         ? providerNormalized
         : 'pagarme_pix';
     const subscriberPaymentMethod = getSubscriberPaymentMethodFromProvider(providerFinal);
@@ -1129,22 +1129,22 @@ app.post('/api/pagarme/create-payment', async (req, res) => {
       metadata,
       ...(payment_method === 'credit_card' || payment_method === 'debit_card'
         ? {
-            // Preferência: token gerado no frontend (pk_ via /tokens?appId=...)
-            card_token: String(card_token || '').trim() || undefined,
-            billing_address: billing_address || undefined,
-            // Fallback (antigo): dados do cartão (servidor tokeniza via ek_ se configurado)
-            ...(card?.number || card?.holder_name
-              ? {
-                  card: {
-                    number: String(card?.number || '').replace(/\D/g, ''),
-                    holder_name: String(card?.holder_name || '').trim(),
-                    exp_month: String(card?.exp_month || '').replace(/\D/g, ''),
-                    exp_year: String(card?.exp_year || '').replace(/\D/g, ''),
-                    cvv: String(card?.cvv || '').replace(/\D/g, ''),
-                  },
-                }
-              : {}),
-          }
+          // Preferência: token gerado no frontend (pk_ via /tokens?appId=...)
+          card_token: String(card_token || '').trim() || undefined,
+          billing_address: billing_address || undefined,
+          // Fallback (antigo): dados do cartão (servidor tokeniza via ek_ se configurado)
+          ...(card?.number || card?.holder_name
+            ? {
+              card: {
+                number: String(card?.number || '').replace(/\D/g, ''),
+                holder_name: String(card?.holder_name || '').trim(),
+                exp_month: String(card?.exp_month || '').replace(/\D/g, ''),
+                exp_year: String(card?.exp_year || '').replace(/\D/g, ''),
+                cvv: String(card?.cvv || '').replace(/\D/g, ''),
+              },
+            }
+            : {}),
+        }
         : {}),
     });
 
