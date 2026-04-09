@@ -111,14 +111,60 @@ export const handler: Handler = async (event) => {
       created_at: new Date().toISOString(),
     };
 
-    const paymentData: CreateMPPaymentRequest = {
-      amount: amountCents,
-      description,
-      payer: { email: payerEmail },
-      access_token: PLATFORM_MP_ACCESS_TOKEN,
-      payment_method_id: 'pix',
-      metadata,
-    };
+    const tokenRaw = String(body?.token || '').trim();
+    const pmIdRaw = String(body?.payment_method_id || '').trim();
+    const isCard = Boolean(tokenRaw && pmIdRaw);
+
+    let paymentData: CreateMPPaymentRequest;
+
+    if (isCard) {
+      const payer = body?.payer || {};
+      const idType = String(payer?.identification?.type || 'CPF').toUpperCase();
+      const idNum = String(payer?.identification?.number || '').replace(/\D/g, '');
+      const addr = payer?.address || {};
+      if (!payer?.email || !idNum || !(idType === 'CPF' || idType === 'CNPJ')) {
+        return json(400, { error: 'Para cartão: payer.email e payer.identification são obrigatórios' });
+      }
+      if (!addr?.zip_code || !addr?.street_name || addr?.street_number == null || !addr?.city || !addr?.federal_unit) {
+        return json(400, { error: 'Para cartão: endereço de cobrança completo é obrigatório' });
+      }
+      paymentData = {
+        amount: amountCents,
+        description,
+        access_token: PLATFORM_MP_ACCESS_TOKEN,
+        payment_method_id: pmIdRaw,
+        token: tokenRaw,
+        issuer_id: String(body?.issuer_id || '').trim() || undefined,
+        installments: Number(body?.installments) > 0 ? Number(body?.installments) : 1,
+        payer: {
+          email: String(payer.email).trim().toLowerCase(),
+          first_name: String(payer.first_name || 'Cliente').trim(),
+          last_name: String(payer.last_name || 'Cliente').trim(),
+          identification: {
+            type: idType === 'CNPJ' ? 'CNPJ' : 'CPF',
+            number: idNum,
+          },
+          address: {
+            zip_code: String(addr.zip_code).replace(/\D/g, ''),
+            street_name: String(addr.street_name || '').trim(),
+            street_number: Number(addr.street_number) || 0,
+            neighborhood: String(addr.neighborhood || '').trim() || '—',
+            city: String(addr.city || '').trim(),
+            federal_unit: String(addr.federal_unit || '').trim().slice(0, 2).toUpperCase(),
+          },
+        },
+        metadata,
+      };
+    } else {
+      paymentData = {
+        amount: amountCents,
+        description,
+        payer: { email: payerEmail },
+        access_token: PLATFORM_MP_ACCESS_TOKEN,
+        payment_method_id: 'pix',
+        metadata,
+      };
+    }
 
     const payment = await createMPPayment(paymentData);
     const paymentId = String((payment as any)?.id || '').trim();
@@ -139,9 +185,9 @@ export const handler: Handler = async (event) => {
           payment_id: paymentId,
           status: normalized,
           description,
-          qr_code: String(pixData?.qr_code || '') || null,
-          qr_code_base64: String(pixData?.qr_code_base64 || '') || null,
-          metadata,
+          qr_code: isCard ? null : String(pixData?.qr_code || '') || null,
+          qr_code_base64: isCard ? null : String(pixData?.qr_code_base64 || '') || null,
+          metadata: { ...metadata, ...(isCard ? { payment_method: 'credit_card' } : {}) },
           paid_at: normalized === 'paid' ? new Date().toISOString() : null,
           updated_at: new Date().toISOString(),
         } as any,

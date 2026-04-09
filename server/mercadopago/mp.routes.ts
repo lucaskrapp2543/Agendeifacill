@@ -401,19 +401,67 @@ router.post('/create-establishment-billing', async (req: Request, res: Response)
       description || `Regularizacao Agendei Facil - ${String((establishment as any)?.name || 'Estabelecimento')}`
     );
 
-    const payment = await createMPPayment({
-      amount: amountCents,
-      description: billingDescription,
-      payer: { email: payerEmail },
-      access_token: platformAccessToken,
-      payment_method_id: 'pix',
-      metadata: {
-        type: 'establishment_billing',
-        establishment_id: String(establishmentId),
-        source: 'establishment_dashboard',
-        created_at: new Date().toISOString(),
-      },
-    });
+    const body = req.body || {};
+    const tokenRaw = String(body?.token || '').trim();
+    const pmIdRaw = String(body?.payment_method_id || '').trim();
+    const isCard = Boolean(tokenRaw && pmIdRaw);
+
+    const metadataBase = {
+      type: 'establishment_billing',
+      establishment_id: String(establishmentId),
+      source: 'establishment_dashboard',
+      created_at: new Date().toISOString(),
+    };
+
+    let payment: Awaited<ReturnType<typeof createMPPayment>>;
+    if (isCard) {
+      const payerCard = body?.payer || {};
+      const idType = String(payerCard?.identification?.type || 'CPF').toUpperCase();
+      const idNum = String(payerCard?.identification?.number || '').replace(/\D/g, '');
+      const addr = payerCard?.address || {};
+      if (!payerCard?.email || !idNum || !(idType === 'CPF' || idType === 'CNPJ')) {
+        return res.status(400).json({ error: 'Para cartão: payer.email e payer.identification são obrigatórios' });
+      }
+      if (!addr?.zip_code || !addr?.street_name || addr?.street_number == null || !addr?.city || !addr?.federal_unit) {
+        return res.status(400).json({ error: 'Para cartão: endereço de cobrança completo é obrigatório' });
+      }
+      payment = await createMPPayment({
+        amount: amountCents,
+        description: billingDescription,
+        access_token: platformAccessToken,
+        payment_method_id: pmIdRaw,
+        token: tokenRaw,
+        issuer_id: String(body?.issuer_id || '').trim() || undefined,
+        installments: Number(body?.installments) > 0 ? Number(body?.installments) : 1,
+        payer: {
+          email: String(payerCard.email).trim().toLowerCase(),
+          first_name: String(payerCard.first_name || 'Cliente').trim(),
+          last_name: String(payerCard.last_name || 'Cliente').trim(),
+          identification: {
+            type: idType === 'CNPJ' ? 'CNPJ' : 'CPF',
+            number: idNum,
+          },
+          address: {
+            zip_code: String(addr.zip_code).replace(/\D/g, ''),
+            street_name: String(addr.street_name || '').trim(),
+            street_number: Number(addr.street_number) || 0,
+            neighborhood: String(addr.neighborhood || '').trim() || '—',
+            city: String(addr.city || '').trim(),
+            federal_unit: String(addr.federal_unit || '').trim().slice(0, 2).toUpperCase(),
+          },
+        },
+        metadata: metadataBase,
+      });
+    } else {
+      payment = await createMPPayment({
+        amount: amountCents,
+        description: billingDescription,
+        payer: { email: payerEmail },
+        access_token: platformAccessToken,
+        payment_method_id: 'pix',
+        metadata: metadataBase,
+      });
+    }
 
     const normalizedStatus = (() => {
       const raw = String((payment as any)?.status || '').toLowerCase().trim();
@@ -435,11 +483,12 @@ router.post('/create-establishment-billing', async (req: Request, res: Response)
           payment_id: String((payment as any)?.id || ''),
           status: normalizedStatus,
           description: billingDescription,
-          qr_code: String(pixData?.qr_code || '') || null,
-          qr_code_base64: String(pixData?.qr_code_base64 || '') || null,
+          qr_code: isCard ? null : String(pixData?.qr_code || '') || null,
+          qr_code_base64: isCard ? null : String(pixData?.qr_code_base64 || '') || null,
           metadata: {
             type: 'establishment_billing',
             establishment_id: String(establishmentId),
+            ...(isCard ? { payment_method: 'credit_card' } : {}),
           },
           paid_at: normalizedStatus === 'paid' ? new Date().toISOString() : null,
           updated_at: new Date().toISOString(),
