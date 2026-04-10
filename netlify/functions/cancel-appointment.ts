@@ -1,5 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
+import { minutosEfetivosCancelamentoCliente, podeCancelarAgendamento } from '../../src/utils/regrasCancelamento';
 import { json, parseJsonBody } from './_utils';
 
 export const handler: Handler = async (event) => {
@@ -51,10 +52,10 @@ export const handler: Handler = async (event) => {
   });
 
   try {
-    // Verificar se o agendamento existe
+    // Verificar se o agendamento existe e carregar prazo de cancelamento do estabelecimento (query separada: compatível se a coluna nova ainda não existir)
     const { data: existingAppointment, error: checkError } = await supabaseAdmin
       .from('appointments')
-      .select('id, status, appointment_date, appointment_time')
+      .select('id, status, appointment_date, appointment_time, establishment_id')
       .eq('id', body.appointmentId)
       .single();
 
@@ -65,12 +66,64 @@ export const handler: Handler = async (event) => {
       });
     }
 
-    // Cancelar o agendamento
-    const { data: updateData, error: cancelError } = await supabaseAdmin
+    if (String(existingAppointment.status || '').toLowerCase() === 'cancelled') {
+      return json(400, {
+        error: 'Este agendamento já está cancelado.',
+      });
+    }
+
+    let estabRow: unknown = undefined;
+    if (existingAppointment.establishment_id) {
+      const { data: est } = await supabaseAdmin
+        .from('establishments')
+        .select('*')
+        .eq('id', existingAppointment.establishment_id)
+        .single();
+      estabRow = est ?? undefined;
+    }
+
+    const minutosCancel = minutosEfetivosCancelamentoCliente(estabRow);
+    const { permitido, motivo } = podeCancelarAgendamento(
+      {
+        appointment_date: existingAppointment.appointment_date,
+        appointment_time: existingAppointment.appointment_time,
+      },
+      new Date(),
+      minutosCancel
+    );
+
+    if (!permitido) {
+      return json(
+        403,
+        {
+          error: motivo || 'Cancelamento não permitido no prazo configurado pelo estabelecimento.',
+        },
+        {
+          'Access-Control-Allow-Origin': '*',
+        }
+      );
+    }
+
+    // Cancelar o agendamento (origem cliente — link / telefone; colunas novas são opcionais)
+    let { data: updateData, error: cancelError } = await supabaseAdmin
       .from('appointments')
-      .update({ status: 'cancelled' })
+      .update({
+        status: 'cancelled',
+        cancellation_source: 'client',
+        cancellation_detail: 'Cancelado pelo cliente (API pública / ver agendamentos).',
+      } as any)
       .eq('id', body.appointmentId)
       .select();
+
+    if (cancelError && String((cancelError as any).code || '') === '42703') {
+      const retry = await supabaseAdmin
+        .from('appointments')
+        .update({ status: 'cancelled' })
+        .eq('id', body.appointmentId)
+        .select();
+      updateData = retry.data;
+      cancelError = retry.error;
+    }
 
     if (cancelError) {
       console.error('❌ Erro ao cancelar agendamento:', cancelError);

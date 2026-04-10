@@ -9,6 +9,8 @@ import { Request, Response, Router } from 'express';
 import axios from 'axios';
 // Importar de src/lib para compatibilidade (também funciona em server local)
 import { exchangeCodeForToken, getAuthorizationUrl } from '../../src/lib/mercadopago/mp-oauth';
+import { confirmPendingAppointmentFromMpPaymentMetadata } from '../../src/lib/mercadopago/confirmAppointmentFromMpPayment';
+import { reconcilePendingMercadoPagoAppointments } from '../../src/lib/mercadopago/reconcilePendingAppointmentsMp';
 import { checkMPPaymentStatus, createMPPayment, CreateMPPaymentRequest } from '../../src/lib/mercadopago/mp-service';
 
 const router = Router();
@@ -1074,6 +1076,39 @@ router.get('/check-status', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/mercadopago/reconcile-pending-appointments
+ * Body: { establishmentId: string, maxRows?: number, lookbackDays?: number }
+ */
+router.post('/reconcile-pending-appointments', async (req: Request, res: Response) => {
+  try {
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) {
+      return res.status(500).json({ error: 'Supabase admin não configurado' });
+    }
+
+    const establishmentId = String((req.body as any)?.establishmentId || '').trim();
+    if (!establishmentId) {
+      return res.status(400).json({ error: 'establishmentId é obrigatório' });
+    }
+
+    const maxRows = (req.body as any)?.maxRows;
+    const lookbackDays = (req.body as any)?.lookbackDays;
+
+    const result = await reconcilePendingMercadoPagoAppointments(supabaseAdmin, establishmentId, {
+      maxRows: typeof maxRows === 'number' ? maxRows : undefined,
+      lookbackDays: typeof lookbackDays === 'number' ? lookbackDays : undefined,
+    });
+
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('❌ [MP Routes] reconcile-pending-appointments:', error);
+    return res.status(500).json({
+      error: error?.message || 'Erro ao reconciliar agendamentos pendentes',
+    });
+  }
+});
+
+/**
  * POST /api/mercadopago/webhook
  * Webhook do Mercado Pago para notificações de pagamento
  * 
@@ -1272,6 +1307,27 @@ router.post('/webhook', async (req: Request, res: Response) => {
             }
           } catch (externalErr) {
             console.warn('⚠️ [MP Webhook] Falha ao processar assinatura externa automática:', externalErr);
+          }
+        }
+
+        const platformAccessTokenFallback = String(process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim();
+        if (platformAccessTokenFallback) {
+          try {
+            const paymentMeta = await checkMPPaymentStatus(Number(paymentId), platformAccessTokenFallback);
+            const fb = await confirmPendingAppointmentFromMpPaymentMetadata(
+              supabaseAdmin,
+              String(paymentId),
+              paymentMeta
+            );
+            if (fb.ok) {
+              return res.status(200).json({
+                message: 'Webhook agendamento confirmado via external_reference/metadata',
+                appointmentId: fb.appointmentId,
+                paymentId: String(paymentId),
+              });
+            }
+          } catch (metaErr) {
+            console.warn('⚠️ [MP Webhook] Fallback metadata agendamento:', metaErr);
           }
         }
 

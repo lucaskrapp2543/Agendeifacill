@@ -1259,6 +1259,7 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/mercadopago/oauth/callback`);
   console.log(`   POST /api/mercadopago/create-payment`);
   console.log(`   GET  /api/mercadopago/check-status`);
+  console.log(`   POST /api/mercadopago/reconcile-pending-appointments`);
   console.log('═══════════════════════════════════════════════════════════');
   console.log('');
   console.log('👀 ATENÇÃO: Os logs das requisições aparecerão AQUI neste terminal!');

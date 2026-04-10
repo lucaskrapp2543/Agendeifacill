@@ -16,6 +16,7 @@ import {
   supabase
 } from '../lib/supabase';
 import type { Establishment } from '../types/supabase';
+import { estadoCancelamentoParaAgendamentoCliente } from '../utils/regrasCancelamento';
 
 interface Appointment {
   id: string;
@@ -409,7 +410,25 @@ const PremiumDashboard = () => {
     try {
       console.log('🚫 Cancelando agendamento:', appointmentId);
 
-      const { error } = await cancelAppointment(appointmentId);
+      const apt = appointments.find((a) => a.id === appointmentId);
+      if (apt) {
+        const { permitido, motivo } = estadoCancelamentoParaAgendamentoCliente(
+          {
+            appointment_date: (apt as any).appointment_date,
+            appointment_time: (apt as any).appointment_time,
+          },
+          (apt as any).establishments
+        );
+        if (!permitido) {
+          toast.error(motivo || 'Cancelamento indisponível para este agendamento.');
+          return;
+        }
+      }
+
+      const { error } = await cancelAppointment(appointmentId, {
+        cancellation_source: 'client',
+        cancellation_detail: 'Cancelado pelo cliente no app (Premium).',
+      });
 
       if (error) {
         console.error('❌ Erro ao cancelar:', error);

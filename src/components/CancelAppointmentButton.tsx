@@ -2,7 +2,8 @@ import { useState } from "react";
 import { toast } from "react-hot-toast";
 import { supabase } from "../lib/supabase";
 import { CancellationWhatsAppModal } from "./CancellationWhatsAppModal";
-import { podeCancelarAgendamento } from "../utils/regrasCancelamento";
+import { CANCELLATION_SOURCE, updateAppointmentCancelledWithSource } from "../utils/appointmentCancellationMeta";
+import { estadoCancelamentoParaAgendamentoCliente } from "../utils/regrasCancelamento";
 
 export function CancelAppointmentButton({ appointmentId, onCancelled, appointment }) {
   const [showConfirmation, setShowConfirmation] = useState(false);
@@ -10,18 +11,15 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
   const [isLoading, setIsLoading] = useState(false);
   const [establishmentWhatsAppConfig, setEstablishmentWhatsAppConfig] = useState(null);
 
+  const { permitido: podeCancelarPeloPrazo, motivo: motivoBloqueioPrazo } = estadoCancelamentoParaAgendamentoCliente(
+    {
+      appointment_date: appointment?.appointment_date,
+      appointment_time: appointment?.appointment_time,
+    },
+    appointment?.establishments
+  );
 
   const handleCancelClick = async () => {
-    const { permitido, motivo } = podeCancelarAgendamento({
-      appointment_date: appointment?.appointment_date,
-      appointment_time: appointment?.appointment_time
-    });
-
-    if (!permitido) {
-      toast.error(motivo || 'Cancelamento indisponível para este agendamento.');
-      return;
-    }
-
     console.log('🔍 DEBUG - Iniciando cancelamento para appointment:', appointment);
     console.log('🔍 DEBUG - Establishment ID:', appointment?.establishment_id);
 
@@ -29,12 +27,25 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
     try {
       const { data: establishment, error } = await supabase
         .from('establishments')
-        .select('enable_whatsapp_notifications, whatsapp')
+        .select('enable_whatsapp_notifications, whatsapp, booking_min_cancel_minutes')
         .eq('id', appointment.establishment_id)
         .single();
 
       console.log('🔍 DEBUG - Dados do estabelecimento:', establishment);
       console.log('🔍 DEBUG - Erro ao buscar estabelecimento:', error);
+
+      const estabParaPrazo = establishment ?? appointment?.establishments;
+      const { permitido, motivo } = estadoCancelamentoParaAgendamentoCliente(
+        {
+          appointment_date: appointment?.appointment_date,
+          appointment_time: appointment?.appointment_time,
+        },
+        estabParaPrazo
+      );
+      if (!permitido) {
+        toast.error(motivo || 'Cancelamento indisponível para este agendamento.');
+        return;
+      }
 
       if (error) {
         console.error('Erro ao carregar configuração do estabelecimento:', error);
@@ -198,10 +209,14 @@ Por favor, confirme o cancelamento. Obrigado!`;
         }
       }
 
-      const { error } = await supabase
-        .from('appointments')
-        .update({ status: 'cancelled' })
-        .eq('id', appointmentId);
+      const { error } = await updateAppointmentCancelledWithSource(
+        supabase,
+        { id: appointmentId },
+        {
+          cancellation_source: CANCELLATION_SOURCE.CLIENT,
+          cancellation_detail: 'Cancelado pelo cliente (botão no app).',
+        }
+      );
 
       if (error) {
         console.error('❌ Erro ao cancelar no banco:', error);
@@ -224,9 +239,12 @@ Por favor, confirme o cancelamento. Obrigado!`;
 
   return (
     <>
+      {!podeCancelarPeloPrazo && motivoBloqueioPrazo ? (
+        <p className="text-amber-400 text-sm mb-2 max-w-md text-right">{motivoBloqueioPrazo}</p>
+      ) : null}
       <button
         onClick={handleCancelClick}
-        disabled={isLoading}
+        disabled={isLoading || !podeCancelarPeloPrazo}
         className="bg-red-500 hover:bg-red-600 disabled:bg-red-400 text-white font-bold py-2 px-4 rounded transition-colors"
       >
         {isLoading ? 'Cancelando...' : 'Cancelar Agendamento'}

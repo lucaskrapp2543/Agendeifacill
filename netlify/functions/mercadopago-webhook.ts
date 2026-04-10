@@ -1,6 +1,7 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
+import { confirmPendingAppointmentFromMpPaymentMetadata } from '../../src/lib/mercadopago/confirmAppointmentFromMpPayment';
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { checkMPPaymentStatus } from '../../src/lib/mercadopago/mp-service';
 import { json, parseJsonBody } from './_utils';
@@ -411,6 +412,19 @@ export const handler: Handler = async (event) => {
                   }
                 }
               }
+            }
+
+            const appointmentFallback = await confirmPendingAppointmentFromMpPaymentMetadata(
+              supabaseAdmin,
+              String(paymentId),
+              payment
+            );
+            if (appointmentFallback.ok) {
+              return json(200, {
+                message: 'Webhook agendamento confirmado via external_reference/metadata',
+                appointmentId: appointmentFallback.appointmentId,
+                paymentId: String(paymentId),
+              });
             }
           } catch (err) {
             console.warn('⚠️ [MP Webhook] Falha ao tentar identificar cobrança recorrente:', err);

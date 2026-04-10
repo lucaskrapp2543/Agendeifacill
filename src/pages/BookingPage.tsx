@@ -15,6 +15,14 @@ import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
 import { validatePendingClientBookingLimit } from '../utils/pendingClientBookingValidation';
 import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
+import {
+  buildStalePaymentDetail,
+  CANCELLATION_SOURCE,
+  PENDING_PAYMENT_NO_TX_MINUTES,
+  PENDING_PAYMENT_WITH_TX_MINUTES,
+  updateAppointmentCancelledWithSource,
+} from '../utils/appointmentCancellationMeta';
+import { fireMercadoPagoPendingReconcile } from '../utils/fireMercadoPagoPendingReconcile';
 
 type PublicBookingReview = {
   id: string;
@@ -1162,6 +1170,9 @@ export default function BookingPage() {
     if (!establishment) return;
 
     try {
+      // ✅ Reconciliar com Mercado Pago antes de cancelar pendências (reduz falso positivo)
+      await fireMercadoPagoPendingReconcile(establishment.id);
+
       // ✅ LIMPEZA AUTOMÁTICA: liberar horários presos por pagamento pendente antigo
       // Contexto real: em pagamentos antecipados, criamos um agendamento `pending_payment` para "segurar" a vaga.
       // Se o cliente abandona a tela, esse registro pode ficar preso e travar o horário (inclusive com transaction_id).
@@ -1170,23 +1181,38 @@ export default function BookingPage() {
       // - Com transaction_id: dar mais tempo (webhook/polling), mas cancelar se ficar velho demais
       // Obs: a liberação de horário é mais importante que manter pendências antigas indefinidamente.
 
-      const thresholdNoTxMinutes = 15;
-      const thresholdWithTxMinutes = 24 * 60; // dar 24h para confirmação assíncrona (webhook/atrasos) e evitar falso-cancelamento
+      const thresholdNoTxMinutes = PENDING_PAYMENT_NO_TX_MINUTES;
+      const thresholdWithTxMinutes = PENDING_PAYMENT_WITH_TX_MINUTES;
       const thresholdNoTxDate = new Date(Date.now() - thresholdNoTxMinutes * 60 * 1000).toISOString();
       const thresholdWithTxDate = new Date(Date.now() - thresholdWithTxMinutes * 60 * 1000).toISOString();
 
       // 1) Pendências sem transaction_id (mais antigas): cancelar
-      await supabase
-        .from('appointments')
-        .update({ status: 'cancelled', payment_status: 'failed' })
-        .eq('establishment_id', establishment.id)
-        .eq('status', 'pending_payment')
-        .is('payment_transaction_id', null)
-        .lt('created_at', thresholdNoTxDate);
+      {
+        const payload: Record<string, unknown> = {
+          status: 'cancelled',
+          payment_status: 'failed',
+          cancellation_source: CANCELLATION_SOURCE.SYSTEM_ABANDONED_CHECKOUT,
+          cancellation_detail: buildStalePaymentDetail('no_tx'),
+        };
+        const rNoTx = await supabase
+          .from('appointments')
+          .update(payload as any)
+          .eq('establishment_id', establishment.id)
+          .eq('status', 'pending_payment')
+          .is('payment_transaction_id', null)
+          .lt('created_at', thresholdNoTxDate);
+        if (rNoTx.error && String((rNoTx.error as any).code || '') === '42703') {
+          await supabase
+            .from('appointments')
+            .update({ status: 'cancelled', payment_status: 'failed' })
+            .eq('establishment_id', establishment.id)
+            .eq('status', 'pending_payment')
+            .is('payment_transaction_id', null)
+            .lt('created_at', thresholdNoTxDate);
+        }
+      }
 
       // 2) Pendências com transaction_id (muito antigas) e sem confirmação de pagamento: cancelar
-      // PostgREST não facilita expressar (A OR B) AND (C OR D) com a API fluente.
-      // Então buscamos os candidatos e cancelamos por ID de forma determinística.
       const { data: staleWithTx, error: staleWithTxError } = await supabase
         .from('appointments')
         .select('id,payment_status,pix_payment_status')
@@ -1208,10 +1234,11 @@ export default function BookingPage() {
           .filter(Boolean);
 
         if (idsToCancel.length > 0) {
-          await supabase
-            .from('appointments')
-            .update({ status: 'cancelled', payment_status: 'failed' })
-            .in('id', idsToCancel);
+          await updateAppointmentCancelledWithSource(supabase, { ids: idsToCancel }, {
+            cancellation_source: CANCELLATION_SOURCE.SYSTEM_PAYMENT_TIMEOUT,
+            cancellation_detail: buildStalePaymentDetail('with_tx'),
+            payment_status: 'failed',
+          });
         }
       }
 

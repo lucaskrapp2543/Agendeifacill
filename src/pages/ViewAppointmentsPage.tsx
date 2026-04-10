@@ -7,7 +7,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PhoneLoginModal } from '../components/PhoneLoginModal';
 import { SuccessBookingModal } from '../components/SuccessBookingModal';
 import { getAppointmentsByPhone, supabase } from '../lib/supabase';
-import { podeCancelarAgendamento } from '../utils/regrasCancelamento';
+import { CANCELLATION_SOURCE } from '../utils/appointmentCancellationMeta';
+import { estadoCancelamentoParaAgendamentoCliente } from '../utils/regrasCancelamento';
 
 export default function ViewAppointmentsPage() {
   const navigate = useNavigate();
@@ -239,10 +240,13 @@ export default function ViewAppointmentsPage() {
       return;
     }
 
-    const { permitido, motivo } = podeCancelarAgendamento({
-      appointment_date: appointment.appointment_date,
-      appointment_time: appointment.appointment_time
-    });
+    const { permitido, motivo } = estadoCancelamentoParaAgendamentoCliente(
+      {
+        appointment_date: appointment.appointment_date,
+        appointment_time: appointment.appointment_time,
+      },
+      appointment.establishments
+    );
 
     if (!permitido) {
       toast.error(motivo || 'Cancelamento indisponível para este agendamento.');
@@ -324,11 +328,21 @@ export default function ViewAppointmentsPage() {
       // Se falhar por RLS, tentar via API server-side
       console.log('🔄 Cancelando agendamento...');
       
-      const { data: updateData, error: cancelError } = await supabase
+      const cancelPayload: Record<string, unknown> = {
+        status: 'cancelled',
+        cancellation_source: CANCELLATION_SOURCE.CLIENT,
+        cancellation_detail: 'Cancelado pelo cliente (página meus agendamentos / telefone).',
+      };
+      let { data: updateData, error: cancelError } = await supabase
         .from('appointments')
-        .update({ status: 'cancelled' })
+        .update(cancelPayload as any)
         .eq('id', appointmentId)
         .select();
+      if (cancelError && String((cancelError as any).code || '') === '42703') {
+        const fb = await supabase.from('appointments').update({ status: 'cancelled' }).eq('id', appointmentId).select();
+        cancelError = fb.error;
+        updateData = fb.data;
+      }
 
       console.log('🔍 DEBUG - Resultado do cancelamento direto:', {
         hasError: !!cancelError,
@@ -1112,7 +1126,15 @@ Por favor, confirme o cancelamento. Obrigado!`;
               </p>
             </div>
 
-            {appointments.map((appointment) => (
+            {appointments.map((appointment) => {
+              const cancelEstado = estadoCancelamentoParaAgendamentoCliente(
+                {
+                  appointment_date: appointment.appointment_date,
+                  appointment_time: appointment.appointment_time,
+                },
+                appointment.establishments
+              );
+              return (
               <div
                 key={appointment.id}
                 className="p-6 transition-shadow"
@@ -1225,13 +1247,29 @@ Por favor, confirme o cancelamento. Obrigado!`;
 
                     {/* Botão de Cancelamento */}
                     {appointment.status !== 'cancelled' && (
-                      <button
-                        onClick={() => handleCancelAppointment(appointment.id)}
-                        className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium flex items-center justify-center gap-2"
-                      >
-                        <X className="w-4 h-4" />
-                        Cancelar Agendamento
-                      </button>
+                      <>
+                        {!cancelEstado.permitido && cancelEstado.motivo ? (
+                          <p
+                            className="text-sm rounded-lg p-3 border"
+                            style={{
+                              color: '#FCD34D',
+                              background: 'rgba(180,83,9,0.15)',
+                              borderColor: 'rgba(245,158,11,0.35)',
+                            }}
+                          >
+                            {cancelEstado.motivo}
+                          </p>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => handleCancelAppointment(appointment.id)}
+                          disabled={!cancelEstado.permitido}
+                          className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:pointer-events-none transition-colors font-medium flex items-center justify-center gap-2"
+                        >
+                          <X className="w-4 h-4" />
+                          Cancelar Agendamento
+                        </button>
+                      </>
                     )}
 
                   </div>
@@ -1239,7 +1277,8 @@ Por favor, confirme o cancelamento. Obrigado!`;
 
                 {/* Removido: 2º clique "Confirmar cancelamento". Agora abre WhatsApp automaticamente ao cancelar. */}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

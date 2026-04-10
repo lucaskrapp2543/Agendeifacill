@@ -630,14 +630,27 @@ export const updateEstablishment = async (id: string, data: any) => {
         .single();
 
       if (currentData?.professionals) {
-        // Mesclar as fotos existentes com os novos dados
+        // Mesclar com o que já está no banco (foto + flags que o caller pode omitir por engano)
         const currentProfessionals = currentData.professionals;
         const updatedProfessionals = professionals.map((newProf: any) => {
-          const existingProf = currentProfessionals.find((curr: any) => curr.id === newProf.id);
+          const existingProf = currentProfessionals.find((curr: any) => curr.id === newProf.id) || {};
+          const hiddenBooking =
+            typeof newProf.hidden_from_booking === 'boolean'
+              ? newProf.hidden_from_booking
+              : typeof existingProf.hidden_from_booking === 'boolean'
+                ? existingProf.hidden_from_booking
+                : Boolean((existingProf as any).oculto_da_reserva);
+          const ocultoReserva =
+            typeof newProf.oculto_da_reserva === 'boolean'
+              ? newProf.oculto_da_reserva
+              : typeof (existingProf as any).oculto_da_reserva === 'boolean'
+                ? (existingProf as any).oculto_da_reserva
+                : Boolean(existingProf.hidden_from_booking);
           return {
             ...newProf,
-            // Preservar a photo_url se existir
-            photo_url: existingProf?.photo_url || newProf.photo_url
+            photo_url: existingProf?.photo_url || newProf.photo_url,
+            hidden_from_booking: hiddenBooking,
+            oculto_da_reserva: ocultoReserva,
           };
         });
 
@@ -651,12 +664,11 @@ export const updateEstablishment = async (id: string, data: any) => {
       services_with_prices
     });
 
-    // Atualiza os dados do estabelecimento
+    // Atualiza os dados do estabelecimento (sem repetir `professionals`: a referência antiga sobrescrevia o array mesclado acima)
     const { data, error } = await supabase
       .from('establishments')
       .update({
         ...establishmentData,
-        professionals,
         services_with_prices
       })
       .eq('id', id)
@@ -1601,14 +1613,21 @@ export const addPremiumDrawColumns = async () => {
   }
 };
 
-// Cancel appointment function
-export const cancelAppointment = async (appointmentId: string) => {
-  return await supabase
-    .from('appointments')
-    .update({ status: 'cancelled' })
-    .eq('id', appointmentId)
-    .select()
-    .single();
+// Cancel appointment function (opcional: origem para notificação/histórico — colunas podem não existir no banco)
+export const cancelAppointment = async (
+  appointmentId: string,
+  opts?: { cancellation_source?: string; cancellation_detail?: string | null }
+) => {
+  const withMeta: Record<string, unknown> = { status: 'cancelled' };
+  if (opts?.cancellation_source) {
+    withMeta.cancellation_source = opts.cancellation_source;
+    withMeta.cancellation_detail = opts.cancellation_detail ?? null;
+  }
+  const first = await supabase.from('appointments').update(withMeta as any).eq('id', appointmentId).select().single();
+  if (first.error && String((first.error as any).code || '') === '42703' && opts?.cancellation_source) {
+    return await supabase.from('appointments').update({ status: 'cancelled' }).eq('id', appointmentId).select().single();
+  }
+  return first;
 };
 
 // Backup usando localStorage (solução temporária para problemas de RLS)

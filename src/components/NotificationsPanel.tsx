@@ -3,6 +3,7 @@ import { Bell, X, CheckCircle, XCircle, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './ui/Toaster';
 import { dlog } from '../utils/debugConsole';
+import { describeCancellationSourcePt } from '../utils/appointmentCancellationMeta';
 
 interface Notification {
   id: string;
@@ -12,6 +13,8 @@ interface Notification {
   appointment_id?: string;
   read: boolean;
   created_at: string;
+  /** JSON gravado pelo trigger (ex.: cancellation_source) — coluna opcional no banco */
+  metadata?: Record<string, unknown> | null;
 }
 
 interface AppointmentNotificationSnapshot {
@@ -25,6 +28,8 @@ interface AppointmentNotificationSnapshot {
   professional_name?: string | null;
   professional?: string | null;
   is_waitlist?: boolean | null;
+  cancellation_source?: string | null;
+  cancellation_detail?: string | null;
 }
 
 interface NotificationsPanelProps {
@@ -42,6 +47,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
   const [filter, setFilter] = useState<'all' | 'new_appointment' | 'cancelled_appointment'>('all');
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  const [expandedReasonIds, setExpandedReasonIds] = useState<Set<string>>(new Set());
 
   const isUuid = (value?: string | null) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
@@ -90,6 +96,36 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
     return closeToCreation;
   };
 
+  const formatCancelledReasonText = (notification: Notification): string => {
+    const meta = notification.metadata as Record<string, unknown> | null | undefined;
+    const srcMeta = meta?.cancellation_source != null ? String(meta.cancellation_source) : '';
+    const detailMeta = meta?.cancellation_detail != null ? String(meta.cancellation_detail) : '';
+
+    const snap = notification.appointment_id ? appointmentDetailsMap[notification.appointment_id] : undefined;
+    const srcSnap = snap?.cancellation_source ? String(snap.cancellation_source) : '';
+    const detailSnap = snap?.cancellation_detail ? String(snap.cancellation_detail) : '';
+
+    const effectiveSrc = srcMeta || srcSnap;
+    const effectiveDetail = detailMeta || detailSnap;
+
+    if (!effectiveSrc && !effectiveDetail) {
+      return (
+        'Cancelamento registrado antes do rastreamento de motivo, ou sem origem salva.\n\n' +
+        'Pode ter sido: cliente pelo app, painel da barbearia, ou liberação automática de reserva com pagamento pendente. ' +
+        'Nos novos cancelamentos, a origem aparece aqui automaticamente.'
+      );
+    }
+
+    const lines: string[] = [];
+    if (effectiveSrc) {
+      lines.push(`Origem: ${describeCancellationSourcePt(effectiveSrc)}`);
+    }
+    if (effectiveDetail) {
+      lines.push(`Detalhe: ${effectiveDetail}`);
+    }
+    return lines.join('\n');
+  };
+
   const buildNotificationMessage = (notification: Notification) => {
     const snapshot = notification.appointment_id ? appointmentDetailsMap[notification.appointment_id] : undefined;
     if (snapshot) {
@@ -134,6 +170,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       const safeSelect =
         'id, created_at, client_name, service, appointment_date, appointment_time, professional';
       const selectAttempts = [
+        'id, created_at, client_name, service, appointment_date, appointment_time, professional_name, professional, is_waitlist, cancellation_source, cancellation_detail',
         'id, created_at, client_name, service, appointment_date, appointment_time, professional_name, professional, is_waitlist',
         'id, created_at, client_name, service, appointment_date, appointment_time, professional_name, professional',
         'id, created_at, client_name, service, appointment_date, appointment_time, professional, is_waitlist',
@@ -592,6 +629,30 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
                         <p className="text-xs text-gray-400 mt-2">
                           {new Date(notification.created_at).toLocaleString('pt-BR')}
                         </p>
+                        {notification.type === 'cancelled_appointment' && (
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedReasonIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(notification.id)) next.delete(notification.id);
+                                  else next.add(notification.id);
+                                  return next;
+                                });
+                              }}
+                              className="text-xs font-semibold text-blue-700 hover:text-blue-900 underline"
+                            >
+                              {expandedReasonIds.has(notification.id) ? 'Ocultar motivo' : 'Ver motivo'}
+                            </button>
+                            {expandedReasonIds.has(notification.id) && (
+                              <p className="mt-2 text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded-md p-2 whitespace-pre-wrap">
+                                {formatCancelledReasonText(notification)}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

@@ -1,8 +1,9 @@
 import { format, parse, parseISO } from 'date-fns';
-import { Calendar, ChevronLeft, ChevronRight, Clock, Crown, Package, Phone, Plus, Trash2, User, X } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Clock, Coins, Crown, Package, Phone, Plus, Trash2, User, X } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { CANCELLATION_SOURCE } from '../utils/appointmentCancellationMeta';
 import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
 import { ChangeAppointmentServiceModal } from './ChangeAppointmentServiceModal';
 import { ProfessionalInfoModal } from './ProfessionalInfoModal';
@@ -79,6 +80,8 @@ interface Appointment {
   is_squeeze?: boolean; // Indica se é um encaixe
   created_at?: string;
   is_establishment_booking?: boolean;
+  /** Gorjeta 100% para o profissional (fora da % do serviço) */
+  professional_tip_amount?: number | null;
 }
 
 interface ServiceSubcategoryLabel {
@@ -319,6 +322,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [appointmentHistoryRows, setAppointmentHistoryRows] = useState<AppointmentChangeLog[]>([]);
     const [isLoadingAppointmentHistory, setIsLoadingAppointmentHistory] = useState(false);
     const [showSubscriberAttendanceModal, setShowSubscriberAttendanceModal] = useState(false);
+    const [tipModalAppointment, setTipModalAppointment] = useState<Appointment | null>(null);
+    const [tipModalInput, setTipModalInput] = useState('');
+    const [isSavingProfessionalTip, setIsSavingProfessionalTip] = useState(false);
     const [subscriberOptions, setSubscriberOptions] = useState<Array<{
       id: string;
       display_name: string;
@@ -579,6 +585,43 @@ export const AllProfessionalsAppointmentsView: React.FC<
           if (saleCommissionsResult.error) throw saleCommissionsResult.error;
           if (paymentsResult.error) throw paymentsResult.error;
 
+          const [subsCfgRes, clientSubsCfgRes] = await Promise.all([
+            supabase
+              .from('subscriptions')
+              .select('id, fixed_commission_value, divide_total_enabled')
+              .eq('establishment_id', establishment.id),
+            supabase
+              .from('client_subscriptions')
+              .select('id, subscription_id')
+              .eq('establishment_id', establishment.id),
+          ]);
+          if (subsCfgRes.error) throw subsCfgRes.error;
+          if (clientSubsCfgRes.error) throw clientSubsCfgRes.error;
+
+          const parseDivideApptView = (v: unknown): boolean => {
+            if (typeof v === 'boolean') return v;
+            if (typeof v === 'number') return v === 1;
+            const s = String(v ?? '').trim().toLowerCase();
+            return s === 'true' || s === '1' || s === 't' || s === 'sim' || s === 'yes' || s === 'on';
+          };
+          const subscriptionPointsModeApptView = new Map<string, boolean>();
+          ((subsCfgRes.data as any[]) || []).forEach((row: any) => {
+            const id = String(row?.id || '').trim();
+            if (!id) return;
+            const fixed = Number(row?.fixed_commission_value || 0);
+            const divide = parseDivideApptView(row?.divide_total_enabled);
+            subscriptionPointsModeApptView.set(id, !divide && !(fixed > 0));
+          });
+          const pointsModeByClientSubApptView = new Map<string, boolean>();
+          ((clientSubsCfgRes.data as any[]) || []).forEach((row: any) => {
+            const cid = String(row?.id || '').trim();
+            const sid = String(row?.subscription_id || '').trim();
+            if (!cid || !sid) return;
+            if (subscriptionPointsModeApptView.get(sid) === true) {
+              pointsModeByClientSubApptView.set(cid, true);
+            }
+          });
+
           const normalizeKey = (value: string) => String(value || '').trim().toLowerCase();
           const totalsByName: Record<
             string,
@@ -618,9 +661,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
           ((attendancesResult.data as any[]) || []).forEach((row: any) => {
             const key = ensure(String(row?.professional_name || ''));
             if (!key) return;
-            totalsByName[key].accumulated += Number(row?.repass_value || 0);
-            totalsByName[key].attendanceCount += 1;
             const subId = String(row?.client_subscription_id || '').trim();
+            const skipMoneyRepass = Boolean(subId) && pointsModeByClientSubApptView.get(subId) === true;
+            if (!skipMoneyRepass) {
+              totalsByName[key].accumulated += Number(row?.repass_value || 0);
+            }
+            totalsByName[key].attendanceCount += 1;
             if (subId) totalsByName[key].uniqueClientIds.add(subId);
           });
 
@@ -1303,17 +1349,24 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const subscriptionValue = Number(subCfg?.value || 0);
         const fallbackFromAppointmentPrice = Number((apt as any)?.price || 0);
         const configuredFixed = Number(subCfg?.fixed_commission_value || 0);
-        // Compatibilidade: quando "Dividir valor total" estiver ativo e sem repasse configurado,
-        // considera 100% do valor da assinatura para evitar quebrar fluxos antigos.
-        const baseFixed = Number.isFinite(configuredFixed) && configuredFixed > 0
-          ? configuredFixed
-          : Number.isFinite(subscriptionValue) && subscriptionValue > 0
-            ? subscriptionValue
-            : Number.isFinite(fallbackFromAppointmentPrice) && fallbackFromAppointmentPrice > 0
-              ? fallbackFromAppointmentPrice
-              : 0;
-        if (divideEnabled && (!(Number.isFinite(configuredFixed) && configuredFixed > 0)) && baseFixed > 0) {
-          toast('Repasse não configurado nesta assinatura. Calculando automaticamente como 100% do valor da assinatura.', 'warning');
+        // Repasse explícito na assinatura (>0) sempre manda.
+        // Com "Dividir valor total" e sem repasse fixo: mantém compat (100% do valor da assinatura).
+        // Sem divisão e repasse 0%: modo pontos — não gravar valor financeiro no atendimento (repasse R$ 0).
+        let baseFixed = 0;
+        if (Number.isFinite(configuredFixed) && configuredFixed > 0) {
+          baseFixed = configuredFixed;
+        } else if (divideEnabled) {
+          baseFixed =
+            Number.isFinite(subscriptionValue) && subscriptionValue > 0
+              ? subscriptionValue
+              : Number.isFinite(fallbackFromAppointmentPrice) && fallbackFromAppointmentPrice > 0
+                ? fallbackFromAppointmentPrice
+                : 0;
+          if (baseFixed > 0) {
+            toast('Repasse não configurado nesta assinatura. Calculando automaticamente como 100% do valor da assinatura.', 'warning');
+          }
+        } else {
+          baseFixed = 0;
         }
 
         // Comissão de venda (se existir) => atendimentos saem do valor restante
@@ -1381,6 +1434,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
           .insert(payload);
         if (insErr) throw insErr;
 
+        const subscriberPointsModeSuccess = !divideEnabled && !(Number(configuredFixed) > 0);
+
         const clickedAt = format(new Date(), 'dd/MM/yyyy HH:mm:ss');
         await writeAppointmentChangeLog({
           appointmentId: apt.id,
@@ -1400,7 +1455,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
           },
         });
 
-        toast('✅ Atendimento registrado e agendamento concluído!', 'success');
+        toast(
+          subscriberPointsModeSuccess
+            ? '✅ Atendimento registrado (1 ponto — modo pontos, sem repasse em R$). Agendamento concluído!'
+            : '✅ Atendimento registrado e agendamento concluído!',
+          'success'
+        );
         handleCloseSubscriberAttendanceModal();
         if (onAppointmentUpdate) onAppointmentUpdate();
       } catch (e) {
@@ -1966,6 +2026,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return total;
     };
 
+    const getProfessionalTipAmount = (apt: Appointment): number => {
+      const n = Number((apt as any)?.professional_tip_amount ?? 0);
+      if (!Number.isFinite(n) || n <= 0) return 0;
+      return Math.round(n * 100) / 100;
+    };
+
     const getIntervaloAgendaMinutos = (): number => {
       // Mesma regra usada no backend do estabelecimento / configs
       const use15 = use15MinuteInterval ?? Boolean(establishment?.use_15_minute_interval);
@@ -2463,10 +2529,21 @@ export const AllProfessionalsAppointmentsView: React.FC<
           return code === 'P0001' && message.includes('bloqueado para este profissional');
         };
 
-        let { error } = await supabase
-          .from('appointments')
-          .update({ status: newStatus })
-          .eq('id', appointmentId);
+        const cancelPayload =
+          newStatus === 'cancelled'
+            ? ({
+                status: 'cancelled',
+                cancellation_source: CANCELLATION_SOURCE.ESTABLISHMENT_STAFF,
+                cancellation_detail: 'Cancelado pelo painel de agenda (ações rápidas).',
+              } as Record<string, unknown>)
+            : { status: newStatus };
+
+        let { error } = await supabase.from('appointments').update(cancelPayload as any).eq('id', appointmentId);
+
+        if (error && newStatus === 'cancelled' && String((error as any).code || '') === '42703') {
+          const fb = await supabase.from('appointments').update({ status: 'cancelled' }).eq('id', appointmentId);
+          error = fb.error;
+        }
 
         // Compatibilidade: se o banco estiver com trigger de bloqueio estrito e for concluir no dia atual,
         // tenta novamente com override explícito (sem quebrar bancos legados).
@@ -2642,6 +2719,68 @@ export const AllProfessionalsAppointmentsView: React.FC<
       } catch (error: any) {
         console.error('Erro ao atualizar valor:', error);
         toast(error.message || 'Erro ao atualizar valor');
+      }
+    };
+
+    const handleCloseTipModal = () => {
+      if (isSavingProfessionalTip) return;
+      setTipModalAppointment(null);
+      setTipModalInput('');
+    };
+
+    const handleSaveProfessionalTip = async () => {
+      if (!tipModalAppointment) return;
+      const rawTrim = String(tipModalInput || '').trim();
+      let rounded = 0;
+      if (rawTrim !== '') {
+        const numericValue = parseFloat(rawTrim.replace(/\./g, '').replace(',', '.'));
+        if (Number.isNaN(numericValue) || numericValue < 0) {
+          toast('Informe um valor válido (ex.: 10 ou 10,50) ou deixe vazio para zerar.');
+          return;
+        }
+        rounded = Math.round(numericValue * 100) / 100;
+      }
+      setIsSavingProfessionalTip(true);
+      try {
+        const payload: any = { professional_tip_amount: rounded };
+        let { error } = await supabase.from('appointments').update(payload).eq('id', tipModalAppointment.id);
+        if (error) {
+          const msg = String((error as any)?.message || '').toLowerCase();
+          if (msg.includes('professional_tip') || (msg.includes('column') && msg.includes('tip'))) {
+            toast.error(
+              'Coluna de gorjeta ainda não existe no banco. Cole o SQL da migration no Supabase (arquivo supabase/migrations/20260410120000_add_professional_tip_amount_to_appointments.sql).'
+            );
+            throw error;
+          }
+          throw error;
+        }
+
+        const clickedAt = format(new Date(), 'dd/MM/yyyy HH:mm:ss');
+        await writeAppointmentChangeLog({
+          appointmentId: tipModalAppointment.id,
+          eventType: 'professional_tip_updated',
+          description: `Gorjeta registrada: R$ ${rounded.toFixed(2).replace('.', ',')} (100% para o profissional).`,
+          oldValues: { professional_tip_amount: (tipModalAppointment as any).professional_tip_amount ?? null },
+          newValues: { professional_tip_amount: rounded },
+          metadata: {
+            action: 'Gorjeta',
+            clicked_at: clickedAt,
+            selected_date: format(selectedDate, 'dd/MM/yyyy'),
+          },
+        });
+
+        toast.success(rounded > 0 ? `Gorjeta salva: R$ ${rounded.toFixed(2).replace('.', ',')}` : 'Gorjeta removida.');
+        setTipModalAppointment(null);
+        setTipModalInput('');
+        onAppointmentUpdate?.();
+      } catch (e: any) {
+        console.error('Erro ao salvar gorjeta:', e);
+        const em = String(e?.message || '').toLowerCase();
+        if (!em.includes('professional_tip') && !(em.includes('column') && em.includes('tip'))) {
+          toast.error(getSupabaseErrorMessage(e, 'Não foi possível salvar a gorjeta.'));
+        }
+      } finally {
+        setIsSavingProfessionalTip(false);
       }
     };
 
@@ -3222,7 +3361,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const cardTaxAmount = getCardTaxAmountForServiceBase(apt, baseValue);
         const baseAfterTax = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
         const effectivePercentage = getEffectiveProfessionalPercentageForAppointment(apt, professional);
-        return total + (baseAfterTax * effectivePercentage / 100);
+        const tip = getProfessionalTipAmount(apt);
+        return total + (baseAfterTax * effectivePercentage) / 100 + tip;
       }, 0);
 
       // Calcular líquido mensal: verificar se taxa é descontada do estabelecimento ou do profissional
@@ -3231,7 +3371,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const cardTaxAmount = getCardTaxAmountForServiceBase(apt, baseValue);
         const baseAfterTax = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
         const effectivePercentage = getEffectiveProfessionalPercentageForAppointment(apt, professional);
-        return total + (baseAfterTax * effectivePercentage / 100);
+        const tip = apt.status === 'completed' ? getProfessionalTipAmount(apt) : 0;
+        return total + (baseAfterTax * effectivePercentage) / 100 + tip;
       }, 0);
 
       return {
@@ -5106,6 +5247,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <div className="text-xs text-white/80">
                                               Valor do serviço (financeiro): {formatCurrency(calculateServiceTotal(apt))}
                                             </div>
+                                            {getProfessionalTipAmount(apt) > 0 && (
+                                              <div className="text-xs text-amber-200 font-semibold mt-0.5">
+                                                Gorjeta (100% profissional): {formatCurrency(getProfessionalTipAmount(apt))}
+                                              </div>
+                                            )}
                                           </div>
                                         </div>
                                       </div>
@@ -5339,22 +5485,44 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               </button>
                                             )}
 
-                                            {onClientNoShow && (
+                                            <div
+                                              className={
+                                                onClientNoShow ? 'col-span-2 grid grid-cols-2 gap-1' : 'col-span-2'
+                                              }
+                                            >
+                                              {onClientNoShow && (
+                                                <button
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    const clientName = apt.client_name || 'este cliente';
+                                                    if (!window.confirm(`Tem certeza que deseja marcar que ${clientName} faltou? O agendamento será cancelado.`)) return;
+                                                    void logAppointmentCardActionClick(apt, 'cliente_faltou_click', 'Clique em Cliente Faltou.');
+                                                    onClientNoShow(apt);
+                                                  }}
+                                                  data-tutorial-id="appointments-detalhes-cliente-faltou"
+                                                  className="px-2 py-1.5 text-xs bg-orange-700 text-white rounded hover:bg-orange-800"
+                                                  title="Registrar que o cliente faltou (mesma função de Meus clientes)"
+                                                >
+                                                  Cliente Faltou
+                                                </button>
+                                              )}
                                               <button
+                                                type="button"
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  const clientName = apt.client_name || 'este cliente';
-                                                  if (!window.confirm(`Tem certeza que deseja marcar que ${clientName} faltou? O agendamento será cancelado.`)) return;
-                                                  void logAppointmentCardActionClick(apt, 'cliente_faltou_click', 'Clique em Cliente Faltou.');
-                                                  onClientNoShow(apt);
+                                                  void logAppointmentCardActionClick(apt, 'gorjeta_click', 'Clique em Gorjeta.');
+                                                  setTipModalAppointment(apt);
+                                                  const cur = getProfessionalTipAmount(apt);
+                                                  setTipModalInput(cur > 0 ? String(cur).replace('.', ',') : '');
                                                 }}
-                                                data-tutorial-id="appointments-detalhes-cliente-faltou"
-                                                className="px-2 py-1.5 text-xs bg-orange-700 text-white rounded hover:bg-orange-800"
-                                                title="Registrar que o cliente faltou (mesma função de Meus clientes)"
+                                                data-tutorial-id="appointments-detalhes-gorjeta"
+                                                className={`px-2 py-1.5 text-xs bg-amber-600 text-white rounded hover:bg-amber-700 font-semibold flex items-center justify-center gap-1 ${onClientNoShow ? '' : 'w-full'}`}
+                                                title="Gorjeta: 100% para o profissional, fora da % sobre o serviço"
                                               >
-                                                Cliente Faltou
+                                                <Coins className="h-3.5 w-3.5 shrink-0" />
+                                                Gorjeta
                                               </button>
-                                            )}
+                                            </div>
                                           </div>
 
                                           {/* Botões secundários */}
@@ -5875,6 +6043,72 @@ export const AllProfessionalsAppointmentsView: React.FC<
             appointment={selectedAppointmentForServiceChange as any}
             onConfirm={handleConfirmChangeService}
           />
+        )}
+
+        {/* Modal: Gorjeta (100% para o profissional) */}
+        {tipModalAppointment && (
+          <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
+            <div
+              className="w-full max-w-md rounded-2xl overflow-hidden shadow-2xl border border-white/10 bg-[#1a1b1c] text-white"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-4 border-b border-gray-700 flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-extrabold text-lg flex items-center gap-2">
+                    <Coins className="h-5 w-5 text-amber-400" />
+                    Gorjeta
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                    Valor inteiro vai para o profissional deste atendimento — não entra na % de comissão sobre o serviço
+                    (ex.: serviço R$ 100 com 50% = R$ 50; gorjeta R$ 10 → total R$ 60).
+                  </p>
+                  <p className="text-xs text-gray-500 mt-2 truncate" title={tipModalAppointment.client_name}>
+                    {tipModalAppointment.client_name}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCloseTipModal}
+                  className="h-9 w-9 rounded-lg bg-gray-800 hover:bg-gray-700 flex items-center justify-center shrink-0"
+                  disabled={isSavingProfessionalTip}
+                  title="Fechar"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="p-4 space-y-3">
+                <label className="block text-xs text-gray-400">Valor (R$)</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={tipModalInput}
+                  onChange={(e) => setTipModalInput(e.target.value)}
+                  placeholder="0,00"
+                  className="w-full px-3 py-2 rounded-lg bg-[#2a2b2c] border border-gray-600 text-white placeholder-gray-500 focus:outline-none focus:border-amber-500"
+                  disabled={isSavingProfessionalTip}
+                />
+                <p className="text-[11px] text-gray-500">Use 0 ou vazio e salve para remover a gorjeta.</p>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleCloseTipModal}
+                    disabled={isSavingProfessionalTip}
+                    className="flex-1 py-2.5 rounded-xl bg-gray-800 text-white text-sm font-semibold hover:bg-gray-700 disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveProfessionalTip}
+                    disabled={isSavingProfessionalTip}
+                    className="flex-1 py-2.5 rounded-xl bg-amber-600 text-white text-sm font-extrabold hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    {isSavingProfessionalTip ? 'Salvando...' : 'Salvar'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Modal: Atendimento assinatura */}

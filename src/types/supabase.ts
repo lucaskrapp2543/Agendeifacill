@@ -36,6 +36,7 @@ export interface Database {
             amount: number;
             card_brand?: string | null;
           }> | null;
+          professional_tip_amount?: number | null;
         }
       },
       establishments: {
@@ -82,6 +83,7 @@ export interface Database {
           use_60_minute_schedule?: boolean; // Mostrar horários de 1 em 1 hora no booking
           booking_min_advance_hours?: number; // Antecedencia minima (em horas) para agendamento no booking
           booking_min_advance_minutes?: number; // Antecedencia minima (em minutos) para agendamento no booking
+          booking_min_cancel_minutes?: number; // Antecedencia minima (em minutos) para o cliente ainda poder cancelar (0 = sem limite)
           limit_client_pending_booking?: boolean; // Bloqueia novo agendamento por telefone enquanto houver atendimento pendente
           hide_from_top10_ranking?: boolean; // Se true, estabelecimento não entra no ranking TOP 10
         }

@@ -40,6 +40,15 @@ import { ValidityHeader } from '../components/ValidityHeader';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../hooks/useNotifications';
 import { addExpense, createEstablishment, deleteExpense, getEstablishmentGoals, getEstablishmentPremiumSubscribers, getExpensesByMonth, getProfessionalGoal, isNewClient, setProfessionalGoal, supabase, updateEstablishment } from '../lib/supabase';
+import {
+  buildStalePaymentDetail,
+  CANCELLATION_SOURCE,
+  PENDING_PAYMENT_NO_TX_MINUTES,
+  PENDING_PAYMENT_WITH_TX_MINUTES,
+  updateAppointmentCancelledWithSource,
+} from '../utils/appointmentCancellationMeta';
+import { fireMercadoPagoPendingReconcile } from '../utils/fireMercadoPagoPendingReconcile';
+import { LEGACY_LIMITE_CANCELAMENTO_MINUTOS } from '../utils/regrasCancelamento';
 import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
 
 interface BusinessHours {
@@ -164,6 +173,7 @@ interface Establishment {
   use_60_minute_schedule?: boolean;
   booking_min_advance_hours?: number;
   booking_min_advance_minutes?: number;
+  booking_min_cancel_minutes?: number;
   limit_client_pending_booking?: boolean;
   closed_time_enabled?: boolean;
   booking_chat_enabled?: boolean;
@@ -338,6 +348,8 @@ interface Appointment {
     unit_price: number;
     total: number;
   }[];
+  /** Gorjeta (100% para o profissional; não entra na % sobre serviço) */
+  professional_tip_amount?: number | null;
 }
 
 interface PremiumSubscriber {
@@ -2974,6 +2986,8 @@ const EstablishmentDashboard = () => {
 
   // Prazo mínimo (em minutos) para clientes agendarem no booking público
   const [bookingMinAdvanceMinutes, setBookingMinAdvanceMinutes] = useState<number>(0);
+  // Prazo mínimo (em minutos) de antecedência para o cliente ainda poder cancelar (0 = sem limite)
+  const [bookingMinCancelMinutes, setBookingMinCancelMinutes] = useState<number>(LEGACY_LIMITE_CANCELAMENTO_MINUTOS);
   const [limitClientPendingBooking, setLimitClientPendingBooking] = useState<boolean>(false);
   // Tempo fechado: mantém horários presos ao grid de exibição
   const [closedTimeEnabled, setClosedTimeEnabled] = useState<boolean>(false);
@@ -5225,7 +5239,7 @@ const EstablishmentDashboard = () => {
     const [attendancesResult, saleCommissionsResult, repassesPagosResult] = await Promise.all([
       supabase
         .from('subscriber_attendances')
-        .select('repass_value')
+        .select('repass_value, client_subscription_id')
         .eq('establishment_id', establishment.id)
         .gte('attendance_date', format(start, 'yyyy-MM-dd'))
         .lte('attendance_date', format(end, 'yyyy-MM-dd')),
@@ -5254,30 +5268,54 @@ const EstablishmentDashboard = () => {
       )
     );
     const subscriptionValueById = new Map<string, number>();
+    const pointsModeByClientSubIdDash = new Map<string, boolean>();
 
     if (subscriptionIds.length > 0) {
       try {
         const { data: subscriptionsCatalogRows } = await supabase
           .from('subscriptions')
-          .select('id,value')
+          .select('id,value,fixed_commission_value,divide_total_enabled')
           .in('id', subscriptionIds);
+
+        const parseDivideFlagDash = (v: unknown): boolean => {
+          if (typeof v === 'boolean') return v;
+          if (typeof v === 'number') return v === 1;
+          const s = String(v ?? '').trim().toLowerCase();
+          return s === 'true' || s === '1' || s === 't' || s === 'sim' || s === 'yes' || s === 'on';
+        };
+
+        const subscriptionPointsModeBySubscriptionId = new Map<string, boolean>();
 
         (subscriptionsCatalogRows || []).forEach((row: any) => {
           const id = String(row?.id || '').trim();
-          const value = Number(row?.value || 0);
           if (!id) return;
-          if (!Number.isFinite(value) || value <= 0) return;
-          subscriptionValueById.set(id, value);
+          const value = Number(row?.value || 0);
+          if (Number.isFinite(value) && value > 0) {
+            subscriptionValueById.set(id, value);
+          }
+          const fixed = Number(row?.fixed_commission_value || 0);
+          const divide = parseDivideFlagDash(row?.divide_total_enabled);
+          subscriptionPointsModeBySubscriptionId.set(id, !divide && !(fixed > 0));
+        });
+
+        (subscriptionsRows as any[]).forEach((cs: any) => {
+          const cid = String(cs?.id || '').trim();
+          const sid = String(cs?.subscription_id || '').trim();
+          if (!cid || !sid) return;
+          if (subscriptionPointsModeBySubscriptionId.get(sid) === true) {
+            pointsModeByClientSubIdDash.set(cid, true);
+          }
         });
       } catch {
         // Fallback silencioso para bancos sem acesso/relação.
       }
     }
 
-    const totalRepassesAtendimentos = attendanceRows.reduce(
-      (sum, row: any) => sum + (Number(row?.repass_value) || 0),
-      0
-    );
+    const totalRepassesAtendimentos = attendanceRows.reduce((sum, row: any) => {
+      const cid = String(row?.client_subscription_id || '').trim();
+      if (cid && pointsModeByClientSubIdDash.get(cid)) return sum;
+      return sum + (Number(row?.repass_value) || 0);
+    }, 0);
     const totalRepassesComissaoVenda = commissionRows.reduce(
       (sum, row: any) => sum + (Number(row?.commission_amount) || 0),
       0
@@ -5493,6 +5531,43 @@ const EstablishmentDashboard = () => {
       if (saleCommissionsResult.error) throw saleCommissionsResult.error;
       if (paymentsResult.error) throw paymentsResult.error;
 
+      const [subsCfgRes, clientSubsCfgRes] = await Promise.all([
+        supabase
+          .from('subscriptions')
+          .select('id, fixed_commission_value, divide_total_enabled')
+          .eq('establishment_id', establishment.id),
+        supabase
+          .from('client_subscriptions')
+          .select('id, subscription_id')
+          .eq('establishment_id', establishment.id),
+      ]);
+      if (subsCfgRes.error) throw subsCfgRes.error;
+      if (clientSubsCfgRes.error) throw clientSubsCfgRes.error;
+
+      const parseDivideProfFin = (v: unknown): boolean => {
+        if (typeof v === 'boolean') return v;
+        if (typeof v === 'number') return v === 1;
+        const s = String(v ?? '').trim().toLowerCase();
+        return s === 'true' || s === '1' || s === 't' || s === 'sim' || s === 'yes' || s === 'on';
+      };
+      const subscriptionPointsModeProfFin = new Map<string, boolean>();
+      ((subsCfgRes.data as any[]) || []).forEach((row: any) => {
+        const id = String(row?.id || '').trim();
+        if (!id) return;
+        const fixed = Number(row?.fixed_commission_value || 0);
+        const divide = parseDivideProfFin(row?.divide_total_enabled);
+        subscriptionPointsModeProfFin.set(id, !divide && !(fixed > 0));
+      });
+      const pointsModeByClientSubProfFin = new Map<string, boolean>();
+      ((clientSubsCfgRes.data as any[]) || []).forEach((row: any) => {
+        const cid = String(row?.id || '').trim();
+        const sid = String(row?.subscription_id || '').trim();
+        if (!cid || !sid) return;
+        if (subscriptionPointsModeProfFin.get(sid) === true) {
+          pointsModeByClientSubProfFin.set(cid, true);
+        }
+      });
+
       const acc: Record<
         string,
         {
@@ -5530,9 +5605,13 @@ const EstablishmentDashboard = () => {
       ((attendancesResult.data as any[]) || []).forEach((row: any) => {
         const professionalName = ensureProfessional(String(row?.professional_name || ''));
         if (!professionalName) return;
-        acc[professionalName].totalAccumulated += Number(row?.repass_value || 0);
-        acc[professionalName].attendanceCount += 1;
         const clientSubscriptionId = String(row?.client_subscription_id || '').trim();
+        const skipMoneyRepass =
+          Boolean(clientSubscriptionId) && pointsModeByClientSubProfFin.get(clientSubscriptionId) === true;
+        if (!skipMoneyRepass) {
+          acc[professionalName].totalAccumulated += Number(row?.repass_value || 0);
+        }
+        acc[professionalName].attendanceCount += 1;
         if (clientSubscriptionId) acc[professionalName].uniqueClientIds.add(clientSubscriptionId);
       });
 
@@ -8505,8 +8584,15 @@ const EstablishmentDashboard = () => {
             ? Boolean((localProfessional as any).lock_financial_with_owner_pin)
             : Boolean((dbProfessional as any).lock_financial_with_owner_pin),
           hidden_from_booking: (localProfessional as any).hidden_from_booking !== undefined
-            ? (localProfessional as any).hidden_from_booking
-            : (dbProfessional.hidden_from_booking !== undefined ? dbProfessional.hidden_from_booking : false),
+            ? Boolean((localProfessional as any).hidden_from_booking)
+            : dbProfessional.hidden_from_booking !== undefined
+              ? Boolean(dbProfessional.hidden_from_booking)
+              : Boolean((dbProfessional as any).oculto_da_reserva),
+          oculto_da_reserva: (localProfessional as any).oculto_da_reserva !== undefined
+            ? Boolean((localProfessional as any).oculto_da_reserva)
+            : (dbProfessional as any).oculto_da_reserva !== undefined
+              ? Boolean((dbProfessional as any).oculto_da_reserva)
+              : Boolean(dbProfessional.hidden_from_booking),
           specific_services: Array.isArray((localProfessional as any).specific_services)
             ? (localProfessional as any).specific_services
             : (Array.isArray(dbProfessional.specific_services) ? dbProfessional.specific_services : []),
@@ -9134,6 +9220,8 @@ const EstablishmentDashboard = () => {
           hide_gross_in_financial: Boolean((p as any).hide_gross_in_financial), // ✅ PRESERVAR ocultar bruto no financeiro
           lock_appointments_with_owner_pin: Boolean((p as any).lock_appointments_with_owner_pin), // ✅ trava agenda por senha do dono
           lock_financial_with_owner_pin: Boolean((p as any).lock_financial_with_owner_pin), // ✅ trava financeiro por senha do dono
+          hidden_from_booking: Boolean((p as any).hidden_from_booking || (p as any).oculto_da_reserva), // ✅ booking público (não resetar em "Atualizar")
+          oculto_da_reserva: Boolean((p as any).oculto_da_reserva || (p as any).hidden_from_booking), // ✅ legado / compat
           specific_services: Array.isArray((p as any).specific_services) ? (p as any).specific_services : [], // ✅ PRESERVAR SERVIÇOS ESPECÍFICOS!
           offers_child_service: p.offers_child_service || false, // PRESERVAR configuração de serviço infantil
           work_hours: p.work_hours || null, // PRESERVAR horários de trabalho personalizados
@@ -9306,13 +9394,17 @@ const EstablishmentDashboard = () => {
         }
       }
 
-      const { error } = await supabase
-        .from('appointments')
-        .update({ status: 'cancelled' })
-        .eq('id', appointmentId);
+      const { error: cancelErr } = await updateAppointmentCancelledWithSource(
+        supabase,
+        { id: appointmentId },
+        {
+          cancellation_source: CANCELLATION_SOURCE.ESTABLISHMENT_STAFF,
+          cancellation_detail: 'Cancelado pelo painel do estabelecimento.',
+        }
+      );
 
-      if (error) {
-        throw error;
+      if (cancelErr) {
+        throw cancelErr;
       }
 
       // Enviar notificação de cancelamento
@@ -9949,25 +10041,45 @@ Estamos te aguardando! 😎✂️`;
     setIsLoading(true);
 
     try {
+      // ✅ Reconciliar com Mercado Pago antes de cancelar pendências (reduz falso positivo)
+      await fireMercadoPagoPendingReconcile(establishment.id);
+
       // ✅ LIMPEZA AUTOMÁTICA: liberar horários travados por pagamentos pendentes antigos
       // Problema real: registros em `pending_payment` podem ficar presos (inclusive com transaction_id) se o cliente abandonar.
       // Isso vira "reservas fantasmas" e prejudica TODO MUNDO.
       // Estratégia:
       // - Sem transaction_id: cancelar rapidamente
       // - Com transaction_id: dar uma janela maior, mas cancelar se ficar velho demais sem confirmação
-      const thresholdNoTxMinutes = 15;
-      const thresholdWithTxMinutes = 24 * 60; // manter 24h para confirmação assíncrona e evitar falso-cancelamento
+      const thresholdNoTxMinutes = PENDING_PAYMENT_NO_TX_MINUTES;
+      const thresholdWithTxMinutes = PENDING_PAYMENT_WITH_TX_MINUTES;
       const thresholdNoTxDate = new Date(Date.now() - thresholdNoTxMinutes * 60 * 1000).toISOString();
       const thresholdWithTxDate = new Date(Date.now() - thresholdWithTxMinutes * 60 * 1000).toISOString();
 
       // 1) Pendências sem transaction_id (antigas): cancelar
-      await supabase
-        .from('appointments')
-        .update({ status: 'cancelled', payment_status: 'failed' } as any)
-        .eq('establishment_id', establishment.id)
-        .eq('status', 'pending_payment')
-        .is('payment_transaction_id', null)
-        .lt('created_at', thresholdNoTxDate);
+      {
+        const payload: Record<string, unknown> = {
+          status: 'cancelled',
+          payment_status: 'failed',
+          cancellation_source: CANCELLATION_SOURCE.SYSTEM_ABANDONED_CHECKOUT,
+          cancellation_detail: buildStalePaymentDetail('no_tx'),
+        };
+        const rNoTx = await supabase
+          .from('appointments')
+          .update(payload as any)
+          .eq('establishment_id', establishment.id)
+          .eq('status', 'pending_payment')
+          .is('payment_transaction_id', null)
+          .lt('created_at', thresholdNoTxDate);
+        if (rNoTx.error && String((rNoTx.error as any).code || '') === '42703') {
+          await supabase
+            .from('appointments')
+            .update({ status: 'cancelled', payment_status: 'failed' } as any)
+            .eq('establishment_id', establishment.id)
+            .eq('status', 'pending_payment')
+            .is('payment_transaction_id', null)
+            .lt('created_at', thresholdNoTxDate);
+        }
+      }
 
       // 2) Pendências com transaction_id (muito antigas) e sem confirmação: cancelar por ID
       const { data: staleWithTx, error: staleWithTxError } = await supabase
@@ -9991,10 +10103,11 @@ Estamos te aguardando! 😎✂️`;
           .filter(Boolean);
 
         if (idsToCancel.length > 0) {
-          await supabase
-            .from('appointments')
-            .update({ status: 'cancelled', payment_status: 'failed' } as any)
-            .in('id', idsToCancel);
+          await updateAppointmentCancelledWithSource(supabase, { ids: idsToCancel }, {
+            cancellation_source: CANCELLATION_SOURCE.SYSTEM_PAYMENT_TIMEOUT,
+            cancellation_detail: buildStalePaymentDetail('with_tx'),
+            payment_status: 'failed',
+          });
         }
       }
 
@@ -10040,12 +10153,15 @@ Estamos te aguardando! 😎✂️`;
           total_price,
           payment_split_details,
           is_waitlist,
-          waitlist_entry_id
+          waitlist_entry_id,
+          professional_tip_amount
         `;
+
+      const baseSelectSansTip = baseSelect.replace(/,\s*professional_tip_amount\s*/i, '').trim();
 
       let appointmentsRaw: any[] = [];
       {
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from('appointments')
           .select(baseSelect)
           .eq('establishment_id', establishment.id)
@@ -10053,6 +10169,25 @@ Estamos te aguardando! 😎✂️`;
           .lte('appointment_date', endOfSelectedDate)
           .order('appointment_time', { ascending: true })
           .abortSignal(new AbortController().signal); // Forçar busca sem cache
+
+        if (error) {
+          const msg0 = String((error as any)?.message || '').toLowerCase();
+          const missingTipCol =
+            msg0.includes('professional_tip_amount') ||
+            (msg0.includes('column') && msg0.includes('professional_tip'));
+          if (missingTipCol) {
+            const retryTip = await supabase
+              .from('appointments')
+              .select(baseSelectSansTip)
+              .eq('establishment_id', establishment.id)
+              .gte('appointment_date', startOfSelectedDate)
+              .lte('appointment_date', endOfSelectedDate)
+              .order('appointment_time', { ascending: true })
+              .abortSignal(new AbortController().signal);
+            data = retryTip.data as any[];
+            error = retryTip.error as any;
+          }
+        }
 
         if (error) {
           const msg = String((error as any)?.message || '').toLowerCase();
@@ -10722,6 +10857,12 @@ Estamos te aguardando! 😎✂️`;
               ? rawAdvanceHours * 60
               : 0;
         setBookingMinAdvanceMinutes(nextAdvanceMinutes);
+        const rawCancelMin = Number((establishmentData as any).booking_min_cancel_minutes);
+        const nextCancelMinutes =
+          Number.isFinite(rawCancelMin) && rawCancelMin >= 0
+            ? rawCancelMin
+            : LEGACY_LIMITE_CANCELAMENTO_MINUTOS;
+        setBookingMinCancelMinutes(nextCancelMinutes);
         setLimitClientPendingBooking(Boolean((establishmentData as any).limit_client_pending_booking ?? false));
         // Carrega configuração de tempo fechado (fallback: desativado)
         setClosedTimeEnabled(Boolean((establishmentData as any).closed_time_enabled ?? false));
@@ -11205,6 +11346,7 @@ Estamos te aguardando! 😎✂️`;
         use20MinuteSchedule: use20MinuteSchedule,
         use60MinuteSchedule: use60MinuteSchedule,
         bookingMinAdvanceMinutes: bookingMinAdvanceMinutes,
+        bookingMinCancelMinutes: bookingMinCancelMinutes,
         closedTimeEnabled: closedTimeEnabled,
         showBestOfBrazilImage: showBestOfBrazilImage
       });
@@ -12411,19 +12553,18 @@ Estamos te aguardando! 😎✂️`;
     return appointments.reduce((total, appointment) => {
       // ✅ Só contabilizar quando estiver CONCLUÍDO
       if (isCompletedAppointmentStatus(appointment)) {
-        // Excluir do faturamento se for assinante pago (serviço gratuito)
+        const tip = getProfessionalTipAmount(appointment);
         if (isSubscriberAppointment(appointment)) {
-          return total; // Não adiciona ao faturamento
+          if (selectedProfessional === 'all') return total + tip;
+          if (appointmentMatchesSelectedProfessional(appointment)) return total + tip;
+          return total;
         }
 
         if (selectedProfessional === 'all') {
-          // Se "todos" selecionado, soma o líquido de todos os profissionais
           return total + calculateNetValueWithCardTax(appointment);
-        } else {
-          // Se profissional específico selecionado, soma apenas dele
-          if (appointmentMatchesSelectedProfessional(appointment)) {
-            return total + calculateNetValueWithCardTax(appointment);
-          }
+        }
+        if (appointmentMatchesSelectedProfessional(appointment)) {
+          return total + calculateNetValueWithCardTax(appointment);
         }
       }
       return total;
@@ -12446,20 +12587,18 @@ Estamos te aguardando! 😎✂️`;
         return total; // Não incluir agendamentos de outros meses
       }
 
-      // ✅ Só contabilizar quando estiver CONCLUÍDO
       if (isCompletedAppointmentStatus(appointment)) {
-        // Excluir do faturamento se for assinante pago (serviço gratuito)
+        const tip = getProfessionalTipAmount(appointment);
         if (isSubscriberAppointment(appointment)) {
-          return total; // Não adiciona ao faturamento
+          if (selectedProfessional === 'all') return total + tip;
+          if (appointmentMatchesSelectedProfessional(appointment)) return total + tip;
+          return total;
         }
         if (selectedProfessional === 'all') {
-          // Se "todos" selecionado, soma o líquido de todos os profissionais
           return total + calculateNetValueWithCardTax(appointment);
-        } else {
-          // Se profissional específico selecionado, soma apenas dele
-          if (appointmentMatchesSelectedProfessional(appointment)) {
-            return total + calculateNetValueWithCardTax(appointment);
-          }
+        }
+        if (appointmentMatchesSelectedProfessional(appointment)) {
+          return total + calculateNetValueWithCardTax(appointment);
         }
       }
       return total;
@@ -18010,7 +18149,7 @@ Estamos te aguardando! 😎✂️`;
   ]);
 
   // ✅ Auto-save para Configuração de Horários
-  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceMinutes?: number; limitClientPendingBooking?: boolean; closedTimeEnabled?: boolean; showBestOfBrazilImage?: boolean; bookingChatEnabled?: boolean; bookingSimplePageEnabled?: boolean }) => {
+  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceMinutes?: number; bookingMinCancelMinutes?: number; limitClientPendingBooking?: boolean; closedTimeEnabled?: boolean; showBestOfBrazilImage?: boolean; bookingChatEnabled?: boolean; bookingSimplePageEnabled?: boolean }) => {
     if (!establishment?.id) return;
 
     const configToSave = {
@@ -18018,6 +18157,7 @@ Estamos te aguardando! 😎✂️`;
       use20MinuteSchedule: config?.use20MinuteSchedule ?? use20MinuteSchedule,
       use60MinuteSchedule: config?.use60MinuteSchedule ?? use60MinuteSchedule,
       bookingMinAdvanceMinutes: config?.bookingMinAdvanceMinutes ?? bookingMinAdvanceMinutes,
+      bookingMinCancelMinutes: config?.bookingMinCancelMinutes ?? bookingMinCancelMinutes,
       limitClientPendingBooking: config?.limitClientPendingBooking ?? limitClientPendingBooking,
       closedTimeEnabled: config?.closedTimeEnabled ?? closedTimeEnabled,
       showBestOfBrazilImage: config?.showBestOfBrazilImage ?? showBestOfBrazilImage,
@@ -18036,6 +18176,7 @@ Estamos te aguardando! 😎✂️`;
         use_60_minute_schedule: configToSave.use60MinuteSchedule,
         booking_min_advance_hours: bookingMinAdvanceHoursCompatibility,
         booking_min_advance_minutes: configToSave.bookingMinAdvanceMinutes,
+        booking_min_cancel_minutes: configToSave.bookingMinCancelMinutes,
         limit_client_pending_booking: configToSave.limitClientPendingBooking,
         closed_time_enabled: configToSave.closedTimeEnabled,
         show_best_of_brazil_image: configToSave.showBestOfBrazilImage,
@@ -18058,6 +18199,7 @@ Estamos te aguardando! 😎✂️`;
         const removableColumns = [
           'booking_min_advance_minutes',
           'booking_min_advance_hours',
+          'booking_min_cancel_minutes',
           'limit_client_pending_booking',
           'closed_time_enabled',
           'booking_chat_enabled',
@@ -18094,6 +18236,7 @@ Estamos te aguardando! 😎✂️`;
         use_60_minute_schedule: configToSave.use60MinuteSchedule,
         booking_min_advance_hours: bookingMinAdvanceHoursCompatibility,
         booking_min_advance_minutes: configToSave.bookingMinAdvanceMinutes,
+        booking_min_cancel_minutes: configToSave.bookingMinCancelMinutes,
         limit_client_pending_booking: configToSave.limitClientPendingBooking,
         closed_time_enabled: configToSave.closedTimeEnabled,
         show_best_of_brazil_image: configToSave.showBestOfBrazilImage,
@@ -18103,7 +18246,7 @@ Estamos te aguardando! 😎✂️`;
     } catch (error) {
       console.error('❌ Erro ao salvar configuração de horários automaticamente:', error);
     }
-  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceMinutes, limitClientPendingBooking, closedTimeEnabled, showBestOfBrazilImage, bookingChatEnabled, bookingSimplePageEnabled]);
+  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceMinutes, bookingMinCancelMinutes, limitClientPendingBooking, closedTimeEnabled, showBestOfBrazilImage, bookingChatEnabled, bookingSimplePageEnabled]);
 
   const notifySettingsNeedManualSave = useCallback((showToastMessage = true) => {
     setShowSettingsSaveReminder(true);
@@ -19409,21 +19552,23 @@ Estamos te aguardando! 😎✂️`;
     });
 
     const totalNet = professionalAppointments.reduce((total, appointment) => {
-      if (isCompletedAppointmentStatus(appointment) && !isSubscriberAppointment(appointment)) {
+      if (!isCompletedAppointmentStatus(appointment)) return total;
+      const tip = getProfessionalTipAmount(appointment);
+      let servicePart = 0;
+      if (!isSubscriberAppointment(appointment)) {
         const baseValue = getAppointmentRevenueBase(appointment);
         const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
 
         if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
           const cardTax = (baseValue * paymentTax) / 100;
-          const netValue = baseValue - cardTax;
-          console.log(`💰 DONO ${appointment.client_name}: R$ ${baseValue} (serviço) - R$ ${cardTax} (taxa) = R$ ${netValue}`);
-          return total + netValue;
+          servicePart = baseValue - cardTax;
+          console.log(`💰 DONO ${appointment.client_name}: R$ ${baseValue} (serviço) - R$ ${cardTax} (taxa) = R$ ${servicePart}`);
         } else {
+          servicePart = baseValue;
           console.log(`💰 DONO ${appointment.client_name}: R$ ${baseValue} (serviço, sem taxa)`);
-          return total + baseValue;
         }
       }
-      return total;
+      return total + servicePart + tip;
     }, 0);
 
     console.log(`✅ Total líquido DONO ${professionalName}: R$ ${totalNet}`);
@@ -19457,19 +19602,21 @@ Estamos te aguardando! 😎✂️`;
       }))
     });
 
-    // Calcular o líquido total (profissionais recebem % do valor após descontar taxa de cartão: serviço + serviços extra, SEM produtos V2)
+    // Calcular o líquido total (% sobre serviço + gorjeta 100% fora da %)
     const totalNet = professionalAppointments.reduce((total, appointment) => {
-      if (isCompletedAppointmentStatus(appointment) && !isSubscriberAppointment(appointment)) {
+      if (!isCompletedAppointmentStatus(appointment)) return total;
+      const tip = getProfessionalTipAmount(appointment);
+      let servicePart = 0;
+      if (!isSubscriberAppointment(appointment)) {
         const baseValue = getAppointmentRevenueBase(appointment);
         const cardTaxAmount = getCardTaxAmountFromAppointment(appointment, baseValue);
         const netBase = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
         const effectivePercentage = getProfessionalPercentageForAppointment(appointment, professional);
-        const netValue = (netBase * effectivePercentage) / 100;
+        servicePart = (netBase * effectivePercentage) / 100;
 
-        console.log(`💰 ${appointment.client_name}: R$ ${baseValue} → Líquido: R$ ${netValue} (${effectivePercentage}%)`);
-        return total + netValue;
+        console.log(`💰 ${appointment.client_name}: R$ ${baseValue} → Líquido: R$ ${servicePart} (${effectivePercentage}%)`);
       }
-      return total;
+      return total + servicePart + tip;
     }, 0);
 
     console.log(`✅ Total líquido ${professionalName}: R$ ${totalNet}`);
@@ -19502,6 +19649,7 @@ Estamos te aguardando! 😎✂️`;
 
     // Obter valor de taxa (incluindo múltiplas formas de pagamento)
     const cardTaxAmount = getCardTaxAmountFromAppointment(appointment, baseValue);
+    const tip = getProfessionalTipAmount(appointment);
 
     console.log('🚨 TESTE - Cálculo líquido:', {
       appointment: appointment.client_name,
@@ -19528,7 +19676,7 @@ Estamos te aguardando! 😎✂️`;
           percentage,
           result
         });
-        return result;
+        return result + tip;
       }
       const valueAfterCardTax = Math.max(0, baseValue - cardTaxAmount);
       const result = (valueAfterCardTax * percentage) / 100;
@@ -19539,7 +19687,7 @@ Estamos te aguardando! 😎✂️`;
         percentage,
         result
       });
-      return result;
+      return result + tip;
     }
 
     // Se não for cartão, usar cálculo normal (apenas percentual do profissional)
@@ -19550,7 +19698,7 @@ Estamos te aguardando! 😎✂️`;
       result,
       calculation: `${baseValue} * ${percentage}% = ${result}`
     });
-    return result;
+    return result + tip;
   };
 
   // Função para calcular valor bruto (sempre o valor original)
@@ -19577,6 +19725,13 @@ Estamos te aguardando! 😎✂️`;
     const total = apt.total_price != null && apt.total_price > 0 ? apt.total_price : null;
     if (total != null && raw > total) return total;
     return raw;
+  };
+
+  /** Gorjeta: 100% para o profissional (não entra na % sobre serviço). */
+  const getProfessionalTipAmount = (apt: Appointment): number => {
+    const n = Number((apt as any)?.professional_tip_amount ?? 0);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.round(n * 100) / 100;
   };
 
   const normalizeProfessionalToken = (value: unknown): string =>
@@ -19641,20 +19796,24 @@ Estamos te aguardando! 😎✂️`;
   };
 
   const calculateProfessionalNetForAppointment = (professional: any, apt: Appointment): number => {
+    const tip = getProfessionalTipAmount(apt);
     const baseValue = getAppointmentRevenueBase(apt);
     const cardTaxAmount = getCardTaxAmountFromAppointment(apt, baseValue);
+    let serviceNet = 0;
     if (isOwnerProfessional(professional)) {
-      if (cardTaxAmount > 0) return Math.max(0, baseValue - cardTaxAmount);
-      return baseValue;
-    }
-
-    if (cardTaxAmount > 0) {
+      if (cardTaxAmount > 0) serviceNet = Math.max(0, baseValue - cardTaxAmount);
+      else serviceNet = baseValue;
+    } else if (cardTaxAmount > 0) {
       const effectivePercentage = getProfessionalPercentageForAppointment(apt, professional);
-      if (establishment?.tax_deducted_by_establishment) return (baseValue * effectivePercentage) / 100;
-      const valueAfterCardTax = Math.max(0, baseValue - cardTaxAmount);
-      return (valueAfterCardTax * effectivePercentage) / 100;
+      if (establishment?.tax_deducted_by_establishment) serviceNet = (baseValue * effectivePercentage) / 100;
+      else {
+        const valueAfterCardTax = Math.max(0, baseValue - cardTaxAmount);
+        serviceNet = (valueAfterCardTax * effectivePercentage) / 100;
+      }
+    } else {
+      serviceNet = (baseValue * getProfessionalPercentageForAppointment(apt, professional)) / 100;
     }
-    return (baseValue * getProfessionalPercentageForAppointment(apt, professional)) / 100;
+    return serviceNet + tip;
   };
 
   const paymentBelongsToSelectedMonth = (payment: any): boolean => {
@@ -20010,7 +20169,9 @@ Estamos te aguardando! 😎✂️`;
               getProfessionalPercentageByName(apt.professional, apt) ??
               0
             );
-            const netForProfessional = isSubscriberAppointment(apt) ? 0 : calculateNetValueWithCardTax(apt);
+            const netForProfessional = isSubscriberAppointment(apt)
+              ? getProfessionalTipAmount(apt)
+              : calculateNetValueWithCardTax(apt);
             const taxPercent = (apt.payment_method === 'credito' || apt.payment_method === 'debito')
               ? getPaymentMethodTax(apt.payment_method || '', apt.card_brand)
               : 0;
@@ -26940,6 +27101,54 @@ Estamos te aguardando! 😎✂️`;
                           </p>
                           <p className="text-xs text-gray-400 mt-1">
                             Dica: clique novamente na op&ccedil;&atilde;o selecionada para desmarcar.
+                          </p>
+                        </div>
+
+                        <div className="p-4 bg-[#242628] rounded-lg border border-gray-700">
+                          <label className="block text-white font-medium mb-2">
+                            Prazo para clientes cancelarem
+                          </label>
+                          <p className="text-sm text-gray-400 leading-relaxed mb-3">
+                            Define com quanta antecedência mínima o cliente ainda pode cancelar pelo app ou pela página de ver agendamentos. Se faltar menos tempo que o escolhido, o cancelamento online fica bloqueado.
+                          </p>
+                          <div className="flex flex-wrap gap-3">
+                            {[
+                              { minutes: 30, label: '30 min' },
+                              { minutes: 60, label: '1 h' },
+                              { minutes: 120, label: '2 h' },
+                              { minutes: 180, label: '3 h' },
+                            ].map((option) => (
+                              <button
+                                key={option.minutes}
+                                type="button"
+                                onClick={() => {
+                                  const nextMinutes = bookingMinCancelMinutes === option.minutes ? 0 : option.minutes;
+                                  setBookingMinCancelMinutes(nextMinutes);
+                                  notifySettingsNeedManualSave(true);
+                                  if (scheduleConfigAutoSaveTimeoutRef.current) {
+                                    clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                                  }
+                                  scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                    autoSaveScheduleConfig({
+                                      bookingMinCancelMinutes: nextMinutes
+                                    });
+                                  }, 1000);
+                                }}
+                                className={`px-4 py-2 rounded-md border text-sm font-semibold transition-colors ${bookingMinCancelMinutes === option.minutes
+                                  ? 'bg-blue-600 border-blue-500 text-white'
+                                  : 'bg-[#1a1b1c] border-gray-600 text-gray-300 hover:border-gray-500'
+                                  }`}
+                                aria-pressed={bookingMinCancelMinutes === option.minutes}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-3">
+                            Exemplo: atendimento &agrave;s 12:00 com 3 h aqui &mdash; a partir das 09:00 o cliente n&atilde;o consegue mais cancelar por aqui.
+                          </p>
+                          <p className="text-xs text-gray-400 mt-1">
+                            Dica: clique novamente na op&ccedil;&atilde;o selecionada para desmarcar (sem limite por anteced&ecirc;ncia, exceto se o hor&aacute;rio j&aacute; passou).
                           </p>
                         </div>
 

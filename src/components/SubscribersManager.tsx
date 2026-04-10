@@ -510,15 +510,54 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return map;
   }, [clientSubscriptions]);
 
+  /** Repasse 0% + sem "Dividir valor total": controle por profissional em pontos (não em R$ por atendimento). */
+  const resolveSubscriptionConfigForClientSubId = (clientSubId: string): { divide: boolean; fixed: number } | null => {
+    const id = String(clientSubId || '').trim();
+    if (!id) return null;
+    const cs = (clientSubscriptions || []).find((c: any) => String(c?.id) === id);
+    if (!cs) return null;
+    const nested = (cs as any)?.subscriptions;
+    const sub =
+      nested && (nested as any).id != null
+        ? nested
+        : subscriptions.find((s: any) => String(s.id) === String((cs as any).subscription_id));
+    if (!sub) return null;
+    return {
+      divide: parseLegacyBoolean((sub as any).divide_total_enabled),
+      fixed: Number((sub as any).fixed_commission_value || 0),
+    };
+  };
+
+  const isClientSubscriptionPointsMode = (clientSubId: string): boolean => {
+    const cfg = resolveSubscriptionConfigForClientSubId(clientSubId);
+    if (!cfg) return false;
+    return !cfg.divide && !(cfg.fixed > 0);
+  };
+
+  const clientNameBySubIdMap = useMemo(() => {
+    const m = new Map<string, string>();
+    (clientSubscriptions || []).forEach((cs: any) => {
+      const id = String(cs?.id || '');
+      if (!id) return;
+      const name = String(cs?.profiles?.full_name || cs?.client_name || 'Cliente').trim() || 'Cliente';
+      m.set(id, name);
+    });
+    return m;
+  }, [clientSubscriptions]);
+
   const getAttendanceEffectiveRepass = (attendance: any): number => {
+    const clientSubId = String(attendance?.client_subscription_id || '').trim();
+    // Modo pontos: não soma valor financeiro no controle (mesmo se registro antigo tiver repasse cheio por bug).
+    if (clientSubId && isClientSubscriptionPointsMode(clientSubId)) {
+      return 0;
+    }
+
     // Compatibilidade: se já existe repasse salvo no atendimento, ele deve prevalecer.
-    // Isso evita "sumir" com o controle por profissional ao mudar config da assinatura.
     const storedValue = Number(attendance?.repass_value || 0);
     if (Number.isFinite(storedValue) && storedValue > 0) {
       return storedValue;
     }
 
-    const clientSubId = String(attendance?.client_subscription_id || '').trim();
     if (clientSubId && divideEnabledByClientSubscriptionId[clientSubId] === false) {
       return 0;
     }
@@ -1660,20 +1699,23 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Função para agrupar atendimentos por profissional
   const getClientAttendancesByProfessional = (clientSubscriptionId: string) => {
     const attendances = getClientAttendances(clientSubscriptionId);
+    const clientPointsMode = isClientSubscriptionPointsMode(clientSubscriptionId);
     const grouped = attendances.reduce((acc, attendance) => {
       const professional = attendance.professional_name;
       if (!acc[professional]) {
         acc[professional] = {
           count: 0,
           totalValue: 0,
+          pointsCount: 0,
           attendances: []
         };
       }
       acc[professional].count++;
       acc[professional].totalValue += getAttendanceEffectiveRepass(attendance);
+      if (clientPointsMode) acc[professional].pointsCount += 1;
       acc[professional].attendances.push(attendance);
       return acc;
-    }, {} as { [key: string]: { count: number; totalValue: number; attendances: any[] } });
+    }, {} as { [key: string]: { count: number; totalValue: number; pointsCount: number; attendances: any[] } });
 
     return grouped;
   };
@@ -1701,7 +1743,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     try {
       const sub = subscriptions.find((s: any) => String(s.id) === String((selectedClientForAttendance as any)?.subscription_id));
       const divideEnabled = Boolean((sub as any)?.divide_total_enabled);
-      if (!attendanceValue) {
+      const fixedCommission = Number((sub as any)?.fixed_commission_value || 0);
+      const pointsModeSubscription = !divideEnabled && !(fixedCommission > 0);
+      if (!pointsModeSubscription && !attendanceValue) {
         toast.error('Informe o valor repassado ao profissional para adicionar o atendimento.');
         setIsSavingAttendance(false);
         return;
@@ -1711,9 +1755,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       const hasSaleDiscount = saleData.hasSaleDiscount;
       const salePercent = saleData.salePercent;
       // Regra:
+      // - modo pontos (0% repasse + sem dividir): repasse R$ 0 no registro.
       // - sem "Dividir valor total": lança repasse normal informado.
       // - com divisão ativa: divide o repasse pelo total de atendimentos.
-      let repassValueToSave = Math.round(attendanceValue * saleData.multiplier * 100) / 100;
+      let repassValueToSave = pointsModeSubscription
+        ? 0
+        : Math.round(attendanceValue * saleData.multiplier * 100) / 100;
 
       // ✅ "Dividir valor total" (configurado NA ASSINATURA)
       // A comissão de venda já foi aplicada no multiplicador. Se dividir estiver ligado,
@@ -1753,7 +1800,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       const suffix = hasSaleDiscount
         ? ` (com desconto de venda ${salePercent}% aplicado)`
         : '';
-      toast.success(`Atendimento adicionado para ${selectedClientForAttendance.profiles?.full_name} (${format(parse(attendanceDateToSave, 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: ptBR })}). Valor: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(repassValueToSave)}.${suffix}`);
+      const valueMsg = pointsModeSubscription
+        ? '1 ponto (repasse em R$ zerado neste plano).'
+        : `Valor: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(repassValueToSave)}.`;
+      toast.success(
+        `Atendimento adicionado para ${selectedClientForAttendance.profiles?.full_name} (${format(parse(attendanceDateToSave, 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: ptBR })}). ${valueMsg}${suffix}`
+      );
 
       // Limpar formulário
       setAttendanceValue(0);
@@ -3208,7 +3260,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }, 0);
 
     return attendancesSum + saleCommissionsSum;
-  }, [subscriberAttendances, subscriptionSaleCommissions, divideEnabledByClientSubscriptionId]);
+  }, [subscriberAttendances, subscriptionSaleCommissions, divideEnabledByClientSubscriptionId, clientSubscriptions, subscriptions]);
 
   // Líquido = Bruto - taxas de gateway/plataforma (assinaturas ativas)
   const liquidoAtivo = clientSubscriptions.reduce((sum, cs) => {
@@ -3886,20 +3938,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             <div className="space-y-3">
               {Object.entries(
                 (() => {
-                  const clientNameBySubId = new Map<string, string>();
-                  (clientSubscriptions || []).forEach((cs: any) => {
-                    const id = String(cs?.id || '');
-                    if (!id) return;
-                    const name = String(cs?.profiles?.full_name || cs?.client_name || 'Cliente').trim() || 'Cliente';
-                    clientNameBySubId.set(id, name);
-                  });
-
                   const acc: {
                     [key: string]: {
                       totalValue: number;
+                      pointsFromAttendances: number;
                       attendanceCount: number;
                       uniqueClientIds: Set<string>;
-                      uniqueClientNames: Set<string>;
                       saleCommissionCount: number;
                     };
                   } = {};
@@ -3909,9 +3953,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     if (!acc[professional]) {
                       acc[professional] = {
                         totalValue: 0,
+                        pointsFromAttendances: 0,
                         attendanceCount: 0,
                         uniqueClientIds: new Set<string>(),
-                        uniqueClientNames: new Set<string>(),
                         saleCommissionCount: 0,
                       };
                     }
@@ -3921,8 +3965,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     const clientSubId = String(attendance.client_subscription_id || '');
                     if (clientSubId) {
                       acc[professional].uniqueClientIds.add(clientSubId);
-                      const clientName = clientNameBySubId.get(clientSubId) || 'Cliente';
-                      acc[professional].uniqueClientNames.add(clientName);
+                      if (isClientSubscriptionPointsMode(clientSubId)) {
+                        acc[professional].pointsFromAttendances += 1;
+                      }
                     }
                   });
 
@@ -3931,9 +3976,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     if (!acc[professional]) {
                       acc[professional] = {
                         totalValue: 0,
+                        pointsFromAttendances: 0,
                         attendanceCount: 0,
                         uniqueClientIds: new Set<string>(),
-                        uniqueClientNames: new Set<string>(),
                         saleCommissionCount: 0,
                       };
                     }
@@ -3948,12 +3993,23 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               ).map(([professional, info]) => {
                 const isOwnerProfessional = isOwnerProfessionalByName(professional);
                 const totalValue = (info as any)?.totalValue || 0;
+                const pointsFromAttendances = (info as any)?.pointsFromAttendances || 0;
                 const attendanceCount = (info as any)?.attendanceCount || 0;
                 const uniqueClientsCount = (info as any)?.uniqueClientIds?.size || 0;
                 const saleCommissionCount = (info as any)?.saleCommissionCount || 0;
-                const clientNames = Array.from((info as any)?.uniqueClientNames || []);
-                const preview = clientNames.slice(0, 3).join(', ');
-                const remaining = Math.max(0, clientNames.length - 3);
+                const clientIdsForLabels = Array.from((info as any)?.uniqueClientIds || []) as string[];
+                const clientRowsForList = clientIdsForLabels.map((cid) => {
+                  const name = clientNameBySubIdMap.get(cid) || 'Cliente';
+                  if (!isClientSubscriptionPointsMode(cid)) return { cid, label: name };
+                  const cs = (clientSubscriptions || []).find((c: any) => String(c?.id) === String(cid));
+                  const monthly = cs ? getSubscriptionValue(cs as ClientSubscription) : 0;
+                  return { cid, label: `${name} (mensalidade ${fmtBRL(monthly)})` };
+                });
+                const preview = clientRowsForList
+                  .slice(0, 3)
+                  .map((r) => r.label)
+                  .join(', ');
+                const remaining = Math.max(0, clientRowsForList.length - 3);
 
                 // Calcular total pago para este profissional no mês atual
                 // IMPORTANTE: Considerar apenas pagamentos feitos via assinatura (payment_source = 'subscription')
@@ -3983,17 +4039,26 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       <p className="text-xs text-gray-400 mt-1">
                         Atendimentos: <span className="text-white font-semibold">{attendanceCount}</span>
                         {' '}• Assinantes atendidos: <span className="text-white font-semibold">{uniqueClientsCount}</span>
+                        {pointsFromAttendances > 0 ? (
+                          <>
+                            {' '}• <span className="text-amber-200 font-semibold">{pointsFromAttendances} ponto(s)</span>
+                            <span className="text-gray-500"> (repasse 0% sem dividir valor)</span>
+                          </>
+                        ) : null}
                         {saleCommissionCount > 0 ? (
                           <>
                             {' '}• Vendas (bônus): <span className="text-white font-semibold">{saleCommissionCount}</span>
                           </>
                         ) : null}
                       </p>
-                      {clientNames.length > 0 && (
+                      {clientRowsForList.length > 0 && (
                         <>
-                          {clientNames.length <= 3 ? (
+                          {clientRowsForList.length <= 3 ? (
                             <p className="text-[11px] text-gray-500 mt-1">
-                              Clientes: <span className="text-gray-300">{clientNames.join(', ')}</span>
+                              Clientes:{' '}
+                              <span className="text-gray-300">
+                                {clientRowsForList.map((r) => r.label).join(', ')}
+                              </span>
                             </p>
                           ) : (
                             <details className="mt-1">
@@ -4003,12 +4068,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                               </summary>
                               <div className="mt-2 max-h-24 overflow-y-auto pr-1">
                                 <ul className="space-y-0.5">
-                                  {clientNames
-                                    .slice()
-                                    .sort((a, b) => a.localeCompare(b))
-                                    .map((name) => (
-                                      <li key={name} className="text-[11px] text-gray-300">
-                                        {name}
+                                  {[...clientRowsForList]
+                                    .sort((a, b) => a.label.localeCompare(b.label))
+                                    .map((row) => (
+                                      <li key={row.cid} className="text-[11px] text-gray-300">
+                                        {row.label}
                                       </li>
                                     ))}
                                 </ul>
@@ -4020,9 +4084,27 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <p className={`text-lg font-bold ${pendingValue > 0 ? 'text-green-400' : 'text-gray-500'}`}>
-                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pendingValue)}
-                        </p>
+                        {pointsFromAttendances > 0 && totalValue <= 0 && saleCommissionCount === 0 ? (
+                          <>
+                            <p className="text-lg font-bold text-amber-300">{pointsFromAttendances} ponto(s)</p>
+                            <p className="text-[10px] text-gray-500 max-w-[10rem] ml-auto leading-tight">
+                              Sem repasse em R$ neste modo; feche valores no fim do mês conforme a política da equipe.
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className={`text-lg font-bold ${pendingValue > 0 ? 'text-green-400' : pointsFromAttendances > 0 ? 'text-amber-300' : 'text-gray-500'}`}>
+                              {pendingValue > 0 || totalValue > 0 || saleCommissionCount > 0
+                                ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pendingValue)
+                                : pointsFromAttendances > 0
+                                  ? `${pointsFromAttendances} ponto(s)`
+                                  : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pendingValue)}
+                            </p>
+                            {pointsFromAttendances > 0 && (totalValue > 0 || saleCommissionCount > 0) && (
+                              <p className="text-xs text-amber-200/90">+ {pointsFromAttendances} ponto(s)</p>
+                            )}
+                          </>
+                        )}
                         {totalPaid > 0 && (
                           <p className="text-xs text-gray-500 line-through">
                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalValue)}
@@ -5896,6 +5978,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             {(() => {
               const clientAttendances = getClientAttendances(selectedClientForView.id);
               const attendancesByProfessional = getClientAttendancesByProfessional(selectedClientForView.id);
+              const viewClientPointsMode = isClientSubscriptionPointsMode(String(selectedClientForView.id));
 
               if (clientAttendances.length === 0) {
                 return (
@@ -5907,6 +5990,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
               return (
                 <div className="space-y-4">
+                  {viewClientPointsMode && (
+                    <p className="text-xs text-amber-200/90 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2">
+                      Plano em <strong>modo pontos</strong> (repasse 0% sem dividir valor): cada atendimento conta como ponto para o profissional; a mensalidade do cliente é só referência para fechar o mês.
+                    </p>
+                  )}
                   <div className="bg-[#2a2b2c] rounded-lg p-4">
                     <h4 className="text-sm font-medium text-white mb-3">Resumo por Profissional</h4>
                     <div className="space-y-3">
@@ -5917,10 +6005,19 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                             <p className="text-xs text-gray-400">{data.count} atendimento(s)</p>
                           </div>
                           <div className="text-right">
-                            <p className="text-sm font-bold text-green-400">
-                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(data.totalValue)}
-                            </p>
-                            <p className="text-xs text-gray-400">Total repassado</p>
+                            {viewClientPointsMode ? (
+                              <>
+                                <p className="text-sm font-bold text-amber-300">{data.pointsCount} ponto(s)</p>
+                                <p className="text-xs text-gray-400">Modo pontos</p>
+                              </>
+                            ) : (
+                              <>
+                                <p className="text-sm font-bold text-green-400">
+                                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(data.totalValue)}
+                                </p>
+                                <p className="text-xs text-gray-400">Total repassado</p>
+                              </>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -5941,7 +6038,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           <div className="flex items-center gap-3">
                             <div className="text-right">
                               <p className="text-sm font-bold text-blue-400">
-                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(getAttendanceEffectiveRepass(attendance))}
+                                {viewClientPointsMode
+                                  ? '1 ponto'
+                                  : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+                                      getAttendanceEffectiveRepass(attendance)
+                                    )}
                               </p>
                             </div>
                             <button

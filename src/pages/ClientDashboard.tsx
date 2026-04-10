@@ -15,7 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAppointmentReminders } from '../hooks/useAppointmentReminders';
 import { useNotifications } from '../hooks/useNotifications';
 import { cancelAppointment, getClientAppointments, supabase } from '../lib/supabase';
-import { podeCancelarAgendamento } from '../utils/regrasCancelamento';
+import { estadoCancelamentoParaAgendamentoCliente } from '../utils/regrasCancelamento';
 
 type AgendamentoCliente = {
   id: string;
@@ -455,10 +455,13 @@ const ClientDashboard = () => {
         return;
       }
 
-      const { permitido, motivo } = podeCancelarAgendamento({
-        appointment_date: appointmentToCancel.appointment_date,
-        appointment_time: appointmentToCancel.appointment_time
-      });
+      const { permitido, motivo } = estadoCancelamentoParaAgendamentoCliente(
+        {
+          appointment_date: appointmentToCancel.appointment_date,
+          appointment_time: appointmentToCancel.appointment_time,
+        },
+        (appointmentToCancel as any).establishments
+      );
 
       if (!permitido) {
         toast.error(motivo || 'Cancelamento indisponível para este agendamento.');
@@ -500,7 +503,10 @@ const ClientDashboard = () => {
         }
       }
 
-      const { error } = await cancelAppointment(appointmentId);
+      const { error } = await cancelAppointment(appointmentId, {
+        cancellation_source: 'client',
+        cancellation_detail: 'Cancelado pelo cliente no app.',
+      });
 
       if (error) throw error;
 
