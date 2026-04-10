@@ -1088,34 +1088,46 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
-  // ✅ Contagem TOTAL de atendimentos por assinante (para mostrar "X concluído(s)" ao lado do nome)
-  // Observação: não filtra por mês. É o total acumulado no estabelecimento.
-  const fetchSubscriberAttendanceCounts = async (month?: number, year?: number) => {
+  // ✅ Contagem de atendimentos no período vigente da assinatura (início→fim), não no mês civil.
+  // Ao renovar e atualizar start/end em client_subscriptions, a contagem acompanha o novo período.
+  const fetchSubscriberAttendanceCounts = async (_month?: number, _year?: number) => {
     try {
-      const targetMonth = month !== undefined ? month : selectedMonth;
-      const targetYear = year !== undefined ? year : selectedYear;
-      const firstDayOfMonth = new Date(targetYear, targetMonth, 1);
-      const lastDayOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
-      const min = firstDayOfMonth.toISOString().split('T')[0];
-      const max = lastDayOfMonth.toISOString().split('T')[0];
+      const { data: subs, error: subsErr } = await supabase
+        .from('client_subscriptions')
+        .select('id, start_date, end_date')
+        .eq('establishment_id', establishmentId);
 
-      const { data, error } = await supabase
+      if (subsErr) {
+        console.error('Erro ao buscar assinaturas para contagem:', subsErr);
+        return;
+      }
+
+      const { data: rows, error } = await supabase
         .from('subscriber_attendances')
         .select('client_subscription_id, attendance_date')
-        .eq('establishment_id', establishmentId)
-        .gte('attendance_date', min)
-        .lte('attendance_date', max);
+        .eq('establishment_id', establishmentId);
 
       if (error) {
         console.error('Erro ao buscar contagem de atendimentos:', error);
         return;
       }
 
+      const subById = new Map<string, { start_date?: string | null; end_date?: string | null }>(
+        (subs || []).map((s: any) => [String(s.id), { start_date: s.start_date, end_date: s.end_date }])
+      );
+
       const counts: Record<string, number> = {};
-      (data || []).forEach((row: any) => {
+      (rows || []).forEach((row: any) => {
         const id = String(row?.client_subscription_id || '');
-        if (!id) return;
-        counts[id] = (counts[id] || 0) + 1;
+        const sub = subById.get(id);
+        if (!id || !sub) return;
+        const d = String(row?.attendance_date || '').slice(0, 10);
+        const start = String(sub.start_date || '').slice(0, 10);
+        const end = String(sub.end_date || '').slice(0, 10);
+        if (!d || !start || !end) return;
+        if (d >= start && d <= end) {
+          counts[id] = (counts[id] || 0) + 1;
+        }
       });
 
       setSubscriberAttendanceCountsByClientSubId(counts);

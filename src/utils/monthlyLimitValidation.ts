@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { getSubscriptionUsageDateRange } from './subscriptionUsagePeriod';
 
 const toDateOnlyString = (d: Date): string => {
   const yyyy = d.getFullYear();
@@ -83,8 +84,7 @@ export const checkMonthlyLimit = async (
     const requestedServiceName = String(selectedSubscriberService?.name || '').trim();
     const requestedServiceLimit = Number(selectedSubscriberService?.limit || 0);
 
-    const firstDayOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
-    const lastDayOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
+    const calendarFallbackRange = getSubscriptionUsageDateRange(null, targetDate);
 
     const countUsageByRequestedService = (appointments: any[]): number => {
       return (appointments || []).filter((appointment: any) => {
@@ -151,21 +151,23 @@ export const checkMonthlyLimit = async (
         if (oldSubscription && !oldError) {
           console.log('✅ Encontrado no sistema antigo, mas SEM limite mensal');
 
+          const oldRange = getSubscriptionUsageDateRange(oldSubscription as any, targetDate);
+
           const { data: appointments, error: appointmentsError } = await supabase
             .from('appointments')
             .select('id, appointment_date, subscriber_service_id, subscriber_service_name, service')
             .eq('establishment_id', establishmentId)
             .in('client_whatsapp', whatsappCandidates)
             .eq('is_subscriber', true)
-            .gte('appointment_date', firstDayOfMonth.toISOString().split('T')[0])
-            .lte('appointment_date', lastDayOfMonth.toISOString().split('T')[0])
+            .gte('appointment_date', oldRange.periodMin)
+            .lte('appointment_date', oldRange.periodMax)
             .in('status', ['confirmed', 'completed', 'pending']);
 
           console.log('🔍 DEBUG - Busca de agendamentos no sistema antigo:', {
             establishmentId,
             cleanWhatsapp,
-            firstDayOfMonth: firstDayOfMonth.toISOString().split('T')[0],
-            lastDayOfMonth: lastDayOfMonth.toISOString().split('T')[0],
+            periodMin: oldRange.periodMin,
+            periodMax: oldRange.periodMax,
             appointments,
             appointmentsError,
             appointmentsCount: appointments?.length || 0
@@ -202,8 +204,8 @@ export const checkMonthlyLimit = async (
           .eq('establishment_id', establishmentId)
           .in('client_whatsapp', whatsappCandidates)
           .eq('is_subscriber', true)
-          .gte('appointment_date', firstDayOfMonth.toISOString().split('T')[0])
-          .lte('appointment_date', lastDayOfMonth.toISOString().split('T')[0])
+          .gte('appointment_date', calendarFallbackRange.periodMin)
+          .lte('appointment_date', calendarFallbackRange.periodMax)
           .in('status', ['confirmed', 'completed', 'pending']);
 
         if (!fallbackAppointmentsError) {
@@ -251,14 +253,16 @@ export const checkMonthlyLimit = async (
       };
     }
 
+    const usageRange = getSubscriptionUsageDateRange(clientSubscription as any, targetDate);
+
     const { data: appointments, error: appointmentsError } = await supabase
       .from('appointments')
       .select('id, appointment_date, subscriber_service_id, subscriber_service_name, service')
       .eq('establishment_id', establishmentId)
       .in('client_whatsapp', whatsappCandidates)
       .eq('is_subscriber', true)
-      .gte('appointment_date', firstDayOfMonth.toISOString().split('T')[0])
-      .lte('appointment_date', lastDayOfMonth.toISOString().split('T')[0])
+      .gte('appointment_date', usageRange.periodMin)
+      .lte('appointment_date', usageRange.periodMax)
       .in('status', ['confirmed', 'completed', 'pending']);
 
     if (appointmentsError) {
@@ -381,7 +385,7 @@ export const checkMonthlyLimit = async (
         currentUsage,
         monthlyLimit,
         subscriptionName,
-        errorMessage: `Atenção: você já atingiu o limite dos seus serviços como assinante neste mês. (${currentUsage}/${monthlyLimit} agendamentos utilizados)`
+        errorMessage: `Atenção: você já atingiu o limite dos seus serviços como assinante no período atual da assinatura. (${currentUsage}/${monthlyLimit} agendamentos utilizados)`
       };
     }
 

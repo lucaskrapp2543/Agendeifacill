@@ -560,6 +560,8 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
       ok: true,
       status: normalizedStatus,
       subscription: resultRow,
+      /** `updated` = mesmo registro em client_subscriptions (renovação); `created` = novo assinante */
+      operation: existing?.id ? 'updated' : 'created',
     });
   } catch (error: any) {
     console.error('❌ Erro ao confirmar assinatura via PIX:', error);

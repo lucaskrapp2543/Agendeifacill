@@ -4398,6 +4398,7 @@ export default function BookingPage() {
                   establishment={establishment}
                   guestClientData={guestClientData}
                   onGuestClientDataCollected={persistGuestClientData}
+                  onOpenRenewSubscription={handleOpenRenewSubscription}
                   onCloseChat={() => {
                     setShowBookingForm(false);
                     safeSessionRemove(QUICK_BOOKING_FLOW_KEY);

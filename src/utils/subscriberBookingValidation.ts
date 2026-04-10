@@ -1,4 +1,5 @@
 import { checkWhatsAppSubscriber, supabase } from '../lib/supabase';
+import { getSubscriptionUsageDateRange } from './subscriptionUsagePeriod';
 
 const toDateOnlyString = (d: Date): string => {
   const yyyy = d.getFullYear();
@@ -116,10 +117,7 @@ export const checkSubscriberMonthlyLimit = async (clientWhatsapp: string, establ
       };
     }
 
-    // Contar agendamentos do cliente neste mês
-    const currentDate = new Date();
-    const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-    const lastDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+    const usageRange = getSubscriptionUsageDateRange(clientSubscription as any, new Date());
 
     const { data: appointments, error: appointmentsError } = await supabase
       .from('appointments')
@@ -127,8 +125,8 @@ export const checkSubscriberMonthlyLimit = async (clientWhatsapp: string, establ
       .eq('establishment_id', establishmentId)
       .eq('client_whatsapp', cleanWhatsapp)
       .eq('is_subscriber', true)
-      .gte('appointment_date', firstDayOfMonth.toISOString().split('T')[0])
-      .lte('appointment_date', lastDayOfMonth.toISOString().split('T')[0])
+      .gte('appointment_date', usageRange.periodMin)
+      .lte('appointment_date', usageRange.periodMax)
       .in('status', ['confirmed', 'completed', 'pending']);
 
     if (appointmentsError) {
@@ -160,7 +158,7 @@ export const checkSubscriberMonthlyLimit = async (clientWhatsapp: string, establ
         currentUsage,
         monthlyLimit,
         subscriptionName: clientSubscription.subscriptions?.name || '',
-        errorMessage: `Atenção: você já atingiu o limite dos seus serviços como assinante neste mês. (${currentUsage}/${monthlyLimit} serviços utilizados)`
+        errorMessage: `Atenção: você já atingiu o limite dos seus serviços como assinante no período atual da assinatura. (${currentUsage}/${monthlyLimit} serviços utilizados)`
       };
     }
 

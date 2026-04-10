@@ -7,12 +7,23 @@ import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { validatePendingClientBookingLimit } from '../utils/pendingClientBookingValidation';
 import { TimeSlotSelector } from './TimeSlotSelector';
 
-type ChatStep = 'name' | 'phone' | 'subscriberChoice' | 'professional' | 'service' | 'datetime' | 'products' | 'confirm';
+type ChatStep =
+  | 'name'
+  | 'phone'
+  | 'subscriberChoice'
+  | 'expiredSubscriberChoice'
+  | 'professional'
+  | 'service'
+  | 'datetime'
+  | 'products'
+  | 'confirm';
 
 interface BookingChatFlowProps {
   establishment: any;
   guestClientData: { name: string; phone: string } | null;
   onGuestClientDataCollected?: (name: string, phone: string) => void;
+  /** Abre o mesmo modal de renovação PIX do booking (dados do assinante vencido no chat). */
+  onOpenRenewSubscription?: (detectedSubscriber: any) => void;
   onCloseChat?: () => void;
   existingAppointments: any[];
   selectedDate: Date;
@@ -124,6 +135,7 @@ export function BookingChatFlow({
   establishment,
   guestClientData,
   onGuestClientDataCollected,
+  onOpenRenewSubscription,
   onCloseChat,
   existingAppointments,
   selectedDate,
@@ -146,6 +158,8 @@ export function BookingChatFlow({
   const [isCheckingPendingClientBooking, setIsCheckingPendingClientBooking] = useState(false);
   const [pendingClientBookingMessage, setPendingClientBookingMessage] = useState<string | null>(null);
   const [detectedSubscriber, setDetectedSubscriber] = useState<any>(null);
+  const [expiredSubscriberRecord, setExpiredSubscriberRecord] = useState<any>(null);
+  const [expiredSubscriberAction, setExpiredSubscriberAction] = useState<'renew' | 'skip' | null>(null);
   const [isSubscriberFlow, setIsSubscriberFlow] = useState(false);
   const [selectedSubscriberServiceId, setSelectedSubscriberServiceId] = useState('');
   const [selectedSubscriberServiceIds, setSelectedSubscriberServiceIds] = useState<string[]>([]);
@@ -734,14 +748,18 @@ export function BookingChatFlow({
     return true;
   };
 
-  const detectSubscriber = async (phoneRaw: string) => {
+  const resolveSubscriberAfterPhone = async (
+    phoneRaw: string
+  ): Promise<{ status: 'active' | 'expired' | 'none'; data: any }> => {
     const establishmentId = String(establishment?.id || establishment?.establishment_id || '').trim();
-    if (!establishmentId) return null;
+    if (!establishmentId) return { status: 'none', data: null };
     try {
       const { data: firstData, error: firstError } = await checkNewSubscriber(phoneRaw, establishmentId);
       if (firstData && !firstError) {
-        const isExpired = Boolean((firstData as any)?.is_expired) || (new Date((firstData as any)?.end_date) < new Date());
-        if (!isExpired) return firstData;
+        const isExpired =
+          Boolean((firstData as any)?.is_expired) || new Date((firstData as any)?.end_date) < new Date();
+        if (!isExpired) return { status: 'active', data: firstData };
+        return { status: 'expired', data: firstData };
       }
     } catch {
       // ignore and fallback
@@ -750,12 +768,13 @@ export function BookingChatFlow({
       const { data: secondData, error: secondError } = await checkLegacySubscriber(phoneRaw, establishmentId);
       if (secondData && !secondError) {
         const isExpired = new Date((secondData as any)?.end_date) < new Date();
-        if (!isExpired) return secondData;
+        if (!isExpired) return { status: 'active', data: secondData };
+        return { status: 'expired', data: secondData };
       }
     } catch {
       // ignore
     }
-    return null;
+    return { status: 'none', data: null };
   };
 
   const refreshSubscriberLimitStatus = async (phoneRaw: string) => {
@@ -921,14 +940,31 @@ export function BookingChatFlow({
       }
 
       setIsCheckingSubscriber(true);
-      const subscriber = await detectSubscriber(nextPhone);
+      const resolved = await resolveSubscriberAfterPhone(nextPhone);
       setIsCheckingSubscriber(false);
-      if (subscriber) {
-        setDetectedSubscriber(subscriber);
+      if (resolved.status === 'active' && resolved.data) {
+        setDetectedSubscriber(resolved.data);
+        setExpiredSubscriberRecord(null);
+        setExpiredSubscriberAction(null);
         await refreshSubscriberLimitStatus(nextPhone);
         setStep('subscriberChoice');
+      } else if (resolved.status === 'expired' && resolved.data) {
+        setDetectedSubscriber(null);
+        setIsSubscriberFlow(false);
+        setExpiredSubscriberRecord(resolved.data);
+        setExpiredSubscriberAction(null);
+        setSubscriberLimitStatus({
+          isLoading: false,
+          canBook: true,
+          currentUsage: 0,
+          monthlyLimit: 'Ilimitado',
+          remaining: null,
+        });
+        setStep('expiredSubscriberChoice');
       } else {
         setDetectedSubscriber(null);
+        setExpiredSubscriberRecord(null);
+        setExpiredSubscriberAction(null);
         setIsSubscriberFlow(false);
         setSubscriberLimitStatus({
           isLoading: false,
@@ -953,6 +989,7 @@ export function BookingChatFlow({
     const sequence: ChatStep[] = [
       'name',
       'phone',
+      ...(expiredSubscriberRecord ? (['expiredSubscriberChoice'] as ChatStep[]) : []),
       ...(detectedSubscriber ? (['subscriberChoice'] as ChatStep[]) : []),
       'professional',
       'service',
@@ -968,6 +1005,13 @@ export function BookingChatFlow({
     const prevStep = sequence[currentIndex - 1];
     if (prevStep === 'name') setDraftInput(chatClientName || '');
     if (prevStep === 'phone') setDraftInput(chatClientPhone || '');
+    if (step === 'expiredSubscriberChoice' && prevStep === 'phone') {
+      setExpiredSubscriberRecord(null);
+      setExpiredSubscriberAction(null);
+    }
+    if (step === 'professional' && prevStep === 'expiredSubscriberChoice') {
+      setExpiredSubscriberAction(null);
+    }
     setStep(prevStep);
   };
 
@@ -1090,6 +1134,20 @@ export function BookingChatFlow({
     if (chatClientPhone) {
       messages.push({ id: 'user-phone', role: 'user', text: chatClientPhone });
     }
+    if (expiredSubscriberRecord) {
+      messages.push({
+        id: 'bot-expired-subscriber',
+        role: 'bot',
+        text: 'Sua assinatura nesse estabelecimento está vencida.'
+      });
+      if (step !== 'expiredSubscriberChoice') {
+        if (expiredSubscriberAction === 'renew') {
+          messages.push({ id: 'user-expired-renew', role: 'user', text: 'Renovar assinatura' });
+        } else if (expiredSubscriberAction === 'skip') {
+          messages.push({ id: 'user-expired-skip', role: 'user', text: 'Agendar sem assinatura' });
+        }
+      }
+    }
     if (detectedSubscriber) {
       messages.push({
         id: 'bot-subscriber-choice',
@@ -1126,7 +1184,8 @@ export function BookingChatFlow({
     }
     const shouldShowProfessionalPrompt =
       Boolean(chatClientPhone) &&
-      (!detectedSubscriber || step !== 'subscriberChoice');
+      (!detectedSubscriber || step !== 'subscriberChoice') &&
+      !(expiredSubscriberRecord && step === 'expiredSubscriberChoice');
 
     if (shouldShowProfessionalPrompt) {
       messages.push({
@@ -1172,7 +1231,7 @@ export function BookingChatFlow({
       }
     }
     return messages;
-  }, [chatClientName, chatClientPhone, computedSelection.serviceName, detectedSubscriber, establishment?.name, hasBookingHighlightedProducts, invalidSubscriberDateMessage, isSubscriberFlow, selectedBookingProducts, selectedDate, selectedProfessional?.name, selectedTime, step, subscriberLimitStatus]);
+  }, [chatClientName, chatClientPhone, computedSelection.serviceName, detectedSubscriber, establishment?.name, expiredSubscriberAction, expiredSubscriberRecord, hasBookingHighlightedProducts, invalidSubscriberDateMessage, isSubscriberFlow, selectedBookingProducts, selectedDate, selectedProfessional?.name, selectedTime, step, subscriberLimitStatus]);
 
   useEffect(() => {
     if (step !== 'confirm') return;
@@ -1216,7 +1275,7 @@ export function BookingChatFlow({
       serviceIntroRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
-    if ((step === 'phone' || step === 'professional' || step === 'subscriberChoice') && chatScrollRef.current) {
+    if ((step === 'phone' || step === 'professional' || step === 'subscriberChoice' || step === 'expiredSubscriberChoice') && chatScrollRef.current) {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
   }, [chatMessages, step]);
@@ -1333,6 +1392,53 @@ export function BookingChatFlow({
                 <button
                   type="button"
                   onClick={() => {
+                    setIsSubscriberFlow(false);
+                    setSelectedSubscriberServiceId('');
+                    setSelectedSubscriberServiceIds([]);
+                    setSelectedSubscriberExtraIds([]);
+                    setStep('professional');
+                  }}
+                  className="px-3 py-2 rounded-lg border bg-white/10 border-white/20"
+                >
+                  Agendar sem assinatura
+                </button>
+              </div>
+            )}
+
+            {step === 'expiredSubscriberChoice' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExpiredSubscriberAction('renew');
+                    const payload = {
+                      subscription_id: expiredSubscriberRecord?.subscription_id,
+                      display_name: String(
+                        expiredSubscriberRecord?.display_name || expiredSubscriberRecord?.subscriber_name || chatClientName || ''
+                      ).trim(),
+                      subscriber_name: String(expiredSubscriberRecord?.subscriber_name || '').trim(),
+                      whatsapp: String(
+                        expiredSubscriberRecord?.whatsapp ||
+                        expiredSubscriberRecord?.subscriber_whatsapp ||
+                        expiredSubscriberRecord?.client_whatsapp ||
+                        onlyDigits(chatClientPhone) ||
+                        ''
+                      ).trim(),
+                    };
+                    if (onOpenRenewSubscription) {
+                      onOpenRenewSubscription(payload);
+                    } else {
+                      toast.error('Renovação indisponível no momento. Entre em contato com o estabelecimento.');
+                    }
+                  }}
+                  className="px-3 py-2 rounded-lg border border-amber-400/80 bg-amber-600 hover:bg-amber-500 text-white font-semibold shadow-[0_0_0_1px_rgba(251,191,36,0.35)]"
+                >
+                  Renovar assinatura
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExpiredSubscriberAction('skip');
                     setIsSubscriberFlow(false);
                     setSelectedSubscriberServiceId('');
                     setSelectedSubscriberServiceIds([]);

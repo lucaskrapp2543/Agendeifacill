@@ -284,7 +284,13 @@ export const handler: Handler = async (event) => {
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ ok: true, status: normalizedStatus, subscription: resultRow }),
+      body: JSON.stringify({
+        ok: true,
+        status: normalizedStatus,
+        subscription: resultRow,
+        /** `updated` = mesmo registro em client_subscriptions (renovação do contato existente); `created` = novo assinante */
+        operation: existing?.id ? 'updated' : 'created',
+      }),
     };
   } catch (error: any) {
     return {

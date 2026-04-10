@@ -2,6 +2,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { addMonths } from 'date-fns';
 import type { Database } from '../types/supabase';
 import { dlog } from '../utils/debugConsole';
+import { getSubscriptionUsageDateRange } from '../utils/subscriptionUsagePeriod';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -1898,11 +1899,9 @@ export const getSubscriptions = async (establishmentId: string) => {
   return { data, error };
 };
 
-// Função para verificar limite de serviços mensais de um assinante
+// Função para verificar limite de serviços do assinante no período da assinatura (não mês civil)
 export const checkMonthlyServiceLimit = async (clientWhatsapp: string, establishmentId: string) => {
   const currentDate = new Date();
-  const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-  const lastDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
 
   try {
     // Limpar o WhatsApp (remover formatação)
@@ -1931,15 +1930,17 @@ export const checkMonthlyServiceLimit = async (clientWhatsapp: string, establish
       };
     }
 
-    // 2. Contar agendamentos do cliente neste mês pelo WhatsApp
+    const usageRange = getSubscriptionUsageDateRange(clientSubscription as any, currentDate);
+
+    // 2. Contar agendamentos do cliente no período vigente da assinatura
     const { data: appointments, error: appointmentsError } = await supabase
       .from('appointments')
       .select('id, appointment_date')
       .eq('establishment_id', establishmentId)
       .eq('client_whatsapp', cleanWhatsapp) // Buscar pelo WhatsApp limpo
       .eq('is_subscriber', true) // Apenas agendamentos como assinante
-      .gte('appointment_date', firstDayOfMonth.toISOString().split('T')[0])
-      .lte('appointment_date', lastDayOfMonth.toISOString().split('T')[0])
+      .gte('appointment_date', usageRange.periodMin)
+      .lte('appointment_date', usageRange.periodMax)
       .in('status', ['confirmed', 'completed', 'pending']); // Incluir pending também
 
     if (appointmentsError) {

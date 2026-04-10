@@ -367,6 +367,17 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     return await resp.json().catch(() => ({}));
   };
 
+  const toastAfterSubscriptionConfirm = (successData: unknown) => {
+    const op = String((successData as any)?.operation || '').toLowerCase();
+    if (op === 'updated') {
+      toast.success(
+        'Renovação concluída! O mesmo cadastro em Meus Assinantes foi atualizado (novas datas e pagamento).'
+      );
+    } else {
+      toast.success('Assinatura registrada! Você já aparece em Meus Assinantes do barbeiro.');
+    }
+  };
+
   const checkPaymentStatusOnce = async (
     orderId: string,
     provider: 'pagarme_pix' | 'pagarme_card' | 'mercadopago_pix' | 'mercadopago_card'
@@ -424,7 +435,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           try {
             const successData = await confirmSubscription(orderId, provider);
             console.log('✅ Assinatura registrada com sucesso:', successData);
-            toast.success('Assinatura registrada! Você já aparece em "Meus Assinantes" do barbeiro.');
+            toastAfterSubscriptionConfirm(successData);
           } catch (e: any) {
             console.error('❌ Erro ao registrar assinatura:', e);
             // ✅ NÃO prender o usuário: marcar como pago e permitir fechar/reverificar depois.
@@ -878,11 +889,11 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
       if (st === 'approved' || st === 'authorized') {
         try {
-          await confirmSubscription(pid, 'mercadopago_card');
+          const successData = await confirmSubscription(pid, 'mercadopago_card');
           setIsPaid(true);
           setShowCreditInstructions(false);
           setHasOpenedCreditLink(false);
-          toast.success('Pagamento aprovado! Sua assinatura foi ativada.');
+          toastAfterSubscriptionConfirm(successData);
         } catch (e: any) {
           toast.error(`Pagamento aprovado, mas falhou ao registrar: ${e?.message || 'erro'}`);
         }
@@ -1041,13 +1052,13 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       try {
         const { normalized, reason } = await checkPaymentStatusOnce(pid, 'mercadopago_card');
         if (normalized === 'paid' || normalized === 'authorized' || normalized === 'approved') {
-          await confirmSubscription(pid, 'mercadopago_card');
+          const successData = await confirmSubscription(pid, 'mercadopago_card');
           setIsPaid(true);
           setCurrentPaymentProvider('mercadopago_card');
           setShowCreditInstructions(false);
           setHasOpenedCreditLink(false);
           setIsCheckingPayment(false);
-          toast.success('Pagamento confirmado! Sua assinatura foi ativada.');
+          toastAfterSubscriptionConfirm(successData);
           return;
         }
         if (
@@ -1256,7 +1267,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto"
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80] p-4 overflow-y-auto"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isProcessing) {
           handleSafeClose();
@@ -1815,13 +1826,13 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                           const { normalized } = await checkPaymentStatusOnce(id, provider);
                           if (normalized === 'paid' || normalized === 'authorized' || normalized === 'approved') {
                             try {
-                              await confirmSubscription(id, provider);
+                              const successData = await confirmSubscription(id, provider);
+                              toastAfterSubscriptionConfirm(successData);
                             } catch (e: any) {
                               toast.error(`Pagamento confirmado, mas falhou registrar: ${e?.message || 'erro'}`);
                             }
                             setIsPaid(true);
                             setIsCheckingPayment(false);
-                            toast.success('Pagamento confirmado!');
                           } else {
                             toast.error(`Ainda não confirmado (status: ${normalized || 'desconhecido'})`);
                           }
@@ -1851,7 +1862,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         {/* Modal: confirmação do pagamento no crédito */}
         {showCreditConfirm && (
           <div
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
+            className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 p-4"
             onClick={(e) => {
               if (e.target === e.currentTarget) handleCreditConfirmNo();
             }}

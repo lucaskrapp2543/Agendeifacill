@@ -389,6 +389,8 @@ interface Client {
   birthday: string | null; // Campo de aniversário
   alert?: string | null; // Campo de alerta/anotação (máximo 100 caracteres)
   forceAdvancePayment?: boolean; // Se true, este cliente precisa pagar antes de agendar
+  /** Timestamp (ms) do último agendamento não cancelado — usado em Clientes Sumidos */
+  lastAppointmentAt?: number;
 }
 
 interface ClientFutureAppointmentItem {
@@ -14938,37 +14940,31 @@ Estamos te aguardando! 😎✂️`;
       position: index + 1
     }));
 
-  // Calcular clientes sumidos (inativos há 2+ meses)
-  const missingClients = clients
-    .filter(client => client.appointmentCount > 0) // Apenas clientes que já agendaram
-    .map(client => {
-      // Buscar o último agendamento deste cliente
-      const lastAppointment = appointments.find(apt =>
-        apt.client_whatsapp === client.whatsapp || apt.client_id === client.id
-      );
+  // Clientes sumidos: usa lastAppointmentAt (histórico completo em fetchClients), não o array `appointments` do dia.
+  const SUMIDO_MIN_DAYS = 30; // a partir de 30 dias sem agendar entra na lista
+  const missingClients = (() => {
+    const MS_DAY = 86400000;
+    const now = Date.now();
 
-      if (!lastAppointment) return null;
-
-      const lastAppointmentDate = new Date(lastAppointment.appointment_date);
-      const now = new Date();
-      const monthsDiff = (now.getFullYear() - lastAppointmentDate.getFullYear()) * 12 +
-        (now.getMonth() - lastAppointmentDate.getMonth());
-
-      return {
-        ...client,
-        lastAppointmentDate,
-        monthsInactive: monthsDiff,
-        isOver2Months: monthsDiff >= 2
-      };
-    })
-    .filter(client => client !== null)
-    .sort((a, b) => {
-      // Primeiro os que têm mais de 2 meses, depois ordenados por tempo de inatividade
-      if (a!.isOver2Months && !b!.isOver2Months) return -1;
-      if (!a!.isOver2Months && b!.isOver2Months) return 1;
-      return b!.monthsInactive - a!.monthsInactive;
-    })
-    .slice(0, 10); // Limitar a 10 clientes mais inativos
+    return clients
+      .filter((c) => c.appointmentCount > 0 && typeof c.lastAppointmentAt === 'number')
+      .map((c) => {
+        const daysSince = Math.floor((now - c.lastAppointmentAt!) / MS_DAY);
+        const lastAppointmentDate = new Date(c.lastAppointmentAt!);
+        const monthsInactive = Math.max(0, Math.floor(daysSince / 30));
+        const isOver2Months = daysSince >= SUMIDO_MIN_DAYS;
+        return {
+          ...c,
+          lastAppointmentDate,
+          daysSince,
+          monthsInactive,
+          isOver2Months,
+        };
+      })
+      .filter((c) => c.daysSince >= SUMIDO_MIN_DAYS)
+      .sort((a, b) => b.daysSince - a.daysSince)
+      .slice(0, 10);
+  })();
 
   // Função para remover cliente da lista de sumidos
   const removeFromMissingList = (clientWhatsapp: string) => {
@@ -15823,12 +15819,79 @@ Estamos te aguardando! 😎✂️`;
       // Busca todos os agendamentos do estabelecimento para obter os clientes + estatísticas
       const { data: appointmentsData, error: appointmentsError } = await supabase
         .from('appointments')
-        .select('client_id, client_name, client_whatsapp, status, price, total_price')
+        .select('client_id, client_name, client_whatsapp, status, price, total_price, appointment_date, appointment_time')
         .eq('establishment_id', establishment.id)
         .not('client_whatsapp', 'is', null) // Apenas agendamentos com WhatsApp
         .order('created_at', { ascending: false });
 
       if (appointmentsError) throw appointmentsError;
+
+      const appointmentDateTimeToTs = (dateStr: string, timeRaw: unknown): number | null => {
+        const [y, m, d] = String(dateStr || '').split('-').map((x) => parseInt(x, 10));
+        if (!y || !m || !d) return null;
+        const t = String(timeRaw ?? '12:00').trim();
+        const [hh, mm] = t.split(':').map((x) => parseInt(x, 10));
+        const h = Number.isFinite(hh) ? hh : 12;
+        const min = Number.isFinite(mm) ? mm : 0;
+        return new Date(y, m - 1, d, h, min, 0, 0).getTime();
+      };
+
+      const normalizeWhatsappKey = (raw: any) => {
+        const onlyDigits = String(raw || '').replace(/\D/g, '');
+        let digits = onlyDigits;
+        if (!digits) return '';
+
+        while (digits.startsWith('55') && digits.length > 11) {
+          digits = digits.slice(2);
+        }
+
+        if (digits.startsWith('55')) {
+          const after = digits.slice(2);
+          const otherDDI = [
+            { code: '351', minLength: 11 },
+            { code: '244', minLength: 11 },
+            { code: '54', minLength: 11 },
+            { code: '56', minLength: 10 },
+            { code: '34', minLength: 10 },
+            { code: '1', minLength: 10 },
+          ];
+          const hasOther = otherDDI.some(({ code, minLength }) => after.startsWith(code) && after.length >= minLength);
+          if (hasOther) return after;
+
+          if (after.length === 10 || after.length === 11) return after;
+        }
+
+        if (digits.length > 11) return digits.slice(-11);
+        return digits;
+      };
+
+      const possibleWhatsappLookupKeys = (raw: any): string[] => {
+        const digits = String(raw || '').replace(/\D/g, '');
+        const normalized = normalizeWhatsappKey(raw);
+        if (!digits && !normalized) return [];
+        const keys = new Set<string>();
+        if (digits) keys.add(digits);
+        if (normalized) keys.add(normalized);
+        if (digits.startsWith('55') && digits.length > 2) keys.add(digits.slice(2));
+        if (normalized && (normalized.length === 10 || normalized.length === 11)) {
+          keys.add(`55${normalized}`);
+        }
+        return Array.from(keys).filter(Boolean);
+      };
+
+      const lastVisitByWhatsapp = new Map<string, number>();
+      (appointmentsData || []).forEach((raw: any) => {
+        const key = normalizeWhatsappKey(raw?.client_whatsapp);
+        if (!key) return;
+        const st = String(raw?.status || '').toLowerCase();
+        if (st === 'cancelled') return;
+        const ds = String(raw?.appointment_date || '').trim();
+        if (!ds) return;
+        const ts = appointmentDateTimeToTs(ds, raw?.appointment_time);
+        if (ts == null || !Number.isFinite(ts)) return;
+        const prev = lastVisitByWhatsapp.get(key);
+        if (prev == null || ts > prev) lastVisitByWhatsapp.set(key, ts);
+      });
 
       if (!appointmentsData || appointmentsData.length === 0) {
         console.log('📋 Nenhum agendamento encontrado - carregando apenas clientes manuais');
@@ -15928,55 +15991,6 @@ Estamos te aguardando! 😎✂️`;
         { id: string; name: string; count: number; completed: number; spent: number; isSubscriber: boolean; birthday: string | null; whatsapp: string }
       >();
 
-      // ✅ Normalização para DEDUPLICAR clientes por WhatsApp
-      // Regra: para BR, tratar "55 + DDD + número" e "DDD + número" como o MESMO cliente.
-      // (Evita duplicar cadastros quando um registro vem com 55 e outro sem 55.)
-      const normalizeWhatsappKey = (raw: any) => {
-        const onlyDigits = String(raw || '').replace(/\D/g, '');
-        let digits = onlyDigits;
-        if (!digits) return '';
-
-        // Compatibilidade: pode existir prefixo 55 duplicado em dados antigos.
-        while (digits.startsWith('55') && digits.length > 11) {
-          digits = digits.slice(2);
-        }
-
-        if (digits.startsWith('55')) {
-          const after = digits.slice(2);
-          // Caso raro: "55" duplicado antes de outro DDI (ex: 55 + 351...)
-          const otherDDI = [
-            { code: '351', minLength: 11 }, // PT
-            { code: '244', minLength: 11 }, // AO
-            { code: '54', minLength: 11 },  // AR
-            { code: '56', minLength: 10 },  // CL
-            { code: '34', minLength: 10 },  // ES
-            { code: '1', minLength: 10 },   // US/CA
-          ];
-          const hasOther = otherDDI.some(({ code, minLength }) => after.startsWith(code) && after.length >= minLength);
-          if (hasOther) return after;
-
-          // BR padrão: remover o 55 para usar como CHAVE de comparação (10-11 dígitos)
-          if (after.length === 10 || after.length === 11) return after;
-        }
-
-        if (digits.length > 11) return digits.slice(-11);
-        return digits;
-      };
-
-      const possibleWhatsappLookupKeys = (raw: any): string[] => {
-        const digits = String(raw || '').replace(/\D/g, '');
-        const normalized = normalizeWhatsappKey(raw);
-        if (!digits && !normalized) return [];
-        const keys = new Set<string>();
-        if (digits) keys.add(digits);
-        if (normalized) keys.add(normalized);
-        if (digits.startsWith('55') && digits.length > 2) keys.add(digits.slice(2));
-        if (normalized && (normalized.length === 10 || normalized.length === 11)) {
-          keys.add(`55${normalized}`);
-        }
-        return Array.from(keys).filter(Boolean);
-      };
-
       appointmentsData.forEach(appointment => {
         const rawWhatsapp = (appointment as any).client_whatsapp;
         const key = normalizeWhatsappKey(rawWhatsapp);
@@ -16034,7 +16048,8 @@ Estamos te aguardando! 😎✂️`;
         totalSpent: spent,
         isSubscriber: isSubscriber,
         birthday: birthday,
-        forceAdvancePayment: false
+        forceAdvancePayment: false,
+        lastAppointmentAt: lastVisitByWhatsapp.get(key),
       }));
 
       // Carregar clientes manuais do Supabase
@@ -32692,7 +32707,7 @@ Estamos te aguardando! 😎✂️`;
 
                 <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
                   <p className="text-sm text-orange-700">
-                    <strong>Critério:</strong> Clientes que não agendam há 2+ meses. Se não houver nenhum, mostra os mais inativos.
+                    <strong>Critério:</strong> Último agendamento (não cancelado) há <strong>30 dias ou mais</strong>. Quem agendou há menos de 30 dias não aparece aqui.
                   </p>
                 </div>
 
@@ -32712,7 +32727,7 @@ Estamos te aguardando! 😎✂️`;
                           {/* Indicador de tempo */}
                           <div className={`flex items-center justify-center w-12 h-12 rounded-full text-white font-bold text-sm ${client!.isOver2Months ? 'bg-red-500' : 'bg-orange-500'
                             }`}>
-                            {client!.monthsInactive}m
+                            {client!.daysSince >= 30 ? `${client!.monthsInactive}m` : `${client!.daysSince}d`}
                           </div>
 
                           {/* Informações do cliente */}
@@ -33116,7 +33131,7 @@ Estamos te aguardando! 😎✂️`;
 
               <div className="mb-4 p-3 bg-gray-100 border border-gray-300 rounded-lg">
                 <p className="text-sm text-gray-700">
-                  <strong>Critério:</strong> Clientes que não agendam há 2+ meses. Se não houver nenhum, mostra os mais inativos.
+                  <strong>Critério:</strong> Último agendamento (não cancelado) há <strong>30 dias ou mais</strong>. Quem agendou há menos de 30 dias não aparece aqui.
                 </p>
               </div>
               {missingClients.length === 0 ? (
@@ -33135,7 +33150,7 @@ Estamos te aguardando! 😎✂️`;
                         {/* Indicador de tempo */}
                         <div className={`flex items-center justify-center w-12 h-12 rounded-full text-white font-bold text-sm ${client!.isOver2Months ? 'bg-gray-800' : 'bg-gray-600'
                           }`}>
-                          {client!.monthsInactive}m
+                          {client!.daysSince >= 30 ? `${client!.monthsInactive}m` : `${client!.daysSince}d`}
                         </div>
 
                         {/* Informações do cliente */}
