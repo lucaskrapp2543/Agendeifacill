@@ -7867,113 +7867,113 @@ const EstablishmentDashboard = () => {
 
     await enqueueEstablishmentProfessionalsWrite(async () => {
       try {
-      // Proteção anti-perda: usar base do banco + estado local para não sobrescrever lista em cenários de estado transitório.
-      const { data: establishmentDataSafe, error: fetchSafeError } = await supabase
-        .from('establishments')
-        .select('professionals, professionals_pins')
-        .eq('id', establishment.id)
-        .single();
+        // Proteção anti-perda: usar base do banco + estado local para não sobrescrever lista em cenários de estado transitório.
+        const { data: establishmentDataSafe, error: fetchSafeError } = await supabase
+          .from('establishments')
+          .select('professionals, professionals_pins')
+          .eq('id', establishment.id)
+          .single();
 
-      if (fetchSafeError) {
-        throw fetchSafeError;
-      }
+        if (fetchSafeError) {
+          throw fetchSafeError;
+        }
 
-      const dbProfessionalsSafe = Array.isArray((establishmentDataSafe as any)?.professionals)
-        ? ((establishmentDataSafe as any).professionals as any[])
-        : [];
-      const dbPinsSafe = Array.isArray((establishmentDataSafe as any)?.professionals_pins)
-        ? ((establishmentDataSafe as any).professionals_pins as any[])
-        : [];
+        const dbProfessionalsSafe = Array.isArray((establishmentDataSafe as any)?.professionals)
+          ? ((establishmentDataSafe as any).professionals as any[])
+          : [];
+        const dbPinsSafe = Array.isArray((establishmentDataSafe as any)?.professionals_pins)
+          ? ((establishmentDataSafe as any).professionals_pins as any[])
+          : [];
 
-      const baseProfessionalsById = new Map<string, any>();
-      dbProfessionalsSafe.forEach((p: any) => {
-        const id = String(p?.id || '').trim();
-        if (id) baseProfessionalsById.set(id, p);
-      });
-      professionals.forEach((p: any) => {
-        const id = String(p?.id || '').trim();
-        if (id) baseProfessionalsById.set(id, p);
-      });
+        const baseProfessionalsById = new Map<string, any>();
+        dbProfessionalsSafe.forEach((p: any) => {
+          const id = String(p?.id || '').trim();
+          if (id) baseProfessionalsById.set(id, p);
+        });
+        professionals.forEach((p: any) => {
+          const id = String(p?.id || '').trim();
+          if (id) baseProfessionalsById.set(id, p);
+        });
 
-      const updatedProfessionals = [...Array.from(baseProfessionalsById.values()), newProfessional];
+        const updatedProfessionals = [...Array.from(baseProfessionalsById.values()), newProfessional];
 
-      const pinsByProfessionalId = new Map<string, any>();
-      dbPinsSafe.forEach((pin: any) => {
-        const professionalId = String(pin?.professional_id || '').trim();
-        if (professionalId) pinsByProfessionalId.set(professionalId, pin);
-      });
-      (establishment.professionals_pins || []).forEach((pin: any) => {
-        const professionalId = String(pin?.professional_id || '').trim();
-        if (professionalId) pinsByProfessionalId.set(professionalId, pin);
-      });
-      pinsByProfessionalId.set(newPin.professional_id, newPin);
-      const updatedPins = Array.from(pinsByProfessionalId.values());
+        const pinsByProfessionalId = new Map<string, any>();
+        dbPinsSafe.forEach((pin: any) => {
+          const professionalId = String(pin?.professional_id || '').trim();
+          if (professionalId) pinsByProfessionalId.set(professionalId, pin);
+        });
+        (establishment.professionals_pins || []).forEach((pin: any) => {
+          const professionalId = String(pin?.professional_id || '').trim();
+          if (professionalId) pinsByProfessionalId.set(professionalId, pin);
+        });
+        pinsByProfessionalId.set(newPin.professional_id, newPin);
+        const updatedPins = Array.from(pinsByProfessionalId.values());
 
-      const { error } = await supabase
-        .from('establishments')
-        .update({
+        const { error } = await supabase
+          .from('establishments')
+          .update({
+            professionals: updatedProfessionals,
+            professionals_pins: updatedPins
+          })
+          .eq('id', establishment.id);
+
+        if (error) throw error;
+
+        setProfessionals(updatedProfessionals);
+        setEstablishment({
+          ...establishment,
           professionals: updatedProfessionals,
           professionals_pins: updatedPins
-        })
-        .eq('id', establishment.id);
+        });
 
-      if (error) throw error;
+        toast.success('Profissional adicionado à lista! Agora preencha o nome e clique em "Salvar Profissionais".');
 
-      setProfessionals(updatedProfessionals);
-      setEstablishment({
-        ...establishment,
-        professionals: updatedProfessionals,
-        professionals_pins: updatedPins
-      });
+        // Scroll até o novo profissional após o DOM ser atualizado
+        setTimeout(() => {
+          const newProfessionalElement = document.getElementById(`professional-${newProfessional.id}`);
+          if (newProfessionalElement) {
+            // Scroll com offset para ficar um pouco mais acima
+            const elementPosition = newProfessionalElement.getBoundingClientRect().top;
+            const offsetPosition = elementPosition + window.pageYOffset - 100; // 100px acima
+            window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
 
-      toast.success('Profissional adicionado à lista! Agora preencha o nome e clique em "Salvar Profissionais".');
+            // Destacar o novo profissional temporariamente
+            newProfessionalElement.style.transition = 'box-shadow 0.3s';
+            newProfessionalElement.style.boxShadow = '0 0 20px rgba(59, 130, 246, 0.5)';
 
-      // Scroll até o novo profissional após o DOM ser atualizado
-      setTimeout(() => {
-        const newProfessionalElement = document.getElementById(`professional-${newProfessional.id}`);
-        if (newProfessionalElement) {
-          // Scroll com offset para ficar um pouco mais acima
-          const elementPosition = newProfessionalElement.getBoundingClientRect().top;
-          const offsetPosition = elementPosition + window.pageYOffset - 100; // 100px acima
-          window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
+            // Destacar o campo de nome do profissional
+            const nameInput = newProfessionalElement.querySelector('input[type="text"]') as HTMLInputElement;
+            if (nameInput) {
+              nameInput.style.transition = 'all 0.3s';
+              nameInput.style.borderColor = '#3b82f6';
+              nameInput.style.borderWidth = '2px';
+              nameInput.style.backgroundColor = '#1e3a8a';
+              nameInput.style.boxShadow = '0 0 15px rgba(59, 130, 246, 0.6)';
+              nameInput.focus();
 
-          // Destacar o novo profissional temporariamente
-          newProfessionalElement.style.transition = 'box-shadow 0.3s';
-          newProfessionalElement.style.boxShadow = '0 0 20px rgba(59, 130, 246, 0.5)';
+              // Adicionar placeholder destacado
+              const originalPlaceholder = nameInput.placeholder;
+              nameInput.placeholder = '⚠️ DIGITE O NOME DO PROFISSIONAL AQUI ⚠️';
 
-          // Destacar o campo de nome do profissional
-          const nameInput = newProfessionalElement.querySelector('input[type="text"]') as HTMLInputElement;
-          if (nameInput) {
-            nameInput.style.transition = 'all 0.3s';
-            nameInput.style.borderColor = '#3b82f6';
-            nameInput.style.borderWidth = '2px';
-            nameInput.style.backgroundColor = '#1e3a8a';
-            nameInput.style.boxShadow = '0 0 15px rgba(59, 130, 246, 0.6)';
-            nameInput.focus();
-
-            // Adicionar placeholder destacado
-            const originalPlaceholder = nameInput.placeholder;
-            nameInput.placeholder = '⚠️ DIGITE O NOME DO PROFISSIONAL AQUI ⚠️';
+              setTimeout(() => {
+                newProfessionalElement.style.boxShadow = '';
+                nameInput.style.borderColor = '';
+                nameInput.style.borderWidth = '';
+                nameInput.style.backgroundColor = '';
+                nameInput.style.boxShadow = '';
+                nameInput.placeholder = originalPlaceholder;
+              }, 4000);
+            }
 
             setTimeout(() => {
               newProfessionalElement.style.boxShadow = '';
-              nameInput.style.borderColor = '';
-              nameInput.style.borderWidth = '';
-              nameInput.style.backgroundColor = '';
-              nameInput.style.boxShadow = '';
-              nameInput.placeholder = originalPlaceholder;
-            }, 4000);
+            }, 2000);
           }
-
-          setTimeout(() => {
-            newProfessionalElement.style.boxShadow = '';
-          }, 2000);
-        }
-      }, 100);
-    } catch (error) {
-      console.error('Erro ao adicionar profissional:', error);
-      toast.error('Erro ao adicionar profissional');
-    }
+        }, 100);
+      } catch (error) {
+        console.error('Erro ao adicionar profissional:', error);
+        toast.error('Erro ao adicionar profissional');
+      }
     });
   };
 
@@ -7989,57 +7989,57 @@ const EstablishmentDashboard = () => {
 
     await enqueueEstablishmentProfessionalsWrite(async () => {
       try {
-      const { data: establishmentData, error: fetchError } = await supabase
-        .from('establishments')
-        .select('professionals, professionals_pins, deleted_professionals')
-        .eq('id', establishment.id)
-        .single();
-      if (fetchError) throw fetchError;
+        const { data: establishmentData, error: fetchError } = await supabase
+          .from('establishments')
+          .select('professionals, professionals_pins, deleted_professionals')
+          .eq('id', establishment.id)
+          .single();
+        if (fetchError) throw fetchError;
 
-      const dbProfessionals = Array.isArray(establishmentData?.professionals)
-        ? (establishmentData.professionals as any[])
-        : [];
-      const dbPins = Array.isArray(establishmentData?.professionals_pins)
-        ? (establishmentData.professionals_pins as any[])
-        : [];
-      const dbDeleted = Array.isArray(establishmentData?.deleted_professionals)
-        ? (establishmentData.deleted_professionals as any[])
-        : [];
+        const dbProfessionals = Array.isArray(establishmentData?.professionals)
+          ? (establishmentData.professionals as any[])
+          : [];
+        const dbPins = Array.isArray(establishmentData?.professionals_pins)
+          ? (establishmentData.professionals_pins as any[])
+          : [];
+        const dbDeleted = Array.isArray(establishmentData?.deleted_professionals)
+          ? (establishmentData.deleted_professionals as any[])
+          : [];
 
-      const nextProfessionals = dbProfessionals.filter((p: any) => String(p?.id || '') !== String(id));
-      const alreadyDeleted = dbDeleted.some((p: any) => String(p?.id || '') === String(id));
-      const now = new Date().toISOString();
-      const removedPayload = {
-        ...(dbProfessionals.find((p: any) => String(p?.id || '') === String(id)) || professionalToRemove),
-        deleted_at: now,
-      };
-      const nextDeleted = alreadyDeleted ? dbDeleted : [...dbDeleted, removedPayload];
+        const nextProfessionals = dbProfessionals.filter((p: any) => String(p?.id || '') !== String(id));
+        const alreadyDeleted = dbDeleted.some((p: any) => String(p?.id || '') === String(id));
+        const now = new Date().toISOString();
+        const removedPayload = {
+          ...(dbProfessionals.find((p: any) => String(p?.id || '') === String(id)) || professionalToRemove),
+          deleted_at: now,
+        };
+        const nextDeleted = alreadyDeleted ? dbDeleted : [...dbDeleted, removedPayload];
 
-      const { error: updateError } = await supabase
-        .from('establishments')
-        .update({
-          professionals: nextProfessionals,
-          professionals_pins: dbPins,
-          deleted_professionals: nextDeleted,
-        })
-        .eq('id', establishment.id);
-      if (updateError) throw updateError;
+        const { error: updateError } = await supabase
+          .from('establishments')
+          .update({
+            professionals: nextProfessionals,
+            professionals_pins: dbPins,
+            deleted_professionals: nextDeleted,
+          })
+          .eq('id', establishment.id);
+        if (updateError) throw updateError;
 
-      setProfessionals(nextProfessionals as any);
-      setEstablishment({
-        ...establishment,
-        professionals: nextProfessionals as any,
-        professionals_pins: dbPins as any,
-        deleted_professionals: nextDeleted as any,
-      });
-      toast.success(`${professionalToRemove.name || 'Profissional'} removido e enviado para o histórico.`);
-    } catch (error: any) {
-      console.error('Erro ao remover profissional:', error);
-      toast(
-        [error?.message, error?.code, error?.details, error?.hint].filter(Boolean).join(' | ') || 'Erro ao remover profissional',
-        'error'
-      );
-    }
+        setProfessionals(nextProfessionals as any);
+        setEstablishment({
+          ...establishment,
+          professionals: nextProfessionals as any,
+          professionals_pins: dbPins as any,
+          deleted_professionals: nextDeleted as any,
+        });
+        toast.success(`${professionalToRemove.name || 'Profissional'} removido e enviado para o histórico.`);
+      } catch (error: any) {
+        console.error('Erro ao remover profissional:', error);
+        toast(
+          [error?.message, error?.code, error?.details, error?.hint].filter(Boolean).join(' | ') || 'Erro ao remover profissional',
+          'error'
+        );
+      }
     });
   };
 
@@ -8534,240 +8534,240 @@ const EstablishmentDashboard = () => {
     }
 
     await enqueueEstablishmentProfessionalsWrite(async () => {
-    try {
-      console.log('💾 Salvando profissionais:', professionals);
-      console.log('🔍 Verificando percentuais:', professionals.map(p => ({ name: p.name, percentage: p.percentage })));
-      console.log('📱 Verificando WhatsApp:', professionals.map(p => ({ name: p.name, whatsapp: p.whatsapp })));
+      try {
+        console.log('💾 Salvando profissionais:', professionals);
+        console.log('🔍 Verificando percentuais:', professionals.map(p => ({ name: p.name, percentage: p.percentage })));
+        console.log('📱 Verificando WhatsApp:', professionals.map(p => ({ name: p.name, whatsapp: p.whatsapp })));
 
-      // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS E HISTÓRICO DE EXCLUÍDOS
-      const { data: establishmentData, error: fetchError } = await supabase
-        .from('establishments')
-        .select('professionals, professionals_pins, deleted_professionals')
-        .eq('id', establishment.id)
-        .single();
+        // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS E HISTÓRICO DE EXCLUÍDOS
+        const { data: establishmentData, error: fetchError } = await supabase
+          .from('establishments')
+          .select('professionals, professionals_pins, deleted_professionals')
+          .eq('id', establishment.id)
+          .single();
 
-      if (fetchError) {
-        console.error('❌ Erro ao buscar dados do estabelecimento:', fetchError);
-        throw fetchError;
-      }
-
-      const dbProfessionals = (establishmentData?.professionals || []) as any[];
-      const existingDeleted = (establishmentData?.deleted_professionals || []) as any[];
-      // Profissionais que estavam no banco e foram removidos na lista local (por id)
-      const removed = dbProfessionals.filter(
-        (dbP: any) => dbP?.id && !professionals.some((lp: any) => lp.id === dbP.id)
-      );
-      const now = new Date().toISOString();
-      const newlyDeleted = removed.map((p: any) => ({ ...p, deleted_at: now }));
-      const updatedDeletedProfessionals = [...existingDeleted, ...newlyDeleted];
-      console.log('📦 Profissionais do banco:', dbProfessionals);
-      if (newlyDeleted.length > 0) {
-        console.log('📥 Movendo para histórico de excluídos:', newlyDeleted.map((p: any) => p.name));
-      }
-
-      // ✅ MESCLAR DADOS DO BANCO COM ALTERAÇÕES LOCAIS
-      const updatedProfessionals = professionals.map(localProfessional => {
-        // Buscar dados do banco para este profissional
-        const dbProfessional = dbProfessionals.find(p => p.id === localProfessional.id) || {};
-
-        // Mesclar: priorizar dados locais mas preservar campos do banco que não estão no local
-        const mergedProfessional = {
-          id: localProfessional.id,
-          name: localProfessional.name.trim(),
-          specialties: localProfessional.specialties || [],
-          percentage: normalizeProfessionalPercentage(localProfessional.percentage ?? dbProfessional.percentage),
-          photo_url: (localProfessional as any).photo_url || dbProfessional.photo_url || null,
-          whatsapp: localProfessional.whatsapp || dbProfessional.whatsapp || null,
-          hide_gross_in_financial: (localProfessional as any).hide_gross_in_financial !== undefined
-            ? Boolean((localProfessional as any).hide_gross_in_financial)
-            : Boolean((dbProfessional as any).hide_gross_in_financial),
-          lock_appointments_with_owner_pin: (localProfessional as any).lock_appointments_with_owner_pin !== undefined
-            ? Boolean((localProfessional as any).lock_appointments_with_owner_pin)
-            : Boolean((dbProfessional as any).lock_appointments_with_owner_pin),
-          lock_financial_with_owner_pin: (localProfessional as any).lock_financial_with_owner_pin !== undefined
-            ? Boolean((localProfessional as any).lock_financial_with_owner_pin)
-            : Boolean((dbProfessional as any).lock_financial_with_owner_pin),
-          hidden_from_booking: (localProfessional as any).hidden_from_booking !== undefined
-            ? Boolean((localProfessional as any).hidden_from_booking)
-            : dbProfessional.hidden_from_booking !== undefined
-              ? Boolean(dbProfessional.hidden_from_booking)
-              : Boolean((dbProfessional as any).oculto_da_reserva),
-          oculto_da_reserva: (localProfessional as any).oculto_da_reserva !== undefined
-            ? Boolean((localProfessional as any).oculto_da_reserva)
-            : (dbProfessional as any).oculto_da_reserva !== undefined
-              ? Boolean((dbProfessional as any).oculto_da_reserva)
-              : Boolean(dbProfessional.hidden_from_booking),
-          specific_services: Array.isArray((localProfessional as any).specific_services)
-            ? (localProfessional as any).specific_services
-            : (Array.isArray(dbProfessional.specific_services) ? dbProfessional.specific_services : []),
-          offers_child_service: localProfessional.offers_child_service ?? dbProfessional.offers_child_service ?? false,
-          work_hours: localProfessional.work_hours || dbProfessional.work_hours || null,
-          absences: (localProfessional as any).absences || dbProfessional.absences || [], // ✅ PRESERVAR AUSÊNCIAS!
-          // ✅ PRESERVAR HORÁRIOS BLOQUEADOS: mesclar DB + local por data para não perder bloqueios futuros
-          blocked_hours: (() => {
-            const local = (localProfessional as any).blocked_hours;
-            const db = dbProfessional.blocked_hours;
-            const safeLocal = local && typeof local === 'object'
-              ? normalizeBlockedHoursMap(local)
-              : {};
-            const safeDb = db && typeof db === 'object'
-              ? normalizeBlockedHoursMap(db)
-              : {};
-            const merged = { ...safeDb, ...safeLocal };
-            return Object.keys(merged).length > 0 ? merged : {};
-          })()
-        };
-
-        // ✅ VALIDAÇÃO FINAL APÓS MESCLAR: Verificar se profissional com nome tem horário
-        if (needsValidation && mergedProfessional.name && mergedProfessional.name.trim().length > 0) {
-          const workHours = mergedProfessional.work_hours;
-
-          if (!workHours || typeof workHours !== 'object' || Object.keys(workHours).length === 0) {
-            console.log('❌ VALIDAÇÃO FINAL FALHOU - SEM WORK_HOURS:', mergedProfessional.name);
-            toast.error('Selecione horário de serviço do profissional');
-            throw new Error('Profissional sem horário de trabalho configurado');
-          }
-
-          const hasValidHours = Object.keys(workHours).some(day => {
-            const daySchedule = workHours[day];
-            return daySchedule &&
-              daySchedule.enabled === true &&
-              daySchedule.entry_time &&
-              daySchedule.exit_time &&
-              daySchedule.entry_time.trim() !== '' &&
-              daySchedule.exit_time.trim() !== '';
-          });
-
-          if (!hasValidHours) {
-            console.log('❌ VALIDAÇÃO FINAL FALHOU - SEM HORÁRIOS VÁLIDOS:', mergedProfessional.name);
-            toast.error('Selecione horário de serviço do profissional');
-            throw new Error('Profissional sem horário de trabalho válido');
-          }
+        if (fetchError) {
+          console.error('❌ Erro ao buscar dados do estabelecimento:', fetchError);
+          throw fetchError;
         }
 
-        return mergedProfessional;
-      });
-
-      console.log('🔄 Profissionais mesclados:', updatedProfessionals);
-
-      // Garantir que todos os profissionais tenham pins (senha padrão "0000" se não tiver)
-      const updatedPins = [...(establishment.professionals_pins || [])];
-
-      // Para cada profissional, verificar se tem pin
-      professionals.forEach(professional => {
-        const existingPin = updatedPins.find(p => p.professional_id === professional.id);
-        if (!existingPin) {
-          // Adicionar pin padrão "0000" se não existir
-          updatedPins.push({
-            professional_id: professional.id,
-            pin: '0000'
-          });
+        const dbProfessionals = (establishmentData?.professionals || []) as any[];
+        const existingDeleted = (establishmentData?.deleted_professionals || []) as any[];
+        // Profissionais que estavam no banco e foram removidos na lista local (por id)
+        const removed = dbProfessionals.filter(
+          (dbP: any) => dbP?.id && !professionals.some((lp: any) => lp.id === dbP.id)
+        );
+        const now = new Date().toISOString();
+        const newlyDeleted = removed.map((p: any) => ({ ...p, deleted_at: now }));
+        const updatedDeletedProfessionals = [...existingDeleted, ...newlyDeleted];
+        console.log('📦 Profissionais do banco:', dbProfessionals);
+        if (newlyDeleted.length > 0) {
+          console.log('📥 Movendo para histórico de excluídos:', newlyDeleted.map((p: any) => p.name));
         }
-      });
 
-      console.log('🔐 Pins atualizados:', updatedPins);
+        // ✅ MESCLAR DADOS DO BANCO COM ALTERAÇÕES LOCAIS
+        const updatedProfessionals = professionals.map(localProfessional => {
+          // Buscar dados do banco para este profissional
+          const dbProfessional = dbProfessionals.find(p => p.id === localProfessional.id) || {};
 
-      const payload: { professionals: any[]; professionals_pins: any[]; deleted_professionals?: any[] } = {
-        professionals: updatedProfessionals.filter(p => p.name),
-        professionals_pins: updatedPins
-      };
-      if (updatedDeletedProfessionals.length > 0) {
-        payload.deleted_professionals = updatedDeletedProfessionals;
-      }
+          // Mesclar: priorizar dados locais mas preservar campos do banco que não estão no local
+          const mergedProfessional = {
+            id: localProfessional.id,
+            name: localProfessional.name.trim(),
+            specialties: localProfessional.specialties || [],
+            percentage: normalizeProfessionalPercentage(localProfessional.percentage ?? dbProfessional.percentage),
+            photo_url: (localProfessional as any).photo_url || dbProfessional.photo_url || null,
+            whatsapp: localProfessional.whatsapp || dbProfessional.whatsapp || null,
+            hide_gross_in_financial: (localProfessional as any).hide_gross_in_financial !== undefined
+              ? Boolean((localProfessional as any).hide_gross_in_financial)
+              : Boolean((dbProfessional as any).hide_gross_in_financial),
+            lock_appointments_with_owner_pin: (localProfessional as any).lock_appointments_with_owner_pin !== undefined
+              ? Boolean((localProfessional as any).lock_appointments_with_owner_pin)
+              : Boolean((dbProfessional as any).lock_appointments_with_owner_pin),
+            lock_financial_with_owner_pin: (localProfessional as any).lock_financial_with_owner_pin !== undefined
+              ? Boolean((localProfessional as any).lock_financial_with_owner_pin)
+              : Boolean((dbProfessional as any).lock_financial_with_owner_pin),
+            hidden_from_booking: (localProfessional as any).hidden_from_booking !== undefined
+              ? Boolean((localProfessional as any).hidden_from_booking)
+              : dbProfessional.hidden_from_booking !== undefined
+                ? Boolean(dbProfessional.hidden_from_booking)
+                : Boolean((dbProfessional as any).oculto_da_reserva),
+            oculto_da_reserva: (localProfessional as any).oculto_da_reserva !== undefined
+              ? Boolean((localProfessional as any).oculto_da_reserva)
+              : (dbProfessional as any).oculto_da_reserva !== undefined
+                ? Boolean((dbProfessional as any).oculto_da_reserva)
+                : Boolean(dbProfessional.hidden_from_booking),
+            specific_services: Array.isArray((localProfessional as any).specific_services)
+              ? (localProfessional as any).specific_services
+              : (Array.isArray(dbProfessional.specific_services) ? dbProfessional.specific_services : []),
+            offers_child_service: localProfessional.offers_child_service ?? dbProfessional.offers_child_service ?? false,
+            work_hours: localProfessional.work_hours || dbProfessional.work_hours || null,
+            absences: (localProfessional as any).absences || dbProfessional.absences || [], // ✅ PRESERVAR AUSÊNCIAS!
+            // ✅ PRESERVAR HORÁRIOS BLOQUEADOS: mesclar DB + local por data para não perder bloqueios futuros
+            blocked_hours: (() => {
+              const local = (localProfessional as any).blocked_hours;
+              const db = dbProfessional.blocked_hours;
+              const safeLocal = local && typeof local === 'object'
+                ? normalizeBlockedHoursMap(local)
+                : {};
+              const safeDb = db && typeof db === 'object'
+                ? normalizeBlockedHoursMap(db)
+                : {};
+              const merged = { ...safeDb, ...safeLocal };
+              return Object.keys(merged).length > 0 ? merged : {};
+            })()
+          };
 
-      const { error } = await supabase
-        .from('establishments')
-        .update(payload)
-        .eq('id', establishment.id);
+          // ✅ VALIDAÇÃO FINAL APÓS MESCLAR: Verificar se profissional com nome tem horário
+          if (needsValidation && mergedProfessional.name && mergedProfessional.name.trim().length > 0) {
+            const workHours = mergedProfessional.work_hours;
 
-      if (error) throw error;
+            if (!workHours || typeof workHours !== 'object' || Object.keys(workHours).length === 0) {
+              console.log('❌ VALIDAÇÃO FINAL FALHOU - SEM WORK_HOURS:', mergedProfessional.name);
+              toast.error('Selecione horário de serviço do profissional');
+              throw new Error('Profissional sem horário de trabalho configurado');
+            }
 
-      setEstablishment({
-        ...establishment,
-        professionals: updatedProfessionals,
-        professionals_pins: updatedPins,
-        deleted_professionals: updatedDeletedProfessionals
-      });
+            const hasValidHours = Object.keys(workHours).some(day => {
+              const daySchedule = workHours[day];
+              return daySchedule &&
+                daySchedule.enabled === true &&
+                daySchedule.entry_time &&
+                daySchedule.exit_time &&
+                daySchedule.entry_time.trim() !== '' &&
+                daySchedule.exit_time.trim() !== '';
+            });
 
-      // Atualizar o estado local dos profissionais com os dados mesclados
-      setProfessionals(updatedProfessionals);
-
-      console.log('✅ Profissionais e pins salvos com sucesso!');
-
-      // ✅ VALIDAÇÃO FINAL: Verificar novamente se todos têm horários antes de avançar
-      if (isNewUser) {
-        const professionalsWithNamesAndHours = updatedProfessionals.filter(p => {
-          if (!p.name || p.name.trim().length === 0) {
-            return false;
+            if (!hasValidHours) {
+              console.log('❌ VALIDAÇÃO FINAL FALHOU - SEM HORÁRIOS VÁLIDOS:', mergedProfessional.name);
+              toast.error('Selecione horário de serviço do profissional');
+              throw new Error('Profissional sem horário de trabalho válido');
+            }
           }
 
-          const workHours = p.work_hours;
-          if (!workHours || typeof workHours !== 'object' || Object.keys(workHours).length === 0) {
-            return false;
-          }
-
-          // Verificar se tem pelo menos um dia habilitado com horários válidos
-          return Object.keys(workHours).some(day => {
-            const daySchedule = workHours[day];
-            return daySchedule &&
-              daySchedule.enabled === true &&
-              daySchedule.entry_time &&
-              daySchedule.exit_time &&
-              daySchedule.entry_time.trim() !== '' &&
-              daySchedule.exit_time.trim() !== '';
-          });
+          return mergedProfessional;
         });
 
-        // Se não passar na validação final, não avança
-        if (professionalsWithNamesAndHours.length === 0) {
-          toast.error('Selecione horário de serviço do profissional');
-          return; // Não avançar, não mostrar sucesso
+        console.log('🔄 Profissionais mesclados:', updatedProfessionals);
+
+        // Garantir que todos os profissionais tenham pins (senha padrão "0000" se não tiver)
+        const updatedPins = [...(establishment.professionals_pins || [])];
+
+        // Para cada profissional, verificar se tem pin
+        professionals.forEach(professional => {
+          const existingPin = updatedPins.find(p => p.professional_id === professional.id);
+          if (!existingPin) {
+            // Adicionar pin padrão "0000" se não existir
+            updatedPins.push({
+              professional_id: professional.id,
+              pin: '0000'
+            });
+          }
+        });
+
+        console.log('🔐 Pins atualizados:', updatedPins);
+
+        const payload: { professionals: any[]; professionals_pins: any[]; deleted_professionals?: any[] } = {
+          professionals: updatedProfessionals.filter(p => p.name),
+          professionals_pins: updatedPins
+        };
+        if (updatedDeletedProfessionals.length > 0) {
+          payload.deleted_professionals = updatedDeletedProfessionals;
         }
 
-        toast.success('Profissionais atualizados!');
-
-        // Avançar para a próxima etapa (Meus Serviços)
-        const { error: onboardingError } = await supabase
+        const { error } = await supabase
           .from('establishments')
-          .update({ onboarding_step: 3 })
+          .update(payload)
           .eq('id', establishment.id);
 
-        if (!onboardingError) {
-          setOnboardingStep(3);
-          toast.success('✅ Avançando para Meus Serviços...');
+        if (error) throw error;
 
-          // Avançar imediatamente para a aba de serviços
-          setTimeout(() => {
-            setActiveTab('service-categories');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }, 1000);
-        }
-      } else {
-        // Para usuários antigos, apenas mostrar sucesso
-        toast.success('Profissionais atualizados!');
+        setEstablishment({
+          ...establishment,
+          professionals: updatedProfessionals,
+          professionals_pins: updatedPins,
+          deleted_professionals: updatedDeletedProfessionals
+        });
 
-        // Se está em onboarding (step 2), avançar normalmente
-        if (onboardingStep === 2) {
-          const professionalsWithNames = updatedProfessionals.filter(p => p.name && p.name.trim().length > 0);
-          if (professionalsWithNames.length > 0) {
-            const { error: onboardingError } = await supabase
-              .from('establishments')
-              .update({ onboarding_step: 3 })
-              .eq('id', establishment.id);
+        // Atualizar o estado local dos profissionais com os dados mesclados
+        setProfessionals(updatedProfessionals);
 
-            if (!onboardingError) {
-              setOnboardingStep(3);
-              setTimeout(() => {
-                setActiveTab('service-categories');
-              }, 1000);
+        console.log('✅ Profissionais e pins salvos com sucesso!');
+
+        // ✅ VALIDAÇÃO FINAL: Verificar novamente se todos têm horários antes de avançar
+        if (isNewUser) {
+          const professionalsWithNamesAndHours = updatedProfessionals.filter(p => {
+            if (!p.name || p.name.trim().length === 0) {
+              return false;
+            }
+
+            const workHours = p.work_hours;
+            if (!workHours || typeof workHours !== 'object' || Object.keys(workHours).length === 0) {
+              return false;
+            }
+
+            // Verificar se tem pelo menos um dia habilitado com horários válidos
+            return Object.keys(workHours).some(day => {
+              const daySchedule = workHours[day];
+              return daySchedule &&
+                daySchedule.enabled === true &&
+                daySchedule.entry_time &&
+                daySchedule.exit_time &&
+                daySchedule.entry_time.trim() !== '' &&
+                daySchedule.exit_time.trim() !== '';
+            });
+          });
+
+          // Se não passar na validação final, não avança
+          if (professionalsWithNamesAndHours.length === 0) {
+            toast.error('Selecione horário de serviço do profissional');
+            return; // Não avançar, não mostrar sucesso
+          }
+
+          toast.success('Profissionais atualizados!');
+
+          // Avançar para a próxima etapa (Meus Serviços)
+          const { error: onboardingError } = await supabase
+            .from('establishments')
+            .update({ onboarding_step: 3 })
+            .eq('id', establishment.id);
+
+          if (!onboardingError) {
+            setOnboardingStep(3);
+            toast.success('✅ Avançando para Meus Serviços...');
+
+            // Avançar imediatamente para a aba de serviços
+            setTimeout(() => {
+              setActiveTab('service-categories');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }, 1000);
+          }
+        } else {
+          // Para usuários antigos, apenas mostrar sucesso
+          toast.success('Profissionais atualizados!');
+
+          // Se está em onboarding (step 2), avançar normalmente
+          if (onboardingStep === 2) {
+            const professionalsWithNames = updatedProfessionals.filter(p => p.name && p.name.trim().length > 0);
+            if (professionalsWithNames.length > 0) {
+              const { error: onboardingError } = await supabase
+                .from('establishments')
+                .update({ onboarding_step: 3 })
+                .eq('id', establishment.id);
+
+              if (!onboardingError) {
+                setOnboardingStep(3);
+                setTimeout(() => {
+                  setActiveTab('service-categories');
+                }, 1000);
+              }
             }
           }
         }
+      } catch (error) {
+        console.error('❌ Erro ao salvar profissionais:', error);
+        toast.error('Erro ao salvar profissionais');
       }
-    } catch (error) {
-      console.error('❌ Erro ao salvar profissionais:', error);
-      toast.error('Erro ao salvar profissionais');
-    }
     });
   };
 
@@ -8795,33 +8795,33 @@ const EstablishmentDashboard = () => {
     }
     await enqueueEstablishmentProfessionalsWrite(async () => {
       try {
-      const { data: establishmentData, error: fetchError } = await supabase
-        .from('establishments')
-        .select('professionals')
-        .eq('id', establishment.id)
-        .single();
-      if (fetchError) throw fetchError;
+        const { data: establishmentData, error: fetchError } = await supabase
+          .from('establishments')
+          .select('professionals')
+          .eq('id', establishment.id)
+          .single();
+        if (fetchError) throw fetchError;
 
-      const dbProfessionals = (establishmentData?.professionals || []) as any[];
-      const safeProfessionals = mergeProfessionalsPreservingCriticalFields(newProfessionals, dbProfessionals);
+        const dbProfessionals = (establishmentData?.professionals || []) as any[];
+        const safeProfessionals = mergeProfessionalsPreservingCriticalFields(newProfessionals, dbProfessionals);
 
-      const { error } = await supabase
-        .from('establishments')
-        .update({
-          professionals: safeProfessionals,
-          professionals_pins: newPins,
-          deleted_professionals: currentDeleted
-        })
-        .eq('id', establishment.id);
-      if (error) throw error;
-      setEstablishment({ ...establishment, professionals: safeProfessionals, professionals_pins: newPins, deleted_professionals: currentDeleted });
-      setProfessionals(safeProfessionals);
-      handleCloseDeletedProfessionalsModal();
-      toast.success(`${deletedProfessional.name} reativado. Ele volta a aparecer na Receita por Profissional e pode receber pagamentos.`);
-    } catch (e: any) {
-      console.error('Erro ao reativar profissional:', e);
-      toast(e?.message || 'Erro ao reativar profissional', 'error');
-    }
+        const { error } = await supabase
+          .from('establishments')
+          .update({
+            professionals: safeProfessionals,
+            professionals_pins: newPins,
+            deleted_professionals: currentDeleted
+          })
+          .eq('id', establishment.id);
+        if (error) throw error;
+        setEstablishment({ ...establishment, professionals: safeProfessionals, professionals_pins: newPins, deleted_professionals: currentDeleted });
+        setProfessionals(safeProfessionals);
+        handleCloseDeletedProfessionalsModal();
+        toast.success(`${deletedProfessional.name} reativado. Ele volta a aparecer na Receita por Profissional e pode receber pagamentos.`);
+      } catch (e: any) {
+        console.error('Erro ao reativar profissional:', e);
+        toast(e?.message || 'Erro ao reativar profissional', 'error');
+      }
     });
   };
 
@@ -8993,83 +8993,83 @@ const EstablishmentDashboard = () => {
     if (!establishment) return;
     await enqueueEstablishmentProfessionalsWrite(async () => {
       try {
-      const id = String(candidate.id || '').trim();
-      const draftName = String(emergencyRecoveredNameDrafts[id] || '').trim();
-      const fallbackName = String(candidate.name || '').trim();
-      const name = draftName || fallbackName;
-      if (!id || !name) {
-        toast('Dados do profissional inválidos para recuperação.', 'error');
-        return;
-      }
-      if (name.toLowerCase().startsWith('sem nome (id')) {
-        toast('Informe o nome do profissional antes de restaurar.', 'error');
-        return;
-      }
-
-      if (professionals.some((p) => String(p.id || '').trim() === id || String(p.name || '').trim().toLowerCase() === name.toLowerCase())) {
-        toast('Esse profissional já está ativo na lista.', 'error');
-        return;
-      }
-
-      const snapshotProfessional = await getLatestSnapshotProfessionalById(id);
-      const restoredProfessional: Professional = snapshotProfessional
-        ? {
-          ...snapshotProfessional,
-          id,
-          name,
+        const id = String(candidate.id || '').trim();
+        const draftName = String(emergencyRecoveredNameDrafts[id] || '').trim();
+        const fallbackName = String(candidate.name || '').trim();
+        const name = draftName || fallbackName;
+        if (!id || !name) {
+          toast('Dados do profissional inválidos para recuperação.', 'error');
+          return;
         }
-        : {
-          id,
-          name,
-          specialties: [],
-          percentage: 100,
-          whatsapp: '',
-          specific_services: [],
-        };
+        if (name.toLowerCase().startsWith('sem nome (id')) {
+          toast('Informe o nome do profissional antes de restaurar.', 'error');
+          return;
+        }
 
-      const updatedProfessionals = [...professionals, restoredProfessional];
-      const updatedPins = [...(establishment.professionals_pins || [])];
-      if (!updatedPins.some((p: any) => String(p?.professional_id || '').trim() === id)) {
-        updatedPins.push({ professional_id: id, pin: '0000' });
+        if (professionals.some((p) => String(p.id || '').trim() === id || String(p.name || '').trim().toLowerCase() === name.toLowerCase())) {
+          toast('Esse profissional já está ativo na lista.', 'error');
+          return;
+        }
+
+        const snapshotProfessional = await getLatestSnapshotProfessionalById(id);
+        const restoredProfessional: Professional = snapshotProfessional
+          ? {
+            ...snapshotProfessional,
+            id,
+            name,
+          }
+          : {
+            id,
+            name,
+            specialties: [],
+            percentage: 100,
+            whatsapp: '',
+            specific_services: [],
+          };
+
+        const updatedProfessionals = [...professionals, restoredProfessional];
+        const updatedPins = [...(establishment.professionals_pins || [])];
+        if (!updatedPins.some((p: any) => String(p?.professional_id || '').trim() === id)) {
+          updatedPins.push({ professional_id: id, pin: '0000' });
+        }
+
+        const { data: establishmentData, error: fetchError } = await supabase
+          .from('establishments')
+          .select('professionals')
+          .eq('id', establishment.id)
+          .single();
+        if (fetchError) throw fetchError;
+
+        const dbProfessionals = (establishmentData?.professionals || []) as any[];
+        const safeProfessionals = mergeProfessionalsPreservingCriticalFields(updatedProfessionals, dbProfessionals);
+
+        await persistProfessionalSnapshot('before_restore_emergency_professional');
+
+        const { error } = await supabase
+          .from('establishments')
+          .update({
+            professionals: safeProfessionals,
+            professionals_pins: updatedPins
+          })
+          .eq('id', establishment.id);
+        if (error) throw error;
+
+        setProfessionals(safeProfessionals);
+        setEstablishment({ ...establishment, professionals: safeProfessionals, professionals_pins: updatedPins });
+        setEmergencyRecoveredProfessionals((prev) => prev.filter((item) => item.id !== id));
+        setEmergencyRecoveredNameDrafts((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        toast.success(`${name} recuperado com sucesso. Revise o percentual dele em Profissionais.`);
+      } catch (error: any) {
+        console.error('Erro ao recuperar profissional de urgência:', error);
+        toast(
+          [error?.message, error?.code, error?.details, error?.hint].filter(Boolean).join(' | ') || 'Erro ao recuperar profissional',
+          'error'
+        );
       }
-
-      const { data: establishmentData, error: fetchError } = await supabase
-        .from('establishments')
-        .select('professionals')
-        .eq('id', establishment.id)
-        .single();
-      if (fetchError) throw fetchError;
-
-      const dbProfessionals = (establishmentData?.professionals || []) as any[];
-      const safeProfessionals = mergeProfessionalsPreservingCriticalFields(updatedProfessionals, dbProfessionals);
-
-      await persistProfessionalSnapshot('before_restore_emergency_professional');
-
-      const { error } = await supabase
-        .from('establishments')
-        .update({
-          professionals: safeProfessionals,
-          professionals_pins: updatedPins
-        })
-        .eq('id', establishment.id);
-      if (error) throw error;
-
-      setProfessionals(safeProfessionals);
-      setEstablishment({ ...establishment, professionals: safeProfessionals, professionals_pins: updatedPins });
-      setEmergencyRecoveredProfessionals((prev) => prev.filter((item) => item.id !== id));
-      setEmergencyRecoveredNameDrafts((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      toast.success(`${name} recuperado com sucesso. Revise o percentual dele em Profissionais.`);
-    } catch (error: any) {
-      console.error('Erro ao recuperar profissional de urgência:', error);
-      toast(
-        [error?.message, error?.code, error?.details, error?.hint].filter(Boolean).join(' | ') || 'Erro ao recuperar profissional',
-        'error'
-      );
-    }
     });
   };
 
@@ -17071,95 +17071,95 @@ Estamos te aguardando! 😎✂️`;
 
     await enqueueEstablishmentProfessionalsWrite(async () => {
       try {
-      const absences = professionalAbsences[selectedProfessionalForAbsence] || [];
+        const absences = professionalAbsences[selectedProfessionalForAbsence] || [];
 
-      // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS
-      const { data: establishmentData, error: fetchError } = await supabase
-        .from('establishments')
-        .select('professionals')
-        .eq('id', establishment.id)
-        .single();
+        // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS
+        const { data: establishmentData, error: fetchError } = await supabase
+          .from('establishments')
+          .select('professionals')
+          .eq('id', establishment.id)
+          .single();
 
-      if (fetchError) {
-        console.error('❌ Erro ao buscar dados do estabelecimento:', fetchError);
-        toast.error('Erro ao salvar ausências do profissional');
-        return;
-      }
-
-      const dbProfessionals = (establishmentData?.professionals || []) as any[];
-      const localProfessionalsSafe = Array.isArray(professionals) ? professionals : [];
-
-      if (dbProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
-        toast.error('Proteção ativada: ausências não salvas para evitar apagar profissionais. Recarregue e tente novamente.');
-        return;
-      }
-
-      // ✅ MESCLAR DADOS DO BANCO COM ALTERAÇÕES LOCAIS
-      const updatedProfessionals = dbProfessionals.map((dbProfessional: any) => {
-        if (dbProfessional.id === selectedProfessionalForAbsence) {
-          // Buscar dados locais do profissional
-          const localProfessional = professionals.find(p => p.id === selectedProfessionalForAbsence);
-          const safeDbBlocked = normalizeBlockedHoursMap((dbProfessional as any)?.blocked_hours || {});
-          const safeLocalBlocked = normalizeBlockedHoursMap((localProfessional as any)?.blocked_hours || {});
-          const mergedBlockedHours = { ...safeDbBlocked, ...safeLocalBlocked };
-
-          // Mesclar todos os campos, preservando dados do banco
-          return {
-            ...dbProfessional,
-            ...(localProfessional || {}),
-            blocked_hours: mergedBlockedHours,
-            absences: absences
-          };
+        if (fetchError) {
+          console.error('❌ Erro ao buscar dados do estabelecimento:', fetchError);
+          toast.error('Erro ao salvar ausências do profissional');
+          return;
         }
-        // Preservar outros profissionais sem alterações
-        return dbProfessional;
-      });
 
-      // Adicionar profissionais novos que possam estar no estado local mas não no banco
-      professionals.forEach(localProfessional => {
-        const existsInDb = updatedProfessionals.find(p => p.id === localProfessional.id);
-        if (!existsInDb) {
-          updatedProfessionals.push(localProfessional);
+        const dbProfessionals = (establishmentData?.professionals || []) as any[];
+        const localProfessionalsSafe = Array.isArray(professionals) ? professionals : [];
+
+        if (dbProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
+          toast.error('Proteção ativada: ausências não salvas para evitar apagar profissionais. Recarregue e tente novamente.');
+          return;
         }
-      });
 
-      if (updatedProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
-        toast.error('Proteção ativada: ausências bloqueadas para evitar apagar profissionais.');
-        return;
-      }
+        // ✅ MESCLAR DADOS DO BANCO COM ALTERAÇÕES LOCAIS
+        const updatedProfessionals = dbProfessionals.map((dbProfessional: any) => {
+          if (dbProfessional.id === selectedProfessionalForAbsence) {
+            // Buscar dados locais do profissional
+            const localProfessional = professionals.find(p => p.id === selectedProfessionalForAbsence);
+            const safeDbBlocked = normalizeBlockedHoursMap((dbProfessional as any)?.blocked_hours || {});
+            const safeLocalBlocked = normalizeBlockedHoursMap((localProfessional as any)?.blocked_hours || {});
+            const mergedBlockedHours = { ...safeDbBlocked, ...safeLocalBlocked };
 
-      // Salvar no banco de dados
-      const { error: updateError } = await supabase
-        .from('establishments')
-        .update({ professionals: updatedProfessionals })
-        .eq('id', establishment.id);
+            // Mesclar todos os campos, preservando dados do banco
+            return {
+              ...dbProfessional,
+              ...(localProfessional || {}),
+              blocked_hours: mergedBlockedHours,
+              absences: absences
+            };
+          }
+          // Preservar outros profissionais sem alterações
+          return dbProfessional;
+        });
 
-      if (updateError) {
-        console.error('Erro ao atualizar ausências:', updateError);
+        // Adicionar profissionais novos que possam estar no estado local mas não no banco
+        professionals.forEach(localProfessional => {
+          const existsInDb = updatedProfessionals.find(p => p.id === localProfessional.id);
+          if (!existsInDb) {
+            updatedProfessionals.push(localProfessional);
+          }
+        });
+
+        if (updatedProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
+          toast.error('Proteção ativada: ausências bloqueadas para evitar apagar profissionais.');
+          return;
+        }
+
+        // Salvar no banco de dados
+        const { error: updateError } = await supabase
+          .from('establishments')
+          .update({ professionals: updatedProfessionals })
+          .eq('id', establishment.id);
+
+        if (updateError) {
+          console.error('Erro ao atualizar ausências:', updateError);
+          toast.error('Erro ao salvar ausências do profissional');
+          return;
+        }
+
+        await persistProfessionalSnapshot('after_save_absences', {
+          professionals: updatedProfessionals,
+          professionals_pins: establishment.professionals_pins || [],
+          services_with_prices: servicesWithPrices || [],
+        });
+
+        // Atualizar estados locais com dados do banco
+        setProfessionals(updatedProfessionals);
+        setEstablishment({
+          ...establishment,
+          professionals: updatedProfessionals
+        });
+
+        console.log('✅ Ausências salvas:', updatedProfessionals.find(p => p.id === selectedProfessionalForAbsence)?.absences);
+        toast.success('Ausências do profissional salvas com sucesso!');
+        handleCloseAbsenceModal();
+      } catch (error) {
+        console.error('Erro ao salvar ausências:', error);
         toast.error('Erro ao salvar ausências do profissional');
-        return;
       }
-
-      await persistProfessionalSnapshot('after_save_absences', {
-        professionals: updatedProfessionals,
-        professionals_pins: establishment.professionals_pins || [],
-        services_with_prices: servicesWithPrices || [],
-      });
-
-      // Atualizar estados locais com dados do banco
-      setProfessionals(updatedProfessionals);
-      setEstablishment({
-        ...establishment,
-        professionals: updatedProfessionals
-      });
-
-      console.log('✅ Ausências salvas:', updatedProfessionals.find(p => p.id === selectedProfessionalForAbsence)?.absences);
-      toast.success('Ausências do profissional salvas com sucesso!');
-      handleCloseAbsenceModal();
-    } catch (error) {
-      console.error('Erro ao salvar ausências:', error);
-      toast.error('Erro ao salvar ausências do profissional');
-    }
     });
   };
 
@@ -18832,126 +18832,287 @@ Estamos te aguardando! 😎✂️`;
 
     await enqueueEstablishmentProfessionalsWrite(async () => {
       try {
-      // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS
-      const { data: establishmentData, error: fetchError } = await supabase
-        .from('establishments')
-        .select('professionals')
-        .eq('id', establishment.id)
-        .single();
+        // ✅ BUSCAR DADOS ATUAIS DO BANCO PARA PRESERVAR TODOS OS CAMPOS
+        const { data: establishmentData, error: fetchError } = await supabase
+          .from('establishments')
+          .select('professionals')
+          .eq('id', establishment.id)
+          .single();
 
-      if (fetchError) {
-        console.error('❌ Erro ao buscar dados do estabelecimento:', fetchError);
-        const details = formatSupabaseErrorDetails(fetchError);
+        if (fetchError) {
+          console.error('❌ Erro ao buscar dados do estabelecimento:', fetchError);
+          const details = formatSupabaseErrorDetails(fetchError);
+          toast.error(`Erro ao salvar horários bloqueados: ${details || 'Erro desconhecido'}`);
+          return;
+        }
+
+        const dbProfessionals = (establishmentData?.professionals || []) as any[];
+        const localProfessionalsSafe = Array.isArray(professionals) ? professionals : [];
+
+        // Proteção anti-perda: se o banco retornar vazio, nunca sobrescrever com lista vazia
+        // quando ainda há profissionais carregados no estado local.
+        if (dbProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
+          toast.error('Proteção ativada: bloqueio não salvo para evitar apagar profissionais. Recarregue a página e tente novamente.');
+          return;
+        }
+
+        // ✅ MESCLAR DADOS DO BANCO COM ALTERAÇÕES LOCAIS
+        const updatedProfessionals = dbProfessionals.map((dbProfessional: any) => {
+          if (dbProfessional.id === selectedProfessionalForBlock) {
+            // Buscar dados locais do profissional
+            const localProfessional = professionals.find(p => p.id === selectedProfessionalForBlock);
+            const currentBlockedHours =
+              blockedHours[selectedProfessionalForBlock] ||
+              (localProfessional as any)?.blocked_hours ||
+              dbProfessional.blocked_hours ||
+              {};
+            let updatedBlockedHours: Record<string, string[]> = normalizeBlockedHoursMap(currentBlockedHours);
+            updatedBlockedHours[blockTimeDate] = Array.from(new Set(selectedBlockedHours)).sort();
+
+            // Persistir últimas opções do modal (inclui horários por dia da semana para "Bloquear meses")
+            const block_modal_last_options = {
+              useRecurring: false,
+              months: [],
+              weekdays: [],
+              weekdayHours: {}
+            };
+
+            return {
+              ...dbProfessional,
+              ...(localProfessional || {}),
+              blocked_hours: updatedBlockedHours,
+              block_modal_last_options
+            };
+          }
+          return dbProfessional;
+        });
+
+        // Adicionar profissionais novos que possam estar no estado local mas não no banco
+        professionals.forEach(localProfessional => {
+          const existsInDb = updatedProfessionals.find(p => p.id === localProfessional.id);
+          if (!existsInDb) {
+            updatedProfessionals.push(localProfessional);
+          }
+        });
+
+        const selectedProfessionalInDb = dbProfessionals.find((professional: any) => professional.id === selectedProfessionalForBlock);
+        const selectedProfessionalAfterUpdate = updatedProfessionals.find((professional: any) => professional.id === selectedProfessionalForBlock);
+        const oldBlockedMap = normalizeBlockedHoursMap(selectedProfessionalInDb?.blocked_hours || {});
+        const newBlockedMap = normalizeBlockedHoursMap(selectedProfessionalAfterUpdate?.blocked_hours || {});
+        const historyDiffEvents = buildBlockedHoursDiffEvents(oldBlockedMap, newBlockedMap);
+        const selectedProfessionalName = String(
+          selectedProfessionalAfterUpdate?.name ||
+          selectedProfessionalInDb?.name ||
+          professionals.find((professional) => professional.id === selectedProfessionalForBlock)?.name ||
+          'Profissional'
+        );
+
+        if (updatedProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
+          toast.error('Proteção ativada: atualização bloqueada para evitar apagar profissionais.');
+          return;
+        }
+
+        const { error: updateError } = await supabase
+          .from('establishments')
+          .update({ professionals: updatedProfessionals })
+          .eq('id', establishment.id);
+
+        if (updateError) {
+          console.error('Erro ao atualizar horários bloqueados:', updateError);
+          const details = formatSupabaseErrorDetails(updateError);
+          toast.error(`Erro ao salvar horários bloqueados: ${details || 'Erro desconhecido'}`);
+          return;
+        }
+
+        await persistProfessionalSnapshot('after_save_blocked_hours', {
+          professionals: updatedProfessionals,
+          professionals_pins: establishment.professionals_pins || [],
+          services_with_prices: servicesWithPrices || [],
+        });
+
+        await persistBlockedHourHistoryEvents(
+          selectedProfessionalForBlock,
+          selectedProfessionalName,
+          'manual_block_modal_save',
+          historyDiffEvents
+        );
+
+        // Atualizar estados locais com dados do banco
+        setProfessionals(updatedProfessionals);
+        setEstablishment({
+          ...establishment,
+          professionals: updatedProfessionals
+        });
+
+        console.log('✅ Horários bloqueados salvos:', updatedProfessionals.find(p => p.id === selectedProfessionalForBlock)?.blocked_hours);
+        toast.success('Horários bloqueados salvos! Já gravados no sistema — não é necessário clicar em Salvar Profissionais.');
+        handleCloseBlockTimeModal();
+      } catch (error: any) {
+        console.error('Erro ao salvar horários bloqueados:', error);
+        const details = formatSupabaseErrorDetails(error);
         toast.error(`Erro ao salvar horários bloqueados: ${details || 'Erro desconhecido'}`);
-        return;
       }
+    });
+  };
 
-      const dbProfessionals = (establishmentData?.professionals || []) as any[];
-      const localProfessionalsSafe = Array.isArray(professionals) ? professionals : [];
+  const handleToggleProfessionalSlotBlocked = async (params: {
+    professionalId: string;
+    dateKey: string;
+    time: string;
+    block: boolean;
+  }) => {
+    const professionalId = String(params.professionalId || '').trim();
+    const dateKey = String(params.dateKey || '').trim();
+    const time = String(params.time || '').trim();
+    const { block } = params;
+    if (!professionalId || !dateKey || !time || !establishment?.id) {
+      toast.error('Dados incompletos para bloquear o horário.');
+      return;
+    }
 
-      // Proteção anti-perda: se o banco retornar vazio, nunca sobrescrever com lista vazia
-      // quando ainda há profissionais carregados no estado local.
-      if (dbProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
-        toast.error('Proteção ativada: bloqueio não salvo para evitar apagar profissionais. Recarregue a página e tente novamente.');
-        return;
-      }
+    await enqueueEstablishmentProfessionalsWrite(async () => {
+      try {
+        const { data: establishmentData, error: fetchError } = await supabase
+          .from('establishments')
+          .select('professionals')
+          .eq('id', establishment.id)
+          .single();
 
-      // ✅ MESCLAR DADOS DO BANCO COM ALTERAÇÕES LOCAIS
-      const updatedProfessionals = dbProfessionals.map((dbProfessional: any) => {
-        if (dbProfessional.id === selectedProfessionalForBlock) {
-          // Buscar dados locais do profissional
-          const localProfessional = professionals.find(p => p.id === selectedProfessionalForBlock);
-          const currentBlockedHours =
-            blockedHours[selectedProfessionalForBlock] ||
-            (localProfessional as any)?.blocked_hours ||
-            dbProfessional.blocked_hours ||
-            {};
-          let updatedBlockedHours: Record<string, string[]> = normalizeBlockedHoursMap(currentBlockedHours);
-          updatedBlockedHours[blockTimeDate] = Array.from(new Set(selectedBlockedHours)).sort();
+        if (fetchError) {
+          console.error('❌ Erro ao buscar dados do estabelecimento:', fetchError);
+          const details = formatSupabaseErrorDetails(fetchError);
+          toast.error(`Erro ao salvar bloqueio: ${details || 'Erro desconhecido'}`);
+          return;
+        }
 
-          // Persistir últimas opções do modal (inclui horários por dia da semana para "Bloquear meses")
-          const block_modal_last_options = {
-            useRecurring: false,
-            months: [],
-            weekdays: [],
-            weekdayHours: {}
-          };
+        const dbProfessionals = (establishmentData?.professionals || []) as any[];
+        const localProfessionalsSafe = Array.isArray(professionals) ? professionals : [];
 
+        if (dbProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
+          toast.error('Proteção ativada: bloqueio não salvo para evitar apagar profissionais. Recarregue a página e tente novamente.');
+          return;
+        }
+
+        const selectedProfessionalInDb = dbProfessionals.find((p: any) => p.id === professionalId);
+        if (!selectedProfessionalInDb) {
+          toast.error('Profissional não encontrado no servidor. Salve os profissionais e tente novamente.');
+          return;
+        }
+
+        const localProfessional = professionals.find((p) => p.id === professionalId);
+        const currentBlockedHoursRaw =
+          blockedHours[professionalId] ||
+          (localProfessional as any)?.blocked_hours ||
+          selectedProfessionalInDb?.blocked_hours ||
+          {};
+        const updatedBlockedHours = normalizeBlockedHoursMap(currentBlockedHoursRaw);
+        const daySet = new Set(updatedBlockedHours[dateKey] || []);
+        if (block) {
+          daySet.add(time);
+        } else {
+          daySet.delete(time);
+        }
+        const nextDayList = Array.from(daySet).sort();
+        if (nextDayList.length === 0) {
+          delete updatedBlockedHours[dateKey];
+        } else {
+          updatedBlockedHours[dateKey] = nextDayList;
+        }
+
+        const updatedProfessionals = dbProfessionals.map((dbProfessional: any) => {
+          if (dbProfessional.id !== professionalId) return dbProfessional;
           return {
             ...dbProfessional,
             ...(localProfessional || {}),
             blocked_hours: updatedBlockedHours,
-            block_modal_last_options
           };
+        });
+
+        professionals.forEach((localProf) => {
+          const existsInDb = updatedProfessionals.find((p) => p.id === localProf.id);
+          if (!existsInDb) {
+            updatedProfessionals.push(localProf);
+          }
+        });
+
+        const selectedProfessionalAfterUpdate = updatedProfessionals.find((p: any) => p.id === professionalId);
+        const oldBlockedMap = normalizeBlockedHoursMap(selectedProfessionalInDb?.blocked_hours || {});
+        const newBlockedMap = normalizeBlockedHoursMap(selectedProfessionalAfterUpdate?.blocked_hours || {});
+        const historyDiffEvents = buildBlockedHoursDiffEvents(oldBlockedMap, newBlockedMap);
+
+        if (historyDiffEvents.length === 0) {
+          toast.success(block ? 'Este horário já estava bloqueado.' : 'Este horário já estava liberado.');
+          return;
         }
-        return dbProfessional;
-      });
 
-      // Adicionar profissionais novos que possam estar no estado local mas não no banco
-      professionals.forEach(localProfessional => {
-        const existsInDb = updatedProfessionals.find(p => p.id === localProfessional.id);
-        if (!existsInDb) {
-          updatedProfessionals.push(localProfessional);
+        if (updatedProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
+          toast.error('Proteção ativada: atualização bloqueada para evitar apagar profissionais.');
+          return;
         }
-      });
 
-      const selectedProfessionalInDb = dbProfessionals.find((professional: any) => professional.id === selectedProfessionalForBlock);
-      const selectedProfessionalAfterUpdate = updatedProfessionals.find((professional: any) => professional.id === selectedProfessionalForBlock);
-      const oldBlockedMap = normalizeBlockedHoursMap(selectedProfessionalInDb?.blocked_hours || {});
-      const newBlockedMap = normalizeBlockedHoursMap(selectedProfessionalAfterUpdate?.blocked_hours || {});
-      const historyDiffEvents = buildBlockedHoursDiffEvents(oldBlockedMap, newBlockedMap);
-      const selectedProfessionalName = String(
-        selectedProfessionalAfterUpdate?.name ||
-        selectedProfessionalInDb?.name ||
-        professionals.find((professional) => professional.id === selectedProfessionalForBlock)?.name ||
-        'Profissional'
-      );
+        const { error: updateError } = await supabase
+          .from('establishments')
+          .update({ professionals: updatedProfessionals })
+          .eq('id', establishment.id);
 
-      if (updatedProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
-        toast.error('Proteção ativada: atualização bloqueada para evitar apagar profissionais.');
-        return;
+        if (updateError) {
+          console.error('Erro ao atualizar horário bloqueado:', updateError);
+          const details = formatSupabaseErrorDetails(updateError);
+          toast.error(`Erro ao salvar bloqueio: ${details || 'Erro desconhecido'}`);
+          return;
+        }
+
+        await persistProfessionalSnapshot('after_toggle_slot_blocked', {
+          professionals: updatedProfessionals,
+          professionals_pins: establishment.professionals_pins || [],
+          services_with_prices: servicesWithPrices || [],
+        });
+
+        const selectedProfessionalName = String(
+          selectedProfessionalAfterUpdate?.name ||
+            selectedProfessionalInDb?.name ||
+            professionals.find((p) => p.id === professionalId)?.name ||
+            'Profissional'
+        );
+
+        await persistBlockedHourHistoryEvents(
+          professionalId,
+          selectedProfessionalName,
+          block ? 'manual_slot_row_block' : 'manual_slot_row_unblock',
+          historyDiffEvents
+        );
+
+        setProfessionals(updatedProfessionals);
+        setEstablishment({
+          ...establishment,
+          professionals: updatedProfessionals,
+        });
+
+        setBlockedHours((prev) => {
+          const draft = prev[professionalId];
+          if (!draft) return prev;
+          const nextProf = { ...draft };
+          const dset = new Set(nextProf[dateKey] || []);
+          if (block) {
+            dset.add(time);
+          } else {
+            dset.delete(time);
+          }
+          const nl = Array.from(dset).sort();
+          if (nl.length === 0) {
+            delete nextProf[dateKey];
+          } else {
+            nextProf[dateKey] = nl;
+          }
+          return { ...prev, [professionalId]: nextProf };
+        });
+
+        toast.success(block ? 'Horário bloqueado para clientes neste dia.' : 'Horário desbloqueado.');
+      } catch (error: any) {
+        console.error('Erro ao alternar bloqueio de slot:', error);
+        const details = formatSupabaseErrorDetails(error);
+        toast.error(`Erro ao salvar bloqueio: ${details || 'Erro desconhecido'}`);
       }
-
-      const { error: updateError } = await supabase
-        .from('establishments')
-        .update({ professionals: updatedProfessionals })
-        .eq('id', establishment.id);
-
-      if (updateError) {
-        console.error('Erro ao atualizar horários bloqueados:', updateError);
-        const details = formatSupabaseErrorDetails(updateError);
-        toast.error(`Erro ao salvar horários bloqueados: ${details || 'Erro desconhecido'}`);
-        return;
-      }
-
-      await persistProfessionalSnapshot('after_save_blocked_hours', {
-        professionals: updatedProfessionals,
-        professionals_pins: establishment.professionals_pins || [],
-        services_with_prices: servicesWithPrices || [],
-      });
-
-      await persistBlockedHourHistoryEvents(
-        selectedProfessionalForBlock,
-        selectedProfessionalName,
-        'manual_block_modal_save',
-        historyDiffEvents
-      );
-
-      // Atualizar estados locais com dados do banco
-      setProfessionals(updatedProfessionals);
-      setEstablishment({
-        ...establishment,
-        professionals: updatedProfessionals
-      });
-
-      console.log('✅ Horários bloqueados salvos:', updatedProfessionals.find(p => p.id === selectedProfessionalForBlock)?.blocked_hours);
-      toast.success('Horários bloqueados salvos! Já gravados no sistema — não é necessário clicar em Salvar Profissionais.');
-      handleCloseBlockTimeModal();
-    } catch (error: any) {
-      console.error('Erro ao salvar horários bloqueados:', error);
-      const details = formatSupabaseErrorDetails(error);
-      toast.error(`Erro ao salvar horários bloqueados: ${details || 'Erro desconhecido'}`);
-    }
     });
   };
 
@@ -18960,80 +19121,80 @@ Estamos te aguardando! 😎✂️`;
     setShowResetBlockConfirm(false);
     await enqueueEstablishmentProfessionalsWrite(async () => {
       try {
-      const { data: establishmentData, error: fetchError } = await supabase
-        .from('establishments')
-        .select('professionals')
-        .eq('id', establishment.id)
-        .single();
-      if (fetchError) {
-        const details = formatSupabaseErrorDetails(fetchError);
-        toast.error(`Erro ao remover bloqueios: ${details || 'Erro desconhecido'}`);
-        return;
-      }
-      const dbProfessionals = (establishmentData?.professionals || []) as any[];
-      const localProfessionalsSafe = Array.isArray(professionals) ? professionals : [];
-
-      // Proteção anti-perda: impede reset gravar lista vazia de profissionais por acidente.
-      if (dbProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
-        toast.error('Proteção ativada: reset não executado para evitar apagar profissionais. Recarregue a página e tente novamente.');
-        return;
-      }
-      const selectedProfessionalInDb = dbProfessionals.find((professional: any) => professional.id === selectedProfessionalForBlock);
-      const previousBlockedMap = normalizeBlockedHoursMap(selectedProfessionalInDb?.blocked_hours || {});
-      const updatedProfessionals = dbProfessionals.map((p: any) => {
-        if (p.id === selectedProfessionalForBlock) {
-          return {
-            ...p,
-            blocked_hours: {},
-            block_modal_last_options: { useRecurring: false, months: [], weekdays: [], weekdayHours: {} }
-          };
+        const { data: establishmentData, error: fetchError } = await supabase
+          .from('establishments')
+          .select('professionals')
+          .eq('id', establishment.id)
+          .single();
+        if (fetchError) {
+          const details = formatSupabaseErrorDetails(fetchError);
+          toast.error(`Erro ao remover bloqueios: ${details || 'Erro desconhecido'}`);
+          return;
         }
-        return p;
-      });
-      if (updatedProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
-        toast.error('Proteção ativada: reset bloqueado para evitar apagar profissionais.');
-        return;
-      }
+        const dbProfessionals = (establishmentData?.professionals || []) as any[];
+        const localProfessionalsSafe = Array.isArray(professionals) ? professionals : [];
 
-      const { error: updateError } = await supabase
-        .from('establishments')
-        .update({ professionals: updatedProfessionals })
-        .eq('id', establishment.id);
-      if (updateError) {
-        const details = formatSupabaseErrorDetails(updateError);
+        // Proteção anti-perda: impede reset gravar lista vazia de profissionais por acidente.
+        if (dbProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
+          toast.error('Proteção ativada: reset não executado para evitar apagar profissionais. Recarregue a página e tente novamente.');
+          return;
+        }
+        const selectedProfessionalInDb = dbProfessionals.find((professional: any) => professional.id === selectedProfessionalForBlock);
+        const previousBlockedMap = normalizeBlockedHoursMap(selectedProfessionalInDb?.blocked_hours || {});
+        const updatedProfessionals = dbProfessionals.map((p: any) => {
+          if (p.id === selectedProfessionalForBlock) {
+            return {
+              ...p,
+              blocked_hours: {},
+              block_modal_last_options: { useRecurring: false, months: [], weekdays: [], weekdayHours: {} }
+            };
+          }
+          return p;
+        });
+        if (updatedProfessionals.length === 0 && localProfessionalsSafe.length > 0) {
+          toast.error('Proteção ativada: reset bloqueado para evitar apagar profissionais.');
+          return;
+        }
+
+        const { error: updateError } = await supabase
+          .from('establishments')
+          .update({ professionals: updatedProfessionals })
+          .eq('id', establishment.id);
+        if (updateError) {
+          const details = formatSupabaseErrorDetails(updateError);
+          toast.error(`Erro ao remover bloqueios: ${details || 'Erro desconhecido'}`);
+          return;
+        }
+
+        await persistProfessionalSnapshot('after_reset_blocked_hours', {
+          professionals: updatedProfessionals,
+          professionals_pins: establishment.professionals_pins || [],
+          services_with_prices: servicesWithPrices || [],
+        });
+
+        const historyDiffEvents = buildBlockedHoursDiffEvents(previousBlockedMap, {});
+        const selectedProfessionalName = String(
+          selectedProfessionalInDb?.name ||
+          professionals.find((professional) => professional.id === selectedProfessionalForBlock)?.name ||
+          'Profissional'
+        );
+        await persistBlockedHourHistoryEvents(
+          selectedProfessionalForBlock,
+          selectedProfessionalName,
+          'reset_all_blocked_hours',
+          historyDiffEvents
+        );
+
+        setProfessionals(updatedProfessionals);
+        setEstablishment(prev => prev ? { ...prev, professionals: updatedProfessionals } : prev);
+        setSelectedBlockedHours([]);
+        toast.success('Todos os bloqueios deste profissional foram removidos.');
+        handleCloseBlockTimeModal();
+      } catch (error: any) {
+        console.error('Erro ao resetar bloqueios:', error);
+        const details = formatSupabaseErrorDetails(error);
         toast.error(`Erro ao remover bloqueios: ${details || 'Erro desconhecido'}`);
-        return;
       }
-
-      await persistProfessionalSnapshot('after_reset_blocked_hours', {
-        professionals: updatedProfessionals,
-        professionals_pins: establishment.professionals_pins || [],
-        services_with_prices: servicesWithPrices || [],
-      });
-
-      const historyDiffEvents = buildBlockedHoursDiffEvents(previousBlockedMap, {});
-      const selectedProfessionalName = String(
-        selectedProfessionalInDb?.name ||
-        professionals.find((professional) => professional.id === selectedProfessionalForBlock)?.name ||
-        'Profissional'
-      );
-      await persistBlockedHourHistoryEvents(
-        selectedProfessionalForBlock,
-        selectedProfessionalName,
-        'reset_all_blocked_hours',
-        historyDiffEvents
-      );
-
-      setProfessionals(updatedProfessionals);
-      setEstablishment(prev => prev ? { ...prev, professionals: updatedProfessionals } : prev);
-      setSelectedBlockedHours([]);
-      toast.success('Todos os bloqueios deste profissional foram removidos.');
-      handleCloseBlockTimeModal();
-    } catch (error: any) {
-      console.error('Erro ao resetar bloqueios:', error);
-      const details = formatSupabaseErrorDetails(error);
-      toast.error(`Erro ao remover bloqueios: ${details || 'Erro desconhecido'}`);
-    }
     });
   };
 
@@ -22393,6 +22554,7 @@ Estamos te aguardando! 😎✂️`;
                       onOpenFinishEarlyModal={handleOpenFinishEarlyModal as any}
                       onGoToProfessionalConfig={handleGoToProfessionalConfig}
                       onOpenBlockHoursModal={handleOpenBlockTimeModal}
+                      onToggleProfessionalSlotBlocked={handleToggleProfessionalSlotBlocked}
                       onOpenAbsenceModal={handleOpenAbsenceModal}
                       onGoToClients={handleGoToClients}
                       onCancelAppointment={handleCancelClick}

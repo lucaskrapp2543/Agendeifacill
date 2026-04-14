@@ -152,6 +152,13 @@ interface AllProfessionalsAppointmentsViewProps {
   onOpenFinishEarlyModal?: (appointment: Appointment) => void;
   onGoToProfessionalConfig?: (professionalId: string) => void;
   onOpenBlockHoursModal?: (professionalId: string) => void;
+  /** Bloqueia/desbloqueia um único slot (mesmo `blocked_hours` do modal), só no dia visível. */
+  onToggleProfessionalSlotBlocked?: (params: {
+    professionalId: string;
+    dateKey: string;
+    time: string;
+    block: boolean;
+  }) => Promise<void>;
   onOpenAbsenceModal?: (professionalId: string) => void;
   onGoToClients?: (professionalId?: string) => void;
   onCancelAppointment?: (appointmentId: string) => void;
@@ -193,6 +200,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onOpenFinishEarlyModal,
   onGoToProfessionalConfig,
   onOpenBlockHoursModal,
+  onToggleProfessionalSlotBlocked,
   onOpenAbsenceModal,
   onGoToClients,
   onCancelAppointment,
@@ -335,6 +343,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [subscriberOptionsLoading, setSubscriberOptionsLoading] = useState(false);
     const [subscriberSearch, setSubscriberSearch] = useState('');
     const [selectedSubscriberOptionId, setSelectedSubscriberOptionId] = useState<string>('');
+    const [slotBlockBusyKey, setSlotBlockBusyKey] = useState<string | null>(null);
     const [selectedAppointmentForSubscriberAttendance, setSelectedAppointmentForSubscriberAttendance] = useState<Appointment | null>(null);
     const [isSavingSubscriberAttendance, setIsSavingSubscriberAttendance] = useState(false);
     const [showBarbershopCashModal, setShowBarbershopCashModal] = useState(false);
@@ -533,11 +542,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
             divide_services_enabled: Boolean(row?.divide_services_enabled),
             divided_services: Array.isArray(row?.divided_services)
               ? row.divided_services
-                  .map((service: any) => ({
-                    name: String(service?.name ?? '').trim(),
-                    duration: Number(service?.duration || 0),
-                  }))
-                  .filter((service: any) => service.name && Number.isFinite(service.duration) && service.duration > 0)
+                .map((service: any) => ({
+                  name: String(service?.name ?? '').trim(),
+                  duration: Number(service?.duration || 0),
+                }))
+                .filter((service: any) => service.name && Number.isFinite(service.duration) && service.duration > 0)
               : [],
             label_color: String(row?.label_color || '').trim() || null,
           }))
@@ -2532,10 +2541,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const cancelPayload =
           newStatus === 'cancelled'
             ? ({
-                status: 'cancelled',
-                cancellation_source: CANCELLATION_SOURCE.ESTABLISHMENT_STAFF,
-                cancellation_detail: 'Cancelado pelo painel de agenda (ações rápidas).',
-              } as Record<string, unknown>)
+              status: 'cancelled',
+              cancellation_source: CANCELLATION_SOURCE.ESTABLISHMENT_STAFF,
+              cancellation_detail: 'Cancelado pelo painel de agenda (ações rápidas).',
+            } as Record<string, unknown>)
             : { status: newStatus };
 
         let { error } = await supabase.from('appointments').update(cancelPayload as any).eq('id', appointmentId);
@@ -3201,6 +3210,29 @@ export const AllProfessionalsAppointmentsView: React.FC<
       onDateChange(newDate);
     };
 
+    const runToggleSlotBlock = async (professionalId: string, slotTime: string, block: boolean) => {
+      if (!onToggleProfessionalSlotBlocked) return;
+      const busyKey = `${professionalId}__${slotTime}`;
+      if (slotBlockBusyKey) return;
+      setSlotBlockBusyKey(busyKey);
+      try {
+        await onToggleProfessionalSlotBlocked({
+          professionalId,
+          dateKey: format(selectedDate, 'yyyy-MM-dd'),
+          time: slotTime,
+          block,
+        });
+      } catch (error: any) {
+        const details = [error?.message, error?.code, error?.details, error?.hint]
+          .filter(Boolean)
+          .map((part) => String(part))
+          .join(' | ');
+        toast.error(details ? `Erro ao salvar bloqueio: ${details}` : 'Erro ao salvar bloqueio.');
+      } finally {
+        setSlotBlockBusyKey(null);
+      }
+    };
+
     const getSlotColor = (slot: TimeSlot): string => {
       if (slot.isEmpty) {
         return 'bg-white border-gray-300';
@@ -3641,15 +3673,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
             const withExtra = manualClientsSafeMode
               ? await supabase
-                  .from('manual_clients')
-                  .select('whatsapp')
-                  .eq('establishment_id', establishment.id)
-                  .limit(10000)
+                .from('manual_clients')
+                .select('whatsapp')
+                .eq('establishment_id', establishment.id)
+                .limit(10000)
               : await supabase
-                  .from('manual_clients')
-                  .select('whatsapp, cpf, street')
-                  .eq('establishment_id', establishment.id)
-                  .limit(10000);
+                .from('manual_clients')
+                .select('whatsapp, cpf, street')
+                .eq('establishment_id', establishment.id)
+                .limit(10000);
 
             if (withExtra.error) {
               const message = String(withExtra.error?.message || '').toLowerCase();
@@ -4611,7 +4643,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               title="Configurar dias de ausência deste profissional"
                               disabled={appointmentsLocked}
                             >
-                              {appointmentsLocked ? '🔒 Agenda protegida' : '📅 Ausência'}
+                              {appointmentsLocked ? '🔒 Agenda protegida' : '📅 Bloquear dia todo'}
                             </button>
                           )}
                           {onGoToClients && (
@@ -4624,7 +4656,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 }`}
                               title="Ir para Meus Clientes"
                             >
-                              📅 Criar reserva
+                              📅 Agendar cliente
                             </button>
                           )}
                           <button
@@ -4737,19 +4769,40 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             const slotColor = getSlotColor(slot);
 
                             if (slot.isBlocked) {
-                              // Horário bloqueado
+                              const blockBusy =
+                                slotBlockBusyKey === `${professional.id}__${slot.time}`;
                               return (
                                 <div
                                   key={`${slot.time}-${slotIndex}`}
-                                  className="bg-gray-400 border-2 border-gray-500 rounded-lg px-3 py-2"
+                                  className={`rounded-xl border-2 shadow-sm overflow-hidden ${
+                                    useLightLayout
+                                      ? 'bg-gradient-to-br from-slate-400 to-slate-500 border-slate-600'
+                                      : 'bg-gradient-to-br from-gray-500 to-gray-600 border-gray-700'
+                                  }`}
                                 >
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-white font-bold text-sm">
-                                      {slot.time}
-                                    </span>
-                                    <span className="text-white text-xs font-semibold">
-                                      🔒 BLOQUEADO
-                                    </span>
+                                  <div className="flex items-stretch gap-0 min-h-[48px]">
+                                    <div className="flex-1 flex flex-col justify-center px-3 py-2.5 min-w-0">
+                                      <span className="text-white font-extrabold text-base tracking-tight">
+                                        {slot.time}
+                                      </span>
+                                      <span className="text-white/90 text-[11px] font-semibold mt-0.5">
+                                        🔒 Bloqueado para clientes
+                                      </span>
+                                    </div>
+                                    {onToggleProfessionalSlotBlocked ? (
+                                      <button
+                                        type="button"
+                                        disabled={!!slotBlockBusyKey}
+                                        onClick={() => runToggleSlotBlock(professional.id, slot.time, false)}
+                                        className={`shrink-0 px-3 py-2 text-xs font-bold text-white border-l border-white/25 transition-colors disabled:opacity-50 ${
+                                          useLightLayout
+                                            ? 'bg-emerald-700 hover:bg-emerald-800'
+                                            : 'bg-emerald-600 hover:bg-emerald-700'
+                                        }`}
+                                      >
+                                        {blockBusy ? '…' : 'Desbloquear'}
+                                      </button>
+                                    ) : null}
                                   </div>
                                 </div>
                               );
@@ -4757,19 +4810,52 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               // Horário disponível (ou dia de ausência) - pode ter encaixes abaixo
                               const squeezes = (slot as any).squeezes || [];
                               const isAbsentSlot = isProfessionalAbsentOnSelectedDate;
+                              const blockBusy =
+                                slotBlockBusyKey === `${professional.id}__${slot.time}`;
+                              const canQuickBlock =
+                                !!onToggleProfessionalSlotBlocked && !slot.isPast;
                               return (
                                 <div key={`${slot.time}-${slotIndex}`}>
                                   <div
-                                    className={`${isAbsentSlot ? 'bg-amber-100 border-amber-300' : slotColor} border-2 rounded-lg px-3 py-2`}
+                                    className={`rounded-xl border-2 shadow-sm overflow-hidden flex items-stretch min-h-[52px] ${
+                                      isAbsentSlot
+                                        ? 'bg-gradient-to-br from-amber-50 to-amber-100/90 border-amber-400'
+                                        : useLightLayout
+                                          ? 'bg-gradient-to-br from-white to-emerald-50/80 border-emerald-300'
+                                          : 'bg-gradient-to-br from-white to-emerald-50 border-emerald-400/90'
+                                    }`}
                                   >
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-black font-bold text-sm">
+                                    <div className="flex-1 flex flex-col justify-center px-3 py-2.5 min-w-0">
+                                      <span
+                                        className={`font-extrabold text-base tracking-tight ${
+                                          isAbsentSlot ? 'text-amber-900' : 'text-gray-900'
+                                        }`}
+                                      >
                                         {slot.time}
                                       </span>
-                                      <span className={`text-xs font-semibold ${isAbsentSlot ? 'text-amber-700' : 'text-green-600'}`}>
-                                        {isAbsentSlot ? '📅 AUSENTE' : '✓ DISPONÍVEL'}
+                                      <span
+                                        className={`text-[11px] font-bold mt-0.5 ${
+                                          isAbsentSlot ? 'text-amber-800' : 'text-emerald-700'
+                                        }`}
+                                      >
+                                        {isAbsentSlot ? '📅 Ausência neste dia' : '✓ Livre para agendar'}
                                       </span>
                                     </div>
+                                    {canQuickBlock ? (
+                                      <button
+                                        type="button"
+                                        disabled={!!slotBlockBusyKey}
+                                        onClick={() => runToggleSlotBlock(professional.id, slot.time, true)}
+                                        className={`shrink-0 px-3 py-2 text-xs font-bold text-white border-l border-white/20 transition-colors disabled:opacity-50 ${
+                                          useLightLayout
+                                            ? 'bg-slate-800 hover:bg-slate-900'
+                                            : 'bg-slate-700 hover:bg-slate-800'
+                                        }`}
+                                        title="Bloqueia só este horário neste dia (igual ao menu Bloquear horários)"
+                                      >
+                                        {blockBusy ? '…' : 'Bloquear'}
+                                      </button>
+                                    ) : null}
                                   </div>
                                   {/* Exibir encaixes abaixo do horário */}
                                   {squeezes.map((squeeze: Appointment) => {
@@ -5813,61 +5899,61 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   {availabilitySlots
                     .filter((slot) => !Boolean((slot as any).isPast))
                     .map((slot, idx) => {
-                    const appointment = slot.appointment || slot.parentAppointment;
-                    const isPast = Boolean((slot as any).isPast);
-                    const isAvailable = slot.isEmpty && !slot.isBlocked && !isPast;
-                    const isBlocked = slot.isBlocked;
-                    const isAvulso = Boolean((appointment as any)?.is_avulso);
-                    const isSqueeze = Boolean((appointment as any)?.is_squeeze);
-                    const isCancelled = String((appointment as any)?.status || '').toLowerCase() === 'cancelled';
-                    const isReserved = Boolean(appointment) && !isCancelled && !isAvulso && !isSqueeze;
+                      const appointment = slot.appointment || slot.parentAppointment;
+                      const isPast = Boolean((slot as any).isPast);
+                      const isAvailable = slot.isEmpty && !slot.isBlocked && !isPast;
+                      const isBlocked = slot.isBlocked;
+                      const isAvulso = Boolean((appointment as any)?.is_avulso);
+                      const isSqueeze = Boolean((appointment as any)?.is_squeeze);
+                      const isCancelled = String((appointment as any)?.status || '').toLowerCase() === 'cancelled';
+                      const isReserved = Boolean(appointment) && !isCancelled && !isAvulso && !isSqueeze;
 
-                    const isDisabled = !isAvailable || isReserved || isAvulso || isBlocked || isSqueeze || isPast;
+                      const isDisabled = !isAvailable || isReserved || isAvulso || isBlocked || isSqueeze || isPast;
 
-                    const badgeText = isAvulso
-                      ? 'RESERVA'
-                      : isSqueeze
-                        ? (apt.is_subscriber ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
-                        : isPast
-                          ? 'Já passou'
-                          : isBlocked
-                            ? 'Horário Fechado'
-                            : isReserved
-                              ? 'Horário Reservado'
-                              : '';
+                      const badgeText = isAvulso
+                        ? 'RESERVA'
+                        : isSqueeze
+                          ? (apt.is_subscriber ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
+                          : isPast
+                            ? 'Já passou'
+                            : isBlocked
+                              ? 'Horário Fechado'
+                              : isReserved
+                                ? 'Horário Reservado'
+                                : '';
 
-                    return (
-                      <button
-                        type="button"
-                        key={`${slot.time}-${idx}`}
-                        // Só visualização: não faz nada ao clicar
-                        onClick={() => { }}
-                        className={`
+                      return (
+                        <button
+                          type="button"
+                          key={`${slot.time}-${idx}`}
+                          // Só visualização: não faz nada ao clicar
+                          onClick={() => { }}
+                          className={`
                         px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 cursor-default
                         ${isAvulso
-                            ? 'bg-orange-100 text-orange-800'
-                            : isSqueeze
-                              ? 'bg-purple-700 text-white'
-                              : isPast
-                                ? 'bg-zinc-700 text-white'
-                                : isDisabled
-                                  ? 'bg-red-600 text-white'
-                                  : 'bg-green-600 text-white'
-                          }
+                              ? 'bg-orange-100 text-orange-800'
+                              : isSqueeze
+                                ? 'bg-purple-700 text-white'
+                                : isPast
+                                  ? 'bg-zinc-700 text-white'
+                                  : isDisabled
+                                    ? 'bg-red-600 text-white'
+                                    : 'bg-green-600 text-white'
+                            }
                       `}
-                        aria-disabled="true"
-                      >
-                        <div className="flex flex-col items-center">
-                          <span>{slot.time}</span>
-                          {badgeText && (
-                            <span className={`text-xs mt-1 ${isAvulso ? 'text-orange-600' : 'text-white'}`}>
-                              {badgeText}
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
+                          aria-disabled="true"
+                        >
+                          <div className="flex flex-col items-center">
+                            <span>{slot.time}</span>
+                            {badgeText && (
+                              <span className={`text-xs mt-1 ${isAvulso ? 'text-orange-600' : 'text-white'}`}>
+                                {badgeText}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
                 </div>
               </div>
 
@@ -6391,23 +6477,23 @@ export const AllProfessionalsAppointmentsView: React.FC<
         {selectedProfessionalForInfo && !isFinancialLockedForProfessional(
           professionals.find((p) => p.id === selectedProfessionalForInfo) || { id: '', name: '' }
         ) && (
-          <ProfessionalInfoModal
-            professional={
-              professionals.find((p) => p.id === selectedProfessionalForInfo) || {
-                id: '',
-                name: '',
+            <ProfessionalInfoModal
+              professional={
+                professionals.find((p) => p.id === selectedProfessionalForInfo) || {
+                  id: '',
+                  name: '',
+                }
               }
-            }
-            professionalPin={
-              professionalPins.find((pin) => pin.professional_id === selectedProfessionalForInfo)
-                ?.pin
-            }
-            establishmentId={establishment?.id}
-            selectedMonth={selectedDate}
-            {...calculateProfessionalValues(selectedProfessionalForInfo)}
-            onClose={() => setSelectedProfessionalForInfo(null)}
-          />
-        )}
+              professionalPin={
+                professionalPins.find((pin) => pin.professional_id === selectedProfessionalForInfo)
+                  ?.pin
+              }
+              establishmentId={establishment?.id}
+              selectedMonth={selectedDate}
+              {...calculateProfessionalValues(selectedProfessionalForInfo)}
+              onClose={() => setSelectedProfessionalForInfo(null)}
+            />
+          )}
 
         {/* Modal de Seleção de Serviço para Encaixe */}
         {showSqueezeServiceModal && (
@@ -6546,8 +6632,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     type="button"
                     onClick={() => setSqueezeClientType('avulso')}
                     className={`px-3 py-2 rounded-lg border text-sm font-semibold transition-colors ${squeezeClientType === 'avulso'
-                        ? 'bg-emerald-600 text-white border-emerald-500'
-                        : 'bg-[#2a2b2c] text-gray-300 border-gray-600 hover:border-gray-500'
+                      ? 'bg-emerald-600 text-white border-emerald-500'
+                      : 'bg-[#2a2b2c] text-gray-300 border-gray-600 hover:border-gray-500'
                       }`}
                   >
                     Cliente avulso
@@ -6556,8 +6642,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     type="button"
                     onClick={() => setSqueezeClientType('known')}
                     className={`px-3 py-2 rounded-lg border text-sm font-semibold transition-colors ${squeezeClientType === 'known'
-                        ? 'bg-blue-600 text-white border-blue-500'
-                        : 'bg-[#2a2b2c] text-gray-300 border-gray-600 hover:border-gray-500'
+                      ? 'bg-blue-600 text-white border-blue-500'
+                      : 'bg-[#2a2b2c] text-gray-300 border-gray-600 hover:border-gray-500'
                       }`}
                   >
                     Cliente conhecido
@@ -6596,8 +6682,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               type="button"
                               onClick={() => setSelectedSqueezeKnownClientId(c.id)}
                               className={`w-full text-left px-3 py-2 rounded-lg border transition-colors ${selected
-                                  ? 'bg-blue-600/30 border-blue-500 text-white'
-                                  : 'bg-[#1f2937] border-gray-600 text-gray-200 hover:border-gray-500'
+                                ? 'bg-blue-600/30 border-blue-500 text-white'
+                                : 'bg-[#1f2937] border-gray-600 text-gray-200 hover:border-gray-500'
                                 }`}
                             >
                               <div className="text-sm font-semibold">{c.name}</div>

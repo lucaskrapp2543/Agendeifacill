@@ -1,5 +1,4 @@
 import { CheckCircle, Clock, Scissors, Search, User } from 'lucide-react';
-import { format } from 'date-fns';
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { checkWhatsAppSubscriber, supabase } from '../lib/supabase';
@@ -726,11 +725,11 @@ export default function ReservarCliente({
           const formatted = subcats
             .filter((s: any) => !isCategoryBlockedForProfessional((s as any)?.service_categories, selectedProfessionalId))
             .map((s: any) => ({
-            id: String(s.id),
-            name: String(s.name || '').trim(),
-            price: Number(s.price || 0),
-            duration: Number(s.duration || 30),
-          })).filter((s: any) => s.name && s.price > 0);
+              id: String(s.id),
+              name: String(s.name || '').trim(),
+              price: Number(s.price || 0),
+              duration: Number(s.duration || 30),
+            })).filter((s: any) => s.name && s.price > 0);
 
           const combined = mergeSpecific(formatted);
           console.log('✅ Serviços (categorias) carregados:', combined);
@@ -1983,7 +1982,7 @@ export default function ReservarCliente({
         alert(
           reservarMensal
             ? 'Conflito de horário: em uma ou mais datas selecionadas já existe cliente agendado para este profissional nesse horário.\n\n' +
-              'Escolha outro horário ou mantenha este horário e aceite que algumas datas sejam ignoradas.'
+            'Escolha outro horário ou mantenha este horário e aceite que algumas datas sejam ignoradas.'
             : 'Conflito de horário: já existe cliente agendado para este profissional nesse horário.\n\nEscolha outro horário.'
         );
         return;
@@ -2094,11 +2093,10 @@ export default function ReservarCliente({
                     if (!disableKnownClientOption) setStep('client');
                   }}
                   disabled={disableKnownClientOption}
-                  className={`p-6 border-2 rounded-lg transition-all text-left ${
-                    disableKnownClientOption
+                  className={`p-6 border-2 rounded-lg transition-all text-left ${disableKnownClientOption
                       ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
                       : 'border-gray-300 hover:border-black hover:bg-gray-50'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center space-x-3">
                     <div className={`w-12 h-12 rounded-full flex items-center justify-center ${disableKnownClientOption ? 'bg-gray-200' : 'bg-gray-200'}`}>
@@ -2263,9 +2261,8 @@ export default function ReservarCliente({
                             type="button"
                             onClick={handleCreateKnownClient}
                             disabled={isCreatingKnownClient}
-                            className={`px-4 py-2 text-sm rounded-lg text-white font-medium ${
-                              isCreatingKnownClient ? 'bg-gray-400 cursor-not-allowed' : 'bg-black hover:bg-gray-800'
-                            }`}
+                            className={`px-4 py-2 text-sm rounded-lg text-white font-medium ${isCreatingKnownClient ? 'bg-gray-400 cursor-not-allowed' : 'bg-black hover:bg-gray-800'
+                              }`}
                           >
                             {isCreatingKnownClient ? 'Adicionando...' : 'Salvar e continuar'}
                           </button>
