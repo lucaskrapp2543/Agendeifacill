@@ -3292,34 +3292,60 @@ const AdminDashboard = () => {
   const activeCount = baseFilteredEstablishments.reduce((acc, est) => acc + (isActiveEstablishment(est) ? 1 : 0), 0);
   const inactiveCount = Math.max(0, baseFilteredEstablishments.length - activeCount);
 
-  const filteredEstablishments = baseFilteredEstablishments
+  const sortEstablishmentsForAdminGrid = (a: Establishment, b: Establishment): number => {
+    // 1) Estabelecimentos vencidos sempre no topo
+    const aIsExpired = a.payment_status === 'expired' || isExpired(a.payment_due_date);
+    const bIsExpired = b.payment_status === 'expired' || isExpired(b.payment_due_date);
+
+    if (aIsExpired && !bIsExpired) return -1;
+    if (!aIsExpired && bIsExpired) return 1;
+
+    // 2) Ordenar por vencimento (mais próximo primeiro)
+    const aDue = new Date(a.payment_due_date).getTime();
+    const bDue = new Date(b.payment_due_date).getTime();
+    const aValid = Number.isFinite(aDue);
+    const bValid = Number.isFinite(bDue);
+
+    if (aValid && bValid && aDue !== bDue) return aDue - bDue;
+    if (aValid && !bValid) return -1;
+    if (!aValid && bValid) return 1;
+
+    // 3) Desempate: nome (determinístico)
+    return a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
+  };
+
+  const filteredAfterPlanFilters = baseFilteredEstablishments
     .filter(est => (filterPlan === 'all' ? true : getPlanKey(est) === filterPlan))
     .filter(est => {
       if (filterActivity === 'active') return isActiveEstablishment(est);
       if (filterActivity === 'inactive') return !isActiveEstablishment(est);
       return true;
-    })
-    .sort((a, b) => {
-      // 1) Estabelecimentos vencidos sempre no topo
-      const aIsExpired = a.payment_status === 'expired' || isExpired(a.payment_due_date);
-      const bIsExpired = b.payment_status === 'expired' || isExpired(b.payment_due_date);
-
-      if (aIsExpired && !bIsExpired) return -1;
-      if (!aIsExpired && bIsExpired) return 1;
-
-      // 2) Ordenar por vencimento (mais próximo primeiro)
-      const aDue = new Date(a.payment_due_date).getTime();
-      const bDue = new Date(b.payment_due_date).getTime();
-      const aValid = Number.isFinite(aDue);
-      const bValid = Number.isFinite(bDue);
-
-      if (aValid && bValid && aDue !== bDue) return aDue - bDue;
-      if (aValid && !bValid) return -1;
-      if (!aValid && bValid) return 1;
-
-      // 3) Desempate: nome (determinístico)
-      return a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
     });
+
+  /** Não bloqueados: lista principal. Bloqueados: área separada ao final (mesma página), sem “empurrar” só pro fim da ordenação global. */
+  const filteredEstablishmentsMain = filteredAfterPlanFilters
+    .filter((est) => !est.is_blocked)
+    .sort(sortEstablishmentsForAdminGrid);
+
+  const filteredEstablishmentsBlocked = filteredAfterPlanFilters
+    .filter((est) => Boolean(est.is_blocked))
+    .sort(sortEstablishmentsForAdminGrid);
+
+  const filteredEstablishments = [...filteredEstablishmentsMain, ...filteredEstablishmentsBlocked];
+
+  const blockedCountInFilter = baseFilteredEstablishments.filter((e) => Boolean(e.is_blocked)).length;
+
+  type AdminEstablishmentTableItem =
+    | { kind: 'section-bloqueados'; count: number }
+    | { kind: 'row'; establishment: Establishment };
+
+  const adminEstablishmentTableItems: AdminEstablishmentTableItem[] = [
+    ...filteredEstablishmentsMain.map((establishment) => ({ kind: 'row' as const, establishment })),
+    ...(filteredEstablishmentsBlocked.length > 0
+      ? [{ kind: 'section-bloqueados' as const, count: filteredEstablishmentsBlocked.length }]
+      : []),
+    ...filteredEstablishmentsBlocked.map((establishment) => ({ kind: 'row' as const, establishment })),
+  ];
 
   const lucroPixFiltrado = filteredEstablishments.reduce((sum, est) => {
     const lucroPix = Number(lucroPixPorEstabelecimento[String(est.id)] || 0);
@@ -4611,6 +4637,9 @@ const AdminDashboard = () => {
             <span>
               <strong>Outros:</strong> {planCounts.outros}
             </span>
+            <span className="text-rose-800">
+              <strong>Bloqueados:</strong> {blockedCountInFilter}
+            </span>
             <span title="Lucro do app no mês atual (PIX R$0,50 por venda e Crédito R$1,00 por venda)">
               <strong>Lucro mês atual (PIX + Crédito):</strong> {isLoadingSaldos ? '...' : fmtBRL(lucroPixFiltrado)}
             </span>
@@ -4798,7 +4827,17 @@ const AdminDashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-300">
-                  {filteredEstablishments.map((establishment, idx) => {
+                  {adminEstablishmentTableItems.map((item) => {
+                    if (item.kind === 'section-bloqueados') {
+                      return (
+                        <tr key="admin-section-bloqueados" className="bg-rose-200/90 border-t-4 border-rose-500">
+                          <td colSpan={8} className="px-3 py-2.5 text-sm font-extrabold text-rose-950 uppercase tracking-wide">
+                            Bloqueados ({item.count})
+                          </td>
+                        </tr>
+                      );
+                    }
+                    const establishment = item.establishment;
                     const displayState = getDisplayPaymentState(establishment);
                     const isRowExpired = displayState === 'expired';
                     const isRowDueToday = displayState === 'due_today';

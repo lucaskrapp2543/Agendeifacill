@@ -4759,8 +4759,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   </div>
                   <p className="text-sm text-gray-300 mt-1">
                     As taxas do Mercado Pago são baixas: <span className="font-semibold">0.99% (PIX) + R$1,00</span> da plataforma.
-                    <span className="font-semibold text-amber-200"> A cobrança recorrente mensal acontece apenas no Cartão de crédito.</span>
-                    No PIX, o pagamento continua manual (sem cobrança automática).
+                  </p>
+                  <p className="text-sm text-gray-300 mt-2 leading-relaxed">
+                    <span className="font-semibold text-amber-200">A cobrança recorrente no cartão de crédito (débito em conta)</span> só pode
+                    ocorrer se o Mercado Pago e o seu banco aceitarem recorrência, conforme as regras do Banco Central: é necessário ter CNPJ,
+                    não ter pendências em seu nome nem no CNPJ, e atender aos critérios de idoneidade do banco que você utilizar. Caso contrário,
+                    o cliente pagará a assinatura normalmente todo mês, <span className="font-semibold">sem débito automático em conta</span>.
+                    Não se preocupe: se a mensalidade estiver vencida, o fluxo cobra ao agendar (conforme suas regras no sistema), e você também
+                    pode enviar cobrança manual pelo painel.
+                  </p>
+                  <p className="text-sm text-gray-300 mt-2">
+                    No PIX, o pagamento continua <span className="font-semibold">manual</span> (sem cobrança automática).
                   </p>
                 </div>
                 <button
@@ -4792,7 +4801,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               </div>
               <p className="text-xs text-gray-500 mt-3">
                 Quando ativado, no Booking o botão <span className="text-gray-300 font-semibold">Assinar</span> abre o fluxo de pagamento do Mercado Pago.
-                <span className="text-gray-300 font-semibold"> Cartão = recorrência mensal automática</span>; PIX = pagamento manual.
+                <span className="text-gray-300 font-semibold"> Cartão</span>: recorrência automática só quando MP/banco aceitarem (regras do BC); caso contrário, pagamento mensal avulso.
+                <span className="text-gray-300 font-semibold"> PIX</span>: sempre manual.
                 Quando desativado, mantém o comportamento atual (link da assinatura ou WhatsApp).
               </p>
               {!useMercadoPagoSubscriptionPix && !String(establishment?.mercadopago_access_token || '').trim() && (
