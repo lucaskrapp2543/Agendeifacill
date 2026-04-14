@@ -50,15 +50,18 @@ const timeToMinutes = (time: string): number => {
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return 0;
   return hours * 60 + minutes;
 };
+/** Duração em minutos; 0/null não pode virar 1 (isso liberava slots no meio do atendimento). */
 const parseDurationMinutes = (value: unknown, fallback = 30): number => {
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(1, Math.round(value));
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 0 ? Math.round(value) : fallback;
+  }
   const raw = String(value ?? '').trim();
   if (!raw) return fallback;
   const normalized = raw.replace(',', '.');
   const direct = Number(normalized);
-  if (Number.isFinite(direct)) return Math.max(1, Math.round(direct));
+  if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
   const extracted = Number(normalized.replace(/[^\d.]/g, ''));
-  if (Number.isFinite(extracted)) return Math.max(1, Math.round(extracted));
+  if (Number.isFinite(extracted) && extracted > 0) return Math.round(extracted);
   return fallback;
 };
 const normalizeSpecificService = (raw: any, fallbackKey: string) => {
@@ -611,9 +614,12 @@ export function BookingChatFlow({
     });
 
     const getAppointmentDurationMinutes = (appointment: any): number => {
-      const baseDuration = Number(appointment?.duration || 0);
+      const baseDuration = parseDurationMinutes(appointment?.duration, 30);
       const extraDuration = Array.isArray(appointment?.additional_products)
-        ? appointment.additional_products.reduce((sum: number, item: any) => sum + (Number(item?.duration || 0) || 0), 0)
+        ? appointment.additional_products.reduce(
+            (sum: number, item: any) => sum + parseDurationMinutes(item?.duration, 0),
+            0
+          )
         : 0;
       return Math.max(1, baseDuration + extraDuration);
     };

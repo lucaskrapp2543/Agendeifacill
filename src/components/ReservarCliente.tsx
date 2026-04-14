@@ -37,12 +37,23 @@ interface ServiceSubcategory {
   display_order: number;
 }
 
+/** Serviço incluído no plano (mesma estrutura que `divided_services` nas assinaturas). */
+interface PlanOfferedService {
+  id: string;
+  name: string;
+  duration: number;
+  limit: number;
+}
+
 interface Subscription {
   id: string;
   name: string;
-  service_name: string;
-  service_duration: number;
-  price: number;
+  service_name?: string | null;
+  service_duration?: number | null;
+  price?: number;
+  value?: number;
+  divided_services?: unknown;
+  divide_services_enabled?: boolean;
 }
 
 interface TimeSlot {
@@ -108,6 +119,12 @@ export default function ReservarCliente({
   // Estados para assinantes
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
+  /** Metadados do serviço escolhido dentro do plano (limites / relatórios de assinante). */
+  const [selectedSubscriberPlanMeta, setSelectedSubscriberPlanMeta] = useState<{
+    serviceId: string | null;
+    serviceName: string;
+    serviceLimit: number;
+  } | null>(null);
   const [selectedClientActiveSubscriptionId, setSelectedClientActiveSubscriptionId] = useState<string | null>(null);
 
   // Estados para seleção de cliente conhecido
@@ -179,6 +196,56 @@ export default function ReservarCliente({
     if (!match) return 30;
     const parsed = Number(match[1]);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+  };
+
+  const normalizePlanOfferedServices = (services: PlanOfferedService[]): PlanOfferedService[] => {
+    return services
+      .map((service) => ({
+        id: String(service.id || '').trim(),
+        name: String(service.name || '').trim(),
+        duration: Number(service.duration || 0),
+        limit: Number(service.limit || 0),
+      }))
+      .filter(
+        (service) =>
+          service.name &&
+          Number.isFinite(service.duration) &&
+          service.duration > 0 &&
+          Number.isFinite(service.limit) &&
+          service.limit > 0
+      );
+  };
+
+  const parseDividedServicesFromRaw = (raw: unknown): PlanOfferedService[] => {
+    if (!Array.isArray(raw)) return [];
+    return normalizePlanOfferedServices(
+      raw.map((service: any) => ({
+        id: String(service?.id || ''),
+        name: String(service?.name || ''),
+        duration: Number(service?.duration || 0),
+        limit: Number(service?.limit || 0),
+      }))
+    );
+  };
+
+  /** Serviços oferecidos pelo plano: `divided_services` ou legado service_name + service_duration. */
+  const getOfferedServicesFromSubscription = (subscription: any): PlanOfferedService[] => {
+    const divided = parseDividedServicesFromRaw(subscription?.divided_services);
+    if (divided.length > 0) return divided;
+
+    const legacyName = String(subscription?.service_name || '').trim();
+    const legacyDur = parseDurationMinutes(subscription?.service_duration);
+    if (legacyName && legacyDur > 0) {
+      return [{ id: '', name: legacyName, duration: legacyDur, limit: 1 }];
+    }
+
+    const fallbackDur = parseDurationMinutes(subscription?.service_duration);
+    const planName = String(subscription?.name || '').trim();
+    if (planName && fallbackDur > 0) {
+      return [{ id: '', name: planName, duration: fallbackDur, limit: 1 }];
+    }
+
+    return [];
   };
 
   const parseExcludedProfessionalIds = (raw: any): string[] => {
@@ -1126,6 +1193,7 @@ export default function ReservarCliente({
     setSelectedClient(client);
     // Ao trocar cliente, limpamos seleção de assinatura anterior para evitar cruzamento de planos.
     setSelectedSubscription(null);
+    setSelectedSubscriberPlanMeta(null);
     if (selectedProfessional && String(selectedProfessional.id || '').trim().length > 0) {
       setStep('service');
       return;
@@ -1281,6 +1349,8 @@ export default function ReservarCliente({
 
   const handleProfessionalSelect = (professional: Professional) => {
     setSelectedProfessional(professional);
+    setSelectedSubscription(null);
+    setSelectedSubscriberPlanMeta(null);
     setStep('service');
   };
 
@@ -1321,16 +1391,22 @@ export default function ReservarCliente({
   const filteredDirectServices = services.filter((service) => serviceMatchesSearch(service?.name));
   const filteredServiceCategories = visibleServiceCategories.filter((category) => serviceMatchesSearch(category?.name));
   const filteredServiceSubcategories = serviceSubcategories.filter((subcategory) => serviceMatchesSearch(subcategory?.name));
-  const filteredSubscriptionsBySearch = filteredSubscriptions.filter(
-    (subscription) => serviceMatchesSearch(subscription?.name) || serviceMatchesSearch(subscription?.service_name)
-  );
+  const filteredSubscriptionsBySearch = filteredSubscriptions.filter((subscription) => {
+    if (serviceMatchesSearch(subscription?.name)) return true;
+    if (serviceMatchesSearch(subscription?.service_name)) return true;
+    return getOfferedServicesFromSubscription(subscription).some((s) => serviceMatchesSearch(s.name));
+  });
 
   const handleServiceSelect = (service: Service) => {
+    setSelectedSubscription(null);
+    setSelectedSubscriberPlanMeta(null);
     setSelectedService(service);
     setStep('time');
   };
 
   const handleMultipleServiceToggle = (service: Service) => {
+    setSelectedSubscription(null);
+    setSelectedSubscriberPlanMeta(null);
     setSelectedServices(prev => {
       const isSelected = prev.some(s => s.id === service.id);
       if (isSelected) {
@@ -1343,6 +1419,8 @@ export default function ReservarCliente({
 
   const handleMultipleServicesConfirm = () => {
     if (selectedServices.length > 0) {
+      setSelectedSubscription(null);
+      setSelectedSubscriberPlanMeta(null);
       setStep('time');
     }
   };
@@ -1357,12 +1435,15 @@ export default function ReservarCliente({
   };
 
   const formatDuration = (minutes: number) => {
-    if (minutes >= 60) {
-      const hours = Math.floor(minutes / 60);
-      const remainingMinutes = minutes % 60;
+    const m = Number(minutes);
+    const safe = Number.isFinite(m) && m > 0 ? Math.round(m) : 0;
+    if (safe === 0) return '—';
+    if (safe >= 60) {
+      const hours = Math.floor(safe / 60);
+      const remainingMinutes = safe % 60;
       return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}min` : `${hours}h`;
     }
-    return `${minutes}min`;
+    return `${safe}min`;
   };
 
   const formatPrice = (price: number) => {
@@ -1373,6 +1454,8 @@ export default function ReservarCliente({
   };
 
   const handleCategorySelect = (category: ServiceCategory) => {
+    setSelectedSubscription(null);
+    setSelectedSubscriberPlanMeta(null);
     setSelectedCategory(category);
     setSelectedSubcategory(null);
     setShowCategoryServices(true);
@@ -1389,6 +1472,8 @@ export default function ReservarCliente({
 
   const handleSubcategorySelect = (subcategory: ServiceSubcategory) => {
     setSelectedSubcategory(subcategory);
+    setSelectedSubscription(null);
+    setSelectedSubscriberPlanMeta(null);
     // Converter subcategoria para formato de serviço
     const serviceFromSubcategory: Service = {
       id: subcategory.id,
@@ -1400,15 +1485,19 @@ export default function ReservarCliente({
     setStep('time');
   };
 
-  const handleSubscriptionSelect = (subscription: Subscription) => {
+  const handleSubscriptionSelect = (subscription: Subscription, offered: PlanOfferedService) => {
+    setSelectedServices([]);
     setSelectedSubscription(subscription);
-    // Converter assinatura para formato de serviço (com preço R$ 0,00)
-    // Usar o NOME DO CLUBE + serviço para identificação
+    setSelectedSubscriberPlanMeta({
+      serviceId: offered.id ? String(offered.id) : null,
+      serviceName: offered.name,
+      serviceLimit: Number.isFinite(offered.limit) && offered.limit > 0 ? offered.limit : 0,
+    });
     const serviceFromSubscription: Service = {
       id: subscription.id,
-      name: `${subscription.name} (${subscription.service_name})`, // Ex: "Club Mensal (Cabelo e Barba)"
-      price: 0, // Assinantes não pagam
-      duration: subscription.service_duration
+      name: `${subscription.name} (${offered.name})`,
+      price: 0,
+      duration: offered.duration,
     };
     setSelectedService(serviceFromSubscription);
     setStep('time');
@@ -1476,9 +1565,11 @@ export default function ReservarCliente({
       const totalPrice = selectedServices.length > 0
         ? calculateTotalPrice(selectedServices)
         : selectedService!.price;
-      const totalDuration = selectedServices.length > 0
-        ? calculateTotalDuration(selectedServices)
-        : selectedService!.duration;
+      const totalDurationRaw =
+        selectedServices.length > 0
+          ? calculateTotalDuration(selectedServices)
+          : selectedService!.duration;
+      const totalDuration = parseDurationMinutes(totalDurationRaw);
 
       // Criar nome dos serviços
       const serviceNames = servicesToInsert.map(s => s.name).join(', ');
@@ -1782,6 +1873,16 @@ export default function ReservarCliente({
           is_avulso: isAvulso,
           is_subscriber: isSubscriber
         };
+        if (isSubscriber && selectedSubscription) {
+          payload.subscription_id = String(selectedSubscription.id || '').trim() || null;
+          if (selectedSubscriberPlanMeta?.serviceName) {
+            payload.subscriber_service_id = selectedSubscriberPlanMeta.serviceId || null;
+            payload.subscriber_service_name = selectedSubscriberPlanMeta.serviceName;
+            if (selectedSubscriberPlanMeta.serviceLimit > 0) {
+              payload.subscriber_service_limit = selectedSubscriberPlanMeta.serviceLimit;
+            }
+          }
+        }
         // Segurança adicional: quando o dono confirmou desbloqueio no fluxo interno,
         // também envia override para não falhar por divergência de bloqueio legado.
         if (didUnlockBlockedHours) {
@@ -1825,6 +1926,42 @@ export default function ReservarCliente({
       let inserted = insertedData;
       let insertError = initialInsertError;
       let skippedByDbConflict = 0;
+
+      const removeSubscriberExtraFieldsFromPayload = (payload: any) => {
+        const clean: any = { ...(payload || {}) };
+        delete clean.subscription_id;
+        delete clean.subscriber_service_id;
+        delete clean.subscriber_service_name;
+        delete clean.subscriber_service_limit;
+        return clean;
+      };
+
+      const shouldRetryWithoutSubscriberSchemaFields = (err: any) => {
+        const msg = String(err?.message || '').toLowerCase();
+        const code = String(err?.code || '').toLowerCase();
+        return (
+          code === 'pgrst204' ||
+          msg.includes('schema cache') ||
+          msg.includes('could not find the') ||
+          msg.includes('subscription_id') ||
+          msg.includes('subscriber_service_')
+        );
+      };
+
+      // Mesma ideia do BookingPage: DB antigo sem colunas de assinatura no appointments → grava sem elas.
+      if (insertError && shouldRetryWithoutSubscriberSchemaFields(insertError)) {
+        const legacyPayloads = payloads.map(removeSubscriberExtraFieldsFromPayload);
+        const { data: legacyInserted, error: legacyError } = await supabase
+          .from('appointments')
+          .insert(legacyPayloads)
+          .select('id');
+        if (!legacyError) {
+          inserted = legacyInserted;
+          insertError = null;
+        } else {
+          insertError = legacyError;
+        }
+      }
 
       // Fallback de compatibilidade:
       // Se o banco bloquear (P0001), sempre faz uma segunda tentativa com override forçado.
@@ -2547,23 +2684,52 @@ export default function ReservarCliente({
                 <div className="space-y-4 mt-6">
                   <h4 className="text-md font-medium text-gray-700">Assinantes</h4>
                   <div className="grid grid-cols-1 gap-4">
-                    {filteredSubscriptionsBySearch.map((subscription) => (
-                      <button
-                        key={subscription.id}
-                        onClick={() => handleSubscriptionSelect(subscription)}
-                        className="p-4 border-2 border-gray-300 rounded-lg hover:border-black hover:bg-gray-50 transition-all text-left"
-                      >
-                        <div className="flex justify-between items-center">
-                          <div>
+                    {filteredSubscriptionsBySearch.map((subscription) => {
+                      const offered = getOfferedServicesFromSubscription(subscription);
+                      return (
+                        <div
+                          key={subscription.id}
+                          className="border-2 border-gray-300 rounded-lg p-3 bg-white space-y-2"
+                        >
+                          <div className="flex items-center justify-between gap-2 px-1">
                             <h4 className="font-semibold text-gray-800">{subscription.name}</h4>
-                            <p className="text-sm text-gray-600">
-                              {subscription.service_name} • {formatDuration(subscription.service_duration)} • <span className="text-gray-700 font-semibold">GRATUITO</span>
-                            </p>
+                            <span className="text-gray-700 shrink-0" aria-hidden>
+                              👑
+                            </span>
                           </div>
-                          <div className="text-gray-700">👑</div>
+                          {offered.length === 0 ? (
+                            <p className="text-sm text-amber-800 px-1">
+                              Nenhum serviço configurado neste plano. Edite a assinatura e defina os serviços oferecidos.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {offered.map((svc) => (
+                                <button
+                                  key={`${subscription.id}-${svc.id || 'noid'}-${svc.name}`}
+                                  type="button"
+                                  onClick={() => handleSubscriptionSelect(subscription, svc)}
+                                  className="w-full p-4 border-2 border-gray-300 rounded-lg hover:border-black hover:bg-gray-50 transition-all text-left"
+                                >
+                                  <div className="flex justify-between items-center gap-2">
+                                    <div className="min-w-0">
+                                      <p className="font-semibold text-gray-800 truncate">{svc.name}</p>
+                                      <p className="text-sm text-gray-600 mt-0.5">
+                                        {formatDuration(svc.duration)} •{' '}
+                                        <span className="text-gray-700 font-semibold">GRATUITO</span>
+                                        {svc.limit > 0 ? (
+                                          <span className="text-gray-500"> • até {svc.limit} uso(s) no ciclo</span>
+                                        ) : null}
+                                      </p>
+                                    </div>
+                                    <span className="text-gray-500 text-sm shrink-0">→</span>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ) : filteredSubscriptions.length > 0 && normalizedServiceSearch ? (
