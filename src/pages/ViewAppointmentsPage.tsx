@@ -660,7 +660,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
         console.log('🔍 DEBUG - Buscando por código:', establishmentCode);
         const { data: establishmentsByCode, error: errorByCode } = await supabase
           .from('establishments')
-          .select('enable_whatsapp_notifications, whatsapp')
+          .select('enable_whatsapp_notifications, whatsapp, skip_client_whatsapp_booking_nudge')
           .eq('code', establishmentCode)
           .limit(1);
 
@@ -675,7 +675,8 @@ Por favor, confirme o cancelamento. Obrigado!`;
         if (establishment && !error) {
           const config = {
             enableWhatsAppNotifications: establishment.enable_whatsapp_notifications || false,
-            whatsapp: establishment.whatsapp || ''
+            whatsapp: establishment.whatsapp || '',
+            skipClientWhatsappBookingNudge: Boolean((establishment as any).skip_client_whatsapp_booking_nudge),
           };
           console.log('✅ Configuração carregada pelo código:', config);
           setEstablishmentWhatsAppConfig(config);
@@ -687,7 +688,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
       console.log('🔍 DEBUG - Tentando buscar por nome (fallback)...');
       const { data: establishments, error: errorByName } = await supabase
         .from('establishments')
-        .select('enable_whatsapp_notifications, whatsapp')
+        .select('enable_whatsapp_notifications, whatsapp, skip_client_whatsapp_booking_nudge')
         .eq('name', establishmentName)
         .limit(1);
 
@@ -703,7 +704,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
         console.log('🔍 DEBUG - Tentando busca com ilike...');
         const { data: establishments2, error: error2 } = await supabase
           .from('establishments')
-          .select('enable_whatsapp_notifications, whatsapp')
+          .select('enable_whatsapp_notifications, whatsapp, skip_client_whatsapp_booking_nudge')
           .ilike('name', establishmentName)
           .limit(1);
 
@@ -720,7 +721,8 @@ Por favor, confirme o cancelamento. Obrigado!`;
         // Configuração padrão se não conseguir carregar
         const defaultConfig = {
           enableWhatsAppNotifications: true, // Assumir que está habilitado
-          whatsapp: ''
+          whatsapp: '',
+          skipClientWhatsappBookingNudge: false,
         };
         console.log('⚠️ Usando configuração padrão:', defaultConfig);
         setEstablishmentWhatsAppConfig(defaultConfig);
@@ -729,7 +731,8 @@ Por favor, confirme o cancelamento. Obrigado!`;
 
       const config = {
         enableWhatsAppNotifications: establishment?.enable_whatsapp_notifications || false,
-        whatsapp: establishment?.whatsapp || ''
+        whatsapp: establishment?.whatsapp || '',
+        skipClientWhatsappBookingNudge: Boolean((establishment as any)?.skip_client_whatsapp_booking_nudge),
       };
 
       console.log('✅ Configuração carregada:', config);
@@ -739,7 +742,8 @@ Por favor, confirme o cancelamento. Obrigado!`;
       // Configuração padrão em caso de erro
       const defaultConfig = {
         enableWhatsAppNotifications: true,
-        whatsapp: ''
+        whatsapp: '',
+        skipClientWhatsappBookingNudge: false,
       };
       console.log('⚠️ Usando configuração padrão por erro:', defaultConfig);
       setEstablishmentWhatsAppConfig(defaultConfig);
@@ -1205,8 +1209,9 @@ Por favor, confirme o cancelamento. Obrigado!`;
                 {/* Botões de Ação */}
                 {appointment.status !== 'cancelled' && appointment.status !== 'completed' && (
                   <div className="pt-4 border-t border-gray-200 space-y-3">
-                    {/* Seção de Confirmação WhatsApp - Só mostra se NÃO estiver confirmado */}
-                    {!confirmedAppointments.has(appointment.id) && (
+                    {/* Seção de Confirmação WhatsApp - Só mostra se NÃO estiver confirmado e o estabelecimento não pediu para ocultar o fluxo WhatsApp */}
+                    {!confirmedAppointments.has(appointment.id) &&
+                      !(appointment.establishments as any)?.skip_client_whatsapp_booking_nudge && (
                       <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-xl p-3 sm:p-4 shadow-lg hover:shadow-xl transition-all duration-300">
                         <div className="text-center mb-2 sm:mb-3">
                           <p className="text-lg sm:text-xl font-bold text-green-700">
@@ -1296,6 +1301,13 @@ Por favor, confirme o cancelamento. Obrigado!`;
           onActivateReminder={handleActivateReminder}
           onDontActivate={handleDontActivate}
           onConfirmWhatsApp={handleConfirmWhatsApp}
+          onSimpleDismiss={() => {
+            setShowSuccessModal(false);
+            setEstablishmentWhatsAppConfig(null);
+            setPendingReminderData(null);
+            localStorage.removeItem('reminder_creation_data');
+            setReminderStep('initial');
+          }}
           step={reminderStep}
           appointmentData={{
             serviceName: pendingReminderData.serviceName || '',
@@ -1304,7 +1316,14 @@ Por favor, confirme o cancelamento. Obrigado!`;
             appointmentTime: pendingReminderData.appointmentTime || '',
             professionalName: pendingReminderData.professionalName || ''
           }}
-          enableWhatsAppNotifications={true}
+          enableWhatsAppNotifications={!!establishmentWhatsAppConfig?.enableWhatsAppNotifications}
+          completionVariant={
+            establishmentWhatsAppConfig?.skipClientWhatsappBookingNudge
+              ? 'simple'
+              : establishmentWhatsAppConfig?.enableWhatsAppNotifications
+                ? 'whatsapp'
+                : 'reminder'
+          }
         />
       )}
 

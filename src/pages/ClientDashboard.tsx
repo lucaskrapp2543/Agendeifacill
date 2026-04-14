@@ -61,6 +61,7 @@ const ClientDashboard = () => {
   const [establishmentWhatsAppConfig, setEstablishmentWhatsAppConfig] = useState<{
     enableWhatsAppNotifications: boolean;
     whatsapp: string;
+    skipClientWhatsappBookingNudge: boolean;
   } | null>(null);
 
   // Estados para modal de edição de dados do usuário
@@ -125,11 +126,28 @@ const ClientDashboard = () => {
   };
 
   // Função para carregar configuração de WhatsApp do estabelecimento
-  const loadEstablishmentWhatsAppConfig = async (establishmentName: string) => {
+  const loadEstablishmentWhatsAppConfig = async (establishmentName: string, establishmentCode?: string) => {
     try {
+      if (establishmentCode) {
+        const { data: rows, error: errCode } = await supabase
+          .from('establishments')
+          .select('enable_whatsapp_notifications, whatsapp, skip_client_whatsapp_booking_nudge')
+          .eq('code', establishmentCode)
+          .limit(1);
+        const establishment = rows?.[0];
+        if (!errCode && establishment) {
+          setEstablishmentWhatsAppConfig({
+            enableWhatsAppNotifications: establishment.enable_whatsapp_notifications || false,
+            whatsapp: establishment.whatsapp || '',
+            skipClientWhatsappBookingNudge: Boolean((establishment as any).skip_client_whatsapp_booking_nudge),
+          });
+          return;
+        }
+      }
+
       const { data: establishment, error } = await supabase
         .from('establishments')
-        .select('enable_whatsapp_notifications, whatsapp')
+        .select('enable_whatsapp_notifications, whatsapp, skip_client_whatsapp_booking_nudge')
         .eq('name', establishmentName)
         .single();
 
@@ -140,7 +158,8 @@ const ClientDashboard = () => {
 
       setEstablishmentWhatsAppConfig({
         enableWhatsAppNotifications: establishment?.enable_whatsapp_notifications || false,
-        whatsapp: establishment?.whatsapp || ''
+        whatsapp: establishment?.whatsapp || '',
+        skipClientWhatsappBookingNudge: Boolean((establishment as any)?.skip_client_whatsapp_booking_nudge),
       });
     } catch (error) {
       console.error('Erro ao carregar configuração do estabelecimento:', error);
@@ -264,7 +283,7 @@ const ClientDashboard = () => {
         // Mostrar modal de agendamento concluído no dashboard
         setTimeout(async () => {
           // Carregar configuração de WhatsApp do estabelecimento
-          await loadEstablishmentWhatsAppConfig(parsedData.establishmentName);
+          await loadEstablishmentWhatsAppConfig(parsedData.establishmentName, parsedData.establishmentCode);
 
           // Verificar se já foi confirmado
           const confirmationKey = `appointment_confirmed_${parsedData.uniqueKey}`;
@@ -949,9 +968,24 @@ const ClientDashboard = () => {
           onActivateReminder={handleActivateReminder}
           onDontActivate={successModalStep === 'initial' ? handleDontActivateFirst : handleDontActivateFinal}
           onConfirmWhatsApp={handleConfirmWhatsApp}
+          onSimpleDismiss={() => {
+            setShowSuccessModal(false);
+            setSuccessModalStep('initial');
+            localStorage.removeItem('reminder_creation_data');
+            setShouldShowReminderIndicator(false);
+            setPendingReminderData(null);
+            setEstablishmentWhatsAppConfig(null);
+          }}
           step={successModalStep}
           appointmentData={pendingReminderData}
           enableWhatsAppNotifications={establishmentWhatsAppConfig?.enableWhatsAppNotifications || false}
+          completionVariant={
+            establishmentWhatsAppConfig?.skipClientWhatsappBookingNudge
+              ? 'simple'
+              : establishmentWhatsAppConfig?.enableWhatsAppNotifications
+                ? 'whatsapp'
+                : 'reminder'
+          }
         />
       )}
 

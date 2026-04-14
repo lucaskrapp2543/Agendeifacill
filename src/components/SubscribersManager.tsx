@@ -54,6 +54,9 @@ type SubscriptionValueChangeHistoryEntry = {
   note?: string | null;
 };
 
+/** Filtro do modal de atendimentos: período da assinatura ou mês civil (badges no card) */
+type AttendanceViewerFilter = { kind: 'period' } | { kind: 'month'; ym: string };
+
 interface SubscribersManagerProps {
   establishmentId: string;
   clients: Client[]; // Usar Client ao invés de Profile
@@ -642,6 +645,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Estados para modal de visualizar atendimentos
   const [showViewAttendancesModal, setShowViewAttendancesModal] = useState(false);
   const [selectedClientForView, setSelectedClientForView] = useState<ClientSubscription | null>(null);
+  const [attendanceViewerFilter, setAttendanceViewerFilter] = useState<AttendanceViewerFilter | null>(null);
+  const [attendanceViewerRows, setAttendanceViewerRows] = useState<any[]>([]);
+  const [attendanceViewerLoading, setAttendanceViewerLoading] = useState(false);
+  const [attendanceViewerError, setAttendanceViewerError] = useState<string | null>(null);
 
   // Estados para modal de edição de datas
   const [showEditEndDateModal, setShowEditEndDateModal] = useState(false);
@@ -1701,19 +1708,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
-  // Função para buscar atendimentos de um cliente específico
+  // Função para buscar atendimentos de um cliente específico (lista do mês selecionado no painel — legado)
   const getClientAttendances = (clientSubscriptionId: string) => {
     return subscriberAttendances.filter(attendance =>
       attendance.client_subscription_id === clientSubscriptionId
     );
   };
 
-  // Função para agrupar atendimentos por profissional
-  const getClientAttendancesByProfessional = (clientSubscriptionId: string) => {
-    const attendances = getClientAttendances(clientSubscriptionId);
+  const buildAttendancesByProfessional = (attendances: any[], clientSubscriptionId: string) => {
     const clientPointsMode = isClientSubscriptionPointsMode(clientSubscriptionId);
-    const grouped = attendances.reduce((acc, attendance) => {
-      const professional = attendance.professional_name;
+    return attendances.reduce((acc, attendance) => {
+      const professional = String(attendance.professional_name || '').trim() || 'Profissional não informado';
       if (!acc[professional]) {
         acc[professional] = {
           count: 0,
@@ -1728,8 +1733,59 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       acc[professional].attendances.push(attendance);
       return acc;
     }, {} as { [key: string]: { count: number; totalValue: number; pointsCount: number; attendances: any[] } });
+  };
 
-    return grouped;
+  // Função para agrupar atendimentos por profissional
+  const getClientAttendancesByProfessional = (clientSubscriptionId: string) => {
+    const attendances = getClientAttendances(clientSubscriptionId);
+    return buildAttendancesByProfessional(attendances, clientSubscriptionId);
+  };
+
+  const loadAttendanceViewerData = async (cs: ClientSubscription, filter: AttendanceViewerFilter) => {
+    setAttendanceViewerLoading(true);
+    setAttendanceViewerError(null);
+    try {
+      let q = supabase
+        .from('subscriber_attendances')
+        .select('id, professional_name, attendance_date, repass_value, created_at, client_subscription_id')
+        .eq('establishment_id', establishmentId)
+        .eq('client_subscription_id', cs.id);
+
+      if (filter.kind === 'period') {
+        const start = String(cs.start_date || '').slice(0, 10);
+        const end = String(cs.end_date || '').slice(0, 10);
+        if (start) q = q.gte('attendance_date', start);
+        if (end) q = q.lte('attendance_date', end);
+      } else {
+        const d = parseISO(`${filter.ym}-01`);
+        const first = format(startOfMonth(d), 'yyyy-MM-dd');
+        const last = format(endOfMonth(d), 'yyyy-MM-dd');
+        q = q.gte('attendance_date', first).lte('attendance_date', last);
+      }
+
+      const { data, error } = await q.order('attendance_date', { ascending: false });
+      if (error) throw error;
+      setAttendanceViewerRows(data || []);
+    } catch (e: any) {
+      console.error('Erro ao carregar atendimentos (visualização):', e);
+      const msg =
+        e?.message ||
+        e?.details ||
+        e?.hint ||
+        (typeof e === 'string' ? e : '') ||
+        'Não foi possível carregar os atendimentos.';
+      setAttendanceViewerError(String(msg));
+      setAttendanceViewerRows([]);
+    } finally {
+      setAttendanceViewerLoading(false);
+    }
+  };
+
+  const openAttendanceViewerForClient = async (cs: ClientSubscription, filter: AttendanceViewerFilter) => {
+    setSelectedClientForView(cs);
+    setAttendanceViewerFilter(filter);
+    setShowViewAttendancesModal(true);
+    await loadAttendanceViewerData(cs, filter);
   };
 
   // Função para adicionar atendimento
@@ -1859,6 +1915,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       await fetchSubscriberAttendances(selectedMonth, selectedYear);
       await fetchSubscriberAttendanceCounts(selectedMonth, selectedYear);
       await fetchSubscriberAttendanceCountsHistory(selectedMonth, selectedYear);
+
+      if (selectedClientForView && attendanceViewerFilter) {
+        await loadAttendanceViewerData(selectedClientForView, attendanceViewerFilter);
+      }
 
     } catch (error: any) {
       console.error('Erro ao remover atendimento:', error);
@@ -5206,17 +5266,25 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       </h3>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {(concludedCount > 0 || (Number.isFinite(limit) && limit > 0)) && (
-                          <span className="bg-black/30 text-white text-xs px-2 py-1 rounded-full font-extrabold">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void openAttendanceViewerForClient(cs, { kind: 'period' });
+                            }}
+                            className="bg-black/30 text-white text-xs px-2 py-1 rounded-full font-extrabold hover:bg-black/50 border border-white/10 cursor-pointer transition-colors"
+                            title="Ver quais profissionais concluíram atendimentos no período da assinatura"
+                          >
                             {Number.isFinite(limit) && limit > 0
                               ? `${concludedCount} de ${limit}`
                               : `${concludedCount} concluído(s)`}
-                          </span>
+                          </button>
                         )}
 
                         {/* Meses anteriores (ex.: Fev 1) */}
                         {(() => {
                           const hist = subscriberAttendanceCountsHistoryByClientSubId[String(cs.id)] || {};
-                          const items: { label: string; count: number }[] = [];
+                          const items: { label: string; count: number; ym: string }[] = [];
                           const pad2 = (n: number) => String(n).padStart(2, '0');
                           const ymKey = (y: number, m0: number) => `${y}-${pad2(m0 + 1)}`;
 
@@ -5230,7 +5298,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                             if (Number.isFinite(c) && c > 0) {
                               const ab = monthAbbr[m0] || String(m0 + 1);
                               const suffix = y !== selectedYear ? `/${String(y).slice(-2)}` : '';
-                              items.push({ label: `${ab}${suffix}`, count: c });
+                              items.push({ label: `${ab}${suffix}`, count: c, ym: key });
                             }
                           }
 
@@ -5238,13 +5306,18 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           return (
                             <div className="flex items-center gap-1">
                               {items.map((it) => (
-                                <span
-                                  key={`${it.label}-${it.count}`}
-                                  className="bg-black/20 text-white/90 text-[11px] px-2 py-1 rounded-full font-bold border border-white/10"
-                                  title={`Atendimentos em ${it.label}`}
+                                <button
+                                  type="button"
+                                  key={`${it.ym}-${it.count}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void openAttendanceViewerForClient(cs, { kind: 'month', ym: it.ym });
+                                  }}
+                                  className="bg-black/20 text-white/90 text-[11px] px-2 py-1 rounded-full font-bold border border-white/10 hover:bg-black/35 cursor-pointer transition-colors"
+                                  title={`Ver profissionais — atendimentos em ${it.label}`}
                                 >
                                   {it.label} {it.count}
-                                </span>
+                                </button>
                               ))}
                             </div>
                           );
@@ -5405,9 +5478,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     {/* Botões de ação em grid para mobile */}
                     <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 sm:gap-3">
                       <button
+                        type="button"
                         onClick={() => {
-                          setSelectedClientForView(cs);
-                          setShowViewAttendancesModal(true);
+                          void openAttendanceViewerForClient(cs, { kind: 'period' });
                         }}
                         className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700 shadow-md"
                       >
@@ -5970,11 +6043,24 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-2xl border border-gray-800 max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">Atendimentos do Cliente</h3>
+              <div>
+                <h3 className="text-lg font-semibold text-white">Atendimentos do Cliente</h3>
+                {attendanceViewerFilter?.kind === 'month' ? (
+                  <p className="text-xs text-gray-400 mt-1">
+                    {format(parseISO(`${attendanceViewerFilter.ym}-01`), "MMMM yyyy", { locale: ptBR })}
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-400 mt-1">Período vigente da assinatura (contagem dos concluídos)</p>
+                )}
+              </div>
               <button
+                type="button"
                 onClick={() => {
                   setShowViewAttendancesModal(false);
                   setSelectedClientForView(null);
+                  setAttendanceViewerFilter(null);
+                  setAttendanceViewerRows([]);
+                  setAttendanceViewerError(null);
                 }}
                 className="text-gray-400 hover:text-white transition-colors"
               >
@@ -5988,14 +6074,34 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             </div>
 
             {(() => {
-              const clientAttendances = getClientAttendances(selectedClientForView.id);
-              const attendancesByProfessional = getClientAttendancesByProfessional(selectedClientForView.id);
               const viewClientPointsMode = isClientSubscriptionPointsMode(String(selectedClientForView.id));
+
+              if (attendanceViewerLoading) {
+                return (
+                  <div className="text-center text-gray-400 py-10">
+                    <p className="text-sm">Carregando atendimentos…</p>
+                  </div>
+                );
+              }
+
+              if (attendanceViewerError) {
+                return (
+                  <div className="text-center text-red-300 py-8 px-2">
+                    <p className="text-sm">{attendanceViewerError}</p>
+                  </div>
+                );
+              }
+
+              const clientAttendances = attendanceViewerRows;
+              const attendancesByProfessional = buildAttendancesByProfessional(
+                clientAttendances,
+                selectedClientForView.id
+              );
 
               if (clientAttendances.length === 0) {
                 return (
                   <div className="text-center text-gray-400 py-8">
-                    <p className="text-sm">Nenhum atendimento registrado para este cliente.</p>
+                    <p className="text-sm">Nenhum atendimento registrado neste filtro.</p>
                   </div>
                 );
               }
@@ -6039,10 +6145,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   <div className="bg-[#2a2b2c] rounded-lg p-4">
                     <h4 className="text-sm font-medium text-white mb-3">Detalhamento dos Atendimentos</h4>
                     <div className="space-y-2">
-                      {clientAttendances.map((attendance, index) => (
-                        <div key={index} className="flex justify-between items-center bg-[#1a1b1c] rounded-lg p-3">
+                      {clientAttendances.map((attendance) => (
+                        <div key={attendance.id} className="flex justify-between items-center bg-[#1a1b1c] rounded-lg p-3">
                           <div className="flex-1">
-                            <p className="text-sm font-medium text-white">{attendance.professional_name}</p>
+                            <p className="text-sm font-medium text-white">
+                              {String(attendance.professional_name || '').trim() || 'Profissional não informado'}
+                            </p>
                             <p className="text-xs text-gray-400">
                               {format(parse(String(attendance.attendance_date || '').slice(0, 10), 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: ptBR })}
                             </p>
@@ -6058,9 +6166,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                               </p>
                             </div>
                             <button
+                              type="button"
                               onClick={() => handleRemoveAttendance(
                                 attendance.id,
-                                attendance.professional_name,
+                                String(attendance.professional_name || '').trim() || 'Profissional não informado',
                                 attendance.attendance_date,
                                 getAttendanceEffectiveRepass(attendance)
                               )}

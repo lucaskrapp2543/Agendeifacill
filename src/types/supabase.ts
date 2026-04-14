@@ -86,6 +86,7 @@ export interface Database {
           booking_min_cancel_minutes?: number; // Antecedencia minima (em minutos) para o cliente ainda poder cancelar (0 = sem limite)
           limit_client_pending_booking?: boolean; // Bloqueia novo agendamento por telefone enquanto houver atendimento pendente
           hide_from_top10_ranking?: boolean; // Se true, estabelecimento não entra no ranking TOP 10
+          skip_client_whatsapp_booking_nudge?: boolean; // Cliente não vê pedido de avisar profissional no WhatsApp após agendar
         }
       },
       premium_subscribers: {

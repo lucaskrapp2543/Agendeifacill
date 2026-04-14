@@ -150,6 +150,7 @@ interface Establishment {
   prevent_same_day_reschedule?: boolean; // Impedir remarcação no mesmo dia
   has_accessibility?: boolean; // Novo estado para Acessibilidade
   enable_whatsapp_notifications?: boolean; // Ativar notificações WhatsApp após agendamentos
+  skip_client_whatsapp_booking_nudge?: boolean; // Cliente não vê pedido de avisar profissional no WhatsApp após agendar
   exigir_pagamento_antecipado?: boolean; // Exigir pagamento antecipado (Pagar.me) no booking público
   pagamento_adiantado_liberado_admin?: boolean; // Liberação pelo admin para mostrar opção ao barbeiro
   pagamento_adiantado_opcional?: boolean; // Se true, pagamento vira opcional (cliente agenda e escolhe pagar ou não)
@@ -876,6 +877,7 @@ const EstablishmentDashboard = () => {
   const [enderecoComplemento, setEnderecoComplemento] = useState('');
   const [enderecoPontoReferencia, setEnderecoPontoReferencia] = useState('');
   const [enableWhatsAppNotifications, setEnableWhatsAppNotifications] = useState(false); // Ativar notificações WhatsApp após agendamentos
+  const [skipClientWhatsappBookingNudge, setSkipClientWhatsappBookingNudge] = useState(false); // Não pedir WhatsApp ao profissional após agendar (cliente)
   const [requireCancelPassword, setRequireCancelPassword] = useState(false); // Exigir senha para cancelar agendamento
   const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
   const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
@@ -9152,6 +9154,7 @@ const EstablishmentDashboard = () => {
         require_cpf: requireCpf, // Solicitar CPF no agendamento
         exigir_pagamento_antecipado: exigirPagamentoAntecipado, // Pagamento antecipado (Pagar.me)
         enable_whatsapp_notifications: enableWhatsAppNotifications, // Ativar notificações WhatsApp
+        skip_client_whatsapp_booking_nudge: skipClientWhatsappBookingNudge,
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
         onboarding_step: 1, // Novos estabelecimentos começam no onboarding
       };
@@ -9261,6 +9264,7 @@ const EstablishmentDashboard = () => {
         require_cpf: requireCpf, // Solicitar CPF no agendamento
         exigir_pagamento_antecipado: exigirPagamentoAntecipado, // Pagamento antecipado (Pagar.me)
         enable_whatsapp_notifications: enableWhatsAppNotifications, // Ativar notificações WhatsApp
+        skip_client_whatsapp_booking_nudge: skipClientWhatsappBookingNudge,
         whatsapp: establishment?.whatsapp, // Adiciona o campo de WhatsApp
         use_15_minute_interval: use15MinuteInterval, // Configuração de intervalo de 15 minutos
         use_20_minute_schedule: use20MinuteSchedule, // Configuração de horários de 20 em 20 minutos
@@ -10821,6 +10825,9 @@ Estamos te aguardando! 😎✂️`;
           useDraft && typeof draft?.enderecoPontoReferencia === 'string' ? draft.enderecoPontoReferencia : (addr?.reference_point || '')
         );
         setEnableWhatsAppNotifications(establishmentData.enable_whatsapp_notifications ?? false); // Ativar notificações WhatsApp
+        setSkipClientWhatsappBookingNudge(
+          (establishmentData as any).skip_client_whatsapp_booking_nudge ?? false
+        );
         const requireCancelPasswordValue = (establishmentData as any).require_cancel_password ?? false;
         setRequireCancelPassword(requireCancelPasswordValue); // Exigir senha para cancelar agendamento
         console.log('🔍 Carregado require_cancel_password do banco:', requireCancelPasswordValue);
@@ -17505,7 +17512,8 @@ Estamos te aguardando! 😎✂️`;
         pagamento_adiantado_opcional: pagamentoAdiantadoOpcional,
         exigir_pagamento_antecipado_mercadopago: nextExigirMP,
         pagamento_adiantado_opcional_mercadopago: nextOpcionalMP,
-        enable_whatsapp_notifications: enableWhatsAppNotifications
+        enable_whatsapp_notifications: enableWhatsAppNotifications,
+        skip_client_whatsapp_booking_nudge: skipClientWhatsappBookingNudge,
         // require_cancel_password é salvo imediatamente quando o checkbox muda, não precisa do auto-save
       };
 
@@ -17568,6 +17576,7 @@ Estamos te aguardando! 😎✂️`;
             exigir_pagamento_antecipado_mercadopago: nextExigirMP,
             pagamento_adiantado_opcional_mercadopago: nextOpcionalMP,
             enable_whatsapp_notifications: enableWhatsAppNotifications,
+            skip_client_whatsapp_booking_nudge: skipClientWhatsappBookingNudge,
             // require_cancel_password é salvo imediatamente, não precisa do auto-save
           } as any)
           : prev
@@ -17592,6 +17601,7 @@ Estamos te aguardando! 😎✂️`;
     exigirPagamentoAntecipadoMercadoPago,
     pagamentoAdiantadoOpcionalMercadoPago,
     enableWhatsAppNotifications,
+    skipClientWhatsappBookingNudge,
   ]);
 
   const scheduleAmenitiesAutoSave = useCallback(() => {
@@ -26800,6 +26810,42 @@ Estamos te aguardando! 😎✂️`;
                               onClick={() => showInfoModalFunc(
                                 'Notificações WhatsApp',
                                 'Ao ativar essa opção, quando um cliente finalizar um agendamento, será exibida uma mensagem diferente no modal final, incentivando o cliente a confirmar o agendamento. Isso enviará uma notificação automática para seu WhatsApp com os detalhes do agendamento.'
+                              )}
+                              className="sm:hidden mt-1 text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
+                            >
+                              <HelpCircle className="h-3 w-3" />
+                              Ver mais informações
+                            </button>
+                          </div>
+                        </label>
+
+                        <label className="flex items-start space-x-2 mt-3">
+                          <input
+                            type="checkbox"
+                            checked={skipClientWhatsappBookingNudge}
+                            onChange={(e) => {
+                              setSkipClientWhatsappBookingNudge(e.target.checked);
+                              if (amenitiesAutoSaveTimeoutRef.current) {
+                                clearTimeout(amenitiesAutoSaveTimeoutRef.current);
+                              }
+                              amenitiesAutoSaveTimeoutRef.current = setTimeout(() => {
+                                void autoSaveAmenities();
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded mt-0.5"
+                          />
+                          <div className="flex flex-col flex-1">
+                            <span className="text-white text-sm sm:text-base">
+                              Não quero receber mensagem no WhatsApp quando o cliente agenda (só confirmação no sistema)
+                            </span>
+                            <span className="hidden sm:inline text-xs text-gray-400 mt-1">
+                              Com esta opção ativa, após o agendamento o cliente vê apenas &quot;Agendamento concluído&quot;, sem o passo de avisar o profissional no WhatsApp. O card &quot;Confirmar agendamento&quot; em Meus agendamentos também fica oculto.
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => showInfoModalFunc(
+                                'Confirmação sem WhatsApp',
+                                'Com esta opção ativa, após o agendamento o cliente vê apenas a confirmação simples, sem o botão para avisar o profissional no WhatsApp. O agendamento continua salvo normalmente no sistema.'
                               )}
                               className="sm:hidden mt-1 text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
                             >

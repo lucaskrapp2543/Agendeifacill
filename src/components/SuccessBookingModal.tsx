@@ -1,12 +1,16 @@
 import { Bell, CheckCircle } from 'lucide-react';
 import React from 'react';
 
+export type SuccessBookingCompletionVariant = 'whatsapp' | 'reminder' | 'simple';
+
 interface SuccessBookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onActivateReminder: () => void;
   onDontActivate: () => void;
   onConfirmWhatsApp?: () => void; // Nova função para confirmar via WhatsApp
+  /** Chamado ao fechar o modo simples ("Entendi") — deve limpar localStorage / estado no pai */
+  onSimpleDismiss?: () => void;
   step: 'initial' | 'confirmation';
   appointmentData?: {
     serviceName: string;
@@ -17,6 +21,8 @@ interface SuccessBookingModalProps {
     professionalName?: string; // Adicionar nome do profissional
   };
   enableWhatsAppNotifications?: boolean; // Nova prop para controlar a exibição
+  /** Define o fluxo: WhatsApp, lembretes ou só mensagem de concluído */
+  completionVariant?: SuccessBookingCompletionVariant;
 }
 
 export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
@@ -25,13 +31,73 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
   onActivateReminder,
   onDontActivate,
   onConfirmWhatsApp,
+  onSimpleDismiss,
   step,
   appointmentData,
-  enableWhatsAppNotifications = false
+  enableWhatsAppNotifications = false,
+  completionVariant
 }) => {
   if (!isOpen) return null;
 
   const isConfirmationStep = step === 'confirmation';
+
+  const resolvedVariant: SuccessBookingCompletionVariant =
+    completionVariant ??
+    (enableWhatsAppNotifications ? 'whatsapp' : 'reminder');
+
+  if (resolvedVariant === 'simple') {
+    return (
+      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+        <div
+          className="w-full max-w-md mx-auto overflow-hidden"
+          style={{
+            background: '#1A1A1A',
+            borderRadius: '20px',
+            border: '1px solid rgba(255,255,255,0.06)',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.45)'
+          }}
+        >
+          <div className="p-6">
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: '#151515', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <CheckCircle className="w-8 h-8" style={{ color: '#E6C78B' }} />
+              </div>
+            </div>
+            <h2 className="text-xl font-extrabold text-center mb-2" style={{ color: '#E6C78B' }}>
+              Agendamento concluído com sucesso!
+            </h2>
+            <p className="text-center mb-6 text-sm" style={{ color: '#A1A1A1' }}>
+              Seu horário já está registrado no sistema do estabelecimento. Você pode acompanhar seus agendamentos nesta página.
+            </p>
+            {appointmentData && (
+              <div className="rounded-2xl p-4 mb-6" style={{ background: '#151515', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <h3 className="font-extrabold text-white mb-2">Detalhes do agendamento:</h3>
+                <div className="space-y-1 text-sm" style={{ color: '#A1A1A1' }}>
+                  <p><strong>Serviço:</strong> {appointmentData.serviceName}</p>
+                  <p><strong>Local:</strong> {appointmentData.establishmentName}</p>
+                  <p><strong>Data:</strong> {appointmentData.appointmentDate}</p>
+                  <p><strong>Horário:</strong> {appointmentData.appointmentTime}</p>
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                if (onSimpleDismiss) onSimpleDismiss();
+                else onClose();
+              }}
+              className="w-full px-4 py-3 rounded-xl transition-colors font-extrabold"
+              style={{ background: '#E6C78B', color: '#0B0B0B' }}
+            >
+              Entendi
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const showWhatsAppFlow = resolvedVariant === 'whatsapp';
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
@@ -55,21 +121,21 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
           {/* Título */}
           <h2 className="text-xl font-extrabold text-center mb-2" style={{ color: '#E6C78B' }}>
             {isConfirmationStep ? 'Confirmação' :
-              enableWhatsAppNotifications ? 'Está quase lá!' : 'Agendamento concluído com sucesso!'}
+              showWhatsAppFlow ? 'Está quase lá!' : 'Agendamento concluído com sucesso!'}
           </h2>
 
           {/* Mensagem principal */}
           <p className="text-center mb-6" style={{ color: '#A1A1A1' }}>
             {isConfirmationStep
               ? 'Tem certeza que deseja não ativar o lembrete? Se não ativar, você pode esquecer de ir e prejudicar seu profissional.'
-              : enableWhatsAppNotifications
+              : showWhatsAppFlow
                 ? '⚠️ IMPORTANTE: você já está confirmado. Agora só falta avisar seu profissional no WhatsApp.'
                 : 'Clique abaixo para ativar o lembrete.'
             }
           </p>
 
           {/* Aviso extra (apenas no fluxo WhatsApp) */}
-          {!isConfirmationStep && enableWhatsAppNotifications && (
+          {!isConfirmationStep && showWhatsAppFlow && (
             <div
               className="rounded-2xl p-4 mb-6 text-sm font-semibold"
               style={{
@@ -108,7 +174,7 @@ export const SuccessBookingModal: React.FC<SuccessBookingModalProps> = ({
             )}
 
             {/* Renderizar botões baseado na configuração */}
-            {enableWhatsAppNotifications && !isConfirmationStep ? (
+            {showWhatsAppFlow && !isConfirmationStep ? (
               // Nova interface para WhatsApp
               <div className="flex-1">
                 <p className="text-center text-xs font-extrabold mb-2" style={{ color: '#E6C78B' }}>
