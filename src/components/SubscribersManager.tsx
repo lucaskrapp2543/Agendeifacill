@@ -1,6 +1,6 @@
 import { addMonths, endOfMonth, format, isPast, parse, parseISO, startOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronDown, ChevronUp, Edit, Eye, EyeOff, Plus, Trash2, Users, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Edit, Eye, EyeOff, History, Plus, Trash2, Users, X } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -82,6 +82,259 @@ type EstablishmentProfessional = {
   id: string;
   full_name: string;
   percentage: number;
+};
+
+type SubscriptionPlanAuditLogRow = Database['public']['Tables']['subscription_plan_audit_logs']['Row'];
+
+const SUBSCRIPTION_PLAN_AUDIT_LABELS: Record<string, string> = {
+  name: 'Nome do plano',
+  value: 'Preço',
+  description: 'Descrição',
+  weekdays: 'Dias da semana',
+  service_duration: 'Duração legado (min)',
+  divided_services: 'Serviços oferecidos (lista)',
+  divide_services_enabled: 'Serviços divididos ativos',
+  divide_total_enabled: 'Dividir valor total',
+  divide_total_attendances: 'Qtd. atendimentos (dividir total)',
+  fixed_commission_value: 'Repasse fixo (R$)',
+  duration_months: 'Duração (meses)',
+  sort_order: 'Ordem na lista',
+  custom_link: 'Link personalizado',
+  credit_card_link: 'Link cartão',
+  is_hidden: 'Oculta no booking',
+  label_color: 'Cor da etiqueta',
+  payment_pix_enabled: 'PIX ativo',
+  payment_card_enabled: 'Cartão ativo',
+  monthly_service_limit: 'Limite mensal (legado)',
+  establishment_id: 'Estabelecimento',
+};
+
+const stableStringify = (v: unknown): string => {
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+};
+
+const auditNormKey = (value: string): string =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+
+const WEEKDAY_AUDIT_PT: Record<string, string> = {
+  monday: 'Seg',
+  tuesday: 'Ter',
+  wednesday: 'Qua',
+  thursday: 'Qui',
+  friday: 'Sex',
+  saturday: 'Sáb',
+  sunday: 'Dom',
+};
+
+const formatAuditMoney = (raw: unknown): string => {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return String(raw ?? '');
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
+};
+
+const formatAuditWeekdays = (raw: unknown): string => {
+  if (!Array.isArray(raw)) return String(raw ?? '');
+  return (raw as string[])
+    .map((d) => WEEKDAY_AUDIT_PT[String(d || '').toLowerCase()] || String(d))
+    .join(', ');
+};
+
+const parseUnknownJsonArray = (raw: unknown): unknown[] => {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const p = JSON.parse(raw);
+      return Array.isArray(p) ? p : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+type AuditSvc = { id: string; name: string; duration: number; limit: number };
+
+const normalizeAuditSvc = (x: unknown): AuditSvc => {
+  const o = x as Record<string, unknown>;
+  return {
+    id: String(o?.id || '').trim(),
+    name: String(o?.name || 'Serviço sem nome').trim() || 'Serviço sem nome',
+    duration: Math.round(Number(o?.duration) || 0),
+    limit: Math.round(Number(o?.limit) || 0),
+  };
+};
+
+/** Explica mudanças na lista divided_services em frases curtas (ex.: duração 30 → 45 min). */
+const diffDividedServicesHuman = (oldRaw: unknown, newRaw: unknown): string[] => {
+  const oldArr = parseUnknownJsonArray(oldRaw).map(normalizeAuditSvc);
+  const newArr = parseUnknownJsonArray(newRaw).map(normalizeAuditSvc);
+  if (stableStringify(oldRaw) === stableStringify(newRaw)) return [];
+
+  const consumedOldIdx = new Set<number>();
+  const lines: string[] = [];
+
+  const findOldIndexForNew = (ns: AuditSvc): number => {
+    if (ns.id) {
+      const byId = oldArr.findIndex((o, idx) => !consumedOldIdx.has(idx) && o.id && o.id === ns.id);
+      if (byId >= 0) return byId;
+    }
+    const nk = auditNormKey(ns.name);
+    const byName = oldArr.findIndex((o, idx) => !consumedOldIdx.has(idx) && auditNormKey(o.name) === nk);
+    if (byName >= 0) return byName;
+    if (oldArr.length === 1 && newArr.length === 1) return 0;
+    return -1;
+  };
+
+  for (const ns of newArr) {
+    const oi = findOldIndexForNew(ns);
+    if (oi >= 0) {
+      consumedOldIdx.add(oi);
+      const os = oldArr[oi];
+      const label = `«${ns.name}»`;
+      if (os.duration !== ns.duration) {
+        lines.push(`No serviço ${label}: tempo de atendimento alterado de ${os.duration} min para ${ns.duration} min.`);
+      }
+      if (os.limit !== ns.limit) {
+        lines.push(`No serviço ${label}: limite de usos alterado de ${os.limit} para ${ns.limit}.`);
+      }
+      if (auditNormKey(os.name) !== auditNormKey(ns.name)) {
+        lines.push(`Serviço renomeado: «${os.name}» passou a se chamar «${ns.name}».`);
+      }
+    } else {
+      lines.push(`Foi incluído o serviço «${ns.name}» (${ns.duration} min de duração, limite ${ns.limit}).`);
+    }
+  }
+
+  for (let i = 0; i < oldArr.length; i++) {
+    if (!consumedOldIdx.has(i)) {
+      const os = oldArr[i];
+      lines.push(`Foi removido o serviço «${os.name}» (era ${os.duration} min, limite ${os.limit}).`);
+    }
+  }
+
+  if (lines.length === 0) {
+    lines.push('A lista de serviços do plano mudou (veja detalhe técnico no JSON abaixo, se precisar).');
+  }
+  return lines;
+};
+
+const describeScalarPlanFieldChange = (key: string, oldV: unknown, newV: unknown): string | null => {
+  switch (key) {
+    case 'name':
+      return `Nome do plano: «${oldV}» → «${newV}».`;
+    case 'value':
+      return `Valor cobrado no plano: ${formatAuditMoney(oldV)} → ${formatAuditMoney(newV)}.`;
+    case 'description': {
+      const a = String(oldV ?? '').trim();
+      const b = String(newV ?? '').trim();
+      if (!a && b) return 'Foi adicionada uma descrição ao plano.';
+      if (a && !b) return 'A descrição do plano foi removida.';
+      return 'A descrição do plano foi alterada.';
+    }
+    case 'weekdays':
+      return `Dias em que o plano vale: ${formatAuditWeekdays(oldV)} → ${formatAuditWeekdays(newV)}.`;
+    case 'service_duration':
+      return `Duração geral (campo legado, se existir): ${oldV} min → ${newV} min.`;
+    case 'sort_order':
+      return `Ordem do plano na lista: posição ${oldV} → ${newV}.`;
+    case 'is_hidden':
+      return `Visibilidade no booking para novos clientes: ${oldV ? 'oculto' : 'visível'} → ${newV ? 'oculto' : 'visível'}.`;
+    case 'payment_pix_enabled':
+      return `PIX neste plano: ${oldV ? 'ativo' : 'desativado'} → ${newV ? 'ativo' : 'desativado'}.`;
+    case 'payment_card_enabled':
+      return `Cartão neste plano: ${oldV ? 'ativo' : 'desativado'} → ${newV ? 'ativo' : 'desativado'}.`;
+    case 'divide_total_enabled':
+      return `Opção “dividir valor total”: ${oldV ? 'ligada' : 'desligada'} → ${newV ? 'ligada' : 'desligada'}.`;
+    case 'divide_total_attendances':
+      return `Quantidade de atendimentos para dividir o valor: ${oldV} → ${newV}.`;
+    case 'divide_services_enabled':
+      return `Uso da lista de serviços no plano: ${oldV ? 'sim' : 'não'} → ${newV ? 'sim' : 'não'}.`;
+    case 'fixed_commission_value':
+      return `Repasse fixo por atendimento (R$): ${formatAuditMoney(oldV)} → ${formatAuditMoney(newV)}.`;
+    case 'label_color':
+      return `Cor da etiqueta do plano foi alterada.`;
+    case 'duration_months':
+      return `Duração em meses (campo do sistema): ${oldV} → ${newV}.`;
+    case 'custom_link':
+      return `Link personalizado do plano foi alterado.`;
+    case 'credit_card_link':
+      return `Link de pagamento no cartão foi alterado.`;
+    case 'monthly_service_limit':
+      return `Limite mensal (legado): ${oldV ?? '—'} → ${newV ?? '—'}.`;
+    default:
+      return `Campo “${SUBSCRIPTION_PLAN_AUDIT_LABELS[key] || key}” foi alterado.`;
+  }
+};
+
+const formatPlanAuditActorLine = (actorUserId: string | null): string => {
+  if (!actorUserId) {
+    return 'Quem alterou: não identificado (alteração via SQL no painel, migration ou processo automático).';
+  }
+  const id = String(actorUserId);
+  const short = id.length > 24 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
+  return `Quem alterou: sessão logada no painel (usuário ${short}). Se só você acessa essa conta, foi você neste horário.`;
+};
+
+const buildFriendlySubscriptionPlanAuditLines = (row: SubscriptionPlanAuditLogRow): string[] => {
+  const op = String(row.operation || '').toUpperCase();
+  if (op === 'INSERT') {
+    const r = (row.new_row || {}) as Record<string, unknown>;
+    const lines: string[] = ['Novo plano cadastrado.'];
+    if (r.name != null) lines.push(`Nome: «${r.name}».`);
+    if (r.value != null) lines.push(`Valor: ${formatAuditMoney(r.value)}.`);
+    if (r.weekdays != null) lines.push(`Dias da semana: ${formatAuditWeekdays(r.weekdays)}.`);
+    const svcs = parseUnknownJsonArray(r.divided_services).map(normalizeAuditSvc);
+    if (svcs.length > 0) {
+      lines.push(
+        'Serviços incluídos no plano:',
+        ...svcs.map((s) => `• «${s.name}»: ${s.duration} min, limite ${s.limit}.`)
+      );
+    }
+    return lines;
+  }
+  if (op === 'DELETE') {
+    return ['Este plano foi excluído: some da lista e deixa de ser ofertado (assinantes antigos podem ficar sem vínculo ao plano, conforme regra do sistema).'];
+  }
+
+  const oldR = (row.old_row || null) as Record<string, unknown> | null;
+  const newR = (row.new_row || null) as Record<string, unknown> | null;
+  if (!oldR || !newR) return ['Alteração registrada (sem detalhe legível além do JSON).'];
+
+  const lines: string[] = [];
+  const skipKeys = new Set(['id', 'created_at', 'establishment_id']);
+
+  if (stableStringify(oldR.divided_services) !== stableStringify(newR.divided_services)) {
+    lines.push(...diffDividedServicesHuman(oldR.divided_services, newR.divided_services));
+  }
+
+  const keys = new Set([...Object.keys(oldR), ...Object.keys(newR)]);
+  keys.forEach((k) => {
+    if (skipKeys.has(k) || k === 'divided_services') return;
+    if (stableStringify(oldR[k]) === stableStringify(newR[k])) return;
+    const line = describeScalarPlanFieldChange(k, oldR[k], newR[k]);
+    if (line) lines.push(line);
+  });
+
+  if (lines.length === 0) {
+    return ['Alteração salva. Abra “Detalhe técnico” abaixo se precisar ver o registro bruto.'];
+  }
+  return lines;
+};
+
+const formatSupabaseLikeError = (e: any): string => {
+  const msg = String(e?.message || e?.error_description || '').trim();
+  const code = e?.code ? `Código: ${e.code}` : '';
+  const details = e?.details ? `Detalhes: ${e.details}` : '';
+  const hint = e?.hint ? `Dica: ${e.hint}` : '';
+  return [msg, code, details, hint].filter(Boolean).join(' · ') || 'Erro desconhecido ao carregar histórico.';
 };
 
 export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establishmentId, clients, onClientUpdated, establishment, onEstablishmentUpdate }) => {
@@ -428,6 +681,23 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     );
   };
 
+  /**
+   * Preenche `service_duration` no banco alinhado a `divided_services`, para RPCs/partes antigas
+   * que usam COALESCE(service_duration, 30) não tratarem NULL como “30” por engano.
+   * Um serviço: mesma duração; vários: soma dos tempos (pacote).
+   */
+  const deriveLegacyServiceDurationFromOffered = (
+    services: DividedSubscriptionService[],
+    previousPlan?: Subscription | null
+  ): number => {
+    const durs = services.map((s) => Math.round(Number(s.duration) || 0)).filter((n) => n > 0);
+    if (durs.length === 1) return durs[0];
+    if (durs.length > 1) return durs.reduce((a, b) => a + b, 0);
+    const prev = Math.round(Number(previousPlan?.service_duration) || 0);
+    if (prev > 0) return prev;
+    return 30;
+  };
+
   const tryApplySelectedKnownClient = (lookupValue: string) => {
     const selected = knownClientLookupItems.find((item) => item.value === lookupValue)?.client;
     if (!selected) return false;
@@ -701,6 +971,46 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [showEditCreditCardLinkModal, setShowEditCreditCardLinkModal] = useState(false);
   const [selectedSubscriptionForCreditCardLinkEdit, setSelectedSubscriptionForCreditCardLinkEdit] = useState<Subscription | null>(null);
   const [editCreditCardLink, setEditCreditCardLink] = useState('');
+
+  const [showSubscriptionPlanAuditModal, setShowSubscriptionPlanAuditModal] = useState(false);
+  const [subscriptionPlanAuditFor, setSubscriptionPlanAuditFor] = useState<Subscription | null>(null);
+  const [subscriptionPlanAuditRows, setSubscriptionPlanAuditRows] = useState<SubscriptionPlanAuditLogRow[]>([]);
+  const [subscriptionPlanAuditLoading, setSubscriptionPlanAuditLoading] = useState(false);
+  const [subscriptionPlanAuditError, setSubscriptionPlanAuditError] = useState<string | null>(null);
+
+  const loadSubscriptionPlanAuditLogs = async (sub: Subscription) => {
+    setSubscriptionPlanAuditFor(sub);
+    setShowSubscriptionPlanAuditModal(true);
+    setSubscriptionPlanAuditLoading(true);
+    setSubscriptionPlanAuditError(null);
+    setSubscriptionPlanAuditRows([]);
+    try {
+      const { data, error } = await supabase
+        .from('subscription_plan_audit_logs')
+        .select('*')
+        .eq('establishment_id', establishmentId)
+        .eq('subscription_id', sub.id)
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (error) {
+        throw error;
+      }
+      setSubscriptionPlanAuditRows((data || []) as SubscriptionPlanAuditLogRow[]);
+    } catch (e: any) {
+      setSubscriptionPlanAuditError(formatSupabaseLikeError(e));
+      setSubscriptionPlanAuditRows([]);
+    } finally {
+      setSubscriptionPlanAuditLoading(false);
+    }
+  };
+
+  const closeSubscriptionPlanAuditModal = () => {
+    setShowSubscriptionPlanAuditModal(false);
+    setSubscriptionPlanAuditFor(null);
+    setSubscriptionPlanAuditRows([]);
+    setSubscriptionPlanAuditError(null);
+  };
 
 
   // Sincronizar estado quando establishment mudar
@@ -2451,12 +2761,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
 
     try {
+      const legacyDuration = deriveLegacyServiceDurationFromOffered(nextDividedServices, selectedSubscriptionForEdit);
       const payload = {
         description: editDescription.trim() || null,
         name: editName.trim(),
         value: nextValue,
         weekdays: editWeekdays,
-        service_duration: null,
+        service_duration: legacyDuration,
         fixed_commission_value: nextFixedCommissionValue,
         divide_total_enabled: nextDivideEnabled,
         divide_total_attendances: nextDivideEnabled ? nextDivideAttendancesNum : null,
@@ -2501,12 +2812,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         )
       );
 
-      await syncFutureSubscriberAppointmentsDuration(
+      const syncOutcome = await syncFutureSubscriberAppointmentsDuration(
         selectedSubscriptionForEdit.id,
         nextDividedServices
       );
-
-      toast.success('Assinatura atualizada com sucesso! Novos agendamentos usarão a nova duração.');
+      if (syncOutcome === 'noop') {
+        toast.success('Assinatura atualizada com sucesso.');
+      }
       setShowEditDescriptionModal(false);
       setSelectedSubscriptionForEdit(null);
       setEditDescription('');
@@ -2844,9 +3156,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const syncFutureSubscriberAppointmentsDuration = async (
     subscriptionId: string,
     offeredServices: DividedSubscriptionService[]
-  ) => {
+  ): Promise<'noop' | 'skipped' | 'updated'> => {
     const safeSubscriptionId = String(subscriptionId || '').trim();
-    if (!safeSubscriptionId || !Array.isArray(offeredServices) || offeredServices.length === 0) return;
+    if (!safeSubscriptionId || !Array.isArray(offeredServices) || offeredServices.length === 0) return 'noop';
 
     const serviceById = new Map<string, DividedSubscriptionService>();
     const serviceByNameKey = new Map<string, DividedSubscriptionService>();
@@ -2877,11 +3189,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         if (!isLegacySchema) {
           console.warn('⚠️ Não foi possível sincronizar duração dos agendamentos de assinante:', error);
         }
-        return;
+        return 'noop';
       }
 
       const rows = (appointments || []) as any[];
-      if (rows.length === 0) return;
+      if (rows.length === 0) return 'noop';
 
       const parseExtraDuration = (raw: unknown): number => {
         if (!Array.isArray(raw)) return 0;
@@ -2921,7 +3233,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         return 0;
       };
 
-      let updatedCount = 0;
+      const pendingUpdates: { id: string; nextDuration: number }[] = [];
       for (const apt of rows) {
         const baseDuration = resolveBaseDuration(apt);
         if (!(baseDuration > 0)) continue;
@@ -2929,19 +3241,44 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         const nextDuration = Math.max(1, Math.round(baseDuration + extraDuration));
         const currentDuration = Math.max(0, Number((apt as any)?.duration || 0));
         if (nextDuration === currentDuration) continue;
+        pendingUpdates.push({ id: String(apt.id), nextDuration });
+      }
 
+      if (pendingUpdates.length === 0) {
+        return 'noop';
+      }
+
+      const ok = window.confirm(
+        `Encontramos ${rows.length} agendamento(ns) futuro(s) deste plano (pendentes ou confirmados).\n\n` +
+          `${pendingUpdates.length} deles terão a DURAÇÃO recalculada conforme os serviços que você acabou de salvar (o horário de término na grade pode mudar).\n\n` +
+          `O plano já está salvo.\n\n` +
+          `Deseja aplicar essa sincronização na agenda agora?\n\n` +
+          `Cancelar = manter as durações antigas nesses agendamentos já marcados.`
+      );
+      if (!ok) {
+        toast.success('Plano salvo. Nenhum agendamento futuro foi alterado (sincronização da agenda cancelada).');
+        return 'skipped';
+      }
+
+      let updatedCount = 0;
+      for (const u of pendingUpdates) {
         const { error: updateErr } = await supabase
           .from('appointments')
-          .update({ duration: nextDuration } as any)
-          .eq('id', String(apt.id));
+          .update({ duration: u.nextDuration } as any)
+          .eq('id', u.id);
         if (!updateErr) updatedCount += 1;
       }
 
       if (updatedCount > 0) {
-        toast.success(`${updatedCount} agendamento(s) futuro(s) sincronizado(s) com a duração atual da assinatura.`);
+        toast.success(
+          `${updatedCount} agendamento(s) futuro(s) tiveram a duração ajustada para bater com o plano atual.`
+        );
+        return 'updated';
       }
+      return 'noop';
     } catch (syncError) {
       console.warn('⚠️ Erro ao sincronizar duração dos agendamentos futuros de assinante:', syncError);
+      return 'noop';
     }
   };
 
@@ -5003,6 +5340,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     <Edit className="h-5 w-5" />
                   </button>
                   <button
+                    type="button"
+                    onClick={() => void loadSubscriptionPlanAuditLogs(sub)}
+                    className="text-gray-600 hover:text-sky-400 transition-colors"
+                    title="Histórico completo de alterações neste plano (data/hora/segundo e usuário quando disponível)"
+                  >
+                    <History className="h-5 w-5" />
+                  </button>
+                  <button
                     onClick={() => {
                       setSelectedSubscriptionForLinkEdit(sub);
                       setEditLink(sub.custom_link || '');
@@ -6196,6 +6541,99 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 </div>
               );
             })()}
+          </div>
+        </div>
+      )}
+
+      {/* Histórico de alterações do plano de assinatura */}
+      {showSubscriptionPlanAuditModal && subscriptionPlanAuditFor && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-lg mx-4 border border-gray-700 my-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between mb-3 shrink-0">
+              <h3 className="text-lg font-semibold text-white pr-2">
+                Histórico — {subscriptionPlanAuditFor.name}
+              </h3>
+              <button
+                type="button"
+                onClick={closeSubscriptionPlanAuditModal}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mb-3 shrink-0">
+              Abaixo, o resumo em português diz o que mudou (ex.: tempo 30 → 45 min). Data e hora vêm do servidor com precisão de segundos. O bloco “Detalhe técnico” é só para suporte ou conferência avançada.
+            </p>
+
+            {subscriptionPlanAuditLoading && (
+              <p className="text-gray-300 text-sm">Carregando histórico…</p>
+            )}
+
+            {subscriptionPlanAuditError && (
+              <div className="rounded-lg border border-red-500/40 bg-red-950/40 text-red-100 text-sm p-3 mb-3 shrink-0">
+                {subscriptionPlanAuditError}
+                <p className="text-xs text-red-200/80 mt-2">
+                  Se a mensagem indicar que a tabela não existe, aplique a migration <span className="font-mono">20260415133000_subscription_plan_audit_log.sql</span> no Supabase.
+                </p>
+              </div>
+            )}
+
+            {!subscriptionPlanAuditLoading && !subscriptionPlanAuditError && subscriptionPlanAuditRows.length === 0 && (
+              <p className="text-gray-400 text-sm">Nenhum evento registrado para este plano (ou a auditoria ainda não estava ativa quando houve mudanças).</p>
+            )}
+
+            <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-1">
+              {subscriptionPlanAuditRows.map((row) => {
+                const when = format(new Date(row.created_at), "dd/MM/yyyy 'às' HH:mm:ss", { locale: ptBR });
+                const op = String(row.operation || '').toUpperCase();
+                const actor = formatPlanAuditActorLine(row.actor_user_id);
+                return (
+                  <div
+                    key={row.id}
+                    className="rounded-lg border border-white/10 bg-[#242628] p-3 text-sm text-gray-200"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <span className="text-white font-semibold">{when}</span>
+                      <span
+                        className={`text-xs font-bold px-2 py-0.5 rounded border ${op === 'DELETE'
+                          ? 'border-red-500/50 text-red-300 bg-red-950/30'
+                          : op === 'INSERT'
+                            ? 'border-emerald-500/50 text-emerald-300 bg-emerald-950/30'
+                            : 'border-sky-500/50 text-sky-200 bg-sky-950/30'
+                          }`}
+                      >
+                        {op === 'INSERT' ? 'CRIAÇÃO' : op === 'DELETE' ? 'EXCLUSÃO' : 'ALTERAÇÃO'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mb-2 leading-snug">{actor}</p>
+                    <div className="rounded-md bg-black/25 border border-white/5 p-2.5 space-y-1.5">
+                      {buildFriendlySubscriptionPlanAuditLines(row).map((line, idx) => (
+                        <p key={idx} className="text-sm text-gray-100 leading-relaxed">
+                          {line}
+                        </p>
+                      ))}
+                    </div>
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs text-sky-400 hover:text-sky-300">Detalhe técnico (JSON antes / depois)</summary>
+                      <div className="mt-2 grid gap-2 text-[11px] font-mono whitespace-pre-wrap break-all text-gray-400 max-h-48 overflow-y-auto">
+                        {row.old_row && (
+                          <div>
+                            <span className="text-gray-500">Antes:</span>
+                            {JSON.stringify(row.old_row, null, 2)}
+                          </div>
+                        )}
+                        {row.new_row && (
+                          <div>
+                            <span className="text-gray-500">Depois:</span>
+                            {JSON.stringify(row.new_row, null, 2)}
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}

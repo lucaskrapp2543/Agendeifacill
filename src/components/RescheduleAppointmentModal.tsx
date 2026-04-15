@@ -248,7 +248,9 @@ export function RescheduleAppointmentModal({
                   professionalAbsences={professionalAbsences}
                   professionalBlockedHours={professionalBlockedHours}
                   professionalWorkHours={professional?.work_hours || null}
-                  filterPastTimes={true}
+                  // Painel do estabelecimento: permitir corrigir horário no mesmo dia mesmo se o slot já passou
+                  // (não usar no booking público — lá continua filterPastTimes quando aplicável).
+                  filterPastTimes={false}
                   use15MinuteInterval={use15MinuteInterval}
                   use20MinuteSchedule={use20MinuteSchedule}
                   use60MinuteSchedule={use60MinuteSchedule}

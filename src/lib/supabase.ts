@@ -1832,13 +1832,26 @@ export const createSubscription = async (
     // ignore
   }
 
+  const dividedList = Array.isArray(dividedServices) ? dividedServices : [];
+  const derivedDurations = dividedList
+    .map((s) => Math.round(Number((s as any)?.duration) || 0))
+    .filter((n) => n > 0);
+  let resolvedServiceDuration = 30;
+  if (derivedDurations.length === 1) {
+    resolvedServiceDuration = derivedDurations[0];
+  } else if (derivedDurations.length > 1) {
+    resolvedServiceDuration = derivedDurations.reduce((a, b) => a + b, 0);
+  } else if (serviceDuration !== undefined && serviceDuration !== null && Number.isFinite(Number(serviceDuration)) && Number(serviceDuration) > 0) {
+    resolvedServiceDuration = Math.round(Number(serviceDuration));
+  }
+
   const payload: any = {
     establishment_id: establishmentId,
     name,
     value,
     duration_months: durationMonths,
     weekdays: weekdays || [],
-    service_duration: serviceDuration || 30, // Duração padrão de 30 minutos
+    service_duration: resolvedServiceDuration,
     fixed_commission_value: fixedCommissionValue || 0, // Valor fixo de comissão por serviço diário
     description: description?.trim() || null, // Descrição opcional
     divide_total_enabled: Boolean(divideTotalEnabled),

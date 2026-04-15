@@ -181,6 +181,36 @@ export interface Database {
           payment_card_enabled?: boolean | null;
         };
       };
+      subscription_plan_audit_logs: {
+        Row: {
+          id: string;
+          created_at: string;
+          establishment_id: string;
+          subscription_id: string | null;
+          operation: string;
+          actor_user_id: string | null;
+          old_row: Record<string, unknown> | null;
+          new_row: Record<string, unknown> | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          establishment_id: string;
+          subscription_id?: string | null;
+          operation: string;
+          actor_user_id?: string | null;
+          old_row?: Record<string, unknown> | null;
+          new_row?: Record<string, unknown> | null;
+        };
+        Update: {
+          establishment_id?: string;
+          subscription_id?: string | null;
+          operation?: string;
+          actor_user_id?: string | null;
+          old_row?: Record<string, unknown> | null;
+          new_row?: Record<string, unknown> | null;
+        };
+      };
       discount_coupons: {
         Row: {
           id: string;
