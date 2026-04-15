@@ -1,5 +1,6 @@
 import { CheckCircle, Clock, Scissors, Search, User } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { checkWhatsAppSubscriber, supabase } from '../lib/supabase';
 import { PaymentModal } from './PaymentModal';
@@ -75,6 +76,8 @@ interface Client {
 interface ReservarClienteProps {
   establishmentId: string;
   initialProfessionalId?: string;
+  /** Pré-preenche data/hora e limita duração total (fluxo a partir da grade Meus agendamentos). */
+  slotPrefill?: { date: string; time: string; maxDurationMinutes: number } | null;
   use15MinuteInterval?: boolean;
   use20MinuteScheduleProp?: boolean;
   use60MinuteScheduleProp?: boolean;
@@ -86,6 +89,7 @@ interface ReservarClienteProps {
 export default function ReservarCliente({
   establishmentId,
   initialProfessionalId,
+  slotPrefill = null,
   use15MinuteInterval = false,
   use20MinuteScheduleProp = false,
   use60MinuteScheduleProp = false,
@@ -286,6 +290,15 @@ export default function ReservarCliente({
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
   });
+
+  useEffect(() => {
+    if (!slotPrefill) return;
+    setSelectedDate(slotPrefill.date);
+    setSelectedTime(slotPrefill.time);
+    setReservarMensal(false);
+    setDatasSelecionadasMensal([]);
+    setShowReservarMensalModal(false);
+  }, [slotPrefill?.date, slotPrefill?.time, slotPrefill?.maxDurationMinutes]);
 
   // ✅ Evita bug de timezone: new Date('YYYY-MM-DD') pode mostrar dia anterior no Brasil
   const formatarDataPtBr = (yyyyMmDd: string): string => {
@@ -1397,11 +1410,23 @@ export default function ReservarCliente({
     return getOfferedServicesFromSubscription(subscription).some((s) => serviceMatchesSearch(s.name));
   });
 
+  const validateSlotDurationMinutes = (totalMinutes: number): boolean => {
+    const max = slotPrefill?.maxDurationMinutes;
+    if (max == null) return true;
+    if (totalMinutes <= max) return true;
+    toast.error(
+      `Soma dos serviços (${totalMinutes} min) não cabe no intervalo livre (${max} min até o próximo horário ocupado ou fim do expediente). Escolha serviços mais curtos ou use "Agendar cliente" para escolher outro horário.`
+    );
+    return false;
+  };
+
   const handleServiceSelect = (service: Service) => {
     setSelectedSubscription(null);
     setSelectedSubscriberPlanMeta(null);
+    const total = parseDurationMinutes(service.duration);
+    if (!validateSlotDurationMinutes(total)) return;
     setSelectedService(service);
-    setStep('time');
+    setStep(slotPrefill ? 'confirm' : 'time');
   };
 
   const handleMultipleServiceToggle = (service: Service) => {
@@ -1421,7 +1446,9 @@ export default function ReservarCliente({
     if (selectedServices.length > 0) {
       setSelectedSubscription(null);
       setSelectedSubscriberPlanMeta(null);
-      setStep('time');
+      const total = calculateTotalDuration(selectedServices);
+      if (!validateSlotDurationMinutes(total)) return;
+      setStep(slotPrefill ? 'confirm' : 'time');
     }
   };
 
@@ -1481,8 +1508,10 @@ export default function ReservarCliente({
       price: subcategory.price,
       duration: subcategory.duration
     };
+    const total = parseDurationMinutes(serviceFromSubcategory.duration);
+    if (!validateSlotDurationMinutes(total)) return;
     setSelectedService(serviceFromSubcategory);
-    setStep('time');
+    setStep(slotPrefill ? 'confirm' : 'time');
   };
 
   const handleSubscriptionSelect = (subscription: Subscription, offered: PlanOfferedService) => {
@@ -1499,8 +1528,10 @@ export default function ReservarCliente({
       price: 0,
       duration: offered.duration,
     };
+    const total = parseDurationMinutes(offered.duration);
+    if (!validateSlotDurationMinutes(total)) return;
     setSelectedService(serviceFromSubscription);
-    setStep('time');
+    setStep(slotPrefill ? 'confirm' : 'time');
   };
 
   const handleCancelAppointment = async (appointmentId: string, event: React.MouseEvent) => {
@@ -1546,6 +1577,15 @@ export default function ReservarCliente({
 
   const handleConfirmReservation = async () => {
     if (!selectedProfessional || (!selectedService && selectedServices.length === 0) || !selectedTime) return;
+
+    if (slotPrefill?.maxDurationMinutes != null) {
+      const totalDurationRaw =
+        selectedServices.length > 0
+          ? calculateTotalDuration(selectedServices)
+          : selectedService!.duration;
+      const totalDur = parseDurationMinutes(totalDurationRaw);
+      if (!validateSlotDurationMinutes(totalDur)) return;
+    }
 
     setLoading(true);
     try {
@@ -2882,7 +2922,8 @@ export default function ReservarCliente({
                 </div>
               </div>
 
-              {/* Reservar mensal */}
+              {/* Reservar mensal — incompatível com pré-preenchimento vindo da grade (1 slot fixo) */}
+              {!slotPrefill ? (
               <div className="mb-4 rounded-lg border border-gray-300 bg-white p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -2932,17 +2973,21 @@ export default function ReservarCliente({
                   </div>
                 </div>
               </div>
+              ) : null}
 
               <div className="flex space-x-3">
                 <button
-                  onClick={() => setStep('time')}
+                  onClick={() => setStep(slotPrefill ? 'service' : 'time')}
                   className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   ← Voltar
                 </button>
                 <button
                   onClick={handleConfirmReservation}
-                  disabled={loading || (reservarMensal && datasSelecionadasMensal.length === 0)}
+                  disabled={
+                    loading ||
+                    (!slotPrefill && reservarMensal && datasSelecionadasMensal.length === 0)
+                  }
                   className="flex-1 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {loading ? 'Criando...' : 'Confirmar Reserva'}

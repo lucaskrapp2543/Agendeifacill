@@ -101,6 +101,76 @@ interface TimeSlot {
   squeezes?: Appointment[]; // Encaixes para este slot
 }
 
+function timeToMinutesHM(t: string): number {
+  const parts = String(t || '0:0').split(':');
+  const h = Number(parts[0]) || 0;
+  const m = Number(parts[1]) || 0;
+  return h * 60 + m;
+}
+
+function getProfessionalDayEndAndBreak(
+  professional: Professional,
+  businessHours: {
+    [key: string]: {
+      enabled: boolean;
+      open1: string;
+      close1: string;
+      open2: string | null;
+      close2: string | null;
+    };
+  },
+  selectedDate: Date
+): { endTime: string; breakRange: { start: string; end: string } | null } | null {
+  const dayOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][
+    selectedDate.getDay()
+  ];
+  const dayHours = businessHours[dayOfWeek];
+  if (!dayHours?.enabled) return null;
+  const professionalWorkHours = (professional as any).work_hours?.[dayOfWeek];
+  let endTime: string;
+  let breakRange: { start: string; end: string } | null = null;
+  if (professionalWorkHours?.enabled) {
+    endTime = professionalWorkHours.exit_time || dayHours.close1;
+    if (professionalWorkHours.break_start && professionalWorkHours.break_end) {
+      breakRange = {
+        start: String(professionalWorkHours.break_start),
+        end: String(professionalWorkHours.break_end),
+      };
+    }
+  } else {
+    endTime = dayHours.close1;
+  }
+  return { endTime, breakRange };
+}
+
+/** Tempo livre (min) a partir do slot até o próximo conflito na grade ou fim do expediente (com teto no intervalo/almoço). */
+function computeMaxReserveMinutesFromSlotGrid(
+  timeSlots: TimeSlot[],
+  slotTime: string,
+  dayEndHHmm: string,
+  breakRange: { start: string; end: string } | null
+): number {
+  const startM = timeToMinutesHM(slotTime);
+  let boundaryM = timeToMinutesHM(dayEndHHmm);
+  const sorted = [...timeSlots].sort((a, b) => timeToMinutesHM(a.time) - timeToMinutesHM(b.time));
+  for (const s of sorted) {
+    const t = timeToMinutesHM(s.time);
+    if (t <= startM) continue;
+    if (!s.isEmpty) {
+      boundaryM = Math.min(boundaryM, t);
+      break;
+    }
+  }
+  let maxMin = Math.max(0, boundaryM - startM);
+  if (breakRange) {
+    const bs = timeToMinutesHM(breakRange.start);
+    if (startM < bs && startM + maxMin > bs) {
+      maxMin = Math.max(0, bs - startM);
+    }
+  }
+  return maxMin;
+}
+
 interface SqueezeKnownClientOption {
   id: string;
   client_id?: string;
@@ -161,6 +231,13 @@ interface AllProfessionalsAppointmentsViewProps {
   }) => Promise<void>;
   onOpenAbsenceModal?: (professionalId: string) => void;
   onGoToClients?: (professionalId?: string) => void;
+  /** Abre Reservar Cliente com data/hora do slot e limite de duração até o próximo conflito/expediente. */
+  onOpenReserveFromSlot?: (params: {
+    professionalId: string;
+    dateKey: string;
+    time: string;
+    maxDurationMinutes: number;
+  }) => void;
   onCancelAppointment?: (appointmentId: string) => void;
   onClientNoShow?: (appointment: Appointment) => void;
   onAppointmentDetailsOpen?: () => void;
@@ -203,6 +280,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onToggleProfessionalSlotBlocked,
   onOpenAbsenceModal,
   onGoToClients,
+  onOpenReserveFromSlot,
   onCancelAppointment,
   onClientNoShow,
   onAppointmentDetailsOpen,
@@ -4814,6 +4892,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 slotBlockBusyKey === `${professional.id}__${slot.time}`;
                               const canQuickBlock =
                                 !!onToggleProfessionalSlotBlocked && !slot.isPast;
+                              const dayBounds = getProfessionalDayEndAndBreak(
+                                professional,
+                                businessHours,
+                                selectedDate
+                              );
+                              const maxReserveMinutes =
+                                dayBounds && onOpenReserveFromSlot
+                                  ? computeMaxReserveMinutesFromSlotGrid(
+                                      timeSlots,
+                                      slot.time,
+                                      dayBounds.endTime,
+                                      dayBounds.breakRange
+                                    )
+                                  : 0;
+                              const dateKey = format(selectedDate, 'yyyy-MM-dd');
+                              const showReservePill =
+                                canQuickBlock &&
+                                !!onOpenReserveFromSlot &&
+                                maxReserveMinutes > 0;
                               return (
                                 <div key={`${slot.time}-${slotIndex}`}>
                                   <div
@@ -4842,19 +4939,60 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                       </span>
                                     </div>
                                     {canQuickBlock ? (
-                                      <button
-                                        type="button"
-                                        disabled={!!slotBlockBusyKey}
-                                        onClick={() => runToggleSlotBlock(professional.id, slot.time, true)}
-                                        className={`shrink-0 px-3 py-2 text-xs font-bold text-white border-l border-white/20 transition-colors disabled:opacity-50 ${
-                                          useLightLayout
-                                            ? 'bg-slate-800 hover:bg-slate-900'
-                                            : 'bg-slate-700 hover:bg-slate-800'
-                                        }`}
-                                        title="Bloqueia só este horário neste dia (igual ao menu Bloquear horários)"
-                                      >
-                                        {blockBusy ? '…' : 'Bloquear'}
-                                      </button>
+                                      showReservePill ? (
+                                        <div className="flex shrink-0 items-stretch self-stretch rounded-r-[10px] overflow-hidden border-l border-white/20">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              onOpenReserveFromSlot?.({
+                                                professionalId: professional.id,
+                                                dateKey,
+                                                time: slot.time,
+                                                maxDurationMinutes: maxReserveMinutes,
+                                              })
+                                            }
+                                            className={`px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wide text-white transition-colors ${
+                                              useLightLayout
+                                                ? 'bg-emerald-700 hover:bg-emerald-800'
+                                                : 'bg-emerald-600 hover:bg-emerald-700'
+                                            }`}
+                                            title="Reservar cliente neste horário (mesmo fluxo de Agendar cliente), com limite até o próximo horário ocupado ou fim do expediente"
+                                          >
+                                            Reservar
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={!!slotBlockBusyKey}
+                                            onClick={() =>
+                                              runToggleSlotBlock(professional.id, slot.time, true)
+                                            }
+                                            className={`px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wide text-white border-l border-white/25 transition-colors disabled:opacity-50 ${
+                                              useLightLayout
+                                                ? 'bg-slate-800 hover:bg-slate-900'
+                                                : 'bg-slate-700 hover:bg-slate-800'
+                                            }`}
+                                            title="Bloqueia só este horário neste dia (igual ao menu Bloquear horários)"
+                                          >
+                                            {blockBusy ? '…' : 'Bloquear'}
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          disabled={!!slotBlockBusyKey}
+                                          onClick={() =>
+                                            runToggleSlotBlock(professional.id, slot.time, true)
+                                          }
+                                          className={`shrink-0 px-3 py-2 text-xs font-bold text-white border-l border-white/20 transition-colors disabled:opacity-50 ${
+                                            useLightLayout
+                                              ? 'bg-slate-800 hover:bg-slate-900'
+                                              : 'bg-slate-700 hover:bg-slate-800'
+                                          }`}
+                                          title="Bloqueia só este horário neste dia (igual ao menu Bloquear horários)"
+                                        >
+                                          {blockBusy ? '…' : 'Bloquear'}
+                                        </button>
+                                      )
                                     ) : null}
                                   </div>
                                   {/* Exibir encaixes abaixo do horário */}

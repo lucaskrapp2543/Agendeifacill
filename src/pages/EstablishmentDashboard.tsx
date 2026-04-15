@@ -764,6 +764,11 @@ const EstablishmentDashboard = () => {
   // Estados para Reservar Cliente
   const [showReservarClienteModal, setShowReservarClienteModal] = useState(false);
   const [reserveClientPrefilledProfessionalId, setReserveClientPrefilledProfessionalId] = useState<string | null>(null);
+  const [reserveClientSlotPrefill, setReserveClientSlotPrefill] = useState<{
+    date: string;
+    time: string;
+    maxDurationMinutes: number;
+  } | null>(null);
 
   // Estados para Clientes Fiéis
   const [showLoyalForm, setShowLoyalForm] = useState(false);
@@ -3483,6 +3488,7 @@ const EstablishmentDashboard = () => {
         if (visibleReserveButton) {
           visibleReserveButton.click();
         } else {
+          setReserveClientSlotPrefill(null);
           setShowReservarClienteModal(true);
         }
         const baselineCount = await countTodayAvulsoAppointments();
@@ -21322,10 +21328,27 @@ Estamos te aguardando! 😎✂️`;
   };
 
   // Função para navegar até a aba de clientes
+  const handleOpenReserveFromSlot = (params: {
+    professionalId: string;
+    dateKey: string;
+    time: string;
+    maxDurationMinutes: number;
+  }) => {
+    setReserveClientPrefilledProfessionalId(params.professionalId);
+    setReserveClientSlotPrefill({
+      date: params.dateKey,
+      time: params.time,
+      maxDurationMinutes: params.maxDurationMinutes,
+    });
+    setShowReservarClienteModal(true);
+    setHighlightReserveButton(false);
+  };
+
   const handleGoToClients = (professionalId?: string) => {
     const normalizedProfessionalId = String(professionalId || '').trim();
     if (normalizedProfessionalId) {
       setReserveClientPrefilledProfessionalId(normalizedProfessionalId);
+      setReserveClientSlotPrefill(null);
       setShowReservarClienteModal(true);
       setHighlightReserveButton(false);
       return;
@@ -22557,6 +22580,7 @@ Estamos te aguardando! 😎✂️`;
                       onToggleProfessionalSlotBlocked={handleToggleProfessionalSlotBlocked}
                       onOpenAbsenceModal={handleOpenAbsenceModal}
                       onGoToClients={handleGoToClients}
+                      onOpenReserveFromSlot={handleOpenReserveFromSlot}
                       onCancelAppointment={handleCancelClick}
                       onClientNoShow={handleClientNoShowFromAppointment}
                       onAppointmentDetailsOpen={() => {
@@ -30807,6 +30831,7 @@ Estamos te aguardando! 😎✂️`;
                       onClick={() => {
                         console.log('🔍 Abrindo modal ReservarCliente para establishment:', establishment?.id);
                         setReserveClientPrefilledProfessionalId(null);
+                        setReserveClientSlotPrefill(null);
                         setShowReservarClienteModal(true);
                         setHighlightReserveButton(false);
                       }}
@@ -37258,6 +37283,7 @@ Estamos te aguardando! 😎✂️`;
           <ReservarCliente
             establishmentId={establishment.id}
             initialProfessionalId={reserveClientPrefilledProfessionalId || undefined}
+            slotPrefill={reserveClientSlotPrefill}
             use15MinuteInterval={use15MinuteInterval}
             use20MinuteScheduleProp={use20MinuteSchedule}
             use60MinuteScheduleProp={use60MinuteSchedule}
@@ -37284,6 +37310,7 @@ Estamos te aguardando! 😎✂️`;
               console.log('🔍 Fechando modal ReservarCliente');
               setShowReservarClienteModal(false);
               setReserveClientPrefilledProfessionalId(null);
+              setReserveClientSlotPrefill(null);
               // Recarregar clientes quando fechar o modal (para atualizar contagem)
               if (activeTab === 'clients' || activeTab === 'subscribers') {
                 console.log('🔄 Recarregando clientes após fechar modal de reserva...');

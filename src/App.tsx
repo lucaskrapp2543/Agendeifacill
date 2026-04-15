@@ -94,13 +94,15 @@ function App() {
         <RefreshButton />
         <Toaster
           position="top-center"
+          // Acima de modais do dashboard (ex.: ReservarCliente z-[10020], intros z-[10030])
+          containerStyle={{ zIndex: 10050 }}
           toastOptions={{
             style: {
               background: '#1a1b1c',
               color: '#ffffff',
               border: '1px solid #374151',
               marginTop: '80px', // Adiciona margem para não ficar em cima do header
-              zIndex: 9999,
+              zIndex: 10050,
             }
           }}
         />

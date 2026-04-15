@@ -16,6 +16,7 @@ export const Toaster = () => {
           padding: '12px 20px',
           fontSize: '14px',
           boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+          zIndex: 10050,
         },
       }}
       gutter={8}
@@ -24,6 +25,7 @@ export const Toaster = () => {
         left: 40,
         bottom: 40,
         right: 40,
+        zIndex: 10050,
       }}
       containerClassName=""
       reverseOrder={false}

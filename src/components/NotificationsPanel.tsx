@@ -48,6 +48,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
   const [expandedReasonIds, setExpandedReasonIds] = useState<Set<string>>(new Set());
+  const [markAllAsReadLoading, setMarkAllAsReadLoading] = useState(false);
 
   const isUuid = (value?: string | null) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
@@ -396,10 +397,45 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       );
 
       // Atualizar contador
-      setUnreadCount(prev => Math.max(0, prev - 1));
+      setUnreadCount((prev) => {
+        const next = Math.max(0, prev - 1);
+        onUnreadCountChange?.(next);
+        return next;
+      });
 
     } catch (error) {
       console.error('❌ Erro ao marcar como lida:', error);
+    }
+  };
+
+  /** Marca todas as notificações não lidas do estabelecimento como lidas (uma única atualização no banco). */
+  const markAllAsRead = async () => {
+    if (unreadCount === 0) return;
+    setMarkAllAsReadLoading(true);
+    try {
+      const { error } = await supabase
+        .from('establishment_notifications')
+        .update({ read: true })
+        .eq('establishment_id', establishmentId)
+        .eq('read', false);
+
+      if (error) {
+        console.error('❌ Erro ao marcar todas como lidas:', error);
+        toast.error(
+          `Não foi possível marcar todas como lidas: ${error.message || 'erro desconhecido'}${error.code ? ` (${error.code})` : ''}`
+        );
+        return;
+      }
+
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      setUnreadCount(0);
+      onUnreadCountChange?.(0);
+      toast.success('Todas as notificações foram marcadas como lidas');
+    } catch (err: any) {
+      console.error('❌ Erro inesperado ao marcar todas como lidas:', err);
+      toast.error(String(err?.message || 'Erro ao marcar todas como lidas'));
+    } finally {
+      setMarkAllAsReadLoading(false);
     }
   };
 
@@ -419,6 +455,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
 
       setNotifications([]);
       setUnreadCount(0);
+      onUnreadCountChange?.(0);
       toast.success('Todas as notificações foram limpas');
 
     } catch (error) {
@@ -527,6 +564,20 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
                     title="Ativar notificações no celular"
                   >
                     📱 Ativar
+                  </button>
+                )}
+                {unreadCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void markAllAsRead();
+                    }}
+                    disabled={markAllAsReadLoading}
+                    className="px-2.5 py-1.5 text-xs font-semibold text-gray-800 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
+                    title="Marcar todas como lidas sem abrir uma a uma"
+                  >
+                    {markAllAsReadLoading ? '…' : 'Ler todas'}
                   </button>
                 )}
                 <button
