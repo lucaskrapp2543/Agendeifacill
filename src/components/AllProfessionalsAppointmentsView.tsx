@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { CANCELLATION_SOURCE } from '../utils/appointmentCancellationMeta';
+import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
 import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
 import { ChangeAppointmentServiceModal } from './ChangeAppointmentServiceModal';
 import { ProfessionalInfoModal } from './ProfessionalInfoModal';
@@ -661,7 +662,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
               .lte('created_at', end.toISOString()),
             supabase
               .from('professional_payments')
-              .select('professional_id, professional_name, amount, payment_source, payment_date')
+              .select('professional_id, professional_name, amount, payment_source, payment_date, for_month')
               .eq('establishment_id', establishment.id)
               .in('payment_source', ['subscription', 'assinatura'])
               .gte('payment_date', start.toISOString())
@@ -771,7 +772,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
             if (id && name) professionalIdToName[id] = name;
           });
 
+          const selectedMonthKey = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}`;
+
           ((paymentsResult.data as any[]) || []).forEach((row: any) => {
+            const forMonth = String(row?.for_month || '').trim();
+            if (forMonth && forMonth !== selectedMonthKey) {
+              // Evita abater no mês atual pagamentos lançados agora, mas referentes a competência antiga.
+              return;
+            }
             const professionalName =
               String(row?.professional_name || '').trim() ||
               professionalIdToName[String(row?.professional_id || '').trim()] ||
@@ -2151,45 +2159,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
     };
 
-    // Para assinantes: priorizar sempre a duração salva no agendamento.
-    // Isso evita regressão visual (ex.: cair para 30min) quando o plano/serviços mudam depois.
+    // Duração base: assinantes usam util que alinha plano vs. valor salvo (evita 30min no DB com plano 60min).
     const getEffectiveBaseDuration = (apt: Appointment, interval: number): number => {
-      const fallback = parseDurationMinutes((apt as any)?.duration, interval);
-      if (!apt.service || subscriptionDurations.length === 0) return fallback;
-
-      const isSubscriberAppointment =
-        Boolean((apt as any)?.is_subscriber) ||
-        String((apt as any)?.client_name || '').toUpperCase().includes('(ASSINANTE)');
-      if (!isSubscriberAppointment) return fallback;
-
-      const storedDuration = parseDurationMinutes((apt as any)?.duration, 0);
-      if (storedDuration > 0) return storedDuration;
-
-      const serviceStr = String(apt.service).trim();
-      const normalizedService = normalizeName(serviceStr);
-      const aptSubscriptionId = String((apt as any)?.subscription_id || '').trim();
-
-      // Fluxo novo: assinatura com "dividir serviços" (duração por serviço específico).
-      for (const sub of subscriptionDurations) {
-        if (aptSubscriptionId && String(sub?.id || '') !== aptSubscriptionId) continue;
-        if (!sub?.divide_services_enabled || !Array.isArray(sub?.divided_services) || sub.divided_services.length === 0) {
-          continue;
-        }
-        const matchedDividedService = sub.divided_services.find((svc) => {
-          const current = normalizeName(svc?.name || '');
-          return current && (normalizedService === current || normalizedService.includes(current) || current.includes(normalizedService));
-        });
-        if (matchedDividedService && matchedDividedService.duration > 0) {
-          return matchedDividedService.duration;
-        }
-      }
-
-      // Fluxo legado: assinatura com duração única.
-      const sub = subscriptionDurations.find(
-        (s) => s.name && (serviceStr.includes(s.name) || s.name.includes(serviceStr))
-      );
-      if (sub && sub.service_duration > 0) return sub.service_duration;
-      return fallback;
+      return getEffectiveAppointmentBaseDurationMinutes(apt as any, interval, subscriptionDurations);
     };
 
     const getDuracaoTotalAgendamento = (apt: Appointment, interval: number): number => {
@@ -2350,16 +2322,35 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const occupiedSlots = new Map<string, { appointment?: Appointment; isOccupied: boolean; parentAppointment?: Appointment; isSqueeze?: boolean }>();
       const squeezeSlotsMap = new Map<string, Appointment[]>(); // Mapa de slot -> encaixes
 
-      // Processar agendamentos normais
+      // Processar agendamentos normais (ordenados por horário).
+      // Importante: um agendamento que COMEÇA às 11:30 não pode sobrescrever o slot 11:30 já marcado
+      // como continuação (ex.: 11:00–60min), senão a grade mostra 11:30 "livre" para novo booking.
       normalAppointments.forEach((apt) => {
         const startTime = apt.appointment_time;
         const duration = getDuracaoTotalAgendamento(apt, interval);
 
-        occupiedSlots.set(startTime, { appointment: apt, isOccupied: false });
+        const existingAtStart = occupiedSlots.get(startTime);
+        if (
+          existingAtStart?.isOccupied &&
+          existingAtStart.parentAppointment &&
+          existingAtStart.parentAppointment.id !== apt.id
+        ) {
+          occupiedSlots.set(startTime, {
+            isOccupied: true,
+            parentAppointment: existingAtStart.parentAppointment,
+            conflictingAppointment: apt,
+          });
+        } else {
+          occupiedSlots.set(startTime, { appointment: apt, isOccupied: false });
+        }
 
         const startDate = parse(startTime, 'HH:mm', selectedDate);
         for (let i = interval; i < duration; i += interval) {
           const occupiedTime = format(new Date(startDate.getTime() + i * 60000), 'HH:mm');
+          const prev = occupiedSlots.get(occupiedTime);
+          if (prev?.appointment && prev.appointment.id !== apt.id) {
+            continue;
+          }
           occupiedSlots.set(occupiedTime, { isOccupied: true, parentAppointment: apt });
         }
       });

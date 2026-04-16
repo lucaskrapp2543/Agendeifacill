@@ -5,6 +5,7 @@ import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriber
 import { checkWhatsAppSubscriber as checkLegacySubscriber, checkMonthlyServiceLimit } from '../lib/supabase';
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { validatePendingClientBookingLimit } from '../utils/pendingClientBookingValidation';
+import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
 import { TimeSlotSelector } from './TimeSlotSelector';
 
 type ChatStep =
@@ -614,7 +615,11 @@ export function BookingChatFlow({
     });
 
     const getAppointmentDurationMinutes = (appointment: any): number => {
-      const baseDuration = parseDurationMinutes(appointment?.duration, 30);
+      const baseDuration = getEffectiveAppointmentBaseDurationMinutes(
+        appointment,
+        interval,
+        Array.isArray(subscriberServices) ? subscriberServices : []
+      );
       const extraDuration = Array.isArray(appointment?.additional_products)
         ? appointment.additional_products.reduce(
             (sum: number, item: any) => sum + parseDurationMinutes(item?.duration, 0),
@@ -731,6 +736,7 @@ export function BookingChatFlow({
     establishment?.use_15_minute_interval,
     establishment?.use_20_minute_schedule,
     establishment?.use_60_minute_schedule,
+    subscriberServices,
   ]);
 
   useEffect(() => {
@@ -1653,6 +1659,7 @@ export function BookingChatFlow({
                       professionalWorkHours={professionalWorkHours}
                       hideIntervalSlots={true}
                       onVisibleSlotsChange={(count) => setVisibleSlotsCountForSelectedProfessional(count)}
+                      subscriptionPlansForDuration={Array.isArray(subscriberServices) ? subscriberServices : []}
                     />
                     {visibleSlotsCountForSelectedProfessional === 0 && suggestedProfessionalsForDate.length > 0 && (
                       <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-3">

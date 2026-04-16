@@ -1,5 +1,6 @@
 import { format } from 'date-fns';
 import { useEffect } from 'react';
+import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
 
 interface Service {
   id: string;
@@ -15,6 +16,9 @@ interface Appointment {
   status?: string;
   professional?: string;
   additional_products?: Array<{ duration?: number }>;
+  is_subscriber?: boolean;
+  subscription_id?: string | null;
+  client_name?: string;
 }
 
 interface TimeSlot {
@@ -57,6 +61,8 @@ interface TimeSlotSelectorProps {
     };
   } | null; // Horários personalizados de trabalho do profissional
   onVisibleSlotsChange?: (count: number) => void;
+  /** Planos de assinatura (mesma forma que no dashboard) para corrigir duração em conflitos de grade. */
+  subscriptionPlansForDuration?: Array<Record<string, unknown>>;
 }
 
 export function TimeSlotSelector({
@@ -78,7 +84,8 @@ export function TimeSlotSelector({
   professionalBlockedHours = [],
   hideIntervalSlots = false,
   professionalWorkHours = null,
-  onVisibleSlotsChange
+  onVisibleSlotsChange,
+  subscriptionPlansForDuration = [],
 }: TimeSlotSelectorProps) {
   // Função para converter horário HH:mm para minutos totais
   const timeToMinutes = (time: string | null): number => {
@@ -222,6 +229,8 @@ export function TimeSlotSelector({
       return aptDate === selectedDateString && apt.status !== 'cancelled';
     });
 
+    const gridIntervalMinutes = use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15;
+
     const parseDurationMinutes = (rawDuration: any): number => {
       if (typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration > 0) {
         return rawDuration;
@@ -238,7 +247,11 @@ export function TimeSlotSelector({
       return 30;
     };
     const getAppointmentDurationMinutes = (apt: Appointment): number => {
-      const base = parseDurationMinutes(apt?.duration);
+      const base = getEffectiveAppointmentBaseDurationMinutes(
+        apt as any,
+        gridIntervalMinutes,
+        Array.isArray(subscriptionPlansForDuration) ? subscriptionPlansForDuration : []
+      );
       const extra = Array.isArray(apt?.additional_products)
         ? apt.additional_products.reduce((sum, item) => sum + parseDurationMinutes(item?.duration), 0)
         : 0;
@@ -249,15 +262,8 @@ export function TimeSlotSelector({
     console.log('  - effectiveBusinessHours:', effectiveBusinessHours);
     console.log('  - relevantAppointments:', relevantAppointments);
 
-    // Determinar o intervalo baseado na configuração
-    let interval = 15; // Padrão: 15 em 15 minutos
-    if (use60MinuteSchedule) {
-      interval = 60; // Horários de 1 em 1 hora
-    } else if (use20MinuteSchedule) {
-      interval = 20; // Horários de 20 em 20 minutos
-    } else if (use15MinuteInterval) {
-      interval = 30; // Horários de 30 em 30 minutos (quando MARCADO)
-    }
+    // Determinar o intervalo baseado na configuração (já calculado acima como gridIntervalMinutes)
+    const interval = gridIntervalMinutes;
 
     // Duração efetiva de cada item de bloqueio salvo no banco.
     // Histórico do sistema: por muito tempo o modal de bloqueio gerava horários de 15min fixos,
