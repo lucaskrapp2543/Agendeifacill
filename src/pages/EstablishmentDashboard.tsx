@@ -337,6 +337,8 @@ interface Appointment {
   observation?: string;
   establishment_observation?: string;
   is_subscriber?: boolean;
+  /** Resgate do programa de fidelidade (serviço gratuito no ciclo). */
+  is_loyalty_reward?: boolean;
   is_child_service?: boolean;
   is_avulso?: boolean;
   is_waitlist?: boolean | null;
@@ -405,6 +407,7 @@ interface ClientFutureAppointmentItem {
   professional?: string | null;
   status?: string | null;
   is_subscriber?: boolean | null;
+  is_loyalty_reward?: boolean | null;
 }
 
 interface Subscription {
@@ -668,6 +671,14 @@ const EstablishmentDashboard = () => {
   const [selectedFutureAppointmentIds, setSelectedFutureAppointmentIds] = useState<string[]>([]);
   const [isLoadingClientFutureAppointments, setIsLoadingClientFutureAppointments] = useState(false);
   const [isCancellingFutureAppointments, setIsCancellingFutureAppointments] = useState(false);
+  const [showClientPastAppointmentsModal, setShowClientPastAppointmentsModal] = useState(false);
+  const [selectedClientForPastAppointments, setSelectedClientForPastAppointments] = useState<Client | null>(null);
+  const [clientPastAppointments, setClientPastAppointments] = useState<ClientFutureAppointmentItem[]>([]);
+  const [isLoadingClientPastAppointments, setIsLoadingClientPastAppointments] = useState(false);
+  const [pastModalLoyaltyRow, setPastModalLoyaltyRow] = useState<{ cycle_goal: number | null; cycle_progress: number } | null>(null);
+  const [pastModalLoyaltyGoalInput, setPastModalLoyaltyGoalInput] = useState('');
+  const [pastModalLoyaltyLoading, setPastModalLoyaltyLoading] = useState(false);
+  const [pastModalLoyaltySaving, setPastModalLoyaltySaving] = useState(false);
 
   // Estados para adicionar cliente manualmente
   const [showAddClientModal, setShowAddClientModal] = useState(false);
@@ -10166,10 +10177,13 @@ Estamos te aguardando! 😎✂️`;
           payment_split_details,
           is_waitlist,
           waitlist_entry_id,
-          professional_tip_amount
+          professional_tip_amount,
+          is_loyalty_reward
         `;
 
       const baseSelectSansTip = baseSelect.replace(/,\s*professional_tip_amount\s*/i, '').trim();
+      const baseSelectSansLoyalty = baseSelect.replace(/,\s*is_loyalty_reward\s*/i, '').trim();
+      const baseSelectSansTipLoyalty = baseSelectSansTip.replace(/,\s*is_loyalty_reward\s*/i, '').trim();
 
       let appointmentsRaw: any[] = [];
       {
@@ -10187,10 +10201,17 @@ Estamos te aguardando! 😎✂️`;
           const missingTipCol =
             msg0.includes('professional_tip_amount') ||
             (msg0.includes('column') && msg0.includes('professional_tip'));
-          if (missingTipCol) {
+          const missingLoyaltyCol = msg0.includes('is_loyalty_reward');
+          if (missingTipCol || missingLoyaltyCol) {
+            const selectAfterCompat =
+              missingTipCol && missingLoyaltyCol
+                ? baseSelectSansTipLoyalty
+                : missingTipCol
+                  ? baseSelectSansTip
+                  : baseSelectSansLoyalty;
             const retryTip = await supabase
               .from('appointments')
-              .select(baseSelectSansTip)
+              .select(selectAfterCompat)
               .eq('establishment_id', establishment.id)
               .gte('appointment_date', startOfSelectedDate)
               .lte('appointment_date', endOfSelectedDate)
@@ -12960,6 +12981,198 @@ Estamos te aguardando! 😎✂️`;
       setClientFutureAppointments([]);
     } finally {
       setIsLoadingClientFutureAppointments(false);
+    }
+  };
+
+  const fetchClientPastAppointments = async (client: Client): Promise<ClientFutureAppointmentItem[]> => {
+    if (!establishment?.id) return [];
+
+    const todayKey = format(new Date(), 'yyyy-MM-dd');
+    const whatsappKeys = getWhatsappLookupKeys(client.whatsapp);
+    if (whatsappKeys.length === 0) return [];
+
+    let selectPast =
+      'id,client_id,client_whatsapp,client_name,appointment_date,appointment_time,service,professional,status,is_subscriber,is_loyalty_reward';
+    let { data, error } = await supabase
+      .from('appointments')
+      .select(selectPast)
+      .eq('establishment_id', establishment.id)
+      .in('client_whatsapp', whatsappKeys)
+      .lte('appointment_date', todayKey)
+      .neq('status', 'cancelled')
+      .order('appointment_date', { ascending: false })
+      .order('appointment_time', { ascending: false });
+
+    if (error && String((error as any)?.message || '').toLowerCase().includes('is_loyalty_reward')) {
+      selectPast =
+        'id,client_id,client_whatsapp,client_name,appointment_date,appointment_time,service,professional,status,is_subscriber';
+      const retry = await supabase
+        .from('appointments')
+        .select(selectPast)
+        .eq('establishment_id', establishment.id)
+        .in('client_whatsapp', whatsappKeys)
+        .lte('appointment_date', todayKey)
+        .neq('status', 'cancelled')
+        .order('appointment_date', { ascending: false })
+        .order('appointment_time', { ascending: false });
+      data = retry.data;
+      error = retry.error as any;
+    }
+
+    if (error) throw error;
+
+    const rows = (data || []) as ClientFutureAppointmentItem[];
+    const filtered = rows.filter((row) => {
+      const rowWhatsapp = String(row?.client_whatsapp || '').trim();
+      const rowWhatsappKeys = getWhatsappLookupKeys(rowWhatsapp);
+      const byWhatsapp = rowWhatsappKeys.some((k) => whatsappKeys.includes(k));
+      return byWhatsapp;
+    });
+
+    return filtered.sort((a, b) => {
+      const aKey = `${String(a.appointment_date || '')} ${String(a.appointment_time || '')}`;
+      const bKey = `${String(b.appointment_date || '')} ${String(b.appointment_time || '')}`;
+      return bKey.localeCompare(aKey);
+    });
+  };
+
+  const loadPastModalClientLoyalty = async (client: Client) => {
+    if (!establishment?.id || client.isSubscriber) {
+      setPastModalLoyaltyRow(null);
+      setPastModalLoyaltyGoalInput('');
+      return;
+    }
+    setPastModalLoyaltyLoading(true);
+    try {
+      const variants = Array.from(
+        new Set(getWhatsappLookupKeys(client.whatsapp).map((k) => normalizeWhatsappForStorage(k)).filter(Boolean))
+      );
+      if (variants.length === 0) {
+        setPastModalLoyaltyRow(null);
+        setPastModalLoyaltyGoalInput('');
+        return;
+      }
+      const { data, error } = await supabase
+        .from('establishment_client_loyalty')
+        .select('cycle_goal,cycle_progress')
+        .eq('establishment_id', establishment.id)
+        .in('client_whatsapp', variants)
+        .limit(1);
+      if (error) {
+        const msg = String((error as any)?.message || '').toLowerCase();
+        if (msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('relation')) {
+          setPastModalLoyaltyRow(null);
+          setPastModalLoyaltyGoalInput('');
+          return;
+        }
+        throw error;
+      }
+      const row = (data || [])[0] as { cycle_goal: number | null; cycle_progress: number } | undefined;
+      if (!row) {
+        setPastModalLoyaltyRow(null);
+        setPastModalLoyaltyGoalInput('');
+      } else {
+        setPastModalLoyaltyRow({
+          cycle_goal: row.cycle_goal == null ? null : Number(row.cycle_goal),
+          cycle_progress: Number(row.cycle_progress ?? 0),
+        });
+        setPastModalLoyaltyGoalInput(row.cycle_goal == null ? '' : String(row.cycle_goal));
+      }
+    } catch (e: any) {
+      console.warn('Fidelidade: não foi possível carregar configuração:', e);
+      setPastModalLoyaltyRow(null);
+      setPastModalLoyaltyGoalInput('');
+    } finally {
+      setPastModalLoyaltyLoading(false);
+    }
+  };
+
+  const savePastModalClientLoyalty = async () => {
+    if (!establishment?.id || !selectedClientForPastAppointments) return;
+    if (selectedClientForPastAppointments.isSubscriber) {
+      toast('Programa de fidelidade aplica-se apenas a clientes não assinantes.', 'error');
+      return;
+    }
+    const key = normalizeWhatsappForStorage(selectedClientForPastAppointments.whatsapp);
+    if (!key) {
+      toast('WhatsApp do cliente inválido.', 'error');
+      return;
+    }
+    const rawGoal = pastModalLoyaltyGoalInput.trim();
+    setPastModalLoyaltySaving(true);
+    try {
+      if (rawGoal === '') {
+        const { error } = await supabase
+          .from('establishment_client_loyalty')
+          .delete()
+          .eq('establishment_id', establishment.id)
+          .eq('client_whatsapp', key);
+        if (error) {
+          const msg = String((error as any)?.message || '').toLowerCase();
+          if (!msg.includes('does not exist') && !msg.includes('schema cache')) throw error;
+        }
+        setPastModalLoyaltyRow(null);
+        setPastModalLoyaltyGoalInput('');
+        toast('Programa de fidelidade desativado para este cliente.', 'success');
+        await loadPastModalClientLoyalty(selectedClientForPastAppointments);
+        return;
+      }
+      const goal = parseInt(rawGoal, 10);
+      if (!Number.isFinite(goal) || goal < 2) {
+        toast('Informe um número inteiro maior ou igual a 2 (ex.: 10 atendimentos para o benefício).', 'error');
+        return;
+      }
+      const progressKeep = pastModalLoyaltyRow?.cycle_progress ?? 0;
+      const { error } = await supabase.from('establishment_client_loyalty').upsert(
+        {
+          establishment_id: establishment.id,
+          client_whatsapp: key,
+          cycle_goal: goal,
+          cycle_progress: Math.min(progressKeep, goal),
+          updated_at: new Date().toISOString(),
+        } as any,
+        { onConflict: 'establishment_id,client_whatsapp' }
+      );
+      if (error) throw error;
+      setPastModalLoyaltyRow({ cycle_goal: goal, cycle_progress: Math.min(progressKeep, goal) });
+      toast('Meta de fidelidade salva.', 'success');
+      await loadPastModalClientLoyalty(selectedClientForPastAppointments);
+    } catch (error: any) {
+      toast(
+        [error?.message || 'Erro ao salvar fidelidade', error?.code, error?.details, error?.hint].filter(Boolean).join(' | '),
+        'error'
+      );
+    } finally {
+      setPastModalLoyaltySaving(false);
+    }
+  };
+
+  const handleOpenClientPastAppointments = async (client: Client) => {
+    if (!establishment?.id) {
+      toast('Estabelecimento não carregado. Tente novamente.', 'error');
+      return;
+    }
+
+    setSelectedClientForPastAppointments(client);
+    setShowClientPastAppointmentsModal(true);
+    setIsLoadingClientPastAppointments(true);
+    setPastModalLoyaltyRow(null);
+    setPastModalLoyaltyGoalInput('');
+    try {
+      const rows = await fetchClientPastAppointments(client);
+      setClientPastAppointments(rows);
+      await loadPastModalClientLoyalty(client);
+    } catch (error: any) {
+      console.error('Erro ao carregar agendamentos passados do cliente:', error);
+      toast(
+        [error?.message || 'Erro ao carregar agendamentos feitos', error?.code, error?.details, error?.hint]
+          .filter(Boolean)
+          .join(' | '),
+        'error'
+      );
+      setClientPastAppointments([]);
+    } finally {
+      setIsLoadingClientPastAppointments(false);
     }
   };
 
@@ -31350,6 +31563,16 @@ Estamos te aguardando! 😎✂️`;
                                 <div className="flex items-center gap-2 mb-3">
                                   <button
                                     type="button"
+                                    onClick={() => handleOpenClientPastAppointments(client)}
+                                    className="w-full px-3 py-2 rounded-lg bg-slate-600 text-white hover:bg-slate-700 transition-colors text-xs font-extrabold"
+                                  >
+                                    ( Agendamentos / pontos fidelidade)
+                                  </button>
+                                </div>
+
+                                <div className="flex items-center gap-2 mb-3">
+                                  <button
+                                    type="button"
                                     onClick={() => {
                                       setSelectedClientInfo(client);
                                       setShowClientInfoModal(true);
@@ -37989,6 +38212,173 @@ Estamos te aguardando! 😎✂️`;
                   })}
                 </div>
               </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showClientPastAppointmentsModal && selectedClientForPastAppointments && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-[70] p-4"
+          onClick={() => {
+            setShowClientPastAppointmentsModal(false);
+            setPastModalLoyaltyRow(null);
+            setPastModalLoyaltyGoalInput('');
+          }}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[85vh] overflow-y-auto p-5 border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <div className="text-lg font-extrabold text-gray-900">( Agendamentos / pontos fidelidade)</div>
+                <div className="text-sm text-gray-700">
+                  {selectedClientForPastAppointments.name} - {selectedClientForPastAppointments.whatsapp}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Da data de hoje para trás (exceto cancelados). Indica se já foi concluído ou ainda está pendente.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowClientPastAppointmentsModal(false);
+                  setPastModalLoyaltyRow(null);
+                  setPastModalLoyaltyGoalInput('');
+                }}
+                className="px-3 py-2 rounded-lg bg-gray-200 text-gray-900 hover:bg-gray-300 transition-colors text-sm font-bold"
+              >
+                Fechar
+              </button>
+            </div>
+
+            {!selectedClientForPastAppointments.isSubscriber && (
+              <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50/80 p-4">
+                <div className="text-sm font-extrabold text-gray-900 mb-1">Pontos Fidelidade</div>
+                <p className="text-xs text-gray-700 mb-3">
+                  Defina quantos atendimentos <strong>concluídos</strong> (não assinante) o cliente precisa para ganhar um serviço gratuito.
+                  O progresso sozinho após cada conclusão; ao usar o benefício no Reservar Cliente e concluir o atendimento gratuito, o ciclo zera.
+                </p>
+                {pastModalLoyaltyLoading ? (
+                  <p className="text-xs text-gray-600">Carregando configuração...</p>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap items-end gap-2 mb-2">
+                      <div className="flex-1 min-w-[140px]">
+                        <label className="block text-[11px] font-bold text-gray-600 mb-1">Atendimentos para o benefício</label>
+                        <input
+                          type="number"
+                          min={2}
+                          step={1}
+                          placeholder="Ex.: 10 (deixe vazio para desativar)"
+                          value={pastModalLoyaltyGoalInput}
+                          onChange={(e) => setPastModalLoyaltyGoalInput(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={pastModalLoyaltySaving}
+                        onClick={() => void savePastModalClientLoyalty()}
+                        className="px-4 py-2 rounded-lg bg-violet-700 text-white text-xs font-bold hover:bg-violet-800 disabled:opacity-50"
+                      >
+                        {pastModalLoyaltySaving ? 'Salvando...' : 'Salvar meta'}
+                      </button>
+                    </div>
+                    {pastModalLoyaltyRow?.cycle_goal != null && pastModalLoyaltyRow.cycle_goal >= 2 && (
+                      <p className="text-xs text-gray-800">
+                        Progresso no ciclo atual:{' '}
+                        <strong>
+                          {Math.min(pastModalLoyaltyRow.cycle_progress, pastModalLoyaltyRow.cycle_goal)} /{' '}
+                          {pastModalLoyaltyRow.cycle_goal}
+                        </strong>
+                        {pastModalLoyaltyRow.cycle_progress >= pastModalLoyaltyRow.cycle_goal ? (
+                          <span className="text-emerald-800 font-bold"> — benefício disponível (use no Reservar Cliente)</span>
+                        ) : (
+                          <span>
+                            {' '}
+                            — faltam{' '}
+                            <strong>{pastModalLoyaltyRow.cycle_goal - pastModalLoyaltyRow.cycle_progress}</strong> para o benefício
+                          </span>
+                        )}
+                      </p>
+                    )}
+                    <p className="text-[11px] text-gray-500 mt-2">
+                      Deixe o campo vazio e salve para desativar o programa neste cliente. Histórico de agendamentos não é apagado.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+
+            {isLoadingClientPastAppointments ? (
+              <div className="py-8 text-center text-gray-600">Carregando agendamentos feitos...</div>
+            ) : clientPastAppointments.length === 0 ? (
+              <div className="py-8 text-center text-gray-600">Nenhum agendamento encontrado até a data de hoje.</div>
+            ) : (
+              <div className="space-y-2">
+                {clientPastAppointments.map((apt) => {
+                  const appointmentId = String(apt.id || '');
+                  const professionalName =
+                    professionals.find((p) => String(p.id) === String(apt.professional || ''))?.name ||
+                    String(apt.professional || 'Profissional');
+                  const serviceName = String(apt.service || 'Serviço');
+                  const dateLabel = (() => {
+                    try {
+                      return format(parseISO(String(apt.appointment_date || '')), 'dd/MM/yyyy');
+                    } catch {
+                      return String(apt.appointment_date || '');
+                    }
+                  })();
+                  const timeLabel = String(apt.appointment_time || '--:--');
+                  const completed = isCompletedAppointmentStatus(apt);
+                  const outcomeLabel = completed
+                    ? apt.is_subscriber === true
+                      ? 'Concluído assinante'
+                      : 'Concluído'
+                    : 'Pendente';
+                  const outcomePillClass = completed
+                    ? apt.is_subscriber === true
+                      ? 'border-indigo-300 bg-indigo-50 text-indigo-900'
+                      : 'border-emerald-300 bg-emerald-50 text-emerald-900'
+                    : 'border-amber-300 bg-amber-50 text-amber-900';
+
+                  return (
+                    <div
+                      key={appointmentId}
+                      className="w-full rounded-lg border border-gray-200 bg-gray-50 p-3 flex items-start gap-3"
+                    >
+                      <div className="flex-1">
+                        <div className="flex flex-wrap items-center gap-2 text-sm text-gray-900 font-semibold">
+                          <span className="inline-flex items-center gap-1">
+                            <Calendar className="h-4 w-4 text-gray-600" />
+                            {dateLabel}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="h-4 w-4 text-gray-600" />
+                            {timeLabel}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded-md border text-xs font-bold ${outcomePillClass}`}>
+                            {outcomeLabel}
+                          </span>
+                          {apt.is_loyalty_reward === true && (
+                            <span className="px-2 py-0.5 rounded-md border border-violet-400 bg-white text-xs font-bold text-violet-800">
+                              Fidelidade
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 text-sm text-gray-700">
+                          Serviço: <strong className="text-gray-900">{serviceName}</strong>
+                        </div>
+                        <div className="text-sm text-gray-700">
+                          Profissional: <strong className="text-gray-900">{professionalName}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>

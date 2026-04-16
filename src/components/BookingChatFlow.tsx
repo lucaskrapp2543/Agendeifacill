@@ -2,7 +2,7 @@ import { format } from 'date-fns';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
-import { checkWhatsAppSubscriber as checkLegacySubscriber, checkMonthlyServiceLimit } from '../lib/supabase';
+import { checkWhatsAppSubscriber as checkLegacySubscriber, checkMonthlyServiceLimit, supabase } from '../lib/supabase';
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { validatePendingClientBookingLimit } from '../utils/pendingClientBookingValidation';
 import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
@@ -194,6 +194,9 @@ export function BookingChatFlow({
     errorMessage?: string;
   }>>({});
   const [isLoadingSubscriberServiceLimits, setIsLoadingSubscriberServiceLimits] = useState(false);
+  const [publicLoyaltyRow, setPublicLoyaltyRow] = useState<{ cycle_goal: number; cycle_progress: number } | null>(null);
+  const [publicLoyaltyLoading, setPublicLoyaltyLoading] = useState(false);
+  const [publicLoyaltyRedeemApplied, setPublicLoyaltyRedeemApplied] = useState(false);
 
   const professionals = useMemo(
     () => (Array.isArray(establishment?.professionals) ? establishment.professionals.filter((p: any) => !p?.hidden_from_booking) : []),
@@ -1080,6 +1083,16 @@ export function BookingChatFlow({
       toast.error('Este estabelecimento exige CPF. Informe um CPF válido com 11 dígitos para confirmar.');
       return;
     }
+    const loyaltyFree =
+      !isSubscriberFlow &&
+      publicLoyaltyRedeemApplied &&
+      publicLoyaltyRow != null &&
+      publicLoyaltyRow.cycle_goal >= 2 &&
+      publicLoyaltyRow.cycle_progress >= publicLoyaltyRow.cycle_goal;
+    if (publicLoyaltyRedeemApplied && !loyaltyFree) {
+      toast.error('Não foi possível aplicar o benefício de fidelidade. Atualize a página e tente novamente.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       const payload = {
@@ -1091,9 +1104,12 @@ export function BookingChatFlow({
         appointment_time: selectedTime,
         client_cpf: shouldRequireCpf ? onlyDigits(chatClientCpf) : null,
         duration: computedSelection.duration,
-        price: computedSelection.price,
-        total_price: Number(computedSelection.price || 0) + Number(bookingProductsTotal || 0),
-        additional_products: selectedBookingProducts.length > 0
+        price: loyaltyFree ? 0 : computedSelection.price,
+        total_price: loyaltyFree ? 0 : Number(computedSelection.price || 0) + Number(bookingProductsTotal || 0),
+        additional_products:
+          loyaltyFree
+            ? null
+            : selectedBookingProducts.length > 0
           ? selectedBookingProducts.map((product: any) => ({
             product_id: String(product?.id || '').trim(),
             name: String(product?.name || '').trim() || 'Produto',
@@ -1106,6 +1122,7 @@ export function BookingChatFlow({
         payment_method: isSubscriberFlow ? 'assinante' : (requireAdvancePayment ? 'pendente' : 'pagar_local'),
         is_child_service: false,
         is_subscriber: isSubscriberFlow,
+        is_loyalty_reward: loyaltyFree,
         subscription_id: isSubscriberFlow
           ? String((selectedPrimarySubscriberService as any)?.subscription_id || (selectedPrimarySubscriberService as any)?.id || (detectedSubscriber as any)?.subscription_id || '').trim() || null
           : null,
@@ -1279,6 +1296,83 @@ export function BookingChatFlow({
       cancelled = true;
     };
   }, [step, chatClientPhone, establishment?.id, establishment?.establishment_id, establishment?.limit_client_pending_booking]);
+
+  useEffect(() => {
+    if (step !== 'confirm' || isSubscriberFlow) {
+      setPublicLoyaltyRow(null);
+      setPublicLoyaltyLoading(false);
+      return;
+    }
+    const establishmentId = String(establishment?.id || establishment?.establishment_id || '').trim();
+    const phoneDigits = onlyDigits(chatClientPhone);
+    if (!establishmentId || phoneDigits.length < 8) {
+      setPublicLoyaltyRow(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setPublicLoyaltyLoading(true);
+      try {
+        const { data, error } = await supabase.rpc('get_public_loyalty_progress', {
+          p_establishment_id: establishmentId,
+          p_client_whatsapp: phoneDigits,
+        });
+        if (cancelled) return;
+        if (error) {
+          const m = String(error.message || '').toLowerCase();
+          if (!m.includes('function') && !m.includes('does not exist') && !m.includes('schema cache')) {
+            console.warn('Fidelidade (resumo público):', error);
+          }
+          setPublicLoyaltyRow(null);
+          return;
+        }
+        const row = (Array.isArray(data) ? data[0] : data) as { cycle_goal?: number; cycle_progress?: number } | null | undefined;
+        if (!row || row.cycle_goal == null) {
+          setPublicLoyaltyRow(null);
+          return;
+        }
+        const goal = Number(row.cycle_goal);
+        const prog = Number(row.cycle_progress ?? 0);
+        if (!Number.isFinite(goal) || goal < 2) {
+          setPublicLoyaltyRow(null);
+          return;
+        }
+        setPublicLoyaltyRow({ cycle_goal: goal, cycle_progress: prog });
+      } finally {
+        if (!cancelled) setPublicLoyaltyLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, isSubscriberFlow, establishment?.id, establishment?.establishment_id, chatClientPhone]);
+
+  useEffect(() => {
+    if (!publicLoyaltyRow || publicLoyaltyRow.cycle_progress < publicLoyaltyRow.cycle_goal) {
+      setPublicLoyaltyRedeemApplied(false);
+    }
+  }, [publicLoyaltyRow]);
+
+  const loyaltyFreeBooking = useMemo(
+    () =>
+      !isSubscriberFlow &&
+      publicLoyaltyRedeemApplied &&
+      publicLoyaltyRow != null &&
+      publicLoyaltyRow.cycle_goal >= 2 &&
+      publicLoyaltyRow.cycle_progress >= publicLoyaltyRow.cycle_goal,
+    [isSubscriberFlow, publicLoyaltyRedeemApplied, publicLoyaltyRow]
+  );
+
+  const confirmDisplayServicePrice = useMemo(
+    () => (loyaltyFreeBooking ? 0 : Number(computedSelection.price || 0)),
+    [loyaltyFreeBooking, computedSelection.price]
+  );
+
+  const confirmDisplayTotalPrice = useMemo(
+    () =>
+      loyaltyFreeBooking ? 0 : Number(computedSelection.price || 0) + Number(bookingProductsTotal || 0),
+    [loyaltyFreeBooking, computedSelection.price, bookingProductsTotal]
+  );
 
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const serviceIntroRef = useRef<HTMLDivElement | null>(null);
@@ -1811,14 +1905,46 @@ export function BookingChatFlow({
                 <div><strong>Serviço:</strong> {computedSelection.serviceName || '-'}</div>
                 <div><strong>Data:</strong> {format(selectedDate, 'dd/MM/yyyy')} às {selectedTime || '--:--'}</div>
                 <div><strong>Duração:</strong> {formatDuration(computedSelection.duration)}</div>
-                <div><strong>Valor:</strong> {toMoney(computedSelection.price)}</div>
-                {selectedBookingProducts.length > 0 && (
+                {!isSubscriberFlow && (publicLoyaltyLoading || publicLoyaltyRow) ? (
+                  <div className="rounded-lg border border-[#E6C78B]/35 bg-[#E6C78B]/10 px-3 py-2 text-xs text-[#F5E7C2] space-y-1">
+                    <div className="font-extrabold text-[#E6C78B] text-[11px] uppercase tracking-wide">Fidelidade</div>
+                    {publicLoyaltyLoading ? (
+                      <div className="text-white/70">Carregando pontos...</div>
+                    ) : publicLoyaltyRow ? (
+                      publicLoyaltyRow.cycle_progress >= publicLoyaltyRow.cycle_goal ? (
+                        <div className="space-y-2">
+                          <p>
+                            <strong className="text-emerald-300">Meta atingida</strong> ({publicLoyaltyRow.cycle_goal}{' '}
+                            atendimento(s) no ciclo). Use o benefício para este agendamento sair <strong>gratuito</strong>.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setPublicLoyaltyRedeemApplied((v) => !v)}
+                            className="w-full sm:w-auto px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold transition-colors"
+                          >
+                            {publicLoyaltyRedeemApplied ? 'Cancelar uso do benefício' : 'Usar benefício'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          Pontos neste ciclo: <strong>{publicLoyaltyRow.cycle_progress}</strong> de{' '}
+                          <strong>{publicLoyaltyRow.cycle_goal}</strong>
+                          {' — '}
+                          faltam <strong>{publicLoyaltyRow.cycle_goal - publicLoyaltyRow.cycle_progress}</strong> atendimento(s){' '}
+                          <span className="text-white/70">concluído(s)</span> para liberar o benefício.
+                        </div>
+                      )
+                    ) : null}
+                  </div>
+                ) : null}
+                <div><strong>Valor:</strong> {toMoney(confirmDisplayServicePrice)}</div>
+                {!loyaltyFreeBooking && selectedBookingProducts.length > 0 && (
                   <div>
                     <strong>Produtos adicionais:</strong>{' '}
                     {selectedBookingProducts.map((product: any) => String(product?.name || 'Produto')).join(' + ')} ({toMoney(bookingProductsTotal)})
                   </div>
                 )}
-                <div><strong>Total final:</strong> {toMoney(Number(computedSelection.price || 0) + Number(bookingProductsTotal || 0))}</div>
+                <div><strong>Total final:</strong> {toMoney(confirmDisplayTotalPrice)}</div>
                 {shouldRequireCpf && (
                   <div className="space-y-1.5">
                     <label className="block text-xs font-semibold text-white/90">

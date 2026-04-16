@@ -1691,6 +1691,8 @@ export default function BookingPage() {
       const msg = String(error?.message || '').toLowerCase();
       const missingTotalPrice = msg.includes('total_price') && (msg.includes('column') || msg.includes('schema cache') || msg.includes('could not find'));
       const missingAdditionalProducts = msg.includes('additional_products') && (msg.includes('column') || msg.includes('schema cache') || msg.includes('could not find'));
+      const missingLoyaltyReward =
+        msg.includes('is_loyalty_reward') && (msg.includes('column') || msg.includes('schema cache') || msg.includes('could not find'));
 
       if (missingTotalPrice) {
         delete cleanPayload.total_price;
@@ -1698,6 +1700,9 @@ export default function BookingPage() {
       if (missingAdditionalProducts) {
         delete cleanPayload.additional_products;
         toast.error('Seu banco ainda não tem a coluna additional_products. Rode a migration para salvar produtos extras no agendamento.');
+      }
+      if (missingLoyaltyReward) {
+        delete cleanPayload.is_loyalty_reward;
       }
 
       return cleanPayload;

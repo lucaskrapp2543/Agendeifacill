@@ -146,6 +146,11 @@ export default function ReservarCliente({
   const [isCreatingKnownClient, setIsCreatingKnownClient] = useState(false);
   const [hasAppliedInitialProfessional, setHasAppliedInitialProfessional] = useState(false);
 
+  /** Fidelidade (não assinante): meta e progresso vindos do Supabase */
+  const [loyaltyRow, setLoyaltyRow] = useState<{ cycle_goal: number; cycle_progress: number } | null>(null);
+  const [loyaltyLoading, setLoyaltyLoading] = useState(false);
+  const [loyaltyRedeemApplied, setLoyaltyRedeemApplied] = useState(false);
+
   // Estados para pagamento antecipado
   const [exigirPagamentoAntecipado, setExigirPagamentoAntecipado] = useState(false);
   const [pagarmeRecipientId, setPagarmeRecipientId] = useState<string>('');
@@ -170,6 +175,24 @@ export default function ReservarCliente({
     if (digits.startsWith('55')) return digits;
     if (digits.length >= 10 && digits.length <= 11) return `55${digits}`;
     return digits;
+  };
+
+  const getLoyaltyLookupStorageKeys = (raw: string): string[] => {
+    const digits = String(raw || '').replace(/\D/g, '');
+    if (!digits) return [];
+    const variants = new Set<string>();
+    if (digits.startsWith('55') && digits.length > 2) {
+      variants.add(digits);
+      variants.add(digits.slice(2));
+    } else if (digits.length >= 10 && digits.length <= 11) {
+      variants.add(digits);
+      variants.add(`55${digits}`);
+    } else {
+      variants.add(digits);
+    }
+    return Array.from(variants)
+      .map((v) => normalizeWhatsappForStorage(v))
+      .filter(Boolean);
   };
 
   const normalizeText = (raw: any) => {
@@ -1602,7 +1625,7 @@ export default function ReservarCliente({
       const currentUserId = currentUser.id;
       // Determinar serviços a serem inseridos
       const servicesToInsert = selectedServices.length > 0 ? selectedServices : [selectedService!];
-      const totalPrice = selectedServices.length > 0
+      const baseTotalPrice = selectedServices.length > 0
         ? calculateTotalPrice(selectedServices)
         : selectedService!.price;
       const totalDurationRaw =
@@ -1698,6 +1721,26 @@ export default function ReservarCliente({
         clientWhatsapp = null;
         isAvulso = true;
       }
+
+      const useLoyaltyFree =
+        isKnownClient &&
+        !isSubscriber &&
+        !selectedClientActiveSubscriptionId &&
+        loyaltyRedeemApplied &&
+        loyaltyRow != null &&
+        loyaltyRow.cycle_goal >= 2 &&
+        loyaltyRow.cycle_progress >= loyaltyRow.cycle_goal &&
+        !reservarMensal;
+
+      if (loyaltyRedeemApplied && !useLoyaltyFree) {
+        setLoading(false);
+        toast.error(
+          'Não foi possível aplicar o benefício de fidelidade. Verifique se o cliente não é assinante, se a meta foi atingida e se não está em reserva mensal.'
+        );
+        return;
+      }
+
+      const effectiveTotalPrice = useLoyaltyFree ? 0 : baseTotalPrice;
 
       // ⚠️ IMPORTANTE:
       // "Quero receber adiantado os serviços" (pagamento via Pagar.me) é uma regra do BOOKING PÚBLICO (cliente agendando no site).
@@ -1906,12 +1949,13 @@ export default function ReservarCliente({
           appointment_date: dateStr,
           appointment_time: selectedTime,
           status: 'confirmed',
-          price: totalPrice,
-          total_price: totalPrice,
+          price: effectiveTotalPrice,
+          total_price: effectiveTotalPrice,
           duration: totalDuration,
           payment_method: isSubscriber ? 'assinante' : 'dinheiro',
           is_avulso: isAvulso,
-          is_subscriber: isSubscriber
+          is_subscriber: isSubscriber,
+          is_loyalty_reward: useLoyaltyFree,
         };
         if (isSubscriber && selectedSubscription) {
           payload.subscription_id = String(selectedSubscription.id || '').trim() || null;
@@ -2000,6 +2044,28 @@ export default function ReservarCliente({
           insertError = null;
         } else {
           insertError = legacyError;
+        }
+      }
+
+      if (insertError) {
+        const msgIns = String((insertError as any)?.message || '').toLowerCase();
+        if (msgIns.includes('is_loyalty_reward')) {
+          const strippedLoyalty = payloads.map((p: any) => {
+            const x = { ...p };
+            delete x.is_loyalty_reward;
+            return x;
+          });
+          const { data: loyaltyRetryData, error: loyaltyRetryErr } = await supabase
+            .from('appointments')
+            .insert(strippedLoyalty)
+            .select('id');
+          if (!loyaltyRetryErr) {
+            inserted = loyaltyRetryData;
+            insertError = null;
+            toast('Reserva criada. Aplique a migration de fidelidade no Supabase para gravar o flag "Fidelidade" no agendamento.', {
+              duration: 6000,
+            });
+          }
         }
       }
 
@@ -2229,6 +2295,86 @@ export default function ReservarCliente({
   }, [establishmentId, selectedClient]);
 
   useEffect(() => {
+    let cancelled = false;
+    const loadLoyaltyForConfirm = async () => {
+      if (
+        step !== 'confirm' ||
+        !establishmentId ||
+        !selectedClient ||
+        selectedSubscription ||
+        selectedClientActiveSubscriptionId
+      ) {
+        if (!cancelled) {
+          setLoyaltyRow(null);
+          setLoyaltyRedeemApplied(false);
+          setLoyaltyLoading(false);
+        }
+        return;
+      }
+      if (!cancelled) setLoyaltyLoading(true);
+      try {
+        const keys = getLoyaltyLookupStorageKeys(selectedClient.whatsapp);
+        if (keys.length === 0) {
+          if (!cancelled) {
+            setLoyaltyRow(null);
+            setLoyaltyRedeemApplied(false);
+          }
+          return;
+        }
+        const { data, error } = await supabase
+          .from('establishment_client_loyalty')
+          .select('cycle_goal,cycle_progress')
+          .eq('establishment_id', establishmentId)
+          .in('client_whatsapp', keys)
+          .limit(5);
+        if (cancelled) return;
+        if (error) {
+          const m = String(error.message || '').toLowerCase();
+          if (!m.includes('does not exist') && !m.includes('schema cache') && !m.includes('relation')) {
+            console.warn('Fidelidade (Reservar Cliente):', error);
+          }
+          setLoyaltyRow(null);
+          setLoyaltyRedeemApplied(false);
+          return;
+        }
+        const row = (data || [])[0] as any;
+        if (!row || row.cycle_goal == null) {
+          setLoyaltyRow(null);
+          setLoyaltyRedeemApplied(false);
+          return;
+        }
+        const goal = Number(row.cycle_goal);
+        const prog = Number(row.cycle_progress ?? 0);
+        if (!Number.isFinite(goal) || goal < 2) {
+          setLoyaltyRow(null);
+          setLoyaltyRedeemApplied(false);
+          return;
+        }
+        setLoyaltyRow({ cycle_goal: goal, cycle_progress: prog });
+        if (prog < goal) {
+          setLoyaltyRedeemApplied(false);
+        }
+      } finally {
+        if (!cancelled) setLoyaltyLoading(false);
+      }
+    };
+    void loadLoyaltyForConfirm();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    step,
+    establishmentId,
+    selectedClient,
+    selectedSubscription,
+    selectedClientActiveSubscriptionId,
+  ]);
+
+  useEffect(() => {
+    if (reservarMensal) setLoyaltyRedeemApplied(false);
+  }, [reservarMensal]);
+
+  useEffect(() => {
     const prevOverflow = document.body.style.overflow;
     const prevOverscroll = document.body.style.overscrollBehavior;
     document.body.style.overflow = 'hidden';
@@ -2348,6 +2494,91 @@ export default function ReservarCliente({
                 </div>
               </div>
 
+              {/* Sempre visível nesta etapa: cadastrar cliente sem precisar “forçar” busca vazia */}
+              <div className="mb-4">
+                {!showAddClientInline ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const suggestedName = String(clientSearchQuery || '').trim();
+                      setShowAddClientInline(true);
+                      if (suggestedName) {
+                        setNewKnownClientName(suggestedName);
+                      }
+                    }}
+                    className="w-full sm:w-auto px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+                  >
+                    Adicionar cliente novo
+                  </button>
+                ) : (
+                  <div className="text-left border border-gray-300 rounded-lg p-4 bg-gray-50">
+                    <h4 className="text-sm font-semibold text-gray-800 mb-3">Novo cliente</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <input
+                        type="text"
+                        placeholder="Nome *"
+                        value={newKnownClientName}
+                        onChange={(e) => setNewKnownClientName(e.target.value)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Telefone *"
+                        value={newKnownClientWhatsapp}
+                        onChange={(e) => setNewKnownClientWhatsapp(e.target.value)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                      />
+                      <input
+                        type="text"
+                        placeholder="CPF (opcional)"
+                        value={newKnownClientCpf}
+                        onChange={(e) => setNewKnownClientCpf(e.target.value)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Rua (opcional)"
+                        value={newKnownClientStreet}
+                        onChange={(e) => setNewKnownClientStreet(e.target.value)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                      />
+                      <input
+                        type="date"
+                        value={newKnownClientBirthday}
+                        onChange={(e) => setNewKnownClientBirthday(e.target.value)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                      />
+                    </div>
+                    <div className="flex items-center justify-end gap-2 mt-4">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAddClientInline(false);
+                          setNewKnownClientName('');
+                          setNewKnownClientWhatsapp('');
+                          setNewKnownClientCpf('');
+                          setNewKnownClientStreet('');
+                          setNewKnownClientBirthday('');
+                        }}
+                        className="px-3 py-2 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100"
+                        disabled={isCreatingKnownClient}
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCreateKnownClient}
+                        disabled={isCreatingKnownClient}
+                        className={`px-4 py-2 text-sm rounded-lg text-white font-medium ${isCreatingKnownClient ? 'bg-gray-400 cursor-not-allowed' : 'bg-black hover:bg-gray-800'
+                          }`}
+                      >
+                        {isCreatingKnownClient ? 'Adicionando...' : 'Salvar e continuar'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {loadingClients ? (
                 <div className="text-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black mx-auto"></div>
@@ -2355,98 +2586,12 @@ export default function ReservarCliente({
                 </div>
               ) : filteredClients.length === 0 ? (
                 <div className="text-center py-8">
-                  <p className="text-gray-600 mb-4">
-                    {clientSearchQuery ? 'Nenhum cliente encontrado' : 'Nenhum cliente encontrado'}
-                  </p>
+                  <p className="text-gray-600 mb-4">Nenhum cliente encontrado</p>
                   {!clientSearchQuery && (
                     <p className="text-sm text-gray-500">
                       Clientes aparecem aqui após fazerem agendamentos no sistema.
                     </p>
                   )}
-                  <div className="mt-4">
-                    {!showAddClientInline ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const suggestedName = String(clientSearchQuery || '').trim();
-                          setShowAddClientInline(true);
-                          if (suggestedName) {
-                            // UX: reaproveita a busca digitada como sugestao de nome.
-                            setNewKnownClientName(suggestedName);
-                          }
-                        }}
-                        className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                      >
-                        Adicionar cliente novo
-                      </button>
-                    ) : (
-                      <div className="mt-3 text-left border border-gray-300 rounded-lg p-4 bg-gray-50">
-                        <h4 className="text-sm font-semibold text-gray-800 mb-3">Novo cliente</h4>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <input
-                            type="text"
-                            placeholder="Nome *"
-                            value={newKnownClientName}
-                            onChange={(e) => setNewKnownClientName(e.target.value)}
-                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
-                          />
-                          <input
-                            type="text"
-                            placeholder="Telefone *"
-                            value={newKnownClientWhatsapp}
-                            onChange={(e) => setNewKnownClientWhatsapp(e.target.value)}
-                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
-                          />
-                          <input
-                            type="text"
-                            placeholder="CPF (opcional)"
-                            value={newKnownClientCpf}
-                            onChange={(e) => setNewKnownClientCpf(e.target.value)}
-                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
-                          />
-                          <input
-                            type="text"
-                            placeholder="Rua (opcional)"
-                            value={newKnownClientStreet}
-                            onChange={(e) => setNewKnownClientStreet(e.target.value)}
-                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
-                          />
-                          <input
-                            type="date"
-                            value={newKnownClientBirthday}
-                            onChange={(e) => setNewKnownClientBirthday(e.target.value)}
-                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
-                          />
-                        </div>
-                        <div className="flex items-center justify-end gap-2 mt-4">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowAddClientInline(false);
-                              setNewKnownClientName('');
-                              setNewKnownClientWhatsapp('');
-                              setNewKnownClientCpf('');
-                              setNewKnownClientStreet('');
-                              setNewKnownClientBirthday('');
-                            }}
-                            className="px-3 py-2 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100"
-                            disabled={isCreatingKnownClient}
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleCreateKnownClient}
-                            disabled={isCreatingKnownClient}
-                            className={`px-4 py-2 text-sm rounded-lg text-white font-medium ${isCreatingKnownClient ? 'bg-gray-400 cursor-not-allowed' : 'bg-black hover:bg-gray-800'
-                              }`}
-                          >
-                            {isCreatingKnownClient ? 'Adicionando...' : 'Salvar e continuar'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[45vh] sm:max-h-[400px] overflow-y-auto">
@@ -2894,14 +3039,44 @@ export default function ReservarCliente({
                         ))}
                       </ul>
                       <div className="border-t pt-2 mt-2">
-                        <p><strong>Total:</strong> {formatDuration(calculateTotalDuration(selectedServices))} • {formatPrice(calculateTotalPrice(selectedServices))}</p>
+                        <p>
+                          <strong>Total:</strong> {formatDuration(calculateTotalDuration(selectedServices))} •{' '}
+                          {formatPrice(
+                            loyaltyRedeemApplied &&
+                              selectedClient &&
+                              !selectedSubscription &&
+                              !selectedClientActiveSubscriptionId &&
+                              loyaltyRow &&
+                              loyaltyRow.cycle_progress >= loyaltyRow.cycle_goal &&
+                              !reservarMensal
+                              ? 0
+                              : calculateTotalPrice(selectedServices)
+                          )}
+                        </p>
                       </div>
                     </>
                   ) : (
                     <>
                       <p><strong>Serviço:</strong> {selectedService?.name}</p>
                       <p><strong>Duração:</strong> {formatDuration(selectedService?.duration || 0)}</p>
-                      <p><strong>Preço:</strong> {selectedSubscription ? <span className="text-gray-700 font-semibold">GRATUITO</span> : formatPrice(selectedService?.price || 0)}</p>
+                      <p>
+                        <strong>Preço:</strong>{' '}
+                        {selectedSubscription ? (
+                          <span className="text-gray-700 font-semibold">GRATUITO</span>
+                        ) : (
+                          formatPrice(
+                            loyaltyRedeemApplied &&
+                              selectedClient &&
+                              !selectedSubscription &&
+                              !selectedClientActiveSubscriptionId &&
+                              loyaltyRow &&
+                              loyaltyRow.cycle_progress >= loyaltyRow.cycle_goal &&
+                              !reservarMensal
+                              ? 0
+                              : selectedService?.price || 0
+                          )
+                        )}
+                      </p>
                     </>
                   )}
 
@@ -2919,6 +3094,47 @@ export default function ReservarCliente({
                       'CLIENTE AVULSO'
                     )
                   }</p>
+
+                  {selectedClient && !selectedSubscription && !selectedClientActiveSubscriptionId ? (
+                    <div className="mt-2 pt-2 border-t border-gray-300 space-y-2">
+                      <p className="font-semibold text-gray-900 text-sm">Programa de fidelidade</p>
+                      {loyaltyLoading ? (
+                        <p className="text-xs text-gray-600">Carregando informações...</p>
+                      ) : !loyaltyRow ? (
+                        <p className="text-xs text-gray-600">
+                          Sem meta configurada para este cliente. Em <strong>Meus Clientes</strong>, abra{' '}
+                          <strong>Agendamentos feitos</strong> e use <strong>Pontos Fidelidade</strong> para definir o ciclo (ex.: 10).
+                        </p>
+                      ) : loyaltyRow.cycle_progress >= loyaltyRow.cycle_goal ? (
+                        <>
+                          <p className="text-sm text-emerald-900 font-bold">Status: Pontos concluídos</p>
+                          <p className="text-xs text-gray-700">
+                            O cliente atingiu a meta de {loyaltyRow.cycle_goal} atendimento(s) concluído(s). Você pode zerar o valor desta reserva para registrar como benefício de fidelidade.
+                          </p>
+                          {!reservarMensal ? (
+                            <button
+                              type="button"
+                              onClick={() => setLoyaltyRedeemApplied((v) => !v)}
+                              className="px-3 py-2 rounded-lg bg-black text-white text-xs font-bold hover:bg-gray-800 transition-colors"
+                            >
+                              {loyaltyRedeemApplied ? 'Desfazer zerar valor' : 'Zerar valor'}
+                            </button>
+                          ) : (
+                            <p className="text-xs text-amber-800">
+                              Com <strong>reserva mensal</strong> ativa, o benefício de fidelidade não pode ser aplicado em lote. Desative a reserva mensal ou faça uma reserva em data única.
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-sm text-gray-800">
+                          Pontos neste ciclo: <strong>{loyaltyRow.cycle_progress}</strong> de <strong>{loyaltyRow.cycle_goal}</strong>
+                          {' — '}
+                          faltam <strong>{loyaltyRow.cycle_goal - loyaltyRow.cycle_progress}</strong> atendimento(s){' '}
+                          <span className="text-gray-600">concluído(s)</span> para liberar o benefício.
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 

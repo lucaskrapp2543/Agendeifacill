@@ -75,6 +75,8 @@ interface Appointment {
   establishment_observation?: string;
   is_premium?: boolean;
   is_subscriber?: boolean;
+  /** Benefício gratuito do programa de fidelidade (não assinante). */
+  is_loyalty_reward?: boolean;
   subscription_id?: string | null;
   is_child_service?: boolean;
   is_avulso?: boolean;
@@ -5212,6 +5214,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             </button>
                                           )}
                                           {apt.is_premium && !apt.is_subscriber && <Crown className="w-4 h-4 text-gray-300" />}
+                                          {apt.is_loyalty_reward && (
+                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold border border-violet-300 bg-violet-900/40 text-violet-100">
+                                              FIDELIDADE
+                                            </span>
+                                          )}
                                           {apt.is_squeeze && <span className="text-gray-300 text-xs">🟣</span>}
                                         </div>
                                         {isAvulsoLike(apt) && !apt.is_squeeze && (
