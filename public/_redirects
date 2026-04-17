@@ -1,3 +1,12 @@
+# Proxy Supabase pelo mesmo host (antes de TUDO que não seja API local)
+# Sem isso, /auth/* cai no catch-all SPA e o cliente recebe HTML em vez de JSON.
+/auth/*                 https://api.agendeifacil.com/auth/:splat                 200
+/rest/*                 https://api.agendeifacil.com/rest/:splat                 200
+/storage/*              https://api.agendeifacil.com/storage/:splat              200
+/functions/*            https://api.agendeifacil.com/functions/:splat            200
+/realtime/*             https://api.agendeifacil.com/realtime/:splat             200
+/graphql/*              https://api.agendeifacil.com/graphql/:splat              200
+
 # Rotas de API - DEVEM VIR ANTES do catch-all
 # Mercado Pago
 /api/mercadopago/oauth/authorize    /.netlify/functions/mercadopago-oauth-authorize    200

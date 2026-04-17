@@ -89,41 +89,41 @@
   methods = ["POST", "OPTIONS"]
 
 # Proxy Supabase pelo mesmo host do site (ex.: agendeifacil.com).
-# Redes com DNS podre devolvem NXDOMAIN para api.* — o celular só precisa resolver o domínio do site.
-# Netlify resolve api.agendeifacil.com no servidor. Manter SUPABASE_URL nas functions apontando para https://api.agendeifacil.com.
+# :path* cobre vários segmentos (/auth/v1/token). Só "*" às vezes não casa tudo e cai no SPA (HTML → erro JSON).
+# Manter SUPABASE_URL nas functions apontando para https://api.agendeifacil.com.
 [[redirects]]
-  from = "/auth/*"
-  to = "https://api.agendeifacil.com/auth/:splat"
+  from = "/auth/:path*"
+  to = "https://api.agendeifacil.com/auth/:path*"
   status = 200
   force = true
 
 [[redirects]]
-  from = "/rest/*"
-  to = "https://api.agendeifacil.com/rest/:splat"
+  from = "/rest/:path*"
+  to = "https://api.agendeifacil.com/rest/:path*"
   status = 200
   force = true
 
 [[redirects]]
-  from = "/storage/*"
-  to = "https://api.agendeifacil.com/storage/:splat"
+  from = "/storage/:path*"
+  to = "https://api.agendeifacil.com/storage/:path*"
   status = 200
   force = true
 
 [[redirects]]
-  from = "/functions/*"
-  to = "https://api.agendeifacil.com/functions/:splat"
+  from = "/functions/:path*"
+  to = "https://api.agendeifacil.com/functions/:path*"
   status = 200
   force = true
 
 [[redirects]]
-  from = "/realtime/*"
-  to = "https://api.agendeifacil.com/realtime/:splat"
+  from = "/realtime/:path*"
+  to = "https://api.agendeifacil.com/realtime/:path*"
   status = 200
   force = true
 
 [[redirects]]
-  from = "/graphql/*"
-  to = "https://api.agendeifacil.com/graphql/:splat"
+  from = "/graphql/:path*"
+  to = "https://api.agendeifacil.com/graphql/:path*"
   status = 200
   force = true
 
