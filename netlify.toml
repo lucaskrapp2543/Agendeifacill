@@ -8,10 +8,6 @@
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
-# Proxy do Supabase pode precisar de mais tempo em redes ruins (e ainda caber no limite do plano).
-[functions."supabase-proxy"]
-  timeout = 26
-
 ## Rotas de API (Pagar.me)
 [[redirects]]
   from = "/api/pagarme/create-recipient"
@@ -91,15 +87,6 @@
   status = 200
   force = true
   methods = ["POST", "OPTIONS"]
-
-## Proxy Supabase (mesmo domínio) — contorna Wi-Fi/DNS que bloqueia `*.supabase.co`
-## Ex.: `/sb/rest/v1/...` e `/sb/auth/v1/...`
-[[redirects]]
-  from = "/sb/*"
-  to = "/.netlify/functions/supabase-proxy/:path*"
-  status = 200
-  force = true
-  methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
 # Catch-all - DEVE VIR POR ÚLTIMO (SPA)
 [[redirects]]

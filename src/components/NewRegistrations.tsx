@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { getSupabaseBrowserHttpUrl, supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 interface RegistrationForm {
   id: string;
@@ -119,7 +119,7 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
       // ✅ SOLUÇÃO: Criar usuário usando uma nova instância do cliente Supabase
       // Isso evita que a sessão atual seja afetada
       const tempSupabase = createClient(
-        getSupabaseBrowserHttpUrl() || '',
+        import.meta.env.VITE_SUPABASE_URL || '',
         import.meta.env.VITE_SUPABASE_ANON_KEY || '',
         {
           // Evitar conflito de storageKey/sessão com o client principal (elimina warning do GoTrueClient)

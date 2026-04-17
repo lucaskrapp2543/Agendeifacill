@@ -383,7 +383,7 @@ self.addEventListener('fetch', (event) => {
     // API calls - Network First (sempre da rede, sem cache de erros)
     // ⚠️ CRÍTICO: APIs nunca devem usar cache de respostas de erro (404, 500, etc)
     // ⚠️ SUPABASE: NUNCA usar cache (sempre da rede) para evitar problemas de autenticação
-    else if (url.hostname.includes('supabase') || url.pathname.startsWith('/sb/')) {
+    else if (url.hostname.includes('supabase')) {
       // Para Supabase, SEMPRE buscar da rede (nunca usar cache)
       event.respondWith(fetch(request, { cache: 'no-store' }));
     }

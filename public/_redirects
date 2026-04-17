@@ -16,9 +16,6 @@
 # Outras APIs
 /api/cancel-appointment             /.netlify/functions/cancel-appointment           200
 
-# Proxy Supabase (mesmo domínio) — contorna Wi-Fi/DNS que bloqueia `*.supabase.co`
-/sb/*    /.netlify/functions/supabase-proxy/:path*    200
-
 # Redirecionar todas as outras rotas para index.html para suportar client-side routing
 # Isso permite que o React Router gerencie as rotas no lado do cliente
 /*    /index.html   200 

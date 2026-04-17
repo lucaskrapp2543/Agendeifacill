@@ -231,24 +231,8 @@ const Login = () => {
       console.error('Erro ao fazer login:', error);
       const rawMessage = String(error?.message || '');
       const lowerMessage = rawMessage.toLowerCase();
-      const isNetworkLike =
-        lowerMessage.includes('failed to fetch') ||
-        lowerMessage.includes('load failed') ||
-        lowerMessage.includes('networkerror') ||
-        lowerMessage.includes('network request failed') ||
-        lowerMessage.includes('fetch') ||
-        lowerMessage.includes('timeout') ||
-        lowerMessage.includes('timed out') ||
-        lowerMessage.includes('abort') ||
-        error?.name === 'TypeError';
-
       if (lowerMessage.includes('invalid login credentials')) {
         toast.error('Não foi possível entrar. Confira email/senha e remova espaços extras no início/fim.', { id: 'login-error' });
-      } else if (isNetworkLike) {
-        toast.error(
-          'Não consegui conectar ao servidor agora (rede/timeout). Tente 4G, desligue VPN/DNS privado, ou aguarde 1–2 minutos e tente novamente.',
-          { id: 'login-error', duration: 8000 }
-        );
       } else {
         const details = [error?.message, error?.code, error?.details, error?.hint]
           .filter(Boolean)
