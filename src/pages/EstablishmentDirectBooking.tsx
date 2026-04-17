@@ -9,6 +9,60 @@ import { useAuth } from '../context/AuthContext';
 import { createAppointment, signIn, supabase } from '../lib/supabase';
 import type { Establishment } from '../types/supabase';
 
+const describeDirectEstablishmentLookupFailure = (error: unknown, code: string): string => {
+  const normalizedCode = String(code || '').trim();
+  const err: any = error as any;
+  const msg = String(err?.message || err?.error || '').trim();
+  const lower = msg.toLowerCase();
+  const pgCode = String(err?.code || '').trim();
+
+  const isNetworkLike =
+    lower.includes('load failed') ||
+    lower.includes('failed to fetch') ||
+    lower.includes('networkerror') ||
+    lower.includes('network request failed') ||
+    lower.includes('fetch') ||
+    lower.includes('timeout') ||
+    lower.includes('timed out') ||
+    lower.includes('aborted') ||
+    err?.name === 'TypeError';
+
+  if (isNetworkLike) {
+    return (
+      'Não foi possível carregar o estabelecimento agora (falha de rede/conexão com o servidor). ' +
+      'Tente novamente em alguns instantes ou use dados móveis (4G). ' +
+      (normalizedCode ? `(código: ${normalizedCode})` : '')
+    );
+  }
+
+  if (
+    pgCode === 'PGRST301' ||
+    lower.includes('jwt') ||
+    lower.includes('permission denied') ||
+    lower.includes('rls') ||
+    lower.includes('not authorized') ||
+    lower.includes('row-level security')
+  ) {
+    return (
+      'Não foi possível validar o acesso ao estabelecimento (permissão/sessão). ' +
+      'Atualize a página. Se persistir, avise o suporte — isso não significa que o código sumiu. ' +
+      (normalizedCode ? `(código: ${normalizedCode})` : '')
+    );
+  }
+
+  if (pgCode === 'PGRST116' || lower.includes('0 rows')) {
+    return normalizedCode
+      ? `Estabelecimento com código "${normalizedCode}" não encontrado.`
+      : 'Estabelecimento não encontrado.';
+  }
+
+  if (msg) {
+    return `Não foi possível carregar o estabelecimento agora. ${msg}` + (normalizedCode ? ` (código: ${normalizedCode})` : '');
+  }
+
+  return `Não foi possível carregar o estabelecimento agora.` + (normalizedCode ? ` (código: ${normalizedCode})` : '');
+};
+
 const EstablishmentDirectBooking: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
@@ -170,7 +224,8 @@ const EstablishmentDirectBooking: React.FC = () => {
 
       if (!data) {
         console.log('⚠️ Estabelecimento não encontrado');
-        return { data: null, error: { message: 'Estabelecimento não encontrado' } };
+        // Importante: sem `error` aqui — senão a UI confunde "não existe" com "falha de rede/RLS".
+        return { data: null, error: null };
       }
 
       console.log('✅ Estabelecimento encontrado:', data);
@@ -211,12 +266,16 @@ const EstablishmentDirectBooking: React.FC = () => {
 
         if (error) {
           console.error('❌ Erro detalhado:', error);
-          setError('Estabelecimento não encontrado');
+          setError(describeDirectEstablishmentLookupFailure(error, code));
           return;
         }
 
         if (!establishmentDataFetched) {
-          setError('Estabelecimento não encontrado');
+          setError(
+            code
+              ? `Estabelecimento com código "${code}" não encontrado.`
+              : 'Estabelecimento não encontrado.'
+          );
           return;
         }
 
@@ -269,10 +328,17 @@ const EstablishmentDirectBooking: React.FC = () => {
         };
 
         setEstablishment(establishmentData);
-        setLoading(false);
       } catch (error) {
         console.error('❌ Erro ao carregar estabelecimento:', error);
-        setError('Erro ao carregar estabelecimento');
+        const fallbackCode = (() => {
+          try {
+            return extractCodeFromSlug(String(slug || ''));
+          } catch {
+            return '';
+          }
+        })();
+        setError(describeDirectEstablishmentLookupFailure(error, fallbackCode));
+      } finally {
         setLoading(false);
       }
     };

@@ -1828,113 +1828,27 @@ export default function ReservarCliente({
       };
 
       const datesWithBlockedConflict = datasSemConflito.filter((dateStr) => isBlockedConflictForDate(dateStr));
-      const askUnlockBlockedConfirmation = (dates: string[]) =>
+      const askBlockedOverrideConfirmation = (dates: string[]) =>
         window.confirm(
           'Esse horário está bloqueado para uma ou mais datas selecionadas.\n' +
-          'Deseja DESBLOQUEAR esse horário nessas datas e agendar?\n\n' +
+          'Deseja AGENDAR MESMO ASSIM sem remover os bloqueios salvos?\n\n' +
           `Horário: ${selectedTime}\n` +
           `Datas com bloqueio: ${dates.slice(0, 8).join(', ')}${dates.length > 8 ? ` (+${dates.length - 8})` : ''}`
         );
 
-      const unlockBlockedHoursForDates = async (datesToUnlock: string[]): Promise<boolean> => {
-        const uniqueDates = Array.from(new Set((datesToUnlock || []).filter(Boolean)));
-        if (uniqueDates.length === 0) return true;
-
-        const { data: establishmentRow, error: establishmentError } = await supabase
-          .from('establishments')
-          .select('professionals')
-          .eq('id', establishmentId)
-          .single();
-        if (establishmentError) {
-          alert('Erro ao carregar profissionais para desbloquear horário.');
-          return false;
-        }
-
-        const dbProfessionals = Array.isArray((establishmentRow as any)?.professionals)
-          ? ([...(establishmentRow as any).professionals] as any[])
-          : [];
-        if (dbProfessionals.length === 0) return true;
-
-        const selectedProfessionalIdNormDb = normalizeText(selectedProfessional?.id);
-        const selectedProfessionalNameNormDb = normalizeText(selectedProfessional?.name);
-        const targetIdx = dbProfessionals.findIndex((p: any) => {
-          const pid = normalizeText(p?.id);
-          const pname = normalizeText(p?.name);
-          return (
-            (selectedProfessionalIdNormDb.length > 0 && pid === selectedProfessionalIdNormDb) ||
-            (selectedProfessionalNameNormDb.length > 0 && pname === selectedProfessionalNameNormDb)
-          );
-        });
-        if (targetIdx < 0) return true;
-
-        const targetProfessional = { ...(dbProfessionals[targetIdx] || {}) } as any;
-        const blockedMapRaw = targetProfessional?.blocked_hours;
-        const blockedMap: Record<string, string[]> =
-          blockedMapRaw && typeof blockedMapRaw === 'object' && !Array.isArray(blockedMapRaw)
-            ? { ...blockedMapRaw }
-            : {};
-
-        let changed = false;
-        uniqueDates.forEach((dateKey) => {
-          const dayBlockedRaw = blockedMap[dateKey];
-          const dayBlocked = Array.isArray(dayBlockedRaw) ? dayBlockedRaw : [];
-          if (dayBlocked.length === 0) return;
-
-          const remaining = dayBlocked.filter((blocked: string) => {
-            const blockedStart = parseTimeToMinutes(normalizeTimeHHmm(String(blocked || '')));
-            const blockedDuration = 15;
-            const isConflict = hasOverlap(novoInicioMin, totalDuration, blockedStart, blockedDuration);
-            return !isConflict;
-          });
-
-          if (remaining.length !== dayBlocked.length) {
-            changed = true;
-            if (remaining.length > 0) blockedMap[dateKey] = remaining;
-            else delete blockedMap[dateKey];
-          }
-        });
-
-        if (!changed) return true;
-
-        targetProfessional.blocked_hours = blockedMap;
-        const nextProfessionals = [...dbProfessionals];
-        nextProfessionals[targetIdx] = targetProfessional;
-
-        const { error: updateError } = await supabase
-          .from('establishments')
-          .update({ professionals: nextProfessionals })
-          .eq('id', establishmentId);
-        if (updateError) {
-          alert('Erro ao salvar desbloqueio de horário.');
-          return false;
-        }
-
-        setProfessionals(nextProfessionals as any);
-        setSelectedProfessional((prev) => {
-          if (!prev) return prev;
-          const updated = nextProfessionals[targetIdx];
-          return updated ? ({ ...prev, ...updated } as any) : prev;
-        });
-        return true;
-      };
-
-      // Regra solicitada:
-      // No agendamento interno (Reservar Cliente), se o horário estiver bloqueado em qualquer data selecionada,
-      // perguntar se deseja DESBLOQUEAR nas datas selecionadas e agendar.
-      let didUnlockBlockedHours = false;
+      // Regra de segurança:
+      // No agendamento interno (Reservar Cliente), se houver bloqueio, nunca remover do cadastro.
+      // Apenas confirmar override para este agendamento.
+      let shouldUseBlockedOverride = false;
       if (datesWithBlockedConflict.length > 0) {
-        const shouldUnlock = askUnlockBlockedConfirmation(datesWithBlockedConflict);
-        if (!shouldUnlock) {
+        const shouldOverride = askBlockedOverrideConfirmation(datesWithBlockedConflict);
+        if (!shouldOverride) {
           setLoading(false);
           return;
         }
-        const unlocked = await unlockBlockedHoursForDates(datesWithBlockedConflict);
-        if (!unlocked) {
-          setLoading(false);
-          return;
-        }
-        didUnlockBlockedHours = true;
+        shouldUseBlockedOverride = true;
       }
+      const blockedConflictDatesSet = new Set(datesWithBlockedConflict);
 
       // Barbeiro cria a reserva: client_id tem que ser um id que existe em auth.users (NOT NULL + FK).
       // Sempre usamos o user do dono logado (currentUserId da sessão atualizada); cliente identificado por client_name e client_whatsapp.
@@ -1967,9 +1881,8 @@ export default function ReservarCliente({
             }
           }
         }
-        // Segurança adicional: quando o dono confirmou desbloqueio no fluxo interno,
-        // também envia override para não falhar por divergência de bloqueio legado.
-        if (didUnlockBlockedHours) {
+        // Segurança adicional: nunca remove bloqueio salvo; aplica override só nas datas em conflito.
+        if (shouldUseBlockedOverride && blockedConflictDatesSet.has(dateStr)) {
           payload.allow_blocked_override = true;
         }
         return payload;
@@ -2072,17 +1985,15 @@ export default function ReservarCliente({
       // Fallback de compatibilidade:
       // Se o banco bloquear (P0001), sempre faz uma segunda tentativa com override forçado.
       if (insertError && isBlockedByTriggerError(insertError)) {
-        let unlockedAfterDbError = true;
-        if (!didUnlockBlockedHours) {
-          const shouldUnlockAfterDbError = askUnlockBlockedConfirmation(datasSemConflito);
-          if (!shouldUnlockAfterDbError) {
-            unlockedAfterDbError = false;
-          } else {
-            unlockedAfterDbError = await unlockBlockedHoursForDates(datasSemConflito);
+        let allowRetryWithOverride = true;
+        if (!shouldUseBlockedOverride) {
+          const shouldOverrideAfterDbError = askBlockedOverrideConfirmation(datasSemConflito);
+          if (!shouldOverrideAfterDbError) {
+            allowRetryWithOverride = false;
           }
         }
 
-        if (unlockedAfterDbError) {
+        if (allowRetryWithOverride) {
           const retryPayloads = payloads.map((payload) => ({
             ...payload,
             allow_blocked_override: true,

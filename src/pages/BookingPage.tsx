@@ -83,6 +83,59 @@ const sanitizeBookingCustomAmenities = (value: any): BookingCustomAmenity[] => {
   return result.slice(0, 20);
 };
 
+const describeBookingEstablishmentFetchError = (error: unknown, bookingCode: string): string => {
+  const code = String(bookingCode || '').trim();
+  const err: any = error as any;
+  const msg = String(err?.message || err?.error || '').trim();
+  const lower = msg.toLowerCase();
+  const pgCode = String(err?.code || '').trim();
+
+  const isNetworkLike =
+    lower.includes('load failed') ||
+    lower.includes('failed to fetch') ||
+    lower.includes('networkerror') ||
+    lower.includes('network request failed') ||
+    lower.includes('fetch') ||
+    lower.includes('timeout') ||
+    lower.includes('timed out') ||
+    lower.includes('aborted') ||
+    err?.name === 'TypeError';
+
+  if (isNetworkLike) {
+    return (
+      'Não foi possível carregar o link de agendamento agora (falha de rede/conexão com o servidor). ' +
+      'Tente novamente em alguns instantes ou use dados móveis (4G). ' +
+      (code ? `(código: ${code})` : '')
+    );
+  }
+
+  if (
+    pgCode === 'PGRST301' ||
+    lower.includes('jwt') ||
+    lower.includes('permission denied') ||
+    lower.includes('rls') ||
+    lower.includes('not authorized') ||
+    lower.includes('row-level security')
+  ) {
+    return (
+      'Não foi possível validar o acesso ao estabelecimento (permissão/sessão). ' +
+      'Atualize a página. Se persistir, avise o suporte — isso não significa que o código sumiu. ' +
+      (code ? `(código: ${code})` : '')
+    );
+  }
+
+  // PostgREST: nenhuma linha (geralmente vem como PGRST116 em .single(), mas cobrimos variações)
+  if (pgCode === 'PGRST116' || lower.includes('0 rows')) {
+    return `Estabelecimento com código "${code}" não encontrado.`;
+  }
+
+  if (msg) {
+    return `Não foi possível carregar o estabelecimento agora. ${msg}` + (code ? ` (código: ${code})` : '');
+  }
+
+  return `Não foi possível carregar o estabelecimento agora.` + (code ? ` (código: ${code})` : '');
+};
+
 export default function BookingPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -1101,7 +1154,7 @@ export default function BookingPage() {
       console.error('❌ Error name:', error.name);
       console.error('❌ Error message:', error.message);
       console.error('❌ Error stack:', error.stack);
-      toast.error(`Estabelecimento com código "${id}" não encontrado`);
+      toast.error(describeBookingEstablishmentFetchError(error, String(id || '')));
     } finally {
       console.log('🏁 Finalizando busca, setIsLoading(false)');
       setIsLoading(false);

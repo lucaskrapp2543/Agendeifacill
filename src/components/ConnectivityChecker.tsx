@@ -11,10 +11,27 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
   onConnectionStatusChange,
   children
 }) => {
+  const CONNECTIVITY_WARN_DISMISS_KEY = 'agendafacil_connectivity_warn_dismissed_until';
+  /** Não bloquear login por oscilação: exige várias falhas seguidas antes de avisar. */
+  const FAILURES_BEFORE_WARN = 4;
+  const HEALTH_TIMEOUT_MS = 12000;
+
   const [isConnected, setIsConnected] = useState(true);
+  const [showConnectivityWarn, setShowConnectivityWarn] = useState(false);
+  const [warnDismissed, setWarnDismissed] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
   const [lastCheck, setLastCheck] = useState<Date | null>(null);
   const [consecutiveFailures, setConsecutiveFailures] = useState(0);
+
+  const readDismissedUntil = (): number => {
+    try {
+      const raw = sessionStorage.getItem(CONNECTIVITY_WARN_DISMISS_KEY);
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : 0;
+    } catch {
+      return 0;
+    }
+  };
 
   const checkSupabaseHealth = async (): Promise<boolean> => {
     const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim();
@@ -22,7 +39,7 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
     if (!supabaseUrl) return navigator.onLine;
 
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 8000);
+    const timeout = window.setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
     try {
       const res = await fetch(`${supabaseUrl}/auth/v1/health`, {
         method: 'GET',
@@ -35,8 +52,9 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
             }
           : undefined,
       });
-      // Se respondeu 401/403, o servidor está alcançável (não é falta de internet).
+      // Qualquer resposta HTTP indica que o host foi alcançável (não é "sem internet").
       if (res.status === 401 || res.status === 403) return true;
+      if (res.status >= 200 && res.status < 600) return true;
       return res.ok;
     } catch {
       return false;
@@ -48,9 +66,15 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
   const checkConnectivity = async () => {
     setIsChecking(true);
     try {
+      const dismissedUntil = readDismissedUntil();
+      if (dismissedUntil > Date.now()) {
+        setWarnDismissed(true);
+        setShowConnectivityWarn(false);
+      }
+
       // 1) Sem rede local no aparelho: desconectado imediatamente.
       if (!navigator.onLine) {
-        setConsecutiveFailures(prev => prev + 1);
+        setConsecutiveFailures((prev) => prev + 1);
         setIsConnected(false);
         setLastCheck(new Date());
         onConnectionStatusChange?.(false);
@@ -63,6 +87,7 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
       if (healthOk) {
         setConsecutiveFailures(0);
         setIsConnected(true);
+        setShowConnectivityWarn(false);
         setLastCheck(new Date());
         onConnectionStatusChange?.(true);
         dlog('🔍 Verificação de conectividade: ✅ Conectado (health check)');
@@ -82,30 +107,37 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
       if (isPermissionLikeError) {
         setConsecutiveFailures(0);
         setIsConnected(true);
+        setShowConnectivityWarn(false);
         setLastCheck(new Date());
         onConnectionStatusChange?.(true);
         dlog('🔍 Verificação de conectividade: ✅ Conectado (erro de permissão ignorado)');
         return;
       }
 
-      // 4) Só mostra tela de "sem conexão" após 2 falhas seguidas, para não punir oscilações móveis.
-      setConsecutiveFailures(prev => {
+      // 4) Falha real de rede / timeout: não bloquear o app inteiro (login fica preso).
+      // Mostra apenas aviso após várias falhas; usuário pode dispensar e tentar logar.
+      setConsecutiveFailures((prev) => {
         const next = prev + 1;
-        const connected = next < 2;
-        setIsConnected(connected);
+        const shouldWarn = next >= FAILURES_BEFORE_WARN;
+        setIsConnected(true);
+        setShowConnectivityWarn(shouldWarn && !warnDismissed && readDismissedUntil() <= Date.now());
         setLastCheck(new Date());
-        onConnectionStatusChange?.(connected);
-        dlog('🔍 Verificação de conectividade:', connected ? '🟡 Instável (1ª falha)' : '❌ Desconectado (2 falhas)');
+        onConnectionStatusChange?.(true);
+        dlog(
+          '🔍 Verificação de conectividade:',
+          shouldWarn ? '⚠️ Instável (avisar usuário)' : `🟡 Falha ${next}/${FAILURES_BEFORE_WARN}`
+        );
         return next;
       });
     } catch (error) {
       console.error('❌ Erro na verificação de conectividade:', error);
-      setConsecutiveFailures(prev => {
+      setConsecutiveFailures((prev) => {
         const next = prev + 1;
-        const connected = next < 2;
-        setIsConnected(connected);
+        const shouldWarn = next >= FAILURES_BEFORE_WARN;
+        setIsConnected(true);
+        setShowConnectivityWarn(shouldWarn && !warnDismissed && readDismissedUntil() <= Date.now());
         setLastCheck(new Date());
-        onConnectionStatusChange?.(connected);
+        onConnectionStatusChange?.(true);
         return next;
       });
     } finally {
@@ -172,5 +204,57 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
     );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {showConnectivityWarn && (
+        <div className="fixed top-0 left-0 right-0 z-[60] bg-amber-50 border-b border-amber-200 text-amber-950 px-3 py-2 text-sm shadow-sm">
+          <div className="max-w-3xl mx-auto flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <strong>Conexão instável com o servidor.</strong>{' '}
+              Você ainda pode tentar logar. Se falhar, use 4G ou outra rede.
+              {lastCheck && (
+                <span className="block text-xs text-amber-900/70 mt-1">
+                  Última verificação: {lastCheck.toLocaleTimeString()}
+                </span>
+              )}
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={checkConnectivity}
+                disabled={isChecking}
+                className="px-3 py-1 rounded-md bg-amber-600 text-white text-xs font-medium disabled:opacity-50"
+              >
+                {isChecking ? 'Verificando...' : 'Tentar de novo'}
+              </button>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="px-3 py-1 rounded-md bg-amber-200 text-amber-950 text-xs font-medium"
+              >
+                Recarregar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    const until = Date.now() + 60 * 60 * 1000;
+                    sessionStorage.setItem(CONNECTIVITY_WARN_DISMISS_KEY, String(until));
+                  } catch {
+                    /* ignore */
+                  }
+                  setWarnDismissed(true);
+                  setShowConnectivityWarn(false);
+                }}
+                className="px-3 py-1 rounded-md border border-amber-300 text-xs font-medium"
+              >
+                Continuar assim
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {children}
+    </>
+  );
 };
