@@ -23,6 +23,7 @@ import {
   updateAppointmentCancelledWithSource,
 } from '../utils/appointmentCancellationMeta';
 import { fireMercadoPagoPendingReconcile } from '../utils/fireMercadoPagoPendingReconcile';
+import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
 
 type PublicBookingReview = {
   id: string;
@@ -138,7 +139,9 @@ export default function BookingPage() {
     establishment?.custom_photo_5_url,
     establishment?.custom_photo_6_url,
     establishment?.custom_photo_7_url,
-  ].filter(Boolean); // Remove valores undefined/null
+  ]
+    .map((u) => (u ? storagePublicUrlForBrowser(String(u)) : ''))
+    .filter(Boolean); // Remove valores undefined/null
   const hasCarouselPhotos = duplicatePhotos.length > 0;
   const customAmenities = sanitizeBookingCustomAmenities(establishment?.custom_amenities);
   const enabledCustomAmenities = customAmenities.filter((item) => item.enabled !== false);
@@ -3079,6 +3082,8 @@ export default function BookingPage() {
                     src={duplicatePhotos[duplicateCarouselIndex]}
                     alt={`Foto ${duplicateCarouselIndex + 1}`}
                     className="w-full h-full object-cover transition-opacity duration-500"
+                    loading="lazy"
+                    decoding="async"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
                       const defaultPhotos = ['/barbeiro ft 1.png', '/barbeiro ft 2.png', '/barbeiro ft 3.png'];
@@ -3133,7 +3138,7 @@ export default function BookingPage() {
               <div className="absolute -bottom-16 left-1/2 transform -translate-x-1/2 z-20">
                 <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white shadow-2xl bg-white">
                   <img
-                    src={establishment?.logo_url || '/fotopessoa.png'}
+                    src={storagePublicUrlForBrowser(establishment?.logo_url) || '/fotopessoa.png'}
                     alt={establishment?.name || 'Logo'}
                     className="w-full h-full object-cover"
                     onError={(e) => {
@@ -3151,7 +3156,7 @@ export default function BookingPage() {
             <div className="flex justify-center mb-6">
               <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white/15 shadow-2xl bg-black/30">
                 <img
-                  src={establishment?.logo_url || '/fotopessoa.png'}
+                  src={storagePublicUrlForBrowser(establishment?.logo_url) || '/fotopessoa.png'}
                   alt={establishment?.name || 'Logo'}
                   className="w-full h-full object-cover"
                   onError={(e) => {
@@ -3935,6 +3940,8 @@ export default function BookingPage() {
                           src={duplicatePhotos[duplicateCarouselIndex]}
                           alt={`Foto ${duplicateCarouselIndex + 1}`}
                           className="w-full h-full object-cover transition-opacity duration-500"
+                          loading="lazy"
+                          decoding="async"
                           onError={(e) => {
                             const target = e.target as HTMLImageElement;
                             const defaultPhotos = ['/barbeiro ft 1.png', '/barbeiro ft 2.png', '/barbeiro ft 3.png'];
@@ -4027,7 +4034,9 @@ export default function BookingPage() {
                                 }}
                               >
                                 <img
-                                  src={(professional as any).photo_url || '/fotopessoa.png'}
+                                  src={storagePublicUrlForBrowser((professional as any).photo_url) || '/fotopessoa.png'}
+                                  loading="lazy"
+                                  decoding="async"
                                   alt={professional.name}
                                   className="w-full h-full object-cover"
                                   onError={(e) => {

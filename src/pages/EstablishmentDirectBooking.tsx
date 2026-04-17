@@ -7,6 +7,7 @@ import ReadMore from '../components/ReadMore';
 import { useToast } from '../components/ui/Toaster';
 import { useAuth } from '../context/AuthContext';
 import { createAppointment, signIn, supabase } from '../lib/supabase';
+import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
 import type { Establishment } from '../types/supabase';
 
 const EstablishmentDirectBooking: React.FC = () => {
@@ -567,9 +568,11 @@ const EstablishmentDirectBooking: React.FC = () => {
           <div className="flex items-center space-x-4">
             {establishment?.profile_image_url && (
               <img
-                src={establishment.profile_image_url}
+                src={storagePublicUrlForBrowser(establishment.profile_image_url)}
                 alt={establishment.name}
                 className="w-16 h-16 rounded-full object-cover"
+                loading="lazy"
+                decoding="async"
               />
             )}
             <div>
@@ -638,23 +641,29 @@ const EstablishmentDirectBooking: React.FC = () => {
             <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {establishment.custom_photo_1_url && (
                 <img
-                  src={establishment.custom_photo_1_url}
+                  src={storagePublicUrlForBrowser(establishment.custom_photo_1_url)}
                   alt="Foto 1"
                   className="w-full h-48 object-cover rounded-lg"
+                  loading="lazy"
+                  decoding="async"
                 />
               )}
               {establishment.custom_photo_2_url && (
                 <img
-                  src={establishment.custom_photo_2_url}
+                  src={storagePublicUrlForBrowser(establishment.custom_photo_2_url)}
                   alt="Foto 2"
                   className="w-full h-48 object-cover rounded-lg"
+                  loading="lazy"
+                  decoding="async"
                 />
               )}
               {establishment.custom_photo_3_url && (
                 <img
-                  src={establishment.custom_photo_3_url}
+                  src={storagePublicUrlForBrowser(establishment.custom_photo_3_url)}
                   alt="Foto 3"
                   className="w-full h-48 object-cover rounded-lg"
+                  loading="lazy"
+                  decoding="async"
                 />
               )}
             </div>
