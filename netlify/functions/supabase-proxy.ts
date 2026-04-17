@@ -82,7 +82,22 @@ export const handler = async (event: any) => {
     const rawPath = String(event.path || '');
     // path esperado: /.netlify/functions/supabase-proxy/rest/v1/...
     const prefix = '/.netlify/functions/supabase-proxy';
-    const suffix = rawPath.startsWith(prefix) ? rawPath.slice(prefix.length) : '';
+    const suffixFromEventPath = rawPath.startsWith(prefix) ? rawPath.slice(prefix.length) : '';
+
+    // Fallback (defensivo): alguns rewrites podem não refletir o sufixo em `event.path` como esperado.
+    const suffixFromRawUrl = (() => {
+      const rawUrl = String(event.rawUrl || event.rawPath || '');
+      if (!rawUrl) return '';
+      try {
+        const u = new URL(rawUrl, 'http://localhost');
+        const p = u.pathname || '';
+        return p.startsWith(prefix) ? p.slice(prefix.length) : '';
+      } catch {
+        return '';
+      }
+    })();
+
+    const suffix = suffixFromEventPath || suffixFromRawUrl;
 
     const qsFromRaw = typeof event.rawQuery === 'string' && event.rawQuery.length > 0 ? `?${event.rawQuery}` : '';
     const qsFromObject = (() => {

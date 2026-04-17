@@ -96,7 +96,7 @@
 ## Ex.: `/sb/rest/v1/...` e `/sb/auth/v1/...`
 [[redirects]]
   from = "/sb/*"
-  to = "/.netlify/functions/supabase-proxy/:splat"
+  to = "/.netlify/functions/supabase-proxy/:path*"
   status = 200
   force = true
   methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
