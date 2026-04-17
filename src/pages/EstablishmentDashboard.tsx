@@ -526,6 +526,19 @@ const EstablishmentDashboard = () => {
     return output;
   };
 
+  /** União por data: evita estado React defasado apagar bloqueios do banco ({...db,...local} dava vitória ao local por chave). */
+  const mergeBlockedHoursMapsUnion = (db: any, local: any): Record<string, string[]> => {
+    const safeDb = normalizeBlockedHoursMap(db);
+    const safeLocal = normalizeBlockedHoursMap(local);
+    const dates = new Set([...Object.keys(safeDb), ...Object.keys(safeLocal)]);
+    const out: Record<string, string[]> = {};
+    for (const d of dates) {
+      const merged = Array.from(new Set([...(safeDb[d] || []), ...(safeLocal[d] || [])])).sort();
+      if (merged.length > 0) out[d] = merged;
+    }
+    return out;
+  };
+
   const buildBlockedHoursDiffEvents = (
     previousMap: Record<string, string[]>,
     nextMap: Record<string, string[]>
@@ -8082,12 +8095,12 @@ const EstablishmentDashboard = () => {
       const dbProfessional = dbProfessionals.find((p: any) => String(p?.id) === String(localProfessional?.id)) || {};
       const mergedProfessional = { ...dbProfessional, ...localProfessional };
 
-      const localBlocked = (localProfessional as any)?.blocked_hours;
-      const dbBlocked = (dbProfessional as any)?.blocked_hours;
-      const safeDbBlocked = dbBlocked && typeof dbBlocked === 'object' ? dbBlocked : {};
-      const safeLocalBlocked = localBlocked && typeof localBlocked === 'object' ? localBlocked : {};
-      const mergedBlockedHours = { ...safeDbBlocked, ...safeLocalBlocked };
-      (mergedProfessional as any).blocked_hours = Object.keys(mergedBlockedHours).length > 0 ? mergedBlockedHours : {};
+      const mergedBlockedHours = mergeBlockedHoursMapsUnion(
+        (dbProfessional as any)?.blocked_hours,
+        (localProfessional as any)?.blocked_hours
+      );
+      (mergedProfessional as any).blocked_hours =
+        Object.keys(mergedBlockedHours).length > 0 ? mergedBlockedHours : {};
 
       const localAbsences = (localProfessional as any)?.absences;
       const dbAbsences = (dbProfessional as any)?.absences;
@@ -8620,19 +8633,8 @@ const EstablishmentDashboard = () => {
             offers_child_service: localProfessional.offers_child_service ?? dbProfessional.offers_child_service ?? false,
             work_hours: localProfessional.work_hours || dbProfessional.work_hours || null,
             absences: (localProfessional as any).absences || dbProfessional.absences || [], // ✅ PRESERVAR AUSÊNCIAS!
-            // ✅ PRESERVAR HORÁRIOS BLOQUEADOS: mesclar DB + local por data para não perder bloqueios futuros
-            blocked_hours: (() => {
-              const local = (localProfessional as any).blocked_hours;
-              const db = dbProfessional.blocked_hours;
-              const safeLocal = local && typeof local === 'object'
-                ? normalizeBlockedHoursMap(local)
-                : {};
-              const safeDb = db && typeof db === 'object'
-                ? normalizeBlockedHoursMap(db)
-                : {};
-              const merged = { ...safeDb, ...safeLocal };
-              return Object.keys(merged).length > 0 ? merged : {};
-            })()
+            // ✅ PRESERVAR HORÁRIOS BLOQUEADOS: união por data (local defasado não apaga bloqueios do banco)
+            blocked_hours: mergeBlockedHoursMapsUnion(dbProfessional.blocked_hours, (localProfessional as any).blocked_hours)
           };
 
           // ✅ VALIDAÇÃO FINAL APÓS MESCLAR: Verificar se profissional com nome tem horário
@@ -17318,9 +17320,10 @@ Estamos te aguardando! 😎✂️`;
           if (dbProfessional.id === selectedProfessionalForAbsence) {
             // Buscar dados locais do profissional
             const localProfessional = professionals.find(p => p.id === selectedProfessionalForAbsence);
-            const safeDbBlocked = normalizeBlockedHoursMap((dbProfessional as any)?.blocked_hours || {});
-            const safeLocalBlocked = normalizeBlockedHoursMap((localProfessional as any)?.blocked_hours || {});
-            const mergedBlockedHours = { ...safeDbBlocked, ...safeLocalBlocked };
+            const mergedBlockedHours = mergeBlockedHoursMapsUnion(
+              (dbProfessional as any)?.blocked_hours,
+              (localProfessional as any)?.blocked_hours
+            );
 
             // Mesclar todos os campos, preservando dados do banco
             return {
