@@ -88,6 +88,45 @@
   force = true
   methods = ["POST", "OPTIONS"]
 
+# Proxy Supabase pelo mesmo host do site (ex.: agendeifacil.com).
+# Redes com DNS podre devolvem NXDOMAIN para api.* — o celular só precisa resolver o domínio do site.
+# Netlify resolve api.agendeifacil.com no servidor. Manter SUPABASE_URL nas functions apontando para https://api.agendeifacil.com.
+[[redirects]]
+  from = "/auth/*"
+  to = "https://api.agendeifacil.com/auth/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/rest/*"
+  to = "https://api.agendeifacil.com/rest/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/storage/*"
+  to = "https://api.agendeifacil.com/storage/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/functions/*"
+  to = "https://api.agendeifacil.com/functions/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/realtime/*"
+  to = "https://api.agendeifacil.com/realtime/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/graphql/*"
+  to = "https://api.agendeifacil.com/graphql/:splat"
+  status = 200
+  force = true
+
 # Catch-all - DEVE VIR POR ÚLTIMO (SPA)
 [[redirects]]
   from = "/*"

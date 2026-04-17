@@ -14,6 +14,8 @@ if (!supabaseUrl || !supabaseAnonKey) {
   }
 }
 
+// Produção na Netlify: use VITE_SUPABASE_URL = domínio do site (ex. https://agendeifacil.com) + proxy em netlify.toml,
+// para redes em que api.* dá NXDOMAIN no DNS do cliente. Sem .env local, fallback continua api direto.
 export const supabase: SupabaseClient<Database> = createClient(
   supabaseUrl || 'https://api.agendeifacil.com',
   supabaseAnonKey || '',
