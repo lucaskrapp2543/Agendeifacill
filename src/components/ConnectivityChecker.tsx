@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { getSupabaseBrowserHttpUrl, supabase } from '../lib/supabase';
 import { dlog } from '../utils/debugConsole';
 
 interface ConnectivityCheckerProps {
@@ -34,7 +34,7 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
   };
 
   const checkSupabaseHealth = async (): Promise<boolean> => {
-    const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').trim();
+    const supabaseUrl = String(getSupabaseBrowserHttpUrl() || '').trim();
     const anonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
     if (!supabaseUrl) return navigator.onLine;
 

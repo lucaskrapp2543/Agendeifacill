@@ -4,20 +4,119 @@ import type { Database } from '../types/supabase';
 import { dlog } from '../utils/debugConsole';
 import { getSubscriptionUsageDateRange } from '../utils/subscriptionUsagePeriod';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseUrlDirect = String(import.meta.env.VITE_SUPABASE_URL || '').trim();
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl || !supabaseAnonKey) {
+const shouldUseSameOriginSupabaseProxy = (): boolean => {
+  const flag = String(import.meta.env.VITE_SUPABASE_SAME_ORIGIN_PROXY || '').trim().toLowerCase();
+  if (flag === '0' || flag === 'false' || flag === 'off' || flag === 'no') return false;
+  if (flag === '1' || flag === 'true' || flag === 'on' || flag === 'yes') return true;
+
+  // Default: ligado em produção no browser (onde Wi-Fi pode bloquear *.supabase.co).
+  // Em dev/local, mantém URL direta para simplificar debugging.
+  if (import.meta.env.DEV) return false;
+  if (typeof window === 'undefined') return false;
+  return true;
+};
+
+const getSupabaseHttpUrlForClient = (): string => {
+  if (!supabaseUrlDirect) return '';
+  if (!shouldUseSameOriginSupabaseProxy()) return supabaseUrlDirect;
+
+  try {
+    const u = new URL(supabaseUrlDirect);
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return supabaseUrlDirect;
+
+    const origin = window.location.origin.replace(/\/+$/, '');
+    return `${origin}/sb`;
+  } catch {
+    return supabaseUrlDirect;
+  }
+};
+
+export const getSupabaseDirectUrl = (): string => supabaseUrlDirect;
+export const getSupabaseBrowserHttpUrl = (): string => getSupabaseHttpUrlForClient();
+
+const supabaseUrl = getSupabaseBrowserHttpUrl();
+
+if (!supabaseUrlDirect || !supabaseAnonKey) {
   console.error('❌ CRÍTICO: VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY são obrigatórios.');
   if (import.meta.env.DEV) {
     console.warn('⚠️ Defina no .env: VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY');
   }
 }
 
+/**
+ * Em redes móveis lentas, o fetch padrão pode estourar cedo e virar "TypeError: Failed to fetch"
+ * (especialmente em auth/token). Isso não é "cache": é timeout/rede.
+ */
+// Limite compatível com timeout de Functions no Netlify (evita ficar “pendurado” até 45s no servidor).
+const SUPABASE_FETCH_TIMEOUT_MS = 25000;
+const nativeFetch: typeof fetch = (...args: Parameters<typeof fetch>) => fetch(...args);
+
+const fetchWithReliableTimeout: typeof fetch = async (input, init) => {
+  const supportsAbortController = typeof AbortController !== 'undefined';
+  if (!supportsAbortController) {
+    return nativeFetch(input, init);
+  }
+
+  const outerSignal = init?.signal;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), SUPABASE_FETCH_TIMEOUT_MS);
+
+  const onOuterAbort = () => {
+    // Propagar cancelamento externo (ex.: supabase-js cancelando a requisição)
+    try {
+      controller.abort();
+    } catch {
+      // ignore
+    }
+  };
+
+  if (outerSignal) {
+    if (outerSignal.aborted) {
+      window.clearTimeout(timeoutId);
+      onOuterAbort();
+    } else {
+      outerSignal.addEventListener('abort', onOuterAbort, { once: true });
+    }
+  }
+
+  try {
+    return await nativeFetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error: any) {
+    const name = String(error?.name || '');
+    if (name === 'AbortError') {
+      const err = new Error(
+        `Timeout ao conectar com o servidor (${Math.round(SUPABASE_FETCH_TIMEOUT_MS / 1000)}s). Verifique sua internet ou tente 4G.`
+      );
+      (err as any).name = 'AuthRetryableFetchError';
+      throw err;
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+    if (outerSignal) {
+      try {
+        outerSignal.removeEventListener('abort', onOuterAbort);
+      } catch {
+        // ignore
+      }
+    }
+  }
+};
+
 export const supabase: SupabaseClient<Database> = createClient(
   supabaseUrl || 'https://api.agendeifacil.com',
   supabaseAnonKey || '',
   {
+    global: {
+      fetch: fetchWithReliableTimeout,
+      headers: { 'x-application-name': 'agendafacil' },
+    },
     auth: {
       autoRefreshToken: true,
       persistSession: true,
@@ -53,9 +152,6 @@ export const supabase: SupabaseClient<Database> = createClient(
           }
         }
       }
-    },
-    global: {
-      headers: { 'x-application-name': 'agendafacil' },
     },
     db: {
       schema: 'public'
