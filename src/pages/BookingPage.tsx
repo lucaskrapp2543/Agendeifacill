@@ -1,5 +1,5 @@
 import { format } from 'date-fns';
-import { Accessibility, AlertCircle, Armchair, CarFront, ChevronDown, ChevronLeft, ChevronRight, Coffee, CupSoda, Download, Home, LogOut, Music2, Snowflake, Star, ThumbsUp, Tv, Users, UtensilsCrossed, Wifi, type LucideIcon } from 'lucide-react';
+import { Accessibility, AlertCircle, Armchair, CalendarDays, CarFront, ChevronDown, ChevronLeft, ChevronRight, Coffee, CupSoda, Download, Home, LogOut, Music2, Snowflake, Star, ThumbsUp, Tv, Users, UtensilsCrossed, Wifi, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -1064,6 +1064,7 @@ export default function BookingPage() {
               name: s.name,
               price: Number(s.price || 0),
               duration: Number(s.duration || 30),
+              loyalty_points: Math.max(0, Math.floor(Number(s.loyalty_points ?? 0))),
               category_id: String((s as any)?.category_id || '').trim() || null,
               category_name: String((s as any)?.service_categories?.name || '').trim() || null,
               show_for_subscriber_extra: Boolean((s as any)?.service_categories?.show_for_subscriber_extra),
@@ -1696,6 +1697,8 @@ export default function BookingPage() {
       const missingAdditionalProducts = msg.includes('additional_products') && (msg.includes('column') || msg.includes('schema cache') || msg.includes('could not find'));
       const missingLoyaltyReward =
         msg.includes('is_loyalty_reward') && (msg.includes('column') || msg.includes('schema cache') || msg.includes('could not find'));
+      const missingLoyaltyPointsAwarded =
+        msg.includes('loyalty_points_awarded') && (msg.includes('column') || msg.includes('schema cache') || msg.includes('could not find'));
 
       if (missingTotalPrice) {
         delete cleanPayload.total_price;
@@ -1706,6 +1709,9 @@ export default function BookingPage() {
       }
       if (missingLoyaltyReward) {
         delete cleanPayload.is_loyalty_reward;
+      }
+      if (missingLoyaltyPointsAwarded) {
+        delete cleanPayload.loyalty_points_awarded;
       }
 
       return cleanPayload;
@@ -3014,6 +3020,16 @@ export default function BookingPage() {
   const bookingChatEnabled = Boolean((establishment as any)?.booking_chat_enabled ?? true);
   const isSimpleBookingPageEnabled = Boolean((establishment as any)?.booking_simple_page_enabled ?? false);
 
+  const handleGoToMyAppointments = () => {
+    if (establishment?.code) {
+      localStorage.setItem('current_establishment_code', establishment.code);
+    }
+    if (establishment?.id) {
+      localStorage.setItem('current_establishment_id', establishment.id);
+    }
+    navigate('/view-appointments');
+  };
+
   return (
     <div
       className="app-background relative overflow-x-hidden text-white"
@@ -3025,33 +3041,28 @@ export default function BookingPage() {
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex flex-col space-y-6">
           {/* Cabeçalho */}
-          <div className="flex items-center justify-between">
-            <Link to="/" className="flex items-center gap-2 text-white/80 hover:text-[#e6d7b1] transition-colors">
-              <ChevronLeft className="w-5 h-5" />
-              <span>Voltar</span>
+          <div className="flex items-center justify-between gap-2 sm:gap-3">
+            <Link to="/" className="flex items-center gap-2 text-white/80 hover:text-[#e6d7b1] transition-colors shrink-0 min-w-0">
+              <ChevronLeft className="w-5 h-5 shrink-0" />
+              <span className="truncate">Voltar</span>
             </Link>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               <button
-                onClick={() => {
-                  // Salvar código do estabelecimento no localStorage para usar na página de agendamentos
-                  if (establishment?.code) {
-                    localStorage.setItem('current_establishment_code', establishment.code);
-                  }
-                  if (establishment?.id) {
-                    localStorage.setItem('current_establishment_id', establishment.id);
-                  }
-                  navigate('/view-appointments');
-                }}
-                className="text-[#e6d7b1] hover:text-[#f3e7c7] font-semibold text-sm transition-colors"
+                type="button"
+                onClick={handleGoToMyAppointments}
+                aria-label="Ver meus agendamentos"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#E6C78B]/55 bg-[#E6C78B]/12 px-2.5 py-1.5 text-xs sm:text-sm font-semibold text-[#F5E7C2] hover:bg-[#E6C78B]/22 hover:border-[#E6C78B]/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#E6C78B]/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B0B]"
               >
-                Meus Agendamentos
+                <CalendarDays className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 opacity-90" aria-hidden />
+                <span className="whitespace-nowrap">Meus Agendamentos</span>
               </button>
               {user && (
                 <button
+                  type="button"
                   onClick={handleLogout}
-                  className="flex items-center gap-2 text-white/80 hover:text-white transition-colors"
+                  className="flex items-center gap-1.5 text-white/80 hover:text-white transition-colors text-sm"
                 >
-                  <LogOut className="w-5 h-5" />
+                  <LogOut className="w-5 h-5 shrink-0" />
                   <span>Sair</span>
                 </button>
               )}

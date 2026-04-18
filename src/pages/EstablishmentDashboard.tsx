@@ -202,6 +202,7 @@ type TabType =
   | 'ranking'
   | 'missing-clients'
   | 'draw'
+  | 'client-loyalty-bulk'
   | 'top10-clientes'
   | 'passo-a-passo'
   | 'fila-espera'
@@ -300,6 +301,8 @@ interface ServiceSubcategory {
   name: string;
   price: number;
   duration: number;
+  /** Pontos somados ao concluir (não assinante); padrão 0 se ausente no banco */
+  loyalty_points?: number;
   is_active: boolean;
   display_order: number;
   hidden_from_booking?: boolean;
@@ -339,6 +342,8 @@ interface Appointment {
   is_subscriber?: boolean;
   /** Resgate do programa de fidelidade (serviço gratuito no ciclo). */
   is_loyalty_reward?: boolean;
+  /** Pontos de fidelidade a somar ao concluir (por serviço(s) escolhido(s)). */
+  loyalty_points_awarded?: number | null;
   is_child_service?: boolean;
   is_avulso?: boolean;
   is_waitlist?: boolean | null;
@@ -692,6 +697,16 @@ const EstablishmentDashboard = () => {
   const [pastModalLoyaltyGoalInput, setPastModalLoyaltyGoalInput] = useState('');
   const [pastModalLoyaltyLoading, setPastModalLoyaltyLoading] = useState(false);
   const [pastModalLoyaltySaving, setPastModalLoyaltySaving] = useState(false);
+
+  /** Ponto Fidelidade: mapa do Supabase (client_whatsapp normalizado) + rascunhos locais só onde o usuário editou */
+  const [loyaltyBulkByKey, setLoyaltyBulkByKey] = useState<
+    Record<string, { cycle_goal: number | null; cycle_progress: number }>
+  >({});
+  const [loyaltyBulkDraft, setLoyaltyBulkDraft] = useState<Record<string, string>>({});
+  const [loyaltyBulkLoading, setLoyaltyBulkLoading] = useState(false);
+  const [loyaltyBulkSavingKey, setLoyaltyBulkSavingKey] = useState<string | null>(null);
+  const [loyaltyBulkSavingAll, setLoyaltyBulkSavingAll] = useState(false);
+  const [loyaltyBulkApplyAllInput, setLoyaltyBulkApplyAllInput] = useState('');
 
   // Estados para adicionar cliente manualmente
   const [showAddClientModal, setShowAddClientModal] = useState(false);
@@ -4601,7 +4616,8 @@ const EstablishmentDashboard = () => {
     name: '',
     price: '',
     duration: '30',
-    customDuration: ''
+    customDuration: '',
+    loyalty_points: '0',
   });
 
   // Estados para controlar visibilidade dos tutoriais
@@ -6540,6 +6556,7 @@ const EstablishmentDashboard = () => {
           name: String(item?.name || ''),
           price: Number(item?.price || 0),
           duration: Number(item?.duration || 30),
+          loyalty_points: Math.max(0, Math.floor(Number((item as any)?.loyalty_points ?? 0))),
           is_active: Boolean(item?.is_active),
           display_order: Number(item?.display_order || 0),
           hidden_from_booking: typeof item?.hidden_from_booking === 'boolean' ? item.hidden_from_booking : undefined,
@@ -6829,6 +6846,8 @@ const EstablishmentDashboard = () => {
         ? parseInt(newSubcategory.customDuration, 10)
         : parseInt(newSubcategory.duration, 10);
 
+    const loyaltyPts = Math.max(0, Math.floor(parseInt(String(newSubcategory.loyalty_points ?? '0'), 10) || 0));
+
     if (!newSubcategory.name.trim() || isNaN(price) || isNaN(duration) || duration < 0) {
       toast('Por favor, preencha todos os campos corretamente (duração em minutos).', 'error');
       return;
@@ -6863,6 +6882,7 @@ const EstablishmentDashboard = () => {
           name: nomeServico,
           price: price,
           duration: duration,
+          loyalty_points: loyaltyPts,
           is_active: true,
           display_order: displayOrder
         })
@@ -6917,6 +6937,7 @@ const EstablishmentDashboard = () => {
                 name: nomeServico,
                 price: price,
                 duration: duration,
+                loyalty_points: loyaltyPts,
                 is_active: true,
                 display_order: displayOrder
               })
@@ -6956,7 +6977,7 @@ const EstablishmentDashboard = () => {
         }
       }
 
-      setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '' });
+      setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0' });
       setShowAddSubcategoryModal(false);
       setSelectedCategoryForSubcategory(null);
 
@@ -7174,9 +7195,14 @@ const EstablishmentDashboard = () => {
 
     const price = parseFloat(editingSubcategory.price.toString());
     const duration = parseInt(editingSubcategory.duration.toString());
+    const loyaltyPts = Math.max(0, Math.floor(Number((editingSubcategory as any).loyalty_points ?? 0)));
 
     if (!editingSubcategory.name.trim() || isNaN(price) || isNaN(duration)) {
       toast('Por favor, preencha todos os campos corretamente', 'error');
+      return;
+    }
+    if (!Number.isFinite(loyaltyPts)) {
+      toast('Pontos fidelidade inválidos.', 'error');
       return;
     }
 
@@ -7186,9 +7212,25 @@ const EstablishmentDashboard = () => {
         .update({
           name: editingSubcategory.name,
           price: price,
-          duration: duration
+          duration: duration,
+          loyalty_points: loyaltyPts,
         })
         .eq('id', editingSubcategory.id);
+
+      if (error) {
+        const msg = String((error as any)?.message || '').toLowerCase();
+        if (msg.includes('loyalty_points') && (msg.includes('column') || msg.includes('schema'))) {
+          const { error: err2 } = await supabase
+            .from('service_subcategories')
+            .update({
+              name: editingSubcategory.name,
+              price: price,
+              duration: duration,
+            })
+            .eq('id', editingSubcategory.id);
+          error = err2 as any;
+        }
+      }
 
       if (error) {
         console.error('Erro ao editar subcategoria:', error);
@@ -7204,7 +7246,8 @@ const EstablishmentDashboard = () => {
               ...sub,
               name: editingSubcategory.name,
               price: price,
-              duration: duration
+              duration: duration,
+              loyalty_points: loyaltyPts,
             }
             : sub
         )
@@ -11997,7 +12040,7 @@ Estamos te aguardando! 😎✂️`;
 
 
   useEffect(() => {
-    if (establishment && (activeTab === 'clients' || activeTab === 'subscribers')) {
+    if (establishment && (activeTab === 'clients' || activeTab === 'subscribers' || activeTab === 'client-loyalty-bulk')) {
       fetchClients();
     }
   }, [establishment, activeTab]);
@@ -12007,7 +12050,7 @@ Estamos te aguardando! 😎✂️`;
     const handleClientAppointmentCreated = () => {
       console.log('🔄 Evento recebido: clientAppointmentCreated - Recarregando clientes e agendamentos...');
       if (establishment) {
-        if (activeTab === 'clients' || activeTab === 'subscribers') {
+        if (activeTab === 'clients' || activeTab === 'subscribers' || activeTab === 'client-loyalty-bulk') {
           fetchClients();
         }
         // SEMPRE recarregar agendamentos quando criar uma nova reserva
@@ -13146,6 +13189,155 @@ Estamos te aguardando! 😎✂️`;
       );
     } finally {
       setPastModalLoyaltySaving(false);
+    }
+  };
+
+  const refreshLoyaltyBulkMap = useCallback(async () => {
+    if (!establishment?.id) return;
+    const { data, error } = await supabase
+      .from('establishment_client_loyalty')
+      .select('client_whatsapp,cycle_goal,cycle_progress')
+      .eq('establishment_id', establishment.id);
+    if (error) {
+      const msg = String((error as any)?.message || '').toLowerCase();
+      if (msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('relation')) {
+        setLoyaltyBulkByKey({});
+        return;
+      }
+      throw error;
+    }
+    const next: Record<string, { cycle_goal: number | null; cycle_progress: number }> = {};
+    (data || []).forEach((row: any) => {
+      const w = String(row.client_whatsapp || '');
+      if (!w) return;
+      next[w] = {
+        cycle_goal: row.cycle_goal == null ? null : Number(row.cycle_goal),
+        cycle_progress: Number(row.cycle_progress ?? 0),
+      };
+    });
+    setLoyaltyBulkByKey(next);
+  }, [establishment?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'client-loyalty-bulk') {
+      setLoyaltyBulkDraft({});
+      setLoyaltyBulkApplyAllInput('');
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!establishment?.id || activeTab !== 'client-loyalty-bulk') return;
+    let cancelled = false;
+    (async () => {
+      setLoyaltyBulkLoading(true);
+      try {
+        await refreshLoyaltyBulkMap();
+      } catch (e: any) {
+        console.warn('Ponto Fidelidade (carregar):', e);
+        toast(
+          [e?.message || 'Erro ao carregar pontos de fidelidade', e?.code, e?.details, e?.hint].filter(Boolean).join(' | '),
+          'error'
+        );
+      } finally {
+        if (!cancelled) setLoyaltyBulkLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [establishment?.id, activeTab, refreshLoyaltyBulkMap]);
+
+  const upsertLoyaltyProgressPoints = async (
+    key: string,
+    rawPoints: string,
+    existing: { cycle_goal: number | null; cycle_progress: number } | undefined
+  ): Promise<boolean> => {
+    if (!establishment?.id) return false;
+    const trimmed = String(rawPoints ?? '').trim();
+    const parsed = trimmed === '' ? 0 : parseInt(trimmed, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      toast('Informe um número inteiro maior ou igual a 0 para os pontos.', 'error');
+      return false;
+    }
+    const prog = Math.floor(parsed);
+    const prevGoal = existing?.cycle_goal ?? null;
+    const goal = Math.max(prevGoal ?? 2, prog, 2);
+    const { error } = await supabase.from('establishment_client_loyalty').upsert(
+      {
+        establishment_id: establishment.id,
+        client_whatsapp: key,
+        cycle_goal: goal,
+        cycle_progress: Math.min(prog, goal),
+        updated_at: new Date().toISOString(),
+      } as any,
+      { onConflict: 'establishment_id,client_whatsapp' }
+    );
+    if (error) {
+      toast(
+        [error?.message || 'Erro ao salvar pontos', error?.code, error?.details, error?.hint].filter(Boolean).join(' | '),
+        'error'
+      );
+      return false;
+    }
+    setLoyaltyBulkByKey((prev) => ({
+      ...prev,
+      [key]: { cycle_goal: goal, cycle_progress: Math.min(prog, goal) },
+    }));
+    return true;
+  };
+
+  const handleLoyaltyBulkSaveOne = async (client: Client) => {
+    if (client.isSubscriber) {
+      toast('Programa de fidelidade aplica-se apenas a clientes não assinantes.', 'error');
+      return;
+    }
+    const key = normalizeWhatsappForStorage(client.whatsapp);
+    if (!key) {
+      toast('WhatsApp do cliente inválido.', 'error');
+      return;
+    }
+    setLoyaltyBulkSavingKey(key);
+    try {
+      const raw = loyaltyBulkDraft[key] ?? String(loyaltyBulkByKey[key]?.cycle_progress ?? 0);
+      const ok = await upsertLoyaltyProgressPoints(key, raw, loyaltyBulkByKey[key]);
+      if (ok) {
+        setLoyaltyBulkDraft((prev) => {
+          const n = { ...prev };
+          delete n[key];
+          return n;
+        });
+        toast('Pontos de fidelidade salvos.', 'success');
+      }
+    } finally {
+      setLoyaltyBulkSavingKey(null);
+    }
+  };
+
+  const handleLoyaltyBulkApplyAll = async () => {
+    const raw = loyaltyBulkApplyAllInput.trim();
+    const parsed = raw === '' ? NaN : parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      toast('Informe quantos pontos aplicar (número inteiro maior ou igual a 0).', 'error');
+      return;
+    }
+    const targets = clients.filter((c) => !c.isSubscriber && normalizeWhatsappForStorage(c.whatsapp));
+    if (targets.length === 0) {
+      toast('Nenhum cliente elegível (não assinante com WhatsApp válido).', 'error');
+      return;
+    }
+    setLoyaltyBulkSavingAll(true);
+    try {
+      let okCount = 0;
+      for (const c of targets) {
+        const key = normalizeWhatsappForStorage(c.whatsapp);
+        if (!key) continue;
+        const ok = await upsertLoyaltyProgressPoints(key, String(parsed), loyaltyBulkByKey[key]);
+        if (ok) okCount += 1;
+      }
+      setLoyaltyBulkDraft({});
+      toast(`Pontos aplicados a ${okCount} cliente(s).`, 'success');
+    } finally {
+      setLoyaltyBulkSavingAll(false);
     }
   };
 
@@ -19292,9 +19484,9 @@ Estamos te aguardando! 😎✂️`;
 
         const selectedProfessionalName = String(
           selectedProfessionalAfterUpdate?.name ||
-            selectedProfessionalInDb?.name ||
-            professionals.find((p) => p.id === professionalId)?.name ||
-            'Profissional'
+          selectedProfessionalInDb?.name ||
+          professionals.find((p) => p.id === professionalId)?.name ||
+          'Profissional'
         );
 
         await persistBlockedHourHistoryEvents(
@@ -31107,6 +31299,14 @@ Estamos te aguardando! 😎✂️`;
                       <Shuffle className="h-4 w-4" />
                       Sorteio
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => handleTabChange('client-loyalty-bulk')}
+                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+                    >
+                      <Star className="h-4 w-4" />
+                      Ponto Fidelidade
+                    </button>
                   </div>
 
                   {/* Controles de busca e filtros */}
@@ -33484,6 +33684,14 @@ Estamos te aguardando! 😎✂️`;
                   <Shuffle className="h-4 w-4" />
                   Sorteio
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleTabChange('client-loyalty-bulk')}
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+                >
+                  <Star className="h-4 w-4" />
+                  Ponto Fidelidade
+                </button>
               </div>
 
               <div className="mb-4 p-3 bg-gray-100 border border-gray-300 rounded-lg">
@@ -33585,6 +33793,14 @@ Estamos te aguardando! 😎✂️`;
                 >
                   <Shuffle className="h-4 w-4" />
                   Sorteio
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleTabChange('client-loyalty-bulk')}
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+                >
+                  <Star className="h-4 w-4" />
+                  Ponto Fidelidade
                 </button>
               </div>
 
@@ -33693,6 +33909,14 @@ Estamos te aguardando! 😎✂️`;
                   <Shuffle className="h-4 w-4" />
                   Sorteio
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleTabChange('client-loyalty-bulk')}
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+                >
+                  <Star className="h-4 w-4" />
+                  Ponto Fidelidade
+                </button>
               </div>
 
               <div className="text-center">
@@ -33706,6 +33930,154 @@ Estamos te aguardando! 😎✂️`;
                   🎲 ABRIR SORTEIO
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Tab Ponto Fidelidade — mesmos dados que o modal ( Agendamentos / pontos fidelidade ) */}
+          {activeTab === 'client-loyalty-bulk' && (
+            <div className="bg-white rounded-lg p-6 border border-gray-300">
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Ponto Fidelidade</h2>
+              <p className="text-gray-600 text-sm mb-6">
+                Ajuste os pontos do ciclo de fidelidade por cliente. Os valores aparecem da mesma forma em &quot;Meus Clientes&quot; → Ver mais → ( Agendamentos / pontos fidelidade ). Programa válido para
+                clientes não assinantes.
+              </p>
+
+              <div className="flex flex-col sm:flex-row flex-wrap gap-3 mb-6">
+                <button
+                  type="button"
+                  onClick={() => handleTabChange('clients')}
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+                >
+                  <Users className="h-4 w-4" />
+                  Meus Clientes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleTabChange('ranking')}
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+                >
+                  <Crown className="h-4 w-4" />
+                  Ranking Clientes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleTabChange('missing-clients')}
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+                >
+                  <Users className="h-4 w-4" />
+                  Clientes Sumidos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleTabChange('draw')}
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+                >
+                  <Shuffle className="h-4 w-4" />
+                  Sorteio
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleTabChange('client-loyalty-bulk')}
+                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg ring-2 ring-teal-500/80 transition-colors text-sm font-medium"
+                >
+                  <Star className="h-4 w-4" />
+                  Ponto Fidelidade
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-end gap-3 mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-bold text-gray-800">Colocar pontos em todos os clientes</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={loyaltyBulkApplyAllInput}
+                      onChange={(e) => setLoyaltyBulkApplyAllInput(e.target.value)}
+                      placeholder="Ex.: 10"
+                      className="w-28 px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                    />
+                    <button
+                      type="button"
+                      disabled={loyaltyBulkSavingAll || loyaltyBulkLoading}
+                      onClick={() => void handleLoyaltyBulkApplyAll()}
+                      className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loyaltyBulkSavingAll ? 'Salvando...' : 'Salvar em todos'}
+                    </button>
+                  </div>
+                  <span className="text-[11px] text-gray-600">Aplica o mesmo número de pontos a todos os clientes não assinantes com WhatsApp válido.</span>
+                </div>
+              </div>
+
+              {loyaltyBulkLoading ? (
+                <p className="text-gray-600">Carregando pontos...</p>
+              ) : clients.length === 0 ? (
+                <p className="text-gray-600">Nenhum cliente neste estabelecimento.</p>
+              ) : (
+                <div className="overflow-x-auto border border-gray-200 rounded-lg max-h-[min(70vh,720px)] overflow-y-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-100 sticky top-0 z-10">
+                      <tr>
+                        <th className="text-left p-3 font-semibold text-gray-900">Nome</th>
+                        <th className="text-left p-3 font-semibold text-gray-900">Telefone</th>
+                        <th className="text-left p-3 font-semibold text-gray-900">Pontos (ciclo)</th>
+                        <th className="p-3 w-28" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {clients
+                        .slice()
+                        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+                        .map((client) => {
+                          const key = normalizeWhatsappForStorage(client.whatsapp);
+                          const displayVal =
+                            loyaltyBulkDraft[key] ?? String(loyaltyBulkByKey[key]?.cycle_progress ?? 0);
+                          return (
+                            <tr key={`loyalty-bulk-${client.id}-${String(client.whatsapp)}`} className="border-t border-gray-200">
+                              <td className="p-3 text-gray-900 font-medium align-middle">{client.name}</td>
+                              <td className="p-3 text-gray-700 align-middle">{client.whatsapp}</td>
+                              <td className="p-3 align-middle">
+                                {client.isSubscriber ? (
+                                  <span className="text-gray-500 text-xs">Assinante — programa não se aplica</span>
+                                ) : !key ? (
+                                  <span className="text-amber-800 text-xs">WhatsApp inválido para salvar</span>
+                                ) : (
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step={1}
+                                    value={displayVal}
+                                    onChange={(e) =>
+                                      setLoyaltyBulkDraft((prev) => ({
+                                        ...prev,
+                                        [key]: e.target.value,
+                                      }))
+                                    }
+                                    className="w-24 px-2 py-1.5 border border-gray-300 rounded-lg text-gray-900"
+                                  />
+                                )}
+                              </td>
+                              <td className="p-3 text-right align-middle">
+                                {!client.isSubscriber && key ? (
+                                  <button
+                                    type="button"
+                                    disabled={loyaltyBulkSavingKey === key || loyaltyBulkSavingAll}
+                                    onClick={() => void handleLoyaltyBulkSaveOne(client)}
+                                    className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-bold hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    {loyaltyBulkSavingKey === key ? 'Salvando...' : 'Salvar'}
+                                  </button>
+                                ) : null}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
@@ -34249,28 +34621,34 @@ Estamos te aguardando! 😎✂️`;
                                 key={subcategory.id}
                                 className={`bg-gray-50 border-2 border-gray-300 rounded-lg p-4 shadow-md hover:shadow-lg hover:bg-gray-100 transition-all ${isOcultoNoBooking(subcategory as any) ? 'opacity-75' : ''}`}
                               >
-                                <div className="flex items-center justify-between mb-2">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <h4 className="font-medium text-gray-900 truncate">{subcategory.name}</h4>
-                                    {subcategory.label_name && (
-                                      <span
-                                        className="px-2 py-0.5 rounded-full text-[11px] font-extrabold border border-gray-300"
-                                        style={{
-                                          backgroundColor: normalizeLabelColor(subcategory.label_color),
-                                          color: getLabelTextColor(subcategory.label_color),
-                                        }}
-                                        title={`Etiqueta: ${subcategory.label_name}`}
-                                      >
-                                        {subcategory.label_name}
-                                      </span>
-                                    )}
-                                    {isOcultoNoBooking(subcategory as any) && (
-                                      <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold border border-amber-300 bg-amber-50 text-amber-900">
-                                        👁️ Oculto no Booking
-                                      </span>
+                                <div className="flex flex-col gap-2 mb-2 md:flex-row md:items-start md:justify-between md:gap-3">
+                                  <div className="min-w-0 w-full md:flex-1 md:pr-1">
+                                    <h4 className="font-semibold text-gray-900 text-sm md:text-base leading-snug break-words">
+                                      {subcategory.name}
+                                    </h4>
+                                    {(subcategory.label_name || isOcultoNoBooking(subcategory as any)) && (
+                                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                        {subcategory.label_name && (
+                                          <span
+                                            className="inline-flex px-2 py-0.5 rounded-full text-[11px] font-extrabold border border-gray-300 max-w-full"
+                                            style={{
+                                              backgroundColor: normalizeLabelColor(subcategory.label_color),
+                                              color: getLabelTextColor(subcategory.label_color),
+                                            }}
+                                            title={`Etiqueta: ${subcategory.label_name}`}
+                                          >
+                                            <span className="truncate">{subcategory.label_name}</span>
+                                          </span>
+                                        )}
+                                        {isOcultoNoBooking(subcategory as any) && (
+                                          <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold border border-amber-300 bg-amber-50 text-amber-900">
+                                            👁️ Oculto no Booking
+                                          </span>
+                                        )}
+                                      </div>
                                     )}
                                   </div>
-                                  <div className="flex items-center gap-1">
+                                  <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-0.5 md:gap-1 md:justify-start border-t border-gray-200 pt-2 md:border-0 md:pt-0">
                                     {/* Botões de reordenação */}
                                     <button
                                       onClick={async () => {
@@ -34400,6 +34778,14 @@ Estamos te aguardando! 😎✂️`;
                                     <span className="text-sm text-black">Duração:</span>
                                     <span className="text-sm font-medium text-black">{subcategory.duration}min</span>
                                   </div>
+                                  {Math.max(0, Math.floor(Number((subcategory as any).loyalty_points ?? 0))) > 0 ? (
+                                    <div className="flex justify-between">
+                                      <span className="text-sm text-black">Pontos fidelidade:</span>
+                                      <span className="text-sm font-medium text-black">
+                                        {Math.max(0, Math.floor(Number((subcategory as any).loyalty_points ?? 0)))}
+                                      </span>
+                                    </div>
+                                  ) : null}
                                 </div>
                               </div>
                             ))}
@@ -36545,7 +36931,7 @@ Estamos te aguardando! 😎✂️`;
                 <h3 className="text-lg font-semibold text-gray-900">Adicionar Serviço</h3>
                 <button
                   onClick={() => {
-                    setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '' });
+                    setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0' });
                     setShowAddSubcategoryModal(false);
                     setSelectedCategoryForSubcategory(null);
                   }}
@@ -36613,11 +36999,28 @@ Estamos te aguardando! 😎✂️`;
                     />
                   )}
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Pontos fidelidade (ao concluir)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={newSubcategory.loyalty_points}
+                    onChange={(e) => setNewSubcategory({ ...newSubcategory, loyalty_points: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Padrão 0: não mostra pontos no booking. Aumente se quiser exibir no agendamento público (não assinante).
+                  </p>
+                </div>
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
                     onClick={() => {
-                      setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '' });
+                      setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0' });
                       setShowAddSubcategoryModal(false);
                       setSelectedCategoryForSubcategory(null);
                     }}
@@ -36987,6 +37390,28 @@ Estamos te aguardando! 😎✂️`;
                       className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
                     />
                   )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Pontos fidelidade (ao concluir)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={(editingSubcategory as any).loyalty_points ?? 0}
+                    onChange={(e) =>
+                      setEditingSubcategory({
+                        ...editingSubcategory,
+                        loyalty_points: Math.max(0, Math.floor(parseInt(e.target.value, 10) || 0)),
+                      } as any)
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-black bg-white"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Use 0 para não exibir pontos no booking. Valores maiores que 0 somam ao concluir (não assinante).
+                  </p>
                 </div>
                 <div className="flex gap-3 pt-4">
                   <button
@@ -38302,7 +38727,7 @@ Estamos te aguardando! 😎✂️`;
                           <span>
                             {' '}
                             — faltam{' '}
-                            <strong>{pastModalLoyaltyRow.cycle_goal - pastModalLoyaltyRow.cycle_progress}</strong> para o benefício
+                            <strong>{pastModalLoyaltyRow.cycle_goal - pastModalLoyaltyRow.cycle_progress}</strong> ponto(s) para o benefício
                           </span>
                         )}
                       </p>

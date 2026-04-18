@@ -17,6 +17,8 @@ interface Service {
   name: string;
   price: number;
   duration: number;
+  /** Pontos de fidelidade ao concluir (não assinante); padrão 0 */
+  loyalty_points?: number;
 }
 
 interface ServiceCategory {
@@ -33,6 +35,7 @@ interface ServiceSubcategory {
   name: string;
   price: number;
   duration: number;
+  loyalty_points?: number;
   category_id: string;
   is_active: boolean;
   display_order: number;
@@ -295,6 +298,7 @@ export default function ReservarCliente({
       name,
       price,
       duration: Number.isFinite(duration) && duration > 0 ? duration : 30,
+      loyalty_points: Math.max(0, Math.floor(Number(raw?.loyalty_points ?? 0))),
     };
   };
 
@@ -832,6 +836,7 @@ export default function ReservarCliente({
               name: String(s.name || '').trim(),
               price: Number(s.price || 0),
               duration: Number(s.duration || 30),
+              loyalty_points: Math.max(0, Math.floor(Number(s.loyalty_points ?? 0))),
             })).filter((s: any) => s.name && s.price > 0);
 
           const combined = mergeSpecific(formatted);
@@ -865,6 +870,7 @@ export default function ReservarCliente({
             name: String(service.name || '').trim(),
             price: Number(service.price || 0),
             duration: Number(service.duration || 30),
+            loyalty_points: Math.max(0, Math.floor(Number(service.loyalty_points ?? 0))),
           }))
           .filter((s: any) => s.name && s.price > 0);
 
@@ -1529,7 +1535,8 @@ export default function ReservarCliente({
       id: subcategory.id,
       name: subcategory.name,
       price: subcategory.price,
-      duration: subcategory.duration
+      duration: subcategory.duration,
+      loyalty_points: Math.max(0, Math.floor(Number((subcategory as any).loyalty_points ?? 0))),
     };
     const total = parseDurationMinutes(serviceFromSubcategory.duration);
     if (!validateSlotDurationMinutes(total)) return;
@@ -1939,6 +1946,10 @@ export default function ReservarCliente({
       // Barbeiro cria a reserva: client_id tem que ser um id que existe em auth.users (NOT NULL + FK).
       // Sempre usamos o user do dono logado (currentUserId da sessão atualizada); cliente identificado por client_name e client_whatsapp.
       const payloads = datasSemConflito.map((dateStr) => {
+        const loyaltyPointsSum = servicesToInsert.reduce(
+          (sum, s) => sum + Math.max(0, Number((s as any).loyalty_points ?? 0)),
+          0
+        );
         const payload: any = {
           client_id: currentUserId,
           establishment_id: establishmentId,
@@ -1956,6 +1967,9 @@ export default function ReservarCliente({
           is_avulso: isAvulso,
           is_subscriber: isSubscriber,
           is_loyalty_reward: useLoyaltyFree,
+          ...(isSubscriber
+            ? {}
+            : { loyalty_points_awarded: useLoyaltyFree ? 0 : loyaltyPointsSum }),
         };
         if (isSubscriber && selectedSubscription) {
           payload.subscription_id = String(selectedSubscription.id || '').trim() || null;
@@ -2065,6 +2079,25 @@ export default function ReservarCliente({
             toast('Reserva criada. Aplique a migration de fidelidade no Supabase para gravar o flag "Fidelidade" no agendamento.', {
               duration: 6000,
             });
+          }
+        }
+      }
+      if (insertError) {
+        const msgPts = String((insertError as any)?.message || '').toLowerCase();
+        if (msgPts.includes('loyalty_points_awarded') && (msgPts.includes('column') || msgPts.includes('schema'))) {
+          const strippedPts = payloads.map((p: any) => {
+            const x = { ...p };
+            delete x.loyalty_points_awarded;
+            return x;
+          });
+          const { data: ptsRetryData, error: ptsRetryErr } = await supabase.from('appointments').insert(strippedPts).select('id');
+          if (!ptsRetryErr) {
+            inserted = ptsRetryData;
+            insertError = null;
+            toast(
+              'Reserva criada. Rode a migration no Supabase para pontos de fidelidade por serviço (coluna loyalty_points_awarded).',
+              { duration: 6000 }
+            );
           }
         }
       }
@@ -3109,7 +3142,7 @@ export default function ReservarCliente({
                         <>
                           <p className="text-sm text-emerald-900 font-bold">Status: Pontos concluídos</p>
                           <p className="text-xs text-gray-700">
-                            O cliente atingiu a meta de {loyaltyRow.cycle_goal} atendimento(s) concluído(s). Você pode zerar o valor desta reserva para registrar como benefício de fidelidade.
+                            O cliente atingiu a meta de {loyaltyRow.cycle_goal} ponto(s) no ciclo. Você pode zerar o valor desta reserva para registrar como benefício de fidelidade.
                           </p>
                           {!reservarMensal ? (
                             <button
@@ -3129,8 +3162,7 @@ export default function ReservarCliente({
                         <p className="text-sm text-gray-800">
                           Pontos neste ciclo: <strong>{loyaltyRow.cycle_progress}</strong> de <strong>{loyaltyRow.cycle_goal}</strong>
                           {' — '}
-                          faltam <strong>{loyaltyRow.cycle_goal - loyaltyRow.cycle_progress}</strong> atendimento(s){' '}
-                          <span className="text-gray-600">concluído(s)</span> para liberar o benefício.
+                          faltam <strong>{loyaltyRow.cycle_goal - loyaltyRow.cycle_progress}</strong> ponto(s) para liberar o benefício.
                         </p>
                       )}
                     </div>

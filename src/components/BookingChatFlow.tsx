@@ -231,6 +231,7 @@ export function BookingChatFlow({
         name: service.name,
         price: Number(service.price || 0),
         duration: parseDurationMinutes(service.duration, 30),
+        loyalty_points: Math.max(0, Math.floor(Number(service?.loyalty_points ?? 0))),
         __source_index: index,
       }));
 
@@ -251,6 +252,7 @@ export function BookingChatFlow({
         name: normalizedName || `Serviço ${index + 1}`,
         price: Number(service?.price || service?.service_price || 0),
         duration: parseDurationMinutes(rawDuration, 30),
+        loyalty_points: Math.max(0, Math.floor(Number(service?.loyalty_points ?? 0))),
         __source_index: index,
       };
     });
@@ -442,6 +444,7 @@ export function BookingChatFlow({
         duration: Math.max(1, (baseDuration || 0) + extraDuration),
         price: extraPrice,
         serviceName: extraNames.length ? `${baseName} + Extra: ${extraNames.join(' + ')}` : baseName,
+        loyaltyPointsAwarded: 0,
       };
     }
 
@@ -454,7 +457,11 @@ export function BookingChatFlow({
     );
     const price = selectedServices.reduce((sum: number, service: any) => sum + (Number(service?.price) || 0), 0);
     const serviceName = selectedServices.map((service: any) => String(service?.name || '').trim()).filter(Boolean).join(' + ');
-    return { duration, price, serviceName };
+    const loyaltyPointsAwarded = selectedServices.reduce(
+      (sum: number, service: any) => sum + Math.max(0, Number(service?.loyalty_points ?? 0)),
+      0
+    );
+    return { duration, price, serviceName, loyaltyPointsAwarded };
   }, [isDividedSubscriberPlan, isSubscriberFlow, selectedPrimarySubscriberService, selectedServices, selectedSubscriberExtraServices, selectedSubscriberServices]);
 
   const subscriberAllowedWeekdays = useMemo(() => {
@@ -1123,6 +1130,11 @@ export function BookingChatFlow({
         is_child_service: false,
         is_subscriber: isSubscriberFlow,
         is_loyalty_reward: loyaltyFree,
+        loyalty_points_awarded: isSubscriberFlow
+          ? undefined
+          : loyaltyFree
+            ? 0
+            : Math.max(0, Number((computedSelection as any).loyaltyPointsAwarded ?? 0)),
         subscription_id: isSubscriberFlow
           ? String((selectedPrimarySubscriberService as any)?.subscription_id || (selectedPrimarySubscriberService as any)?.id || (detectedSubscriber as any)?.subscription_id || '').trim() || null
           : null,
@@ -1600,6 +1612,11 @@ export function BookingChatFlow({
                     >
                       <div className="font-semibold">{service.name}</div>
                       <div className="text-xs text-white/80">{toMoney(Number(service?.price || 0))} • {formatDuration(serviceDuration > 0 ? serviceDuration : 30)}</div>
+                      {Math.max(0, Math.floor(Number(service?.loyalty_points ?? 0))) > 0 ? (
+                        <div className="text-[11px] text-[#E6C78B] mt-0.5 font-semibold">
+                          +{Math.max(0, Math.floor(Number(service?.loyalty_points ?? 0)))} pt(s) fidelidade ao concluir
+                        </div>
+                      ) : null}
                     </button>
                   );
                 })}
@@ -1915,7 +1932,7 @@ export function BookingChatFlow({
                         <div className="space-y-2">
                           <p>
                             <strong className="text-emerald-300">Meta atingida</strong> ({publicLoyaltyRow.cycle_goal}{' '}
-                            atendimento(s) no ciclo). Use o benefício para este agendamento sair <strong>gratuito</strong>.
+                            ponto(s) no ciclo). Use o benefício para este agendamento sair <strong>gratuito</strong>.
                           </p>
                           <button
                             type="button"
@@ -1930,8 +1947,7 @@ export function BookingChatFlow({
                           Pontos neste ciclo: <strong>{publicLoyaltyRow.cycle_progress}</strong> de{' '}
                           <strong>{publicLoyaltyRow.cycle_goal}</strong>
                           {' — '}
-                          faltam <strong>{publicLoyaltyRow.cycle_goal - publicLoyaltyRow.cycle_progress}</strong> atendimento(s){' '}
-                          <span className="text-white/70">concluído(s)</span> para liberar o benefício.
+                          faltam <strong>{publicLoyaltyRow.cycle_goal - publicLoyaltyRow.cycle_progress}</strong> ponto(s) para liberar o benefício.
                         </div>
                       )
                     ) : null}
