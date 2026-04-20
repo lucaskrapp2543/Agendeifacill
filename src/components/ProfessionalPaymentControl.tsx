@@ -15,7 +15,6 @@ interface ProfessionalPaymentControlProps {
   newSalesValue?: number;
   validatedPaidAmount?: number;
   validatedPendingAmount?: number;
-  ignoredAdvanceAmount?: number;
   ignoredPaymentIds?: string[];
   selectedMonth?: Date;
   onPaymentRecorded?: () => void;
@@ -29,7 +28,6 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   newSalesValue,
   validatedPaidAmount,
   validatedPendingAmount,
-  ignoredAdvanceAmount = 0,
   ignoredPaymentIds = [],
   selectedMonth,
   onPaymentRecorded
@@ -75,8 +73,14 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
   const paymentSummary = getPaymentSummary(professionalId);
   const professionalPayments = getProfessionalPayments(professionalId).filter(
-    (payment) => !ignoredPaymentIds.includes(payment.id)
+    (payment) => !(payment.amount > 0 && ignoredPaymentIds.includes(payment.id))
   );
+  const visiblePaymentCount = professionalPayments.length;
+  const visibleLastPaymentDate = professionalPayments.length > 0
+    ? professionalPayments
+      .slice()
+      .sort((a, b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())[0]?.payment_date || null
+    : null;
 
   const forMonthKey = selectedMonth
     ? `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`
@@ -364,11 +368,6 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
               Pendente: {formatCurrency(pendingToPay)}
             </div>
           )}
-          {ignoredAdvanceAmount > 0 && (
-            <div className="text-xs text-amber-300 font-medium">
-              Adiantamentos ignorados: {formatCurrency(ignoredAdvanceAmount)}
-            </div>
-          )}
         </div>
 
         {/* Botões - Layout Mobile */}
@@ -518,11 +517,12 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           </div>
 
           <div className="space-y-2">
-            {professionalPayments.map((payment) => (
-              <div
-                key={payment.id}
-                className="flex items-center justify-between bg-[#0b0e13] border border-gray-700 rounded-lg p-2 hover:bg-[#101622] transition-colors"
-              >
+            {professionalPayments.map((payment) => {
+              return (
+                <div
+                  key={payment.id}
+                  className="flex items-center justify-between bg-[#0b0e13] border border-gray-700 rounded-lg p-2 hover:bg-[#101622] transition-colors"
+                >
                 <div className="flex-1">
                   <div className={`text-sm font-medium ${payment.amount > 0 ? 'text-gray-100' : 'text-orange-300'}`}>
                     {payment.amount > 0 ? formatCurrency(payment.amount) : formatCurrency(Math.abs(payment.amount))}
@@ -545,7 +545,8 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Resumo */}
@@ -556,25 +557,17 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                 {formatCurrency(totalPaidEffective)}
               </span>
             </div>
-            {ignoredAdvanceAmount > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-300">Adiantamentos ignorados:</span>
-                <span className="font-medium text-amber-700">
-                  {formatCurrency(ignoredAdvanceAmount)}
-                </span>
-              </div>
-            )}
             <div className="flex justify-between text-sm">
               <span className="text-gray-300">Pagamentos:</span>
               <span className="font-medium text-gray-100">
-                {paymentSummary.paymentCount}
+                {visiblePaymentCount}
               </span>
             </div>
-            {paymentSummary.lastPaymentDate && (
+            {visibleLastPaymentDate && (
               <div className="flex justify-between text-sm">
                 <span className="text-gray-300">Último Pagamento:</span>
                 <span className="font-medium text-gray-100">
-                  {formatDate(paymentSummary.lastPaymentDate)}
+                  {formatDate(visibleLastPaymentDate)}
                 </span>
               </div>
             )}

@@ -170,9 +170,50 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   const totalWithdrawn = paymentHistory
     .filter((row) => row.amount < 0)
     .reduce((sum, row) => sum + Math.abs(row.amount), 0);
-  const paymentCount = paymentHistory.filter((row) => row.amount > 0).length;
-  const lastPaymentDate = paymentHistory.find((row) => row.amount > 0)?.payment_date || null;
-  const pendingToReceive = Math.max(0, monthlyNet - totalPaid);
+  const validatedVisiblePayments = useMemo(() => {
+    // Compatibilidade visual com o financeiro:
+    // considera válidos apenas pagamentos positivos que cabem no líquido mensal.
+    const epsilon = 0.009;
+    let validPaid = 0;
+    const ignoredPositiveIds = new Set<string>();
+
+    const sortedByPaymentDateDesc = [...paymentHistory].sort(
+      (a, b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime()
+    );
+
+    sortedByPaymentDateDesc.forEach((row) => {
+      if (row.amount <= 0) return;
+      const allowed = Math.max(0, monthlyNet - validPaid);
+      if (row.amount <= allowed + epsilon) validPaid += row.amount;
+      else ignoredPositiveIds.add(row.id);
+    });
+
+    const visibleRows = paymentHistory.filter((row) => row.amount <= 0 || !ignoredPositiveIds.has(row.id));
+    const totalPaidVisible = visibleRows
+      .filter((row) => row.amount > 0)
+      .reduce((sum, row) => sum + row.amount, 0);
+    const totalWithdrawnVisible = visibleRows
+      .filter((row) => row.amount < 0)
+      .reduce((sum, row) => sum + Math.abs(row.amount), 0);
+    const paymentCountVisible = visibleRows.filter((row) => row.amount > 0).length;
+    const lastPaymentDateVisible = visibleRows.find((row) => row.amount > 0)?.payment_date || null;
+    const pendingVisible = Math.max(0, monthlyNet - totalPaidVisible);
+
+    return {
+      visibleRows,
+      totalPaidVisible,
+      totalWithdrawnVisible,
+      paymentCountVisible,
+      lastPaymentDateVisible,
+      pendingVisible,
+    };
+  }, [monthlyNet, paymentHistory]);
+
+  const totalPaidDisplay = validatedVisiblePayments.totalPaidVisible;
+  const totalWithdrawnDisplay = validatedVisiblePayments.totalWithdrawnVisible;
+  const paymentCount = validatedVisiblePayments.paymentCountVisible;
+  const lastPaymentDate = validatedVisiblePayments.lastPaymentDateVisible;
+  const pendingToReceive = validatedVisiblePayments.pendingVisible;
 
   const formatDateTime = (value: string) => {
     const dt = new Date(value);
@@ -435,7 +476,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
               <div className="bg-white rounded-lg p-3 border border-blue-100">
                 <p className="text-xs text-gray-600">Total pago</p>
                 <p className="text-xl font-bold text-green-700">
-                  {showValues ? formatCurrency(totalPaid) : '••••••'}
+                  {showValues ? formatCurrency(totalPaidDisplay) : '••••••'}
                 </p>
               </div>
               <div className="bg-white rounded-lg p-3 border border-blue-100">
@@ -455,17 +496,17 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
             <div className="text-xs text-blue-800 mb-3">
               {paymentCount} pagamento(s) no mês
               {lastPaymentDate ? ` • Último pagamento: ${formatDateTime(lastPaymentDate)}` : ''}
-              {totalWithdrawn > 0 ? ` • Retirado: ${showValues ? formatCurrency(totalWithdrawn) : '••••••'}` : ''}
+              {totalWithdrawnDisplay > 0 ? ` • Retirado: ${showValues ? formatCurrency(totalWithdrawnDisplay) : '••••••'}` : ''}
             </div>
 
             {showPaymentHistory && (
               <div className="bg-white rounded-lg border border-blue-100 p-3 max-h-56 overflow-y-auto space-y-2">
                 {isLoadingPayments ? (
                   <p className="text-sm text-gray-500">Carregando histórico...</p>
-                ) : paymentHistory.length === 0 ? (
+                ) : validatedVisiblePayments.visibleRows.length === 0 ? (
                   <p className="text-sm text-gray-500">Nenhum pagamento registrado neste mês.</p>
                 ) : (
-                  paymentHistory.map((row) => (
+                  validatedVisiblePayments.visibleRows.map((row) => (
                     <div key={row.id} className="flex items-center justify-between gap-2 p-2 rounded border border-gray-100 bg-gray-50">
                       <div>
                         <p className="text-sm font-semibold text-gray-800">

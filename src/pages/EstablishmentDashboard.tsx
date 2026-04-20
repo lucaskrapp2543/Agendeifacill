@@ -20467,25 +20467,27 @@ Estamos te aguardando! 😎✂️`;
     let validPaid = 0;
     let ignoredAdvance = 0;
     let lastValidPaymentDate: string | null = null;
-    const ignoredPaymentIds: string[] = [];
+    const ignoredByPayment = new Map<string, number>();
+    const PAYMENT_EPSILON = 0.009;
 
     monthPayments.forEach((payment: any) => {
       const paymentAmount = Number(payment.amount || 0);
       const paymentTimeMs = new Date(payment.payment_date).getTime();
       const realizedUntilPayment = getRealizedUntil(paymentTimeMs);
       const allowedAtPayment = Math.max(0, realizedUntilPayment - validPaid);
-      const applied = Math.min(paymentAmount, allowedAtPayment);
 
-      if (applied > 0) {
-        validPaid += applied;
+      // Regra conservadora: pagamento só conta como "pago" quando estava 100% coberto
+      // pelo realizado até o momento do pagamento. Se não estava, fica como adiantamento ignorado.
+      if (paymentAmount <= allowedAtPayment + PAYMENT_EPSILON) {
+        validPaid += paymentAmount;
         lastValidPaymentDate = String(payment.payment_date || '');
-      }
-      const ignored = paymentAmount - applied;
-      if (ignored > 0) {
-        ignoredAdvance += ignored;
-        ignoredPaymentIds.push(String(payment.id));
+      } else {
+        ignoredAdvance += paymentAmount;
+        ignoredByPayment.set(String(payment.id), paymentAmount);
       }
     });
+
+    const ignoredPaymentIds = Array.from(ignoredByPayment.keys());
 
     const lastValidMs = lastValidPaymentDate ? new Date(lastValidPaymentDate).getTime() : Number.NaN;
     const newSalesSinceLastValid = Number.isNaN(lastValidMs)
@@ -30744,7 +30746,6 @@ Estamos te aguardando! 😎✂️`;
                                   newSalesValue={paymentValidation.newSalesSinceLastValid}
                                   validatedPaidAmount={paymentValidation.validPaid}
                                   validatedPendingAmount={paymentValidation.pendingAllowed}
-                                  ignoredAdvanceAmount={paymentValidation.ignoredAdvance}
                                   ignoredPaymentIds={paymentValidation.ignoredPaymentIds}
                                   selectedMonth={selectedMonth}
                                   onPaymentRecorded={() => {
@@ -30904,14 +30905,6 @@ Estamos te aguardando! 😎✂️`;
                                                   <span className="text-gray-300 font-medium">Serviço mais feito:</span>
                                                   <span className="font-bold text-purple-300">
                                                     {mostDoneServices[0] ? `${mostDoneServices[0].name} (${mostDoneServices[0].count})` : 'Sem dados'}
-                                                  </span>
-                                                </div>
-                                              )}
-                                              {paymentFilter === 'todos' && paymentValidation.ignoredAdvance > 0 && (
-                                                <div className="flex justify-between items-center">
-                                                  <span className="text-amber-300 font-medium">Adiantamentos ignorados:</span>
-                                                  <span className="font-bold text-amber-300">
-                                                    {formatCurrency(paymentValidation.ignoredAdvance)}
                                                   </span>
                                                 </div>
                                               )}
