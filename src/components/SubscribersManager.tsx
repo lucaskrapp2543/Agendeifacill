@@ -3974,7 +3974,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
               <iframe
                 className="absolute inset-0 w-full h-full"
-                src="https://www.youtube.com/embed/NiSALt7Tv9E"
+                src="https://www.youtube.com/embed/JZD4R2f0mLM"
                 title="Vídeo - Meus Assinantes"
                 frameBorder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -3982,6 +3982,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 allowFullScreen
               />
             </div>
+          </div>
+          <div className="sm:hidden mt-2 text-center text-xs text-gray-300">
+            Para ver melhor no celular, abra em tela grande no YouTube.{' '}
+            <a
+              href="https://www.youtube.com/watch?v=JZD4R2f0mLM"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-300 underline font-semibold"
+            >
+              Abrir video
+            </a>
           </div>
         </div>
 
@@ -4984,7 +4995,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
               <iframe
                 className="absolute inset-0 w-full h-full"
-                src="https://www.youtube.com/embed/mJX4iP9zTUU"
+                src="https://www.youtube.com/embed/JZD4R2f0mLM"
                 title="Vídeo - Tipos de Assinatura Criados"
                 frameBorder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -4992,6 +5003,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 allowFullScreen
               />
             </div>
+          </div>
+          <div className="sm:hidden mt-2 text-center text-xs text-gray-300">
+            Para ver melhor no celular, abra em tela grande no YouTube.{' '}
+            <a
+              href="https://www.youtube.com/watch?v=JZD4R2f0mLM"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-300 underline font-semibold"
+            >
+              Abrir video
+            </a>
           </div>
         </div>
 

@@ -1758,6 +1758,26 @@ export function AppointmentForm({
         quantity: 1,
         item_type: 'booking_product',
       })).filter((item: any) => item.product_id && Number.isFinite(item.price) && item.price > 0);
+      // Em agendamentos de assinante, salvar extras também em additional_products (preço zero),
+      // para a duração ficar consistente na agenda mesmo quando houver variação de fluxo/UI.
+      const subscriberExtraProductsForPayload = isSubscriberBooking
+        ? (subscriberExtraServices || [])
+          .map((service: any) => ({
+            product_id: `subscriber_extra_${String(service?.id || '').trim() || String(service?.name || '').trim()}`,
+            name: `Extra assinatura: ${String(service?.name || '').trim() || 'Servico extra'}`,
+            price: 0,
+            duration: Number((service as any)?.duration || 0),
+            quantity: 1,
+            item_type: 'subscriber_extra',
+          }))
+          .filter((item: any) => {
+            const hasId = String(item.product_id || '').trim().length > 0;
+            const hasDuration = Number.isFinite(Number(item.duration)) && Number(item.duration) > 0;
+            return hasId && hasDuration;
+          })
+        : [];
+      const combinedAdditionalProducts =
+        [...selectedBookingProductsForPayload, ...subscriberExtraProductsForPayload];
       const bookingProductsTotalForPayload = round2(
         selectedBookingProductsForPayload.reduce((sum: number, item: any) => sum + (Number(item?.price) || 0), 0)
       );
@@ -1780,7 +1800,7 @@ export function AppointmentForm({
         coupon_discount_amount: cupomAplicado ? discountAmount : null,
         price: isSubscriberBooking && subscriberService ? subscriberExtraPrice : finalPrice, // Assinatura grátis, cobra só extras/serviço
         total_price: finalPriceWithProducts,
-        additional_products: selectedBookingProductsForPayload.length > 0 ? selectedBookingProductsForPayload : null,
+        additional_products: combinedAdditionalProducts.length > 0 ? combinedAdditionalProducts : null,
         payment_method: isSubscriberBooking ? 'assinante' : (requireAdvancePayment ? 'pendente' : selectedPaymentMethod),
         observation: observation.trim() || null, // Adicionar observação (null se vazia)
         is_child_service: isChildService === true, // Adicionar serviço infantil (garantir boolean)

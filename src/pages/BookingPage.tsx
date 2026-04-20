@@ -1930,7 +1930,9 @@ export default function BookingPage() {
         const targetDate = String(appointmentData?.appointment_date || format(selectedDate, 'yyyy-MM-dd')).slice(0, 10);
         const targetProfessionalRefNorm = normalizeText(appointmentData?.professional);
         const targetStart = toMinutes(normalizeTimeHHmm(appointmentData?.appointment_time));
-        const targetDuration = parseDurationMinutes(appointmentData?.duration);
+        const targetDuration =
+          parseDurationMinutes(appointmentData?.duration) +
+          getAdditionalProductsDuration(appointmentData?.additional_products);
         const targetEnd = targetStart + targetDuration;
 
         // Guard extra: valida com snapshot fresco do banco para evitar booking em horário bloqueado

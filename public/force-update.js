@@ -143,33 +143,7 @@
         
         const isAdminUser = checkAdminUser();
         
-        if ((isDevelopment || isAdmin || isAdminUser) && !document.getElementById('force-update-btn') && document.body) {
-            try {
-                const btn = document.createElement('button');
-                btn.id = 'force-update-btn';
-                btn.innerHTML = '🔄 Forçar Atualização';
-                btn.style.cssText = `
-                    position: fixed;
-                    top: 10px;
-                    right: 10px;
-                    z-index: 10000;
-                    background: #ff4757;
-                    color: white;
-                    border: none;
-                    padding: 8px 12px;
-                    border-radius: 5px;
-                    cursor: pointer;
-                    font-size: 12px;
-                    opacity: 0.8;
-                    transition: opacity 0.3s ease;
-                `;
-                btn.onmouseenter = () => btn.style.opacity = '1';
-                btn.onmouseleave = () => btn.style.opacity = '0.8';
-                btn.onclick = forceReload;
-                document.body.appendChild(btn);
-            } catch (error) {
-                console.log('Erro ao criar botão de força:', error);
-            }
-        }
+        // Botão flutuante de "Forçar Atualização" removido para não poluir o layout.
+        // Mantemos apenas a API window.forceUpdate para uso manual no console quando necessário.
     });
 })();

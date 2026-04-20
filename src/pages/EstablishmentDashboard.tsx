@@ -24455,8 +24455,8 @@ Estamos te aguardando! 😎✂️`;
 
                       <div className="aspect-video w-full overflow-hidden rounded-xl border border-gray-200 shadow-md">
                         <YouTubeResumePlayer
-                          videoId="lLM5KM6NavU"
-                          storageKey={`how_it_works_${establishment?.id || 'global'}`}
+                          videoId="pSdlB_FuQzc"
+                          storageKey={`how_it_works_pSdlB_FuQzc_${establishment?.id || 'global'}`}
                           className="w-full h-full"
                         />
                       </div>
@@ -29598,7 +29598,7 @@ Estamos te aguardando! 😎✂️`;
 
 
               {activeTab === 'financial-dashboard' && isDashboardUnlocked && (
-                <div className="space-y-6">
+                <div className="flex flex-col gap-6">
                   {/* Vídeo Tutorial do Dashboard Financeiro */}
                   {showTutorials.dashboard && (
                     <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-lg p-4 mb-6">
@@ -29658,105 +29658,7 @@ Estamos te aguardando! 😎✂️`;
                   )}
 
                   {/* Dashboard Financeiro com Despesas */}
-                  <div className="rounded-2xl shadow-lg border border-gray-200 bg-gradient-to-br from-white via-gray-50 to-gray-100 p-6">
-                    {(() => {
-                      const selectedKey = format(selectedMonth, 'yyyy-MM');
-                      const currentSummary = occupancyHistory.find((item) => item.monthKey === selectedKey);
-                      return (
-                        <div className="mb-5 rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50 via-white to-violet-50 p-4">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-indigo-600">Taxa de ocupação</div>
-                          {isLoadingOccupancyHistory ? (
-                            <div className="mt-2 text-sm text-gray-600">Calculando taxa de ocupação...</div>
-                          ) : currentSummary ? (
-                            <>
-                              <div className="mt-2 flex flex-wrap items-end gap-3">
-                                <div className="text-3xl font-extrabold text-gray-900">
-                                  {currentSummary.occupancyRate.toFixed(2)}%
-                                </div>
-                                <div className="text-sm text-gray-700 pb-1">
-                                  {currentSummary.occupiedMinutes} min ocupados de {currentSummary.totalCapacityMinutes} min disponíveis no mês selecionado
-                                </div>
-                              </div>
-                              <div className="mt-1 text-[11px] text-gray-600">
-                                Fórmula: ({currentSummary.occupiedMinutes} / {currentSummary.totalCapacityMinutes}) x 100 = {currentSummary.occupancyRate.toFixed(2)}%
-                              </div>
-                              <div className="mt-3 h-2 w-full rounded-full bg-gray-200 overflow-hidden">
-                                <div
-                                  className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all"
-                                  style={{ width: `${Math.min(100, currentSummary.occupancyRate)}%` }}
-                                />
-                              </div>
-                              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Concluídos</div>
-                                  <div className="text-base font-extrabold text-emerald-800">{monthlyStatusSummary.completed}</div>
-                                </div>
-                                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-rose-700">Cancelados</div>
-                                  <div className="text-base font-extrabold text-rose-800">{monthlyStatusSummary.cancelled}</div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => setShowPendingAppointmentsSummary((prev) => !prev)}
-                                  className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-left hover:bg-amber-100 transition-colors"
-                                >
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Pendentes</div>
-                                  <div className="text-base font-extrabold text-amber-800">{monthlyStatusSummary.pending}</div>
-                                  <div className="text-[10px] text-amber-700 mt-0.5">
-                                    {monthlyStatusSummary.pending > 0 ? 'Clique para ver horários' : 'Sem horários pendentes'}
-                                  </div>
-                                </button>
-                              </div>
-                              {showPendingAppointmentsSummary && (
-                                <div className="mt-3 rounded-lg border border-amber-200 bg-white p-3">
-                                  <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">
-                                    Horários pendentes do mês
-                                  </div>
-                                  {monthlyPendingAppointments.length === 0 ? (
-                                    <div className="text-sm text-gray-600">Nenhum horário pendente no mês selecionado.</div>
-                                  ) : (
-                                    <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
-                                      {monthlyPendingAppointments.map((apt) => {
-                                        const professionalName = professionals.find((p) => String(p.id) === String(apt.professional))?.name || apt.professional || 'Profissional';
-                                        const statusLabel = String(apt.status || '').toLowerCase() === 'pending_payment'
-                                          ? 'Pendente pagamento'
-                                          : String(apt.status || '').toLowerCase() === 'confirmed'
-                                            ? 'Confirmado'
-                                            : 'Pendente';
-                                        return (
-                                          <div key={apt.id} className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-                                            <div className="text-sm font-semibold text-gray-900">
-                                              {apt.appointment_date} às {apt.appointment_time}
-                                            </div>
-                                            <div className="text-xs text-gray-700">
-                                              {apt.client_name} - {professionalName} - {statusLabel}
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                              <div className="mt-4 grid grid-cols-2 md:grid-cols-6 gap-2">
-                                {occupancyHistory.map((item) => (
-                                  <div key={item.monthKey} className="rounded-lg border border-gray-200 bg-white p-2">
-                                    <div className="text-[11px] text-gray-500">{item.monthLabel}</div>
-                                    <div className="text-sm font-bold text-gray-900">{item.occupancyRate.toFixed(2)}%</div>
-                                    <div className="text-[10px] text-gray-500">
-                                      {item.occupiedMinutes}/{item.totalCapacityMinutes} min
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </>
-                          ) : (
-                            <div className="mt-2 text-sm text-gray-600">Sem dados suficientes para calcular ocupação.</div>
-                          )}
-                        </div>
-                      );
-                    })()}
-
+                  <div className="order-2 rounded-2xl shadow-lg border border-gray-200 bg-gradient-to-br from-white via-gray-50 to-gray-100 p-6">
                     <div className="flex items-center justify-between mb-6">
                       <h2 className="text-2xl font-bold text-gray-900">Dashboard Financeiro</h2>
                       <div className="flex gap-2">
@@ -30174,9 +30076,13 @@ Estamos te aguardando! 😎✂️`;
                   <div className="mb-4 bg-gradient-to-br from-[#0f1115] via-[#12151c] to-[#171b24] rounded-xl shadow-2xl border border-gray-700 p-6">
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <h3 className="text-xl font-bold text-gray-100 flex items-center gap-2">
+                        <h3
+                          className="text-xl font-bold text-gray-100 flex items-center gap-2 cursor-pointer select-none hover:text-indigo-300 transition-colors"
+                          onClick={() => setShowDetailedAttendancesPanel((prev) => !prev)}
+                          title={showDetailedAttendancesPanel ? 'Clique para ocultar seção' : 'Clique para abrir seção'}
+                        >
                           <span className="text-2xl">📊</span>
-                          <span>Ver faturamento detalhado dos atendimentos</span>
+                          <span>Clique para ver : taxa de ocupação e faturamento detalhado geral do estabelecimento</span>
                         </h3>
                         <button
                           type="button"
@@ -30239,6 +30145,103 @@ Estamos te aguardando! 😎✂️`;
                           </div>
 
                           <div className="flex flex-wrap gap-2 mb-4">
+                            {(() => {
+                              const selectedKey = format(selectedMonth, 'yyyy-MM');
+                              const currentSummary = occupancyHistory.find((item) => item.monthKey === selectedKey);
+                              return (
+                                <div className="w-full mb-1 rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50 via-white to-violet-50 p-4">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-indigo-600">Taxa de ocupação</div>
+                                  {isLoadingOccupancyHistory ? (
+                                    <div className="mt-2 text-sm text-gray-600">Calculando taxa de ocupação...</div>
+                                  ) : currentSummary ? (
+                                    <>
+                                      <div className="mt-2 flex flex-wrap items-end gap-3">
+                                        <div className="text-3xl font-extrabold text-gray-900">
+                                          {currentSummary.occupancyRate.toFixed(2)}%
+                                        </div>
+                                        <div className="text-sm text-gray-700 pb-1">
+                                          {currentSummary.occupiedMinutes} min ocupados de {currentSummary.totalCapacityMinutes} min disponíveis no mês selecionado
+                                        </div>
+                                      </div>
+                                      <div className="mt-1 text-[11px] text-gray-600">
+                                        Fórmula: ({currentSummary.occupiedMinutes} / {currentSummary.totalCapacityMinutes}) x 100 = {currentSummary.occupancyRate.toFixed(2)}%
+                                      </div>
+                                      <div className="mt-3 h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+                                        <div
+                                          className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all"
+                                          style={{ width: `${Math.min(100, currentSummary.occupancyRate)}%` }}
+                                        />
+                                      </div>
+                                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                                          <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Concluídos</div>
+                                          <div className="text-base font-extrabold text-emerald-800">{monthlyStatusSummary.completed}</div>
+                                        </div>
+                                        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
+                                          <div className="text-[11px] font-semibold uppercase tracking-wide text-rose-700">Cancelados</div>
+                                          <div className="text-base font-extrabold text-rose-800">{monthlyStatusSummary.cancelled}</div>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => setShowPendingAppointmentsSummary((prev) => !prev)}
+                                          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-left hover:bg-amber-100 transition-colors"
+                                        >
+                                          <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Pendentes</div>
+                                          <div className="text-base font-extrabold text-amber-800">{monthlyStatusSummary.pending}</div>
+                                          <div className="text-[10px] text-amber-700 mt-0.5">
+                                            {monthlyStatusSummary.pending > 0 ? 'Clique para ver horários' : 'Sem horários pendentes'}
+                                          </div>
+                                        </button>
+                                      </div>
+                                      {showPendingAppointmentsSummary && (
+                                        <div className="mt-3 rounded-lg border border-amber-200 bg-white p-3">
+                                          <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">
+                                            Horários pendentes do mês
+                                          </div>
+                                          {monthlyPendingAppointments.length === 0 ? (
+                                            <div className="text-sm text-gray-600">Nenhum horário pendente no mês selecionado.</div>
+                                          ) : (
+                                            <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+                                              {monthlyPendingAppointments.map((apt) => {
+                                                const professionalName = professionals.find((p) => String(p.id) === String(apt.professional))?.name || apt.professional || 'Profissional';
+                                                const statusLabel = String(apt.status || '').toLowerCase() === 'pending_payment'
+                                                  ? 'Pendente pagamento'
+                                                  : String(apt.status || '').toLowerCase() === 'confirmed'
+                                                    ? 'Confirmado'
+                                                    : 'Pendente';
+                                                return (
+                                                  <div key={apt.id} className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                                                    <div className="text-sm font-semibold text-gray-900">
+                                                      {apt.appointment_date} às {apt.appointment_time}
+                                                    </div>
+                                                    <div className="text-xs text-gray-700">
+                                                      {apt.client_name} - {professionalName} - {statusLabel}
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                      <div className="mt-4 grid grid-cols-2 md:grid-cols-6 gap-2">
+                                        {occupancyHistory.map((item) => (
+                                          <div key={item.monthKey} className="rounded-lg border border-gray-200 bg-white p-2">
+                                            <div className="text-[11px] text-gray-500">{item.monthLabel}</div>
+                                            <div className="text-sm font-bold text-gray-900">{item.occupancyRate.toFixed(2)}%</div>
+                                            <div className="text-[10px] text-gray-500">
+                                              {item.occupiedMinutes}/{item.totalCapacityMinutes} min
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="mt-2 text-sm text-gray-600">Sem dados suficientes para calcular ocupação.</div>
+                                  )}
+                                </div>
+                              );
+                            })()}
                             {[
                               { key: 'todos', label: 'Todos' },
                               { key: 'pix', label: 'PIX' },
@@ -31080,7 +31083,7 @@ Estamos te aguardando! 😎✂️`;
                   </div>
 
                   {/* Receita Diária */}
-                  <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                  <div className="order-3 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="text-xl font-bold text-gray-900">Receita Diária</h3>
                       <button

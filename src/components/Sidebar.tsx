@@ -23,7 +23,7 @@ import {
   UserCheck,
   Users
 } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 type TabType =
   | 'appointments'
@@ -99,7 +99,20 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [isExpanded, setIsExpanded] = useState(true);
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [showMenuScrollHint, setShowMenuScrollHint] = useState(false);
+  const navRef = useRef<HTMLElement | null>(null);
   const isLight = useLightLayout;
+
+  const updateMenuScrollHint = () => {
+    const navEl = navRef.current;
+    if (!navEl || !isMobile || !isExpanded) {
+      setShowMenuScrollHint(false);
+      return;
+    }
+    const hasOverflow = navEl.scrollHeight - navEl.clientHeight > 8;
+    const isAtBottom = navEl.scrollTop + navEl.clientHeight >= navEl.scrollHeight - 8;
+    setShowMenuScrollHint(hasOverflow && !isAtBottom);
+  };
 
   // ✅ Evitar scroll do fundo quando o modal estiver aberto
   useEffect(() => {
@@ -120,6 +133,15 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // ✅ Plano Prata: ativado SOMENTE pelo botão "PRATA" no Admin
   const isPlanoPrataAtivo = Boolean(establishment?.plan_prata_active);
+
+  useEffect(() => {
+    const timer = window.setTimeout(updateMenuScrollHint, 120);
+    window.addEventListener('resize', updateMenuScrollHint);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('resize', updateMenuScrollHint);
+    };
+  }, [isMobile, isExpanded, activeTab, pendingReviewsCount, pendingSubscribersCount, unreadNotifications]);
 
   const openUpgradeModal = () => setShowPlanUpgradeModal(true);
   const closeUpgradeModal = () => setShowPlanUpgradeModal(false);
@@ -767,6 +789,8 @@ const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Lista de itens do menu */}
         <nav
+          ref={navRef}
+          onScroll={updateMenuScrollHint}
           className={`p-2 space-y-1 overflow-y-auto flex-1 scrollbar-hide ${isLight ? 'bg-white' : 'bg-gradient-to-b from-gray-900 via-black to-black'
             }`}
           style={{ minHeight: 0 }}
@@ -888,6 +912,8 @@ const Sidebar: React.FC<SidebarProps> = ({
             const isIndicationItem = item.id === 'indication';
             const isWhatsappPremiumItem = item.id === 'whatsapp-reminders';
             const isSubscribersItem = item.id === 'subscribers';
+            const isAppointmentsItem = item.id === 'appointments';
+            const isBookingPageItem = item.id === 'client-page';
             const isLastItem = index === menuItems.length - 1;
             const isPlanLocked = Boolean((item as any).lockedByPlan);
             const isOnboardingLocked = !isPlanLocked && isItemLockedByOnboarding(item.id);
@@ -908,6 +934,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                       ? item.isActive
                         ? 'bg-white text-black shadow-md'
                         : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-md'
+                      : isAppointmentsItem
+                        ? item.isActive
+                          ? 'bg-gradient-to-r from-[#ff7a18] to-[#ff4d6d] text-white shadow-md border border-[#ffb38a]/40'
+                          : 'bg-gradient-to-r from-[#ff9a3d] to-[#ff6b8a] text-white hover:from-[#ff8a24] hover:to-[#ff5c7d] shadow-md border border-[#ffc299]/30'
+                      : isBookingPageItem
+                        ? item.isActive
+                          ? 'bg-gradient-to-r from-[#00b4d8] to-[#4361ee] text-white shadow-md border border-[#90e0ef]/40'
+                          : 'bg-gradient-to-r from-[#22c1e8] to-[#5a74f5] text-white hover:from-[#0db7df] hover:to-[#4c67f0] shadow-md border border-[#ade8f4]/30'
                       : isSubscribersItem && !isPlanLocked && !item.disabled
                         ? item.isActive
                           ? 'bg-gradient-to-r from-fuchsia-500 to-violet-600 text-white shadow-md border border-fuchsia-300/40'
@@ -951,6 +985,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                           ? item.isActive
                             ? 'text-black'
                             : 'text-white'
+                          : isAppointmentsItem || isBookingPageItem
+                            ? 'text-white'
                           : isSubscribersItem && !isPlanLocked && !item.disabled
                             ? 'text-white'
                           : isWhatsappPremiumItem
@@ -996,6 +1032,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                             ? item.isActive
                               ? 'text-black'
                               : 'text-white'
+                            : isAppointmentsItem || isBookingPageItem
+                              ? 'text-white font-semibold'
                             : isSubscribersItem && !isPlanLocked && !item.disabled
                               ? 'text-white font-extrabold tracking-wide'
                             : isWhatsappPremiumItem
@@ -1030,6 +1068,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                               ? item.isActive
                                 ? 'text-black'
                                 : 'text-white'
+                              : isAppointmentsItem || isBookingPageItem
+                                ? 'text-white'
                               : isSubscribersItem && !isPlanLocked && !item.disabled
                                 ? 'text-white'
                               : isWhatsappPremiumItem
@@ -1292,6 +1332,19 @@ const Sidebar: React.FC<SidebarProps> = ({
               </React.Fragment>
             );
           })}
+          {isMobile && isExpanded && showMenuScrollHint && (
+            <div className="sticky bottom-0 pt-2 pointer-events-none">
+              <div
+                className={`rounded-lg border px-3 py-1.5 text-[11px] font-semibold text-center ${
+                  isLight
+                    ? 'bg-white/95 border-gray-300 text-gray-700'
+                    : 'bg-black/80 border-gray-700 text-gray-200'
+                }`}
+              >
+                ⬇ Arraste para ver mais opcoes
+              </div>
+            </div>
+          )}
         </nav>
 
       </div>

@@ -4881,6 +4881,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               // Horário disponível (ou dia de ausência) - pode ter encaixes abaixo
                               const squeezes = (slot as any).squeezes || [];
                               const isAbsentSlot = isProfessionalAbsentOnSelectedDate;
+                              const isPastSlot = !isAbsentSlot && !!slot.isPast;
                               const blockBusy =
                                 slotBlockBusyKey === `${professional.id}__${slot.time}`;
                               const canQuickBlock =
@@ -4910,6 +4911,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                     className={`rounded-xl border-2 shadow-sm overflow-hidden flex items-stretch min-h-[52px] ${
                                       isAbsentSlot
                                         ? 'bg-gradient-to-br from-amber-50 to-amber-100/90 border-amber-400'
+                                        : isPastSlot
+                                          ? 'bg-gradient-to-br from-gray-100 to-gray-200 border-gray-400'
                                         : useLightLayout
                                           ? 'bg-gradient-to-br from-white to-emerald-50/80 border-emerald-300'
                                           : 'bg-gradient-to-br from-white to-emerald-50 border-emerald-400/90'
@@ -4918,17 +4921,21 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                     <div className="flex-1 flex flex-col justify-center px-3 py-2.5 min-w-0">
                                       <span
                                         className={`font-extrabold text-base tracking-tight ${
-                                          isAbsentSlot ? 'text-amber-900' : 'text-gray-900'
+                                          isAbsentSlot ? 'text-amber-900' : isPastSlot ? 'text-gray-700' : 'text-gray-900'
                                         }`}
                                       >
                                         {slot.time}
                                       </span>
                                       <span
                                         className={`text-[11px] font-bold mt-0.5 ${
-                                          isAbsentSlot ? 'text-amber-800' : 'text-emerald-700'
+                                          isAbsentSlot ? 'text-amber-800' : isPastSlot ? 'text-gray-600' : 'text-emerald-700'
                                         }`}
                                       >
-                                        {isAbsentSlot ? '📅 Ausência neste dia' : '✓ Livre para agendar'}
+                                        {isAbsentSlot
+                                          ? '📅 Ausência neste dia'
+                                          : isPastSlot
+                                            ? '⏰ Horário encerrado'
+                                            : '✓ Livre para agendar'}
                                       </span>
                                     </div>
                                     {canQuickBlock ? (

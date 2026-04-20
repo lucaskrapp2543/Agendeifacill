@@ -1102,6 +1102,36 @@ export function BookingChatFlow({
     }
     setIsSubmitting(true);
     try {
+      const bookingProductsPayload =
+        loyaltyFree
+          ? []
+          : selectedBookingProducts.map((product: any) => ({
+            product_id: String(product?.id || '').trim(),
+            name: String(product?.name || '').trim() || 'Produto',
+            price: Number(product?.sale_price || 0),
+            duration: 0,
+            quantity: 1,
+            item_type: 'booking_product',
+          })).filter((item: any) => item.product_id && Number.isFinite(item.price) && item.price > 0);
+
+      const subscriberExtraPayload = isSubscriberFlow
+        ? selectedSubscriberExtraServices
+          .map((service: any) => ({
+            product_id: `subscriber_extra_${String(service?.id || '').trim() || String(service?.name || '').trim()}`,
+            name: `Extra assinatura: ${String(service?.name || '').trim() || 'Servico extra'}`,
+            price: 0,
+            duration: Number(service?.duration || 0),
+            quantity: 1,
+            item_type: 'subscriber_extra',
+          }))
+          .filter((item: any) => {
+            const hasId = String(item.product_id || '').trim().length > 0;
+            const hasDuration = Number.isFinite(Number(item.duration)) && Number(item.duration) > 0;
+            return hasId && hasDuration;
+          })
+        : [];
+
+      const combinedAdditionalProducts = [...bookingProductsPayload, ...subscriberExtraPayload];
       const payload = {
         client_name: chatClientName,
         client_whatsapp: chatClientPhone,
@@ -1116,16 +1146,9 @@ export function BookingChatFlow({
         additional_products:
           loyaltyFree
             ? null
-            : selectedBookingProducts.length > 0
-          ? selectedBookingProducts.map((product: any) => ({
-            product_id: String(product?.id || '').trim(),
-            name: String(product?.name || '').trim() || 'Produto',
-            price: Number(product?.sale_price || 0),
-            duration: 0,
-            quantity: 1,
-            item_type: 'booking_product',
-          }))
-          : null,
+            : combinedAdditionalProducts.length > 0
+              ? combinedAdditionalProducts
+              : null,
         payment_method: isSubscriberFlow ? 'assinante' : (requireAdvancePayment ? 'pendente' : 'pagar_local'),
         is_child_service: false,
         is_subscriber: isSubscriberFlow,
