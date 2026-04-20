@@ -1,5 +1,13 @@
 import { supabase } from '../lib/supabase';
-import { getSubscriptionUsageDateRange } from './subscriptionUsagePeriod';
+import {
+  buildCarryoverMonthlyLimit,
+  clampDateRangeToSubscription,
+  getCalendarMonthDateRange,
+  getPreviousCalendarMonthDateRange,
+  getSubscriptionUsageDateRange,
+  isIsoDateWithinRange,
+  type IsoDateRange,
+} from './subscriptionUsagePeriod';
 
 const toDateOnlyString = (d: Date): string => {
   const yyyy = d.getFullYear();
@@ -46,12 +54,32 @@ const parseDividedServices = (raw: unknown): DividedServiceConfig[] => {
     .filter((item) => item.id && item.name && Number.isFinite(item.duration) && item.duration > 0 && Number.isFinite(item.limit) && item.limit > 0);
 };
 
+const filterAppointmentsByRequestedService = (
+  appointments: any[],
+  requestedServiceId: string,
+  requestedServiceName: string
+): any[] => {
+  return (appointments || []).filter((appointment: any) => {
+    const apptServiceId = String(appointment?.subscriber_service_id || '').trim();
+    if (requestedServiceId && apptServiceId && apptServiceId === requestedServiceId) return true;
+    if (!requestedServiceName) return false;
+    const apptServiceName = String(appointment?.subscriber_service_name || appointment?.service || '').trim();
+    const apptNorm = normalizeText(apptServiceName);
+    const reqNorm = normalizeText(requestedServiceName);
+    return apptNorm === reqNorm || apptNorm.includes(reqNorm) || reqNorm.includes(apptNorm);
+  });
+};
+
+const countAppointmentsInRange = (appointments: any[], range: IsoDateRange | null | undefined): number => {
+  if (!range) return 0;
+  return (appointments || []).filter((appointment: any) =>
+    isIsoDateWithinRange(String(appointment?.appointment_date || ''), range)
+  ).length;
+};
+
 /**
- * Verifica se um cliente assinante excedeu o limite mensal de agendamentos
- * @param clientWhatsapp - WhatsApp do cliente (com ou sem formatação)
- * @param establishmentId - ID do estabelecimento
- * @param targetDate - Data do agendamento (usa esta data para validar vencimento e mês do limite)
- * @returns Objeto com informações sobre o limite
+ * Verifica se um cliente assinante excedeu o limite mensal de agendamentos.
+ * Regra nova: o saldo que sobrou do mes imediatamente anterior entra no mes atual.
  */
 export const checkMonthlyLimit = async (
   clientWhatsapp: string,
@@ -66,9 +94,8 @@ export const checkMonthlyLimit = async (
   errorMessage?: string;
 }> => {
   try {
-    console.log('🔍 Verificando limite mensal:', { clientWhatsapp, establishmentId });
+    console.log('?? Verificando limite mensal:', { clientWhatsapp, establishmentId });
 
-    // Limpar o WhatsApp (remover formatação) + candidatos com/sem DDI para compatibilidade
     const cleanWhatsapp = clientWhatsapp.replace(/\D/g, '');
     const whatsappCandidates = buildWhatsappCandidates(cleanWhatsapp);
     if (whatsappCandidates.length === 0) {
@@ -79,26 +106,14 @@ export const checkMonthlyLimit = async (
         subscriptionName: ''
       };
     }
+
     const targetDateStr = toDateOnlyString(targetDate);
     const requestedServiceId = String(selectedSubscriberService?.id || '').trim();
     const requestedServiceName = String(selectedSubscriberService?.name || '').trim();
     const requestedServiceLimit = Number(selectedSubscriberService?.limit || 0);
+    const currentCalendarRange = getCalendarMonthDateRange(targetDate);
+    const previousCalendarRange = getPreviousCalendarMonthDateRange(targetDate);
 
-    const calendarFallbackRange = getSubscriptionUsageDateRange(null, targetDate);
-
-    const countUsageByRequestedService = (appointments: any[]): number => {
-      return (appointments || []).filter((appointment: any) => {
-        const apptServiceId = String(appointment?.subscriber_service_id || '').trim();
-        if (requestedServiceId && apptServiceId && apptServiceId === requestedServiceId) return true;
-        if (!requestedServiceName) return false;
-        const apptServiceName = String(appointment?.subscriber_service_name || appointment?.service || '').trim();
-        const apptNorm = normalizeText(apptServiceName);
-        const reqNorm = normalizeText(requestedServiceName);
-        return apptNorm === reqNorm || apptNorm.includes(reqNorm) || reqNorm.includes(apptNorm);
-      }).length;
-    };
-
-    // Buscar assinatura do cliente pelo WhatsApp
     let { data: clientSubscription, error: subscriptionError } = await supabase
       .from('client_subscriptions')
       .select(`
@@ -107,14 +122,12 @@ export const checkMonthlyLimit = async (
       `)
       .eq('establishment_id', establishmentId)
       .in('client_whatsapp', whatsappCandidates)
-      // ✅ Validar assinatura na DATA do agendamento (não só hoje)
       .gte('end_date', targetDateStr)
       .lte('start_date', targetDateStr)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    // Compatibilidade: alguns projetos usam subscriber_whatsapp em vez de client_whatsapp
     if (!clientSubscription && !subscriptionError) {
       const subscriberWhatsappTry = await supabase
         .from('client_subscriptions')
@@ -134,9 +147,8 @@ export const checkMonthlyLimit = async (
     }
 
     if (subscriptionError || !clientSubscription) {
-      console.log('❌ Assinante não encontrado no sistema novo, tentando sistema antigo...');
+      console.log('? Assinante n�o encontrado no sistema novo, tentando sistema antigo...');
 
-      // Tentar buscar no SISTEMA ANTIGO (premium_subscriptions)
       try {
         const { data: oldSubscription, error: oldError } = await supabase
           .from('premium_subscriptions')
@@ -149,9 +161,7 @@ export const checkMonthlyLimit = async (
           .maybeSingle();
 
         if (oldSubscription && !oldError) {
-          console.log('✅ Encontrado no sistema antigo, mas SEM limite mensal');
-
-          const oldRange = getSubscriptionUsageDateRange(oldSubscription as any, targetDate);
+          console.log('? Encontrado no sistema antigo, mas SEM limite mensal total');
 
           const { data: appointments, error: appointmentsError } = await supabase
             .from('appointments')
@@ -159,42 +169,45 @@ export const checkMonthlyLimit = async (
             .eq('establishment_id', establishmentId)
             .in('client_whatsapp', whatsappCandidates)
             .eq('is_subscriber', true)
-            .gte('appointment_date', oldRange.periodMin)
-            .lte('appointment_date', oldRange.periodMax)
+            .gte('appointment_date', previousCalendarRange.periodMin)
+            .lte('appointment_date', currentCalendarRange.periodMax)
             .in('status', ['confirmed', 'completed', 'pending']);
 
-          console.log('🔍 DEBUG - Busca de agendamentos no sistema antigo:', {
+          console.log('?? DEBUG - Busca de agendamentos no sistema antigo:', {
             establishmentId,
             cleanWhatsapp,
-            periodMin: oldRange.periodMin,
-            periodMax: oldRange.periodMax,
+            periodMin: previousCalendarRange.periodMin,
+            periodMax: currentCalendarRange.periodMax,
             appointments,
             appointmentsError,
             appointmentsCount: appointments?.length || 0
           });
 
-          const currentUsage = appointments?.length || 0;
-          const serviceUsage = countUsageByRequestedService(appointments || []);
-          if (Number.isFinite(requestedServiceLimit) && requestedServiceLimit > 0 && serviceUsage >= requestedServiceLimit) {
+          const currentUsage = countAppointmentsInRange(appointments || [], currentCalendarRange);
+          const serviceAppointments = filterAppointmentsByRequestedService(appointments || [], requestedServiceId, requestedServiceName);
+          const currentServiceUsage = countAppointmentsInRange(serviceAppointments, currentCalendarRange);
+          const previousServiceUsage = countAppointmentsInRange(serviceAppointments, previousCalendarRange);
+          const serviceAllowance = buildCarryoverMonthlyLimit(requestedServiceLimit, currentServiceUsage, previousServiceUsage);
+
+          if (Number.isFinite(requestedServiceLimit) && requestedServiceLimit > 0 && !serviceAllowance.canBook) {
             return {
               canBook: false,
-              currentUsage: serviceUsage,
-              monthlyLimit: requestedServiceLimit,
+              currentUsage: serviceAllowance.currentMonthUsage,
+              monthlyLimit: serviceAllowance.effectiveLimit,
               subscriptionName: 'Assinatura Premium',
-              errorMessage: `Você já atingiu o limite do serviço "${requestedServiceName || 'da assinatura'}" nesta assinatura (${serviceUsage}/${requestedServiceLimit}). Selecione apenas serviços que ainda tenham saldo disponível.`,
+              errorMessage: `Voc� j� atingiu o limite do servi�o "${requestedServiceName || 'da assinatura'}" neste m�s (${serviceAllowance.currentMonthUsage}/${serviceAllowance.effectiveLimit}).`,
             };
           }
 
-          // Sistema antigo não tem limite mensal, mas vamos mostrar o contador
           return {
             canBook: true,
-            currentUsage: Number.isFinite(requestedServiceLimit) && requestedServiceLimit > 0 ? serviceUsage : currentUsage,
-            monthlyLimit: null,
+            currentUsage: Number.isFinite(requestedServiceLimit) && requestedServiceLimit > 0 ? serviceAllowance.currentMonthUsage : currentUsage,
+            monthlyLimit: Number.isFinite(requestedServiceLimit) && requestedServiceLimit > 0 ? serviceAllowance.effectiveLimit : null,
             subscriptionName: 'Assinatura Premium'
           };
         }
       } catch (err) {
-        console.log('⚠️ Erro ao buscar no sistema antigo:', err);
+        console.log('?? Erro ao buscar no sistema antigo:', err);
       }
 
       if (Number.isFinite(requestedServiceLimit) && requestedServiceLimit > 0) {
@@ -204,31 +217,34 @@ export const checkMonthlyLimit = async (
           .eq('establishment_id', establishmentId)
           .in('client_whatsapp', whatsappCandidates)
           .eq('is_subscriber', true)
-          .gte('appointment_date', calendarFallbackRange.periodMin)
-          .lte('appointment_date', calendarFallbackRange.periodMax)
+          .gte('appointment_date', previousCalendarRange.periodMin)
+          .lte('appointment_date', currentCalendarRange.periodMax)
           .in('status', ['confirmed', 'completed', 'pending']);
 
         if (!fallbackAppointmentsError) {
-          const serviceUsage = countUsageByRequestedService(fallbackAppointments || []);
-          if (serviceUsage >= requestedServiceLimit) {
+          const fallbackServiceAppointments = filterAppointmentsByRequestedService(fallbackAppointments || [], requestedServiceId, requestedServiceName);
+          const currentServiceUsage = countAppointmentsInRange(fallbackServiceAppointments, currentCalendarRange);
+          const previousServiceUsage = countAppointmentsInRange(fallbackServiceAppointments, previousCalendarRange);
+          const serviceAllowance = buildCarryoverMonthlyLimit(requestedServiceLimit, currentServiceUsage, previousServiceUsage);
+          if (!serviceAllowance.canBook) {
             return {
               canBook: false,
-              currentUsage: serviceUsage,
-              monthlyLimit: requestedServiceLimit,
+              currentUsage: serviceAllowance.currentMonthUsage,
+              monthlyLimit: serviceAllowance.effectiveLimit,
               subscriptionName: '',
-              errorMessage: `Você já atingiu o limite do serviço "${requestedServiceName || 'da assinatura'}" nesta assinatura (${serviceUsage}/${requestedServiceLimit}). Selecione apenas serviços que ainda tenham saldo disponível.`,
+              errorMessage: `Voc� j� atingiu o limite do servi�o "${requestedServiceName || 'da assinatura'}" neste m�s (${serviceAllowance.currentMonthUsage}/${serviceAllowance.effectiveLimit}).`,
             };
           }
           return {
             canBook: true,
-            currentUsage: serviceUsage,
-            monthlyLimit: requestedServiceLimit,
+            currentUsage: serviceAllowance.currentMonthUsage,
+            monthlyLimit: serviceAllowance.effectiveLimit,
             subscriptionName: '',
           };
         }
       }
 
-      console.log('❌ Assinante não encontrado em nenhum sistema');
+      console.log('? Assinante n�o encontrado em nenhum sistema');
       return {
         canBook: true,
         currentUsage: 0,
@@ -237,14 +253,13 @@ export const checkMonthlyLimit = async (
       };
     }
 
-    // Verificar se o assinante está ativo (não vencido)
     const endDateStr = String((clientSubscription as any)?.end_date || '').slice(0, 10);
     const isExpired =
       (endDateStr ? endDateStr < targetDateStr : false) ||
       clientSubscription.payment_status === 'unpaid';
 
     if (isExpired) {
-      console.log('❌ Assinante vencido, não aplicando limite');
+      console.log('? Assinante vencido, n�o aplicando limite');
       return {
         canBook: true,
         currentUsage: 0,
@@ -253,7 +268,11 @@ export const checkMonthlyLimit = async (
       };
     }
 
+    const currentRange = clampDateRangeToSubscription(currentCalendarRange, clientSubscription as any);
+    const previousRange = clampDateRangeToSubscription(previousCalendarRange, clientSubscription as any);
     const usageRange = getSubscriptionUsageDateRange(clientSubscription as any, targetDate);
+    const queryMin = previousRange?.periodMin || currentRange?.periodMin || usageRange.periodMin;
+    const queryMax = currentRange?.periodMax || usageRange.periodMax;
 
     const { data: appointments, error: appointmentsError } = await supabase
       .from('appointments')
@@ -261,12 +280,12 @@ export const checkMonthlyLimit = async (
       .eq('establishment_id', establishmentId)
       .in('client_whatsapp', whatsappCandidates)
       .eq('is_subscriber', true)
-      .gte('appointment_date', usageRange.periodMin)
-      .lte('appointment_date', usageRange.periodMax)
+      .gte('appointment_date', queryMin)
+      .lte('appointment_date', queryMax)
       .in('status', ['confirmed', 'completed', 'pending']);
 
     if (appointmentsError) {
-      console.error('❌ Erro ao verificar agendamentos:', appointmentsError);
+      console.error('? Erro ao verificar agendamentos:', appointmentsError);
       return {
         canBook: true,
         currentUsage: 0,
@@ -275,7 +294,8 @@ export const checkMonthlyLimit = async (
       };
     }
 
-    const currentUsage = appointments?.length || 0;
+    const currentUsage = countAppointmentsInRange(appointments || [], currentRange);
+    const previousUsage = countAppointmentsInRange(appointments || [], previousRange);
     const monthlyLimit = (clientSubscription as any).monthly_limit;
     const subscriptionName = clientSubscription.subscriptions?.name || '';
     const subscriptionConfig = (clientSubscription as any)?.subscriptions || {};
@@ -285,7 +305,6 @@ export const checkMonthlyLimit = async (
       (hasRequestedServiceLimit && Boolean(requestedServiceId || requestedServiceName));
     const dividedServices = parseDividedServices((subscriptionConfig as any)?.divided_services);
 
-    // Novo fluxo: limite por serviço quando "Dividir serviços" estiver ativo
     if (divideServicesEnabled) {
       if (!requestedServiceId && !requestedServiceName) {
         return {
@@ -307,7 +326,7 @@ export const checkMonthlyLimit = async (
         requestedServiceId || requestedServiceName
           ? {
             id: requestedServiceId || `service_${normalizeText(requestedServiceName)}`,
-            name: requestedServiceName || 'Serviço da assinatura',
+            name: requestedServiceName || 'Servico da assinatura',
             duration: 0,
             limit: requestedServiceLimit > 0 ? requestedServiceLimit : 0,
           }
@@ -321,46 +340,42 @@ export const checkMonthlyLimit = async (
           currentUsage: 0,
           monthlyLimit: null,
           subscriptionName,
-          errorMessage: 'Esse serviço não faz parte da sua assinatura ativa. Selecione um serviço com saldo disponível.',
+          errorMessage: 'Esse servi�o n�o faz parte da sua assinatura ativa. Selecione um servi�o com saldo dispon�vel.',
         };
       }
 
-      const usageByService = (appointments || []).filter((appointment: any) => {
-        const apptServiceId = String(appointment?.subscriber_service_id || '').trim();
-        if (apptServiceId && apptServiceId === finalRequestedService.id) return true;
-
-        const apptServiceName = String(appointment?.subscriber_service_name || appointment?.service || '').trim();
-        const apptNorm = normalizeText(apptServiceName);
-        const reqNorm = normalizeText(finalRequestedService.name);
-        return apptNorm === reqNorm || apptNorm.includes(reqNorm) || reqNorm.includes(apptNorm);
-      }).length;
-
+      const serviceAppointments = filterAppointmentsByRequestedService(
+        appointments || [],
+        String(finalRequestedService.id || ''),
+        String(finalRequestedService.name || '')
+      );
+      const currentServiceUsage = countAppointmentsInRange(serviceAppointments, currentRange);
+      const previousServiceUsage = countAppointmentsInRange(serviceAppointments, previousRange);
       const serviceLimit = Number(finalRequestedService.limit || 0);
-      // Compatibilidade: se o limite do serviço não estiver definido (>0), não bloquear por serviço.
       const hasServiceLimit = Number.isFinite(serviceLimit) && serviceLimit > 0;
-      const canBookService = !hasServiceLimit || usageByService < serviceLimit;
+      const serviceAllowance = buildCarryoverMonthlyLimit(serviceLimit, currentServiceUsage, previousServiceUsage);
+      const canBookService = !hasServiceLimit || serviceAllowance.canBook;
 
       if (!canBookService) {
         return {
           canBook: false,
-          currentUsage: usageByService,
-          monthlyLimit: serviceLimit,
+          currentUsage: serviceAllowance.currentMonthUsage,
+          monthlyLimit: serviceAllowance.effectiveLimit,
           subscriptionName,
-          errorMessage: `Você já atingiu o limite do serviço "${finalRequestedService.name}" nesta assinatura (${usageByService}/${serviceLimit}). Selecione apenas serviços que ainda tenham saldo disponível.`,
+          errorMessage: `Voc� j� atingiu o limite do servi�o "${finalRequestedService.name}" neste m�s (${serviceAllowance.currentMonthUsage}/${serviceAllowance.effectiveLimit}).`,
         };
       }
 
       return {
         canBook: true,
-        currentUsage: usageByService,
-        monthlyLimit: hasServiceLimit ? serviceLimit : null,
+        currentUsage: serviceAllowance.currentMonthUsage,
+        monthlyLimit: hasServiceLimit ? serviceAllowance.effectiveLimit : null,
         subscriptionName,
       };
     }
 
-    // Se não tem limite definido (NULL ou 0), pode agendar
     if (monthlyLimit === null || monthlyLimit === 0) {
-      console.log('✅ Sem limite definido (NULL ou 0), pode agendar');
+      console.log('? Sem limite definido (NULL ou 0), pode agendar');
       return {
         canBook: true,
         currentUsage,
@@ -369,35 +384,37 @@ export const checkMonthlyLimit = async (
       };
     }
 
-    // Verificar se excedeu o limite
-    const canBook = currentUsage < monthlyLimit;
+    const allowance = buildCarryoverMonthlyLimit(monthlyLimit, currentUsage, previousUsage);
 
-    console.log('📊 Limite mensal verificado:', {
-      currentUsage,
-      monthlyLimit,
-      canBook,
+    console.log('?? Limite mensal verificado:', {
+      currentUsage: allowance.currentMonthUsage,
+      previousUsage: allowance.previousMonthUsage,
+      carryover: allowance.carryover,
+      monthlyLimitBase: allowance.baseLimit,
+      monthlyLimitEfetivo: allowance.effectiveLimit,
+      canBook: allowance.canBook,
       subscriptionName
     });
 
-    if (!canBook) {
+    if (!allowance.canBook) {
       return {
         canBook: false,
-        currentUsage,
-        monthlyLimit,
+        currentUsage: allowance.currentMonthUsage,
+        monthlyLimit: allowance.effectiveLimit,
         subscriptionName,
-        errorMessage: `Atenção: você já atingiu o limite dos seus serviços como assinante no período atual da assinatura. (${currentUsage}/${monthlyLimit} agendamentos utilizados)`
+        errorMessage: `Aten��o: voc� j� atingiu o limite dos seus servi�os como assinante neste m�s (${allowance.currentMonthUsage}/${allowance.effectiveLimit} agendamentos utilizados).`
       };
     }
 
     return {
       canBook: true,
-      currentUsage,
-      monthlyLimit,
+      currentUsage: allowance.currentMonthUsage,
+      monthlyLimit: allowance.effectiveLimit,
       subscriptionName
     };
 
   } catch (error) {
-    console.error('❌ Erro ao verificar limite mensal:', error);
+    console.error('? Erro ao verificar limite mensal:', error);
     return {
       canBook: true,
       currentUsage: 0,

@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { Bell, X, CheckCircle, XCircle, Trash2 } from 'lucide-react';
+import { Bell, CheckCircle, Trash2, X, XCircle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { useToast } from './ui/Toaster';
-import { dlog } from '../utils/debugConsole';
 import { describeCancellationSourcePt } from '../utils/appointmentCancellationMeta';
+import { dlog } from '../utils/debugConsole';
+import { useToast } from './ui/Toaster';
 
 interface Notification {
   id: string;
@@ -257,7 +257,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
   const fetchNotifications = async () => {
     try {
       dlog('🔍 Buscando notificações para establishment:', establishmentId);
-      
+
       const { data, error } = await supabase
         .from('establishment_notifications')
         .select('*')
@@ -282,11 +282,11 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       });
 
       setNotifications(visibleNotifications as any);
-      
+
       // Contar não lidas
       const unread = (visibleNotifications || []).filter((n: any) => !n.read).length;
       setUnreadCount(unread);
-      
+
       // Notificar o componente pai sobre a mudança
       if (onUnreadCountChange) {
         onUnreadCountChange(unread);
@@ -302,7 +302,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
           sendMobileNotification(notification);
         });
       }
-      
+
     } catch (error) {
       console.error('❌ Erro ao buscar notificações:', error);
     }
@@ -362,7 +362,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       mobileNotification.onclick = () => {
         window.focus();
         mobileNotification.close();
-        
+
         // Abrir dashboard se clicado
         if (window.location.pathname !== '/dashboard/establishment') {
           window.location.href = '/dashboard/establishment';
@@ -390,8 +390,8 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       }
 
       // Atualizar estado local
-      setNotifications(prev => 
-        prev.map(n => 
+      setNotifications(prev =>
+        prev.map(n =>
           n.id === notificationId ? { ...n, read: true } : n
         )
       );
@@ -475,7 +475,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
   useEffect(() => {
     // Buscar imediatamente
     fetchNotifications();
-    
+
     // Buscar a cada 10 segundos
     const interval = setInterval(() => {
       fetchNotifications();
@@ -529,19 +529,19 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
               <div className="flex items-center gap-3">
                 <h3 className="text-lg font-semibold text-gray-900">Notificações</h3>
-                                 {/* Status das notificações */}
-                 <div className="flex flex-col gap-1">
-                   <div className="flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-lg">
-                     <div className={`w-3 h-3 rounded-full ${notificationPermission === 'granted' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-                     <span className={`text-sm ${notificationPermission === 'granted' ? 'text-green-700' : 'text-gray-600'}`}>
-                       {notificationPermission === 'granted' ? 'Ativo' : 'Inativo'}
-                     </span>
-                   </div>
-                   {/* Dica para o usuário */}
-                   <p className="text-xs text-gray-500 italic">
-                     Clique nas notificações para sabermos que você viu
-                   </p>
-                 </div>
+                {/* Status das notificações */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-lg">
+                    <div className={`w-3 h-3 rounded-full ${notificationPermission === 'granted' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                    <span className={`text-sm ${notificationPermission === 'granted' ? 'text-green-700' : 'text-gray-600'}`}>
+                      {notificationPermission === 'granted' ? 'Ativo' : 'Inativo'}
+                    </span>
+                  </div>
+                  {/* Dica para o usuário */}
+                  <p className="text-xs text-gray-500 italic">
+                    Clique nas notificações para sabermos que você viu
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 {('Notification' in window && notificationPermission !== 'granted') && (
@@ -600,31 +600,28 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
             <div className="flex border-b border-gray-200">
               <button
                 onClick={() => setFilter('all')}
-                className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
-                  filter === 'all' 
-                    ? 'bg-gray-100 text-black border-b-2 border-black' 
+                className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${filter === 'all'
+                    ? 'bg-gray-100 text-black border-b-2 border-black'
                     : 'text-gray-600 hover:text-gray-900'
-                }`}
+                  }`}
               >
                 Todas ({notifications.length})
               </button>
               <button
                 onClick={() => setFilter('new_appointment')}
-                className={`flex-1 px-4 py-2 text-sm font-medium transition-colors relative ${
-                  filter === 'new_appointment' 
-                    ? 'bg-green-50 text-green-600 border-b-2 border-green-600' 
+                className={`flex-1 px-4 py-2 text-sm font-medium transition-colors relative ${filter === 'new_appointment'
+                    ? 'bg-green-50 text-green-600 border-b-2 border-green-600'
                     : 'text-gray-600 hover:text-gray-900'
-                }`}
+                  }`}
               >
                 Agendamentos ({newAppointmentsCount})
               </button>
               <button
                 onClick={() => setFilter('cancelled_appointment')}
-                className={`flex-1 px-4 py-2 text-sm font-medium transition-colors relative ${
-                  filter === 'cancelled_appointment' 
-                    ? 'bg-red-50 text-red-600 border-b-2 border-red-600' 
+                className={`flex-1 px-4 py-2 text-sm font-medium transition-colors relative ${filter === 'cancelled_appointment'
+                    ? 'bg-red-50 text-red-600 border-b-2 border-red-600'
                     : 'text-gray-600 hover:text-gray-900'
-                }`}
+                  }`}
               >
                 Cancelados ({cancelledAppointmentsCount})
               </button>
@@ -634,24 +631,23 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
             <div className="max-h-96 overflow-y-auto">
               {filteredNotifications.length === 0 ? (
                 <div className="p-4 text-center text-gray-500">
-                  {filter === 'all' 
-                    ? 'Nenhuma notificação' 
-                    : filter === 'new_appointment' 
-                      ? 'Nenhum agendamento novo' 
+                  {filter === 'all'
+                    ? 'Nenhuma notificação'
+                    : filter === 'new_appointment'
+                      ? 'Nenhum agendamento novo'
                       : 'Nenhum cancelamento'
                   }
                 </div>
               ) : (
-                                 filteredNotifications.map((notification) => (
-                   <div
-                     key={notification.id}
-                     className={`p-4 border-b border-gray-100 transition-colors cursor-pointer ${
-                       !notification.read 
-                         ? 'bg-gray-100 border-l-4 border-l-black shadow-sm hover:bg-gray-200' 
-                         : 'hover:bg-gray-50'
-                     }`}
-                     onClick={() => markAsRead(notification.id)}
-                   >
+                filteredNotifications.map((notification) => (
+                  <div
+                    key={notification.id}
+                    className={`p-4 border-b border-gray-100 transition-colors cursor-pointer ${!notification.read
+                        ? 'bg-gray-100 border-l-4 border-l-black shadow-sm hover:bg-gray-200'
+                        : 'hover:bg-gray-50'
+                      }`}
+                    onClick={() => markAsRead(notification.id)}
+                  >
                     <div className="flex items-start gap-3">
                       <div className="flex-shrink-0 mt-1">
                         {notification.type === 'new_appointment' ? (
@@ -661,19 +657,19 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                                                 <div className="flex items-center justify-between">
-                           <h4 className="text-sm font-medium text-gray-900">
-                             {notification.title}
-                           </h4>
-                           {!notification.read && (
-                             <div className="flex items-center gap-2">
-                               <span className="text-xs bg-black text-white px-2 py-1 rounded-full font-medium">
-                                 NÃO LIDA
-                               </span>
-                               <span className="inline-block w-3 h-3 bg-black rounded-full animate-pulse"></span>
-                             </div>
-                           )}
-                         </div>
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-medium text-gray-900">
+                            {notification.title}
+                          </h4>
+                          {!notification.read && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs bg-black text-white px-2 py-1 rounded-full font-medium">
+                                NÃO LIDA
+                              </span>
+                              <span className="inline-block w-3 h-3 bg-black rounded-full animate-pulse"></span>
+                            </div>
+                          )}
+                        </div>
                         <p className="text-sm text-gray-600 mt-1">
                           {buildNotificationMessage(notification)}
                         </p>

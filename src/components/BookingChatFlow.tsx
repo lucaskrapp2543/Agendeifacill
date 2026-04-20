@@ -2,7 +2,7 @@ import { format } from 'date-fns';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
-import { checkWhatsAppSubscriber as checkLegacySubscriber, checkMonthlyServiceLimit, supabase } from '../lib/supabase';
+import { checkWhatsAppSubscriber as checkLegacySubscriber, supabase } from '../lib/supabase';
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { validatePendingClientBookingLimit } from '../utils/pendingClientBookingValidation';
 import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
@@ -804,12 +804,12 @@ export function BookingChatFlow({
     if (!establishmentId) return;
     try {
       setSubscriberLimitStatus((prev) => ({ ...prev, isLoading: true }));
-      const limit = await checkMonthlyServiceLimit(phoneRaw, establishmentId);
+      const limit = await checkMonthlyLimit(phoneRaw, establishmentId, selectedDate);
       const limitRaw = (limit as any)?.monthlyLimit;
       const usageRaw = Number((limit as any)?.currentUsage || 0);
       const numericLimit = Number(limitRaw);
       const hasNumericLimit = Number.isFinite(numericLimit) && numericLimit > 0;
-      const isUnlimited = String(limitRaw || '').toLowerCase() === 'ilimitado' || !hasNumericLimit;
+      const isUnlimited = !hasNumericLimit;
       const remaining = isUnlimited ? null : Math.max(0, numericLimit - usageRaw);
 
       setSubscriberLimitStatus({
@@ -2078,4 +2078,5 @@ export function BookingChatFlow({
     </div>
   );
 }
+
 

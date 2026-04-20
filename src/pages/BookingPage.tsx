@@ -4259,12 +4259,24 @@ export default function BookingPage() {
                         const formatHorario = (horarios: any) => {
                           if (!horarios?.open1) return 'Fechado';
 
-                          let horario = `${horarios.open1} - `;
+                          const normalizeHHmm = (value: unknown): string => String(value || '').trim();
+                          const open1 = normalizeHHmm(horarios.open1);
+                          const close1 = normalizeHHmm(horarios.close1);
+                          const open2 = normalizeHHmm(horarios.open2);
+                          const close2 = normalizeHHmm(horarios.close2);
 
-                          if (horarios.open2 && horarios.close2) {
-                            horario += `${horarios.close1} e ${horarios.open2} - ${horarios.close2}`;
-                          } else {
-                            horario += horarios.close1;
+                          const isRealIntervalTime = (value: string): boolean => {
+                            if (!value) return false;
+                            if (value === '00:00') return false;
+                            return /^\d{2}:\d{2}$/.test(value);
+                          };
+
+                          let horario = `${open1} - ${close1}`;
+
+                          // Se não existir intervalo real (ex.: "Sem intervalo", salvo como 00:00),
+                          // não exibir os campos de intervalo na página de booking.
+                          if (isRealIntervalTime(open2) && isRealIntervalTime(close2)) {
+                            horario += ` e ${open2} - ${close2}`;
                           }
 
                           return horario;

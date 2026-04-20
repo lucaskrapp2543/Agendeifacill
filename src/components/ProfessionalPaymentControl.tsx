@@ -67,9 +67,12 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   const pendingByLiquid = Math.max(0, totalLiquidValue - totalPaidEffective);
   const pendingByValidatedRule =
     typeof validatedPendingAmount === 'number' ? Math.max(0, validatedPendingAmount) : pendingByLiquid;
-  // Regra principal: "Pagar pendente" deve respeitar o pendente validado.
-  // newSalesValue é informativo (resumo), não deve reduzir o valor realmente pendente.
+  // Regra operacional: pagar apenas o que ficou pendente após o último pagamento válido.
   const pendingToPay = Math.max(0, Math.min(pendingByLiquid, pendingByValidatedRule));
+  const reconciledLiquidValue =
+    typeof validatedPendingAmount === 'number'
+      ? Math.max(0, totalPaidEffective + pendingToPay)
+      : totalLiquidValue;
 
   const paymentSummary = getPaymentSummary(professionalId);
   const professionalPayments = getProfessionalPayments(professionalId).filter(
@@ -354,7 +357,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
         <div className="space-y-2">
           <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
             <span className="text-sm font-medium text-gray-200">
-              Líquido: {formatCurrency(totalLiquidValue)}
+              Líquido: {formatCurrency(reconciledLiquidValue)}
             </span>
             {totalPaidEffective > 0 && (
               <span className="text-xs text-gray-400">
@@ -362,10 +365,20 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
               </span>
             )}
           </div>
+          {typeof validatedPendingAmount === 'number' && Math.abs(totalLiquidValue - reconciledLiquidValue) > 0.01 && (
+            <div className="text-[11px] text-gray-500">
+              Líquido do mês (total): {formatCurrency(totalLiquidValue)}
+            </div>
+          )}
 
           {pendingToPay > 0 && (
             <div className="text-sm text-cyan-300 font-medium">
               Pendente: {formatCurrency(pendingToPay)}
+            </div>
+          )}
+          {typeof validatedPendingAmount === 'number' && (
+            <div className="text-[11px] text-gray-400">
+              Pendente após último pagamento
             </div>
           )}
         </div>

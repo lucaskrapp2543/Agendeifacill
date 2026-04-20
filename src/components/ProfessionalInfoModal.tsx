@@ -40,6 +40,18 @@ interface ProfessionalPaymentHistoryItem {
   for_month?: string | null;
 }
 
+interface AppointmentForOperationalPending {
+  id: string;
+  professional?: string | null;
+  appointment_date?: string | null;
+  appointment_time?: string | null;
+  status?: string | null;
+  price?: number | null;
+  total_price?: number | null;
+  additional_products?: Array<{ price?: number | null }> | null;
+  professional_tip_amount?: number | null;
+}
+
 export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   professional,
   professionalPin,
@@ -72,6 +84,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   const [isLoadingPayments, setIsLoadingPayments] = useState(false);
   const [paymentHistory, setPaymentHistory] = useState<ProfessionalPaymentHistoryItem[]>([]);
   const [showPaymentHistory, setShowPaymentHistory] = useState(true);
+  const [operationalPendingAfterLastPayment, setOperationalPendingAfterLastPayment] = useState<number | null>(null);
 
   const handlePinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,7 +226,120 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   const totalWithdrawnDisplay = validatedVisiblePayments.totalWithdrawnVisible;
   const paymentCount = validatedVisiblePayments.paymentCountVisible;
   const lastPaymentDate = validatedVisiblePayments.lastPaymentDateVisible;
-  const pendingToReceive = validatedVisiblePayments.pendingVisible;
+  // Regra operacional solicitada: no modal de "Meus agendamentos",
+  // o líquido principal reflete o total efetivamente pago.
+  const reconciledMonthlyNet = Math.max(0, totalPaidDisplay);
+  const pendingByMonthlyTotal = Math.max(0, Number(monthlyNet || 0) - totalPaidDisplay);
+  const pendingToReceive =
+    typeof operationalPendingAfterLastPayment === 'number'
+      ? Math.max(0, operationalPendingAfterLastPayment)
+      : pendingByMonthlyTotal;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadOperationalPendingAfterLastPayment = async () => {
+      if (!establishmentId || !professional?.id) {
+        if (!cancelled) setOperationalPendingAfterLastPayment(null);
+        return;
+      }
+
+      const lastPositivePayment = paymentHistory.find((row) => Number(row.amount || 0) > 0);
+      if (!lastPositivePayment?.payment_date) {
+        if (!cancelled) setOperationalPendingAfterLastPayment(null);
+        return;
+      }
+
+      const base = selectedMonth || new Date();
+      const startDate = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-01`;
+      const endDate = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(
+        new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate()
+      ).padStart(2, '0')}`;
+      const lastPaymentMs = new Date(lastPositivePayment.payment_date).getTime();
+      if (Number.isNaN(lastPaymentMs)) {
+        if (!cancelled) setOperationalPendingAfterLastPayment(null);
+        return;
+      }
+
+      const fallbackSelect =
+        'id,professional,appointment_date,appointment_time,status,price,total_price,additional_products';
+      const selectWithTip = `${fallbackSelect},professional_tip_amount`;
+      let queryRows: AppointmentForOperationalPending[] = [];
+
+      const withTip = await supabase
+        .from('appointments')
+        .select(selectWithTip)
+        .eq('establishment_id', establishmentId)
+        .gte('appointment_date', startDate)
+        .lte('appointment_date', endDate);
+
+      if (withTip.error) {
+        const fallback = await supabase
+          .from('appointments')
+          .select(fallbackSelect)
+          .eq('establishment_id', establishmentId)
+          .gte('appointment_date', startDate)
+          .lte('appointment_date', endDate);
+        if (fallback.error) {
+          if (!cancelled) setOperationalPendingAfterLastPayment(null);
+          return;
+        }
+        queryRows = (fallback.data || []) as AppointmentForOperationalPending[];
+      } else {
+        queryRows = (withTip.data || []) as AppointmentForOperationalPending[];
+      }
+
+      const normalize = (value: unknown) => String(value || '').trim().toLowerCase();
+      const professionalIdRef = normalize(professional.id);
+      const professionalNameRef = normalize(professional.name);
+      const percentageValue = Number(basePercentage ?? professional.percentage ?? 100);
+      const safePercentage = Number.isFinite(percentageValue) ? Math.max(0, Math.min(100, percentageValue)) : 100;
+
+      const parseAppointmentMs = (row: AppointmentForOperationalPending): number => {
+        const date = String(row?.appointment_date || '').slice(0, 10);
+        const timeRaw = String(row?.appointment_time || '').trim();
+        const normalizedTime = /^\d{2}:\d{2}(:\d{2})?$/.test(timeRaw)
+          ? (timeRaw.length === 5 ? `${timeRaw}:00` : timeRaw)
+          : '00:00:00';
+        const dt = new Date(`${date}T${normalizedTime}`);
+        return dt.getTime();
+      };
+
+      const calcNet = (row: AppointmentForOperationalPending): number => {
+        const totalPrice = Number(row?.total_price || 0);
+        const basePrice = Number(row?.price || 0);
+        const additional = Array.isArray(row?.additional_products)
+          ? row!.additional_products!.reduce((sum, item) => sum + Number(item?.price || 0), 0)
+          : 0;
+        const gross = totalPrice > 0 ? totalPrice : basePrice + additional;
+        const tip = Number(row?.professional_tip_amount || 0);
+        return Math.max(0, (gross * safePercentage) / 100) + (Number.isFinite(tip) ? Math.max(0, tip) : 0);
+      };
+
+      const completedStatuses = new Set(['completed', 'concluido', 'concluído']);
+      const pendingValue = queryRows
+        .filter((row) => {
+          const rowProfessional = normalize(row?.professional);
+          if (!rowProfessional) return false;
+          const sameProfessional =
+            rowProfessional === professionalIdRef || rowProfessional === professionalNameRef;
+          if (!sameProfessional) return false;
+          const status = normalize(row?.status);
+          if (!completedStatuses.has(status)) return false;
+          const appointmentMs = parseAppointmentMs(row);
+          if (!Number.isFinite(appointmentMs)) return false;
+          return appointmentMs > lastPaymentMs;
+        })
+        .reduce((sum, row) => sum + calcNet(row), 0);
+
+      if (!cancelled) setOperationalPendingAfterLastPayment(Math.max(0, pendingValue));
+    };
+
+    void loadOperationalPendingAfterLastPayment();
+    return () => {
+      cancelled = true;
+    };
+  }, [basePercentage, establishmentId, paymentHistory, professional, selectedMonth]);
 
   const formatDateTime = (value: string) => {
     const dt = new Date(value);
@@ -431,12 +557,17 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                 </div>
               )}
               <div className="bg-white p-4 rounded-lg">
-                <p className="text-sm text-gray-600 mb-1">Valor Líquido</p>
+                <p className="text-sm text-gray-600 mb-1">Valor Pago</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {showValues ? formatCurrency(monthlyNet) : '••••••'}
+                  {showValues ? formatCurrency(reconciledMonthlyNet) : '••••••'}
                 </p>
               </div>
             </div>
+            {Math.abs(monthlyNet - reconciledMonthlyNet) > 0.01 && (
+              <div className="mt-2 text-xs text-gray-500">
+                Líquido do mês (total): {showValues ? formatCurrency(monthlyNet) : '••••••'}
+              </div>
+            )}
             <div className="mt-3 text-center">
               <p className="text-sm text-gray-600">
                 Agendamentos este mês:{' '}
@@ -531,7 +662,8 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
             <h4 className="font-semibold text-gray-800 mb-2">💡 Sobre os Valores</h4>
             <ul className="text-sm text-gray-600 space-y-1">
               {!hideGrossInFinancial && <li>• <strong>Valor Bruto:</strong> Total sem descontos</li>}
-              <li>• <strong>Valor Líquido:</strong> Após descontar taxas e percentual do estabelecimento</li>
+              <li>• <strong>Valor Pago:</strong> Total de pagamentos já registrados no mês</li>
+              <li>• <strong>Líquido do mês (total):</strong> Valor líquido total apurado dos atendimentos do mês</li>
               {(professional.percentage !== undefined || basePercentage !== undefined) && (
                 <li>• <strong>Percentual base:</strong> {Number(basePercentage ?? professional.percentage ?? 0).toFixed(2)}%</li>
               )}

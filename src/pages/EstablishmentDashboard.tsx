@@ -1063,6 +1063,16 @@ const EstablishmentDashboard = () => {
     return status === 'completed' || status === 'concluido' || status === 'concluído';
   }, []);
 
+  const dedupeAppointmentsById = useCallback((items: Appointment[]): Appointment[] => {
+    const byId = new Map<string, Appointment>();
+    items.forEach((item) => {
+      const id = String((item as any)?.id || '').trim();
+      if (!id) return;
+      if (!byId.has(id)) byId.set(id, item);
+    });
+    return Array.from(byId.values());
+  }, []);
+
   const carregarSaldoEmVendas = useCallback(async () => {
     if (!establishment?.id) return;
 
@@ -10467,13 +10477,67 @@ Estamos te aguardando! 😎✂️`;
         }
       }
 
+      // Reforço anti-sumiço: se a resposta vier com menos itens do que já estavam visíveis,
+      // preserva temporariamente os faltantes que ainda existem ativos no banco.
+      let preservedSameDayAppointments: Appointment[] = [];
+      if (canApplyIncomingAppointments && appointmentsData.length < currentVisibleSameDayCount) {
+        const incomingIds = new Set(appointmentsData.map((apt) => String((apt as any)?.id || '').trim()));
+        const missingVisibleItems = appointments.filter((apt) => {
+          const id = String((apt as any)?.id || '').trim();
+          const aptDate = String((apt as any)?.appointment_date || '').slice(0, 10);
+          const aptStatus = String((apt as any)?.status || '').toLowerCase().trim();
+          if (!id || incomingIds.has(id)) return false;
+          return aptDate === selectedDateKeySnapshot && aptStatus !== 'cancelled';
+        });
+
+        const missingIds = missingVisibleItems
+          .map((apt) => String((apt as any)?.id || '').trim())
+          .filter(Boolean);
+
+        if (missingIds.length > 0) {
+          const { data: stillExistingRows, error: stillExistingError } = await supabase
+            .from('appointments')
+            .select('id,status,appointment_date')
+            .eq('establishment_id', establishment.id)
+            .in('id', missingIds);
+
+          if (!stillExistingError && Array.isArray(stillExistingRows)) {
+            const stillActiveIds = new Set(
+              stillExistingRows
+                .filter((row: any) => {
+                  const rowStatus = String(row?.status || '').toLowerCase().trim();
+                  const rowDate = String(row?.appointment_date || '').slice(0, 10);
+                  return rowDate === selectedDateKeySnapshot && rowStatus !== 'cancelled';
+                })
+                .map((row: any) => String(row?.id || '').trim())
+                .filter(Boolean)
+            );
+
+            preservedSameDayAppointments = missingVisibleItems.filter((apt) =>
+              stillActiveIds.has(String((apt as any)?.id || '').trim())
+            );
+
+            if (preservedSameDayAppointments.length > 0) {
+              console.warn('🛡️ Anti-sumiço ativo: preservando agendamentos ainda ativos no banco.', {
+                preservedCount: preservedSameDayAppointments.length,
+                selectedDate: selectedDateKeySnapshot,
+              });
+            }
+          }
+        }
+      }
+
       // Condição de corrida: ignora resposta antiga de requisição concorrente.
       if (requestSeq !== fetchAppointmentsRequestSeqRef.current) {
         return;
       }
 
       if (canApplyIncomingAppointments) {
-        setAppointments(appointmentsData);
+        const safeMergedAppointments = dedupeAppointmentsById([
+          ...appointmentsData,
+          ...preservedSameDayAppointments,
+        ]);
+        setAppointments(safeMergedAppointments);
       }
 
       // Verificar quais clientes são novos
@@ -10538,7 +10602,6 @@ Estamos te aguardando! 😎✂️`;
         .eq('establishment_id', establishment.id)
         .gte('appointment_date', startDateStr)
         .lte('appointment_date', endDateStr)
-        .eq('status', 'completed')
         .order('appointment_date', { ascending: true });
 
       console.log('  - Agendamentos retornados pela query:', appointments?.length || 0);
@@ -10564,91 +10627,90 @@ Estamos te aguardando! 😎✂️`;
         console.log('📋 DEBUG - Nenhum agendamento encontrado para este mês');
       }
 
-      const monthlyNormalAppointments = ((appointments as any[]) || []).filter((apt) => !isWaitlistAppointment(apt));
-      console.log('🔍 DEBUG - Vou atualizar monthlyAppointments com:', monthlyNormalAppointments.length, 'agendamentos');
-      setMonthlyAppointments(monthlyNormalAppointments as any);
+      const rows = ((appointments as any[]) || []).filter((apt) => !isWaitlistAppointment(apt));
+      const monthlyCompletedAppointments = rows.filter((apt) => isCompletedAppointmentStatus(apt));
+      const monthKey = String(startDateStr).slice(0, 7);
+      let preservedCompletedAppointments: Appointment[] = [];
 
-      // Resumo mensal por status (independente da query financeira que usa apenas completed)
-      let monthStatusRows: any[] | null = null;
-      let monthStatusError: any = null;
-      {
-        const q = await supabase
-          .from('appointments')
-          .select('id,status,appointment_date,appointment_time,client_name,professional,is_waitlist,waitlist_entry_id')
-          .eq('establishment_id', establishment.id)
-          .gte('appointment_date', startDateStr)
-          .lte('appointment_date', endDateStr);
-        if (q.error) {
-          const msg = String((q.error as any)?.message || '').toLowerCase();
-          const missingWaitlistCols = msg.includes('is_waitlist') || msg.includes('waitlist_entry_id');
-          if (missingWaitlistCols) {
-            const legacyQ = await supabase
-              .from('appointments')
-              .select('id,status,appointment_date,appointment_time,client_name,professional')
-              .eq('establishment_id', establishment.id)
-              .gte('appointment_date', startDateStr)
-              .lte('appointment_date', endDateStr);
-            monthStatusRows = (legacyQ.data as any[]) || [];
-            monthStatusError = legacyQ.error;
-          } else {
-            monthStatusRows = (q.data as any[]) || [];
-            monthStatusError = q.error;
+      const currentMonthCompleted = (monthlyAppointments || []).filter((apt) => {
+        const aptDate = String((apt as any)?.appointment_date || '').slice(0, 10);
+        return String(aptDate).slice(0, 7) === monthKey && isCompletedAppointmentStatus(apt);
+      });
+
+      if (monthlyCompletedAppointments.length < currentMonthCompleted.length) {
+        const incomingIds = new Set(monthlyCompletedAppointments.map((apt: any) => String(apt?.id || '').trim()));
+        const missingCurrent = currentMonthCompleted.filter((apt: any) => {
+          const id = String(apt?.id || '').trim();
+          return Boolean(id) && !incomingIds.has(id);
+        });
+        const missingIds = missingCurrent.map((apt: any) => String(apt?.id || '').trim()).filter(Boolean);
+
+        if (missingIds.length > 0) {
+          const { data: stillRows, error: stillRowsError } = await supabase
+            .from('appointments')
+            .select('id,status,appointment_date,is_waitlist,waitlist_entry_id')
+            .eq('establishment_id', establishment.id)
+            .in('id', missingIds);
+
+          if (!stillRowsError && Array.isArray(stillRows)) {
+            const stillValidIds = new Set(
+              stillRows
+                .filter((row: any) => {
+                  const rowDate = String(row?.appointment_date || '').slice(0, 10);
+                  if (String(rowDate).slice(0, 7) !== monthKey) return false;
+                  if (isWaitlistAppointment(row)) return false;
+                  return isCompletedAppointmentStatus(row);
+                })
+                .map((row: any) => String(row?.id || '').trim())
+                .filter(Boolean)
+            );
+            preservedCompletedAppointments = missingCurrent.filter((apt: any) =>
+              stillValidIds.has(String(apt?.id || '').trim())
+            );
           }
-        } else {
-          monthStatusRows = (q.data as any[]) || [];
-          monthStatusError = null;
         }
       }
 
-      if (monthStatusError) {
-        console.error('Erro ao buscar resumo mensal de status:', monthStatusError);
-        setMonthlyStatusSummary({ completed: 0, cancelled: 0, pending: 0 });
-        setMonthlyPendingAppointments([]);
-      } else {
-        const rows = ((monthStatusRows || []) as Array<{
-          id?: string | null;
-          status?: string | null;
-          appointment_date?: string | null;
-          appointment_time?: string | null;
-          client_name?: string | null;
-          professional?: string | null;
-          is_waitlist?: boolean | null;
-          waitlist_entry_id?: string | null;
-        }>).filter((row: any) => !isWaitlistAppointment(row));
-        const summary = rows.reduce(
-          (acc, row: any) => {
-            const status = String(row?.status || '').toLowerCase().trim();
-            if (status === 'completed' || status === 'concluido' || status === 'concluído') {
-              acc.completed += 1;
-            } else if (status === 'cancelled') {
-              acc.cancelled += 1;
-            } else if (status === 'pending' || status === 'pending_payment' || status === 'confirmed') {
-              acc.pending += 1;
-            }
-            return acc;
-          },
-          { completed: 0, cancelled: 0, pending: 0 } as MonthlyAppointmentStatusSummary
-        );
-        setMonthlyStatusSummary(summary);
+      const safeMonthlyCompleted = dedupeAppointmentsById([
+        ...(monthlyCompletedAppointments as Appointment[]),
+        ...preservedCompletedAppointments,
+      ]);
+      console.log('🔍 DEBUG - Vou atualizar monthlyAppointments com:', safeMonthlyCompleted.length, 'agendamentos');
+      setMonthlyAppointments(safeMonthlyCompleted as any);
 
-        const pendingStatuses = new Set(['pending', 'pending_payment', 'confirmed']);
-        const pendingItems = rows
-          .filter((row) => pendingStatuses.has(String(row?.status || '').toLowerCase().trim()))
-          .map((row) => ({
-            id: String(row?.id || ''),
-            appointment_date: String(row?.appointment_date || ''),
-            appointment_time: String(row?.appointment_time || ''),
-            client_name: String(row?.client_name || 'Cliente'),
-            professional: String(row?.professional || ''),
-            status: String(row?.status || ''),
-          }))
-          .sort((a, b) => {
-            const aKey = `${a.appointment_date} ${a.appointment_time}`;
-            const bKey = `${b.appointment_date} ${b.appointment_time}`;
-            return aKey.localeCompare(bKey);
-          });
-        setMonthlyPendingAppointments(pendingItems);
-      }
+      const summary = rows.reduce(
+        (acc, row: any) => {
+          const status = String(row?.status || '').toLowerCase().trim();
+          if (isCompletedAppointmentStatus(row)) {
+            acc.completed += 1;
+          } else if (status === 'cancelled') {
+            acc.cancelled += 1;
+          } else if (status === 'pending' || status === 'pending_payment' || status === 'confirmed') {
+            acc.pending += 1;
+          }
+          return acc;
+        },
+        { completed: 0, cancelled: 0, pending: 0 } as MonthlyAppointmentStatusSummary
+      );
+      setMonthlyStatusSummary(summary);
+
+      const pendingStatuses = new Set(['pending', 'pending_payment', 'confirmed']);
+      const pendingItems = rows
+        .filter((row) => pendingStatuses.has(String(row?.status || '').toLowerCase().trim()))
+        .map((row) => ({
+          id: String(row?.id || ''),
+          appointment_date: String(row?.appointment_date || ''),
+          appointment_time: String(row?.appointment_time || ''),
+          client_name: String(row?.client_name || 'Cliente'),
+          professional: String(row?.professional || ''),
+          status: String(row?.status || ''),
+        }))
+        .sort((a, b) => {
+          const aKey = `${a.appointment_date} ${a.appointment_time}`;
+          const bKey = `${b.appointment_date} ${b.appointment_time}`;
+          return aKey.localeCompare(bKey);
+        });
+      setMonthlyPendingAppointments(pendingItems);
     } catch (error) {
       console.error('Erro ao buscar agendamentos:', error);
       setMonthlyStatusSummary({ completed: 0, cancelled: 0, pending: 0 });
@@ -11874,7 +11936,11 @@ Estamos te aguardando! 😎✂️`;
           .abortSignal(new AbortController().signal); // Forçar busca sem cache
 
         if (newAppointments) {
-          const hasUpdatesInExistingAppointments = newAppointments.some((incomingApp: any) => {
+          const normalizedIncomingAppointments = (newAppointments as any[]).filter(
+            (incomingApp: any) => !isWaitlistAppointment(incomingApp)
+          );
+
+          const hasUpdatesInExistingAppointments = normalizedIncomingAppointments.some((incomingApp: any) => {
             const previousApp: any = previousAppointments.find((prev: any) => prev.id === incomingApp.id);
             if (!previousApp) return false;
             return (
@@ -11887,7 +11953,7 @@ Estamos te aguardando! 😎✂️`;
 
 
           // Detectar novos agendamentos
-          newAppointments.forEach(currentApp => {
+          normalizedIncomingAppointments.forEach(currentApp => {
             const prevApp = previousAppointments.find(prev => prev.id === currentApp.id);
 
             if (!prevApp && currentApp.status !== 'cancelled') {
@@ -11904,7 +11970,7 @@ Estamos te aguardando! 😎✂️`;
 
           // Detectar agendamentos cancelados externamente
           previousAppointments.forEach(prevApp => {
-            const currentApp = newAppointments.find(curr => curr.id === prevApp.id);
+            const currentApp = normalizedIncomingAppointments.find(curr => curr.id === prevApp.id);
 
             if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
               console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', currentApp);
@@ -11923,7 +11989,7 @@ Estamos te aguardando! 😎✂️`;
           // 2) adiciona novos
           // 3) não remove os que sumiram da query para preservar o comportamento atual
           setAppointments(currentList => {
-            const incomingById = new Map(newAppointments.map((item: any) => [item.id, item]));
+            const incomingById = new Map(normalizedIncomingAppointments.map((item: any) => [item.id, item]));
             const currentIds = new Set(currentList.map((item) => item.id));
 
             // Atualizar os itens que já existiam na lista com os dados mais novos vindos do banco
@@ -11937,7 +12003,9 @@ Estamos te aguardando! 😎✂️`;
             });
 
             // Adicionar os novos itens que ainda não existiam na lista atual
-            const newAppointmentsToAdd = newAppointments.filter((incomingItem: any) => !currentIds.has(incomingItem.id));
+            const newAppointmentsToAdd = normalizedIncomingAppointments.filter(
+              (incomingItem: any) => !currentIds.has(incomingItem.id)
+            );
             if (newAppointmentsToAdd.length > 0) {
               console.log('🔄 Adicionando novos agendamentos:', newAppointmentsToAdd.length);
             }
@@ -11953,7 +12021,7 @@ Estamos te aguardando! 😎✂️`;
             void fetchMonthlyAppointments(selectedMonth);
           }
 
-          previousAppointmentsRef.current = newAppointments;
+          previousAppointmentsRef.current = normalizedIncomingAppointments as any;
         }
       } catch (error) {
         console.error('❌ Erro na atualização automática:', error);
@@ -20380,18 +20448,21 @@ Estamos te aguardando! 😎✂️`;
   const getAppointmentCompletedAtMs = (apt: Appointment): number => {
     const dateRaw = String((apt as any)?.appointment_date || '').trim();
     const timeRaw = String((apt as any)?.appointment_time || '').trim();
+    const createdRaw = String((apt as any)?.created_at || '').trim();
+    let createdMs = Number.NaN;
+    if (createdRaw) {
+      const createdDt = new Date(createdRaw);
+      if (!Number.isNaN(createdDt.getTime())) createdMs = createdDt.getTime();
+    }
     if (dateRaw) {
       const normalizedTime = /^\d{2}:\d{2}(:\d{2})?$/.test(timeRaw)
         ? (timeRaw.length === 5 ? `${timeRaw}:00` : timeRaw)
-        : '23:59:59';
+        : '00:00:00';
       const dt = new Date(`${dateRaw}T${normalizedTime}`);
       if (!Number.isNaN(dt.getTime())) return dt.getTime();
+      if (!Number.isNaN(createdMs)) return createdMs;
     }
-    const createdRaw = String((apt as any)?.created_at || '').trim();
-    if (createdRaw) {
-      const dt = new Date(createdRaw);
-      if (!Number.isNaN(dt.getTime())) return dt.getTime();
-    }
+    if (!Number.isNaN(createdMs)) return createdMs;
     return Number.MAX_SAFE_INTEGER;
   };
 
@@ -20467,12 +20538,15 @@ Estamos te aguardando! 😎✂️`;
     let validPaid = 0;
     let ignoredAdvance = 0;
     let lastValidPaymentDate: string | null = null;
+    let outstandingAfterLastValid = 0;
+    let lastRegisteredPaymentDate: string | null = null;
     const ignoredByPayment = new Map<string, number>();
     const PAYMENT_EPSILON = 0.009;
 
     monthPayments.forEach((payment: any) => {
       const paymentAmount = Number(payment.amount || 0);
       const paymentTimeMs = new Date(payment.payment_date).getTime();
+      lastRegisteredPaymentDate = String(payment.payment_date || lastRegisteredPaymentDate || '');
       const realizedUntilPayment = getRealizedUntil(paymentTimeMs);
       const allowedAtPayment = Math.max(0, realizedUntilPayment - validPaid);
 
@@ -20481,6 +20555,7 @@ Estamos te aguardando! 😎✂️`;
       if (paymentAmount <= allowedAtPayment + PAYMENT_EPSILON) {
         validPaid += paymentAmount;
         lastValidPaymentDate = String(payment.payment_date || '');
+        outstandingAfterLastValid = Math.max(0, allowedAtPayment - paymentAmount);
       } else {
         ignoredAdvance += paymentAmount;
         ignoredByPayment.set(String(payment.id), paymentAmount);
@@ -20489,14 +20564,19 @@ Estamos te aguardando! 😎✂️`;
 
     const ignoredPaymentIds = Array.from(ignoredByPayment.keys());
 
-    const lastValidMs = lastValidPaymentDate ? new Date(lastValidPaymentDate).getTime() : Number.NaN;
-    const newSalesSinceLastValid = Number.isNaN(lastValidMs)
+    // Regra operacional solicitada: o corte de "novas vendas" segue o último pagamento
+    // que aparece no financeiro do profissional (não apenas último pagamento "validado").
+    const referencePaymentDate = lastRegisteredPaymentDate || lastValidPaymentDate;
+    const referencePaymentMs = referencePaymentDate ? new Date(referencePaymentDate).getTime() : Number.NaN;
+    const newSalesSinceLastValid = Number.isNaN(referencePaymentMs)
       ? totalRealizedInMonth
       : timeline
-        .filter((row) => row.completedAt > lastValidMs)
+        .filter((row) => row.completedAt > referencePaymentMs)
         .reduce((sum, row) => sum + row.net, 0);
 
-    const pendingAllowed = Math.max(0, totalRealizedInMonth - validPaid);
+    const pendingAllowed = Number.isNaN(referencePaymentMs)
+      ? Math.max(0, totalRealizedInMonth - validPaid)
+      : Math.max(0, newSalesSinceLastValid);
 
     return {
       validPaid,
@@ -20504,7 +20584,7 @@ Estamos te aguardando! 😎✂️`;
       ignoredPaymentIds,
       newSalesSinceLastValid,
       pendingAllowed,
-      lastValidPaymentDate,
+      lastValidPaymentDate: referencePaymentDate,
       totalRealizedInMonth,
     };
   };
@@ -30618,8 +30698,13 @@ Estamos te aguardando! 😎✂️`;
                           uniqueClientsCount: 0,
                           saleCommissionCount: 0,
                         };
+                        const monthlyProfessionalLiquid = calculateProfessionalNetValue(professional.name, professionalRevenueAppointments);
+                        const reconciledProfessionalLiquid = Math.max(
+                          0,
+                          Number(paymentValidation.validPaid || 0) + Number(paymentValidation.pendingAllowed || 0)
+                        );
                         const totalProfessionalLiquidWithSubscribers =
-                          calculateProfessionalNetValue(professional.name, professionalRevenueAppointments) +
+                          reconciledProfessionalLiquid +
                           subscriberProfessionalFinancial.pending;
 
                         console.log(`✅ ${professional.name}: R$ ${professionalRevenue} - ${extraProductsSold} produtos extras`);
@@ -30713,11 +30798,16 @@ Estamos te aguardando! 😎✂️`;
                                 </p>
                                 <div className="text-sm text-cyan-300 font-medium">
                                   {isOwnerProfessional(professional) ? (
-                                    <span>Líquido: <span className="font-bold">{formatCurrency(calculateProfessionalNetValue(professional.name, professionalRevenueAppointments))}</span></span>
+                                    <span>Líquido: <span className="font-bold">{formatCurrency(monthlyProfessionalLiquid)}</span></span>
                                   ) : (
-                                    <span>Líquido: <span className="font-bold">{formatCurrency(calculateProfessionalNetValue(professional.name, professionalRevenueAppointments))}</span></span>
+                                    <span>Líquido apurado: <span className="font-bold">{formatCurrency(reconciledProfessionalLiquid)}</span></span>
                                   )}
                                 </div>
+                                {!isOwnerProfessional(professional) && Math.abs(monthlyProfessionalLiquid - reconciledProfessionalLiquid) > 0.01 && (
+                                  <div className="mt-1 text-[11px] text-gray-400">
+                                    Líquido do mês (total): {formatCurrency(monthlyProfessionalLiquid)}
+                                  </div>
+                                )}
                                 {(subscriberProfessionalFinancial.totalAccumulated > 0 || subscriberProfessionalFinancial.totalPaid > 0) && (
                                   <div className="mt-2 text-xs text-purple-300 font-medium">
                                     Assinaturas (pendente): <span className="font-bold">{formatCurrency(subscriberProfessionalFinancial.pending)}</span>
@@ -30743,7 +30833,7 @@ Estamos te aguardando! 😎✂️`;
                                   establishmentId={establishment?.id || ''}
                                   professionalId={professional.id}
                                   professionalName={professional.name}
-                                  currentLiquidValue={calculateProfessionalNetValue(professional.name, professionalRevenueAppointments)}
+                                  currentLiquidValue={reconciledProfessionalLiquid}
                                   // Regra global anti-adiantamento:
                                   // só libera pagamento sobre vendas já realizadas até a data do pagamento.
                                   newSalesValue={paymentValidation.newSalesSinceLastValid}

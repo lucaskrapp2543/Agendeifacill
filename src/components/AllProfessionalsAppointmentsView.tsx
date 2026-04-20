@@ -3399,40 +3399,75 @@ export const AllProfessionalsAppointmentsView: React.FC<
     // Calcular valores do profissional para o modal
     const calculateProfessionalValues = (professionalId: string) => {
       const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+      const selectedMonthKey = format(selectedDate, 'yyyy-MM');
+      const professionalRef: Professional =
+        professionals.find((p) => p.id === professionalId) || { id: professionalId, name: '' };
+      const getAppointmentDateOnly = (raw: unknown): string => String(raw || '').slice(0, 10);
+      const getAppointmentMonthKey = (raw: unknown): string => String(raw || '').slice(0, 7);
+      const getAppointmentStatus = (raw: unknown): string => String(raw || '').trim().toLowerCase();
+      const isAppointmentFromSelectedDay = (apt: Appointment) =>
+        getAppointmentDateOnly(apt.appointment_date) === selectedDateStr;
 
       // Debug: verificar todos os appointments
       console.log('🔍 DEBUG calculateProfessionalValues:');
       console.log('  - Professional ID:', professionalId);
       console.log('  - Selected Date:', selectedDateStr);
       console.log('  - Total appointments:', appointments.length);
-      console.log('  - Appointments do profissional:', appointments.filter(apt => apt.professional === professionalId).length);
-      console.log('  - Appointments do profissional na data:', appointments.filter(apt => apt.professional === professionalId && apt.appointment_date === selectedDateStr).length);
+      console.log(
+        '  - Appointments do profissional:',
+        appointments.filter((apt) => appointmentBelongsToProfessionalColumn(apt, professionalRef)).length
+      );
+      console.log(
+        '  - Appointments do profissional na data:',
+        appointments.filter(
+          (apt) =>
+            appointmentBelongsToProfessionalColumn(apt, professionalRef) &&
+            isAppointmentFromSelectedDay(apt)
+        ).length
+      );
 
       // Valores do Dia e "Agendamentos hoje": apenas CONCLUÍDOS (status === 'completed').
       // Pendentes/confirmados não contam — batendo com o contador verde da agenda.
-      const dailyAppointments = appointments.filter(
-        (apt) =>
-          apt.professional === professionalId &&
-          apt.appointment_date === selectedDateStr &&
-          apt.status === 'completed'
-      );
+      const dailyAppointments = appointments.filter((apt) => {
+        return (
+          appointmentBelongsToProfessionalColumn(apt, professionalRef) &&
+          isAppointmentFromSelectedDay(apt) &&
+          getAppointmentStatus(apt.status) === 'completed'
+        );
+      });
 
       console.log('  - Appointments concluídos hoje (valores + contagem):', dailyAppointments.length);
       console.log('  - Detalhes:', dailyAppointments.map(apt => ({ id: apt.id, status: apt.status, date: apt.appointment_date })));
 
+      // Une dados do mês vindos de fontes diferentes para evitar oscilação visual (ex.: recém concluído).
+      const mergedMonthAppointmentsMap = new Map<string, Appointment>();
+      monthlyAppointments.forEach((apt) => {
+        if (getAppointmentMonthKey(apt.appointment_date) !== selectedMonthKey) return;
+        mergedMonthAppointmentsMap.set(String(apt.id || `${apt.appointment_date}-${apt.appointment_time}-${apt.client_name}`), apt);
+      });
+      appointments.forEach((apt) => {
+        if (getAppointmentMonthKey(apt.appointment_date) !== selectedMonthKey) return;
+        mergedMonthAppointmentsMap.set(String(apt.id || `${apt.appointment_date}-${apt.appointment_time}-${apt.client_name}`), apt);
+      });
+      const mergedMonthAppointments = Array.from(mergedMonthAppointmentsMap.values());
+
       // Para valores financeiros mensais, usar apenas confirmados/completos
-      const monthlyAppointmentsForPro = monthlyAppointments.filter(
-        (apt) =>
-          apt.professional === professionalId &&
-          (apt.status === 'confirmed' || apt.status === 'completed')
-      );
+      const monthlyAppointmentsForPro = mergedMonthAppointments.filter((apt) => {
+        const status = getAppointmentStatus(apt.status);
+        return (
+          appointmentBelongsToProfessionalColumn(apt, professionalRef) &&
+          (status === 'confirmed' || status === 'completed')
+        );
+      });
 
       // Para contagem mensal, usar todos não cancelados
-      const monthlyAppointmentsForCount = monthlyAppointments.filter(
-        (apt) =>
-          apt.professional === professionalId &&
-          apt.status !== 'cancelled'
-      );
+      const monthlyAppointmentsForCount = mergedMonthAppointments.filter((apt) => {
+        const status = getAppointmentStatus(apt.status);
+        return (
+          appointmentBelongsToProfessionalColumn(apt, professionalRef) &&
+          status !== 'cancelled'
+        );
+      });
 
       const dailyGross = dailyAppointments.reduce(
         // ✅ No saldo do barbeiro, NÃO contar produtos V2. Apenas serviço + serviços extra.
@@ -4845,11 +4880,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               return (
                                 <div
                                   key={`${slot.time}-${slotIndex}`}
-                                  className={`rounded-xl border-2 shadow-sm overflow-hidden ${
-                                    useLightLayout
+                                  className={`rounded-xl border-2 shadow-sm overflow-hidden ${useLightLayout
                                       ? 'bg-gradient-to-br from-slate-400 to-slate-500 border-slate-600'
                                       : 'bg-gradient-to-br from-gray-500 to-gray-600 border-gray-700'
-                                  }`}
+                                    }`}
                                 >
                                   <div className="flex items-stretch gap-0 min-h-[48px]">
                                     <div className="flex-1 flex flex-col justify-center px-3 py-2.5 min-w-0">
@@ -4865,11 +4899,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         type="button"
                                         disabled={!!slotBlockBusyKey}
                                         onClick={() => runToggleSlotBlock(professional.id, slot.time, false)}
-                                        className={`shrink-0 px-3 py-2 text-xs font-bold text-white border-l border-white/25 transition-colors disabled:opacity-50 ${
-                                          useLightLayout
+                                        className={`shrink-0 px-3 py-2 text-xs font-bold text-white border-l border-white/25 transition-colors disabled:opacity-50 ${useLightLayout
                                             ? 'bg-emerald-700 hover:bg-emerald-800'
                                             : 'bg-emerald-600 hover:bg-emerald-700'
-                                        }`}
+                                          }`}
                                       >
                                         {blockBusy ? '…' : 'Desbloquear'}
                                       </button>
@@ -4894,11 +4927,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               const maxReserveMinutes =
                                 dayBounds && onOpenReserveFromSlot
                                   ? computeMaxReserveMinutesFromSlotGrid(
-                                      timeSlots,
-                                      slot.time,
-                                      dayBounds.endTime,
-                                      dayBounds.breakRange
-                                    )
+                                    timeSlots,
+                                    slot.time,
+                                    dayBounds.endTime,
+                                    dayBounds.breakRange
+                                  )
                                   : 0;
                               const dateKey = format(selectedDate, 'yyyy-MM-dd');
                               const showReservePill =
@@ -4908,28 +4941,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               return (
                                 <div key={`${slot.time}-${slotIndex}`}>
                                   <div
-                                    className={`rounded-xl border-2 shadow-sm overflow-hidden flex items-stretch min-h-[52px] ${
-                                      isAbsentSlot
+                                    className={`rounded-xl border-2 shadow-sm overflow-hidden flex items-stretch min-h-[52px] ${isAbsentSlot
                                         ? 'bg-gradient-to-br from-amber-50 to-amber-100/90 border-amber-400'
                                         : isPastSlot
                                           ? 'bg-gradient-to-br from-gray-100 to-gray-200 border-gray-400'
-                                        : useLightLayout
-                                          ? 'bg-gradient-to-br from-white to-emerald-50/80 border-emerald-300'
-                                          : 'bg-gradient-to-br from-white to-emerald-50 border-emerald-400/90'
-                                    }`}
+                                          : useLightLayout
+                                            ? 'bg-gradient-to-br from-white to-emerald-50/80 border-emerald-300'
+                                            : 'bg-gradient-to-br from-white to-emerald-50 border-emerald-400/90'
+                                      }`}
                                   >
                                     <div className="flex-1 flex flex-col justify-center px-3 py-2.5 min-w-0">
                                       <span
-                                        className={`font-extrabold text-base tracking-tight ${
-                                          isAbsentSlot ? 'text-amber-900' : isPastSlot ? 'text-gray-700' : 'text-gray-900'
-                                        }`}
+                                        className={`font-extrabold text-base tracking-tight ${isAbsentSlot ? 'text-amber-900' : isPastSlot ? 'text-gray-700' : 'text-gray-900'
+                                          }`}
                                       >
                                         {slot.time}
                                       </span>
                                       <span
-                                        className={`text-[11px] font-bold mt-0.5 ${
-                                          isAbsentSlot ? 'text-amber-800' : isPastSlot ? 'text-gray-600' : 'text-emerald-700'
-                                        }`}
+                                        className={`text-[11px] font-bold mt-0.5 ${isAbsentSlot ? 'text-amber-800' : isPastSlot ? 'text-gray-600' : 'text-emerald-700'
+                                          }`}
                                       >
                                         {isAbsentSlot
                                           ? '📅 Ausência neste dia'
@@ -4951,11 +4981,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 maxDurationMinutes: maxReserveMinutes,
                                               })
                                             }
-                                            className={`px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wide text-white transition-colors ${
-                                              useLightLayout
+                                            className={`px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wide text-white transition-colors ${useLightLayout
                                                 ? 'bg-emerald-700 hover:bg-emerald-800'
                                                 : 'bg-emerald-600 hover:bg-emerald-700'
-                                            }`}
+                                              }`}
                                             title="Reservar cliente neste horário (mesmo fluxo de Agendar cliente), com limite até o próximo horário ocupado ou fim do expediente"
                                           >
                                             Reservar
@@ -4966,11 +4995,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             onClick={() =>
                                               runToggleSlotBlock(professional.id, slot.time, true)
                                             }
-                                            className={`px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wide text-white border-l border-white/25 transition-colors disabled:opacity-50 ${
-                                              useLightLayout
+                                            className={`px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wide text-white border-l border-white/25 transition-colors disabled:opacity-50 ${useLightLayout
                                                 ? 'bg-slate-800 hover:bg-slate-900'
                                                 : 'bg-slate-700 hover:bg-slate-800'
-                                            }`}
+                                              }`}
                                             title="Bloqueia só este horário neste dia (igual ao menu Bloquear horários)"
                                           >
                                             {blockBusy ? '…' : 'Bloquear'}
@@ -4983,11 +5011,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           onClick={() =>
                                             runToggleSlotBlock(professional.id, slot.time, true)
                                           }
-                                          className={`shrink-0 px-3 py-2 text-xs font-bold text-white border-l border-white/20 transition-colors disabled:opacity-50 ${
-                                            useLightLayout
+                                          className={`shrink-0 px-3 py-2 text-xs font-bold text-white border-l border-white/20 transition-colors disabled:opacity-50 ${useLightLayout
                                               ? 'bg-slate-800 hover:bg-slate-900'
                                               : 'bg-slate-700 hover:bg-slate-800'
-                                          }`}
+                                            }`}
                                           title="Bloqueia só este horário neste dia (igual ao menu Bloquear horários)"
                                         >
                                           {blockBusy ? '…' : 'Bloquear'}
