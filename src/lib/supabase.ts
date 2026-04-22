@@ -877,6 +877,8 @@ export const createAppointment = async (appointmentData: any) => {
       }
     }
 
+    let resolvedProfessionalForWrite = String(appointmentData?.professional || '').trim();
+
     // VALIDAÇÃO RÍGIDA: nunca permitir agendamento dentro do intervalo do profissional.
     // Essa checagem roda no momento de salvar, protegendo até fluxos alternativos.
     try {
@@ -892,11 +894,24 @@ export const createAppointment = async (appointmentData: any) => {
         ? (establishmentData as any).professionals
         : [];
       const professionalRef = String(appointmentData?.professional || '').trim();
-      const selectedProfessional = professionals.find((p: any) => {
-        const pid = String(p?.id || '').trim();
-        const pname = String(p?.name || '').trim();
-        return (pid && pid === professionalRef) || (pname && pname === professionalRef);
+      const normalizeProfessionalRef = (raw: any): string =>
+        String(raw || '')
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim();
+      const professionalRefNorm = normalizeProfessionalRef(professionalRef);
+      const byId = professionals.find((p: any) => String(p?.id || '').trim() === professionalRef);
+      const byName = professionals.filter((p: any) => {
+        const nameNorm = normalizeProfessionalRef(p?.name);
+        return nameNorm.length > 0 && nameNorm === professionalRefNorm;
       });
+      if (!byId && byName.length > 1) {
+        throw new Error('Há mais de um profissional com esse nome. Selecione novamente para evitar conflito de agenda.');
+      }
+      const selectedProfessional = byId || byName[0] || null;
+      resolvedProfessionalForWrite =
+        String(selectedProfessional?.id || '').trim() || professionalRef;
 
       const dayKey = getDayKeyFromDate(String(appointmentData?.appointment_date || ''));
       const workDay = selectedProfessional?.work_hours?.[dayKey];
@@ -968,10 +983,15 @@ export const createAppointment = async (appointmentData: any) => {
       }
     }
 
+    const appointmentDataForInsert = {
+      ...appointmentData,
+      professional: resolvedProfessionalForWrite,
+    };
+
     const { data, error } = await retryRequest(async () => {
       return await supabase
         .from('appointments')
-        .insert([appointmentData])
+        .insert([appointmentDataForInsert])
         .select(`
           id,
           client_id,
@@ -999,7 +1019,7 @@ export const createAppointment = async (appointmentData: any) => {
     // BACKUP LOCAL - salvar também no localStorage
     if (data && data[0]) {
       try {
-        const userId = appointmentData.client_id;
+        const userId = appointmentDataForInsert.client_id;
         const existing = localStorage.getItem(`appointments_${userId}`);
         const localAppointments = existing ? JSON.parse(existing) : [];
 

@@ -28,6 +28,9 @@ export default function ViewAppointmentsPage() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   // Mantido apenas por compatibilidade (evitar 2 cliques). Agora o WhatsApp abre automaticamente após cancelar.
   const [cancelledAppointment, setCancelledAppointment] = useState<any>(null);
+  const [expandedInfoByAppointment, setExpandedInfoByAppointment] = useState<Record<string, boolean>>({});
+  const [appointmentHistoryById, setAppointmentHistoryById] = useState<Record<string, any[]>>({});
+  const [isLoadingInfoByAppointment, setIsLoadingInfoByAppointment] = useState<Record<string, boolean>>({});
 
   const normalizarWhatsappE164 = (raw: string): string => {
     let cleanWhatsapp = String(raw || '').replace(/\D/g, '');
@@ -231,6 +234,170 @@ export default function ViewAppointmentsPage() {
         {statusInfo.text}
       </span>
     );
+  };
+
+  const formatDateTimeSafe = (raw: unknown): string => {
+    const value = String(raw || '').trim();
+    if (!value) return 'Não informado';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    try {
+      return format(parsed, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
+    } catch {
+      return value;
+    }
+  };
+
+  const getAppointmentOriginLabel = (appointment: any): string => {
+    const isInternalByFlag = Boolean(appointment?.is_establishment_booking === true);
+    const isAvulsoLike = Boolean(appointment?.is_avulso) || Boolean(appointment?.is_squeeze);
+    const hasClientId = String(appointment?.client_id || '').trim().length > 0;
+    if (isInternalByFlag || isAvulsoLike) return 'Interno (criado pela barbearia)';
+    if (hasClientId) return 'Cliente (agendamento externo)';
+    return 'Origem não identificada';
+  };
+
+  const getHistoryEventLabel = (eventTypeRaw: unknown): string => {
+    const key = String(eventTypeRaw || '').trim().toLowerCase();
+    if (key === 'service_changed') return 'Serviço alterado';
+    if (key === 'finished_early') return 'Finalizado antes do previsto';
+    if (key === 'additional_service_added') return 'Serviço extra adicionado';
+    if (key === 'additional_service_removed') return 'Serviço extra removido';
+    if (key === 'status_changed') return 'Status alterado';
+    if (key === 'subscriber_attendance_marked') return 'Atendimento de assinatura registrado';
+    if (key === 'professional_transferred') return 'Profissional alterado';
+    if (key === 'rescheduled') return 'Agendamento remarcado';
+    return 'Atualização registrada';
+  };
+
+  const valueToFiniteNumber = (value: unknown): number | null => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const formatCurrencyMaybe = (value: unknown): string | null => {
+    const n = valueToFiniteNumber(value);
+    if (n === null) return null;
+    return `R$ ${n.toFixed(2).replace('.', ',')}`;
+  };
+
+  const formatDurationMaybe = (value: unknown): string | null => {
+    const n = valueToFiniteNumber(value);
+    if (n === null) return null;
+    return `${Math.round(n)} min`;
+  };
+
+  const buildReadableHistoryLines = (row: any): string[] => {
+    const oldV = (row?.old_values || {}) as Record<string, any>;
+    const newV = (row?.new_values || {}) as Record<string, any>;
+    const meta = (row?.metadata || {}) as Record<string, any>;
+    const key = String(row?.event_type || '').trim().toLowerCase();
+    const lines: string[] = [];
+
+    const oldProf = String(oldV.professional_name || oldV.professional || meta.old_professional_name || '').trim();
+    const newProf = String(newV.professional_name || newV.professional || meta.new_professional_name || '').trim();
+    if (oldProf || newProf) {
+      if (oldProf !== newProf) lines.push(`Profissional: ${oldProf || '-'} -> ${newProf || '-'}`);
+      else lines.push(`Profissional: ${newProf || oldProf}`);
+    }
+
+    const oldDate = String(oldV.appointment_date || meta.old_appointment_date || '').trim();
+    const newDate = String(newV.appointment_date || meta.new_appointment_date || '').trim();
+    if (oldDate || newDate) {
+      if (oldDate !== newDate) lines.push(`Data: ${oldDate || '-'} -> ${newDate || '-'}`);
+      else lines.push(`Data: ${newDate || oldDate}`);
+    }
+
+    const oldTime = String(oldV.appointment_time || meta.old_appointment_time || '').trim();
+    const newTime = String(newV.appointment_time || meta.new_appointment_time || '').trim();
+    if (oldTime || newTime) {
+      if (oldTime !== newTime) lines.push(`Horário: ${oldTime || '-'} -> ${newTime || '-'}`);
+      else lines.push(`Horário: ${newTime || oldTime}`);
+    }
+
+    const oldDuration = formatDurationMaybe(oldV.duration);
+    const newDuration = formatDurationMaybe(newV.duration);
+    if (oldDuration || newDuration) {
+      if (oldDuration !== newDuration) lines.push(`Duração: ${oldDuration || '-'} -> ${newDuration || '-'}`);
+      else lines.push(`Duração: ${newDuration || oldDuration}`);
+    }
+
+    const oldPrice = formatCurrencyMaybe(oldV.total_price ?? oldV.price);
+    const newPrice = formatCurrencyMaybe(newV.total_price ?? newV.price);
+    if (oldPrice || newPrice) {
+      if (oldPrice !== newPrice) lines.push(`Valor: ${oldPrice || '-'} -> ${newPrice || '-'}`);
+      else lines.push(`Valor: ${newPrice || oldPrice}`);
+    }
+
+    const oldStatus = String(oldV.status || '').trim();
+    const newStatus = String(newV.status || '').trim();
+    if (oldStatus || newStatus) {
+      if (oldStatus !== newStatus) lines.push(`Status: ${(oldStatus || '-').toUpperCase()} -> ${(newStatus || '-').toUpperCase()}`);
+      else lines.push(`Status: ${(newStatus || oldStatus).toUpperCase()}`);
+    }
+
+    if (key === 'finished_early') {
+      const released = valueToFiniteNumber(meta.time_released_minutes);
+      if (released !== null) lines.push(`Tempo liberado no final: ${Math.round(released)} min`);
+    }
+
+    if (lines.length === 0 && row?.description) {
+      lines.push(String(row.description));
+    }
+    return lines;
+  };
+
+  const handleToggleAppointmentInfo = async (appointment: any) => {
+    const appointmentId = String(appointment?.id || '').trim();
+    if (!appointmentId) return;
+
+    const isExpanded = Boolean(expandedInfoByAppointment[appointmentId]);
+    if (isExpanded) {
+      setExpandedInfoByAppointment((prev) => ({ ...prev, [appointmentId]: false }));
+      return;
+    }
+
+    setExpandedInfoByAppointment((prev) => ({ ...prev, [appointmentId]: true }));
+    if (appointmentHistoryById[appointmentId]) return;
+
+    const establishmentId = String(appointment?.establishment_id || appointment?.establishments?.id || '').trim();
+    if (!establishmentId) {
+      setAppointmentHistoryById((prev) => ({ ...prev, [appointmentId]: [] }));
+      return;
+    }
+
+    setIsLoadingInfoByAppointment((prev) => ({ ...prev, [appointmentId]: true }));
+    try {
+      const { data, error } = await (supabase as any)
+        .from('appointment_change_logs')
+        .select('id, event_type, description, changed_by_name, old_values, new_values, metadata, created_at')
+        .eq('establishment_id', establishmentId)
+        .eq('appointment_id', appointmentId)
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (error) {
+        const msg = String((error as any)?.message || '').toLowerCase();
+        const historyTableMissing =
+          msg.includes('appointment_change_logs') &&
+          (msg.includes('does not exist') || msg.includes('relation') || msg.includes('schema cache') || msg.includes('column'));
+        if (!historyTableMissing) {
+          console.error('❌ Erro ao carregar histórico do agendamento:', error);
+        }
+        setAppointmentHistoryById((prev) => ({ ...prev, [appointmentId]: [] }));
+        return;
+      }
+
+      setAppointmentHistoryById((prev) => ({
+        ...prev,
+        [appointmentId]: Array.isArray(data) ? data : [],
+      }));
+    } catch (error) {
+      console.error('❌ Erro inesperado ao carregar histórico do agendamento:', error);
+      setAppointmentHistoryById((prev) => ({ ...prev, [appointmentId]: [] }));
+    } finally {
+      setIsLoadingInfoByAppointment((prev) => ({ ...prev, [appointmentId]: false }));
+    }
   };
 
   const handleCancelAppointment = async (appointmentId: string) => {
@@ -1184,6 +1351,90 @@ Por favor, confirme o cancelamento. Obrigado!`;
                     </div>
                   )}
                 </div>
+
+                <div className="mb-4">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleAppointmentInfo(appointment)}
+                    className="w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-bold transition-colors"
+                    style={{
+                      background: 'rgba(230,199,139,0.10)',
+                      border: '1px solid rgba(230,199,139,0.30)',
+                      color: '#E6C78B',
+                    }}
+                  >
+                    {expandedInfoByAppointment[appointment.id] ? '- Informações' : '+ Informações'}
+                  </button>
+                </div>
+
+                {expandedInfoByAppointment[appointment.id] && (
+                  <div
+                    className="rounded-2xl p-4 mb-4 space-y-3"
+                    style={{
+                      background: '#151515',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                    }}
+                  >
+                    <p className="text-sm font-extrabold" style={{ color: '#E6C78B' }}>
+                      Informações detalhadas
+                    </p>
+                    <div className="space-y-1 text-sm" style={{ color: '#D4D4D4' }}>
+                      <p><strong>Criado em:</strong> {formatDateTimeSafe(appointment.created_at)}</p>
+                      <p><strong>Última atualização:</strong> {formatDateTimeSafe(appointment.updated_at)}</p>
+                      <p><strong>Data agendada:</strong> {formatDate(appointment.appointment_date)}</p>
+                      <p><strong>Horário agendado:</strong> {String(appointment.appointment_time || 'Não informado')}</p>
+                      <p><strong>Duração:</strong> {appointment.duration ? `${appointment.duration} min` : 'Não informada'}</p>
+                      <p><strong>Profissional atual:</strong> {appointment.professional_name || appointment.professional || 'Não informado'}</p>
+                      <p><strong>Origem do agendamento:</strong> {getAppointmentOriginLabel(appointment)}</p>
+                    </div>
+
+                    <div className="pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                      <p className="text-sm font-bold mb-2" style={{ color: '#E6C78B' }}>
+                        Histórico de alterações
+                      </p>
+
+                      {isLoadingInfoByAppointment[appointment.id] ? (
+                        <p className="text-sm" style={{ color: '#A1A1A1' }}>Carregando histórico...</p>
+                      ) : (appointmentHistoryById[appointment.id] || []).length === 0 ? (
+                        <p className="text-sm" style={{ color: '#A1A1A1' }}>
+                          Não encontrei alterações registradas para este agendamento.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {(appointmentHistoryById[appointment.id] || []).map((row: any) => (
+                            <div
+                              key={row.id}
+                              className="rounded-xl p-3"
+                              style={{
+                                background: 'rgba(255,255,255,0.03)',
+                                border: '1px solid rgba(255,255,255,0.08)',
+                              }}
+                            >
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <span className="text-sm font-bold text-white">
+                                  {getHistoryEventLabel(row.event_type)}
+                                </span>
+                                <span className="text-xs" style={{ color: '#A1A1A1' }}>
+                                  {formatDateTimeSafe(row.created_at)}
+                                </span>
+                              </div>
+                              {row.changed_by_name && (
+                                <p className="text-xs mb-1" style={{ color: '#A1A1A1' }}>
+                                  Alterado por: {row.changed_by_name}
+                                </p>
+                              )}
+                              {buildReadableHistoryLines(row).map((line, idx) => (
+                                <p key={`${row.id}-${idx}`} className="text-xs" style={{ color: '#D4D4D4' }}>
+                                  • {line}
+                                </p>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {appointment.client_name && (
                   <div className="pt-4 mb-4" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
