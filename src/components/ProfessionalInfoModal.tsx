@@ -234,6 +234,15 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
     typeof operationalPendingAfterLastPayment === 'number'
       ? Math.max(0, operationalPendingAfterLastPayment)
       : pendingByMonthlyTotal;
+  const subscriberPaidPercent = subscriberMonthlyAccumulated > 0
+    ? Math.min(100, Math.round((subscriberMonthlyPaid / subscriberMonthlyAccumulated) * 100))
+    : 0;
+  const subscriberPendingPercent = subscriberMonthlyAccumulated > 0
+    ? Math.max(0, 100 - subscriberPaidPercent)
+    : 0;
+  const subscriberAveragePerAttendance = subscriberAttendanceCount > 0
+    ? subscriberMonthlyAccumulated / subscriberAttendanceCount
+    : 0;
 
   useEffect(() => {
     let cancelled = false;
@@ -575,18 +584,75 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
               </p>
             </div>
             {hasSubscriberFinancial && (
-              <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-3">
-                <p className="text-sm font-semibold text-purple-800 mb-1">Assinaturas do mês</p>
-                <p className="text-xs text-purple-700">
-                  Acumulado: <strong>{showValues ? formatCurrency(subscriberMonthlyAccumulated) : '••••••'}</strong>
-                  {' '}• Pago: <strong>{showValues ? formatCurrency(subscriberMonthlyPaid) : '••••••'}</strong>
-                  {' '}• Pendente: <strong>{showValues ? formatCurrency(subscriberMonthlyPending) : '••••••'}</strong>
-                </p>
-                <p className="text-xs text-purple-700 mt-1">
-                  Atendimentos: <strong>{subscriberAttendanceCount}</strong>
-                  {' '}• Assinantes atendidos: <strong>{subscriberClientsCount}</strong>
-                  {subscriberSalesCount > 0 ? <> • Vendas (bonus): <strong>{subscriberSalesCount}</strong></> : null}
-                </p>
+              <div className="mt-4 rounded-xl border-2 border-purple-300 bg-gradient-to-r from-purple-50 via-violet-50 to-fuchsia-50 p-4 shadow-sm">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <p className="text-sm font-bold text-purple-900 uppercase tracking-wide">
+                    Assinaturas do mês
+                  </p>
+                  <span className="text-[11px] font-semibold px-2 py-1 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                    Financeiro de assinantes
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <div className="rounded-lg border border-purple-200 bg-white/90 p-3">
+                    <p className="text-[11px] text-purple-700 font-semibold uppercase">Acumulado</p>
+                    <p className="text-lg font-bold text-purple-900">
+                      {showValues ? formatCurrency(subscriberMonthlyAccumulated) : '••••••'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
+                    <p className="text-[11px] text-emerald-700 font-semibold uppercase">Pago</p>
+                    <p className="text-lg font-bold text-emerald-800">
+                      {showValues ? formatCurrency(subscriberMonthlyPaid) : '••••••'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3">
+                    <p className="text-[11px] text-amber-700 font-semibold uppercase">Pendente</p>
+                    <p className="text-lg font-bold text-amber-800">
+                      {showValues ? formatCurrency(subscriberMonthlyPending) : '••••••'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <div className="flex items-center justify-between text-[11px] mb-1">
+                    <span className="font-semibold text-purple-700">Progresso de pagamento</span>
+                    <span className="font-bold text-purple-900">{subscriberPaidPercent}% pago</span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-purple-100 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-purple-500 to-emerald-500 transition-all"
+                      style={{ width: `${subscriberPaidPercent}%` }}
+                    />
+                  </div>
+                  {subscriberPendingPercent > 0 && (
+                    <p className="text-[11px] text-amber-700 mt-1">
+                      Ainda falta {subscriberPendingPercent}% para fechar o mês das assinaturas.
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                  <div className="rounded-lg bg-white/80 border border-purple-100 px-2 py-2">
+                    <p className="text-[10px] text-gray-600 uppercase">Atendimentos</p>
+                    <p className="text-sm font-bold text-gray-900">{subscriberAttendanceCount}</p>
+                  </div>
+                  <div className="rounded-lg bg-white/80 border border-purple-100 px-2 py-2">
+                    <p className="text-[10px] text-gray-600 uppercase">Assinantes</p>
+                    <p className="text-sm font-bold text-gray-900">{subscriberClientsCount}</p>
+                  </div>
+                  <div className="rounded-lg bg-white/80 border border-purple-100 px-2 py-2">
+                    <p className="text-[10px] text-gray-600 uppercase">Média por atendimento</p>
+                    <p className="text-sm font-bold text-gray-900">
+                      {showValues ? formatCurrency(subscriberAveragePerAttendance) : '••••••'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-white/80 border border-purple-100 px-2 py-2">
+                    <p className="text-[10px] text-gray-600 uppercase">Vendas (bônus)</p>
+                    <p className="text-sm font-bold text-gray-900">{subscriberSalesCount}</p>
+                  </div>
+                </div>
               </div>
             )}
           </div>

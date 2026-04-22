@@ -1413,7 +1413,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
-  // ? Contagem mensal com saldo do mês anterior carregado para o mês selecionado.
+  // ? Contagem mensal com saldo do mÃªs anterior carregado para o mÃªs selecionado.
   const fetchSubscriberAttendanceCounts = async (month?: number, year?: number) => {
     try {
       const targetMonth = month !== undefined ? month : selectedMonth;
@@ -1468,7 +1468,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         const previousUsage = subRows.filter((row: any) =>
           isIsoDateWithinRange(String(row?.attendance_date || ''), previousRange)
         ).length;
-        const allowance = buildCarryoverMonthlyLimit(sub?.monthly_limit, currentUsage, previousUsage);
+        const allowance = buildCarryoverMonthlyLimit(
+          sub?.monthly_limit,
+          currentUsage,
+          previousUsage,
+          previousRange !== null
+        );
 
         counts[id] = allowance.currentMonthUsage;
         effectiveLimits[id] = allowance.effectiveLimit;
@@ -2140,7 +2145,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     const attendanceDateToSave = format(new Date(), 'yyyy-MM-dd');
     const attendanceProfessionalToSave = 'Adicionado em Meus Assinantes';
 
-    // ? Bloquear se bater o limite do cliente (não permitir 5/4)
+    // ? Bloquear se bater o limite do cliente (nÃ£o permitir 5/4)
     const baseLimit = Number((selectedClientForAttendance as any)?.monthly_limit || 0);
     const effectiveLimit = subscriberEffectiveLimitByClientSubId[String(selectedClientForAttendance.id)] ?? (Number.isFinite(baseLimit) && baseLimit > 0 ? baseLimit : null);
     const currentCount = subscriberAttendanceCountsByClientSubId[String(selectedClientForAttendance.id)] || 0;
@@ -5682,7 +5687,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                               void openAttendanceViewerForClient(cs, { kind: 'period' });
                             }}
                             className="bg-black/30 text-white text-xs px-2 py-1 rounded-full font-extrabold hover:bg-black/50 border border-white/10 cursor-pointer transition-colors"
-                            title="Ver quais profissionais concluíram atendimentos no mês selecionado"
+                            title="Ver quais profissionais concluÃ­ram atendimentos no mÃªs selecionado"
                           >
                             {effectiveLimit !== null && effectiveLimit > 0
                               ? `${concludedCount} de ${effectiveLimit}`
@@ -6459,7 +6464,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     {format(parseISO(`${attendanceViewerFilter.ym}-01`), "MMMM yyyy", { locale: ptBR })}
                   </p>
                 ) : (
-                  <p className="text-xs text-gray-400 mt-1">Mês selecionado (com saldo carregado do mês anterior, quando sobrar)</p>
+                  <p className="text-xs text-gray-400 mt-1">MÃªs selecionado (com saldo carregado do mÃªs anterior, quando sobrar)</p>
                 )}
               </div>
               <button
@@ -7310,7 +7315,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   placeholder="Ex: 2 (para 2 agendamentos por mÃªs)"
                 />
                 <p className="text-xs text-gray-500 mt-2">
-                  Deixe vazio para sem limite. O sistema conta o mês atual e, se sobrar do mês anterior, soma esse saldo apenas neste mês.
+                  Deixe vazio para sem limite. O sistema conta o mÃªs atual e, se sobrar do mÃªs anterior, soma esse saldo apenas neste mÃªs.
                 </p>
               </div>
 

@@ -399,6 +399,8 @@ interface Client {
   forceAdvancePayment?: boolean; // Se true, este cliente precisa pagar antes de agendar
   /** Timestamp (ms) do último agendamento não cancelado — usado em Clientes Sumidos */
   lastAppointmentAt?: number;
+  /** Exibição em Meus Clientes: pago ou vencido */
+  subscriberPaymentStatus?: 'paid' | 'expired' | null;
 }
 
 interface ClientFutureAppointmentItem {
@@ -693,6 +695,7 @@ const EstablishmentDashboard = () => {
   const [selectedClientForPastAppointments, setSelectedClientForPastAppointments] = useState<Client | null>(null);
   const [clientPastAppointments, setClientPastAppointments] = useState<ClientFutureAppointmentItem[]>([]);
   const [isLoadingClientPastAppointments, setIsLoadingClientPastAppointments] = useState(false);
+  const [pastAppointmentsActionById, setPastAppointmentsActionById] = useState<Record<string, 'completed' | 'cancelled' | undefined>>({});
   const [pastModalLoyaltyRow, setPastModalLoyaltyRow] = useState<{ cycle_goal: number | null; cycle_progress: number } | null>(null);
   const [pastModalLoyaltyGoalInput, setPastModalLoyaltyGoalInput] = useState('');
   const [pastModalLoyaltyLoading, setPastModalLoyaltyLoading] = useState(false);
@@ -13418,6 +13421,7 @@ Estamos te aguardando! 😎✂️`;
     setSelectedClientForPastAppointments(client);
     setShowClientPastAppointmentsModal(true);
     setIsLoadingClientPastAppointments(true);
+    setPastAppointmentsActionById({});
     setPastModalLoyaltyRow(null);
     setPastModalLoyaltyGoalInput('');
     try {
@@ -13435,6 +13439,90 @@ Estamos te aguardando! 😎✂️`;
       setClientPastAppointments([]);
     } finally {
       setIsLoadingClientPastAppointments(false);
+    }
+  };
+
+  const refreshClientPastAppointmentsModalData = async (client: Client) => {
+    const rows = await fetchClientPastAppointments(client);
+    setClientPastAppointments(rows);
+    await loadPastModalClientLoyalty(client);
+  };
+
+  const handlePastAppointmentQuickAction = async (
+    appointmentId: string,
+    action: 'completed' | 'cancelled'
+  ) => {
+    if (!establishment?.id) {
+      toast('Estabelecimento não carregado. Tente novamente.', 'error');
+      return;
+    }
+    if (!selectedClientForPastAppointments) {
+      toast('Cliente não selecionado. Feche e abra o modal novamente.', 'error');
+      return;
+    }
+
+    const id = String(appointmentId || '').trim();
+    if (!id) return;
+    if (pastAppointmentsActionById[id]) return;
+
+    if (action === 'cancelled') {
+      const confirmed = window.confirm('Tem certeza que deseja cancelar este agendamento?');
+      if (!confirmed) return;
+    }
+
+    setPastAppointmentsActionById((prev) => ({ ...prev, [id]: action }));
+    try {
+      if (action === 'completed') {
+        const { error } = await supabase
+          .from('appointments')
+          .update({ status: 'completed' })
+          .eq('id', id)
+          .eq('establishment_id', establishment.id);
+        if (error) throw error;
+      } else {
+        const { error } = await updateAppointmentCancelledWithSource(
+          supabase,
+          { id },
+          {
+            cancellation_source: CANCELLATION_SOURCE.ESTABLISHMENT_STAFF,
+            cancellation_detail: 'Cancelado manualmente no modal de Agendamentos / pontos fidelidade.',
+          }
+        );
+        if (error) throw error;
+      }
+
+      await Promise.all([
+        fetchAppointments(),
+        fetchMonthlyAppointments(),
+        fetchClients(),
+      ]);
+      await refreshClientPastAppointmentsModalData(selectedClientForPastAppointments);
+
+      toast(
+        action === 'completed'
+          ? 'Agendamento concluído com sucesso.'
+          : 'Agendamento cancelado com sucesso.',
+        'success'
+      );
+    } catch (error: any) {
+      console.error('Erro ao atualizar agendamento no modal de pontos fidelidade:', error);
+      toast(
+        [
+          error?.message || 'Erro ao atualizar agendamento.',
+          error?.code,
+          error?.details,
+          error?.hint,
+        ]
+          .filter(Boolean)
+          .join(' | '),
+        'error'
+      );
+    } finally {
+      setPastAppointmentsActionById((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     }
   };
 
@@ -16402,27 +16490,20 @@ Estamos te aguardando! 😎✂️`;
         return;
       }
 
-      // Coleta todos os client_ids únicos dos agendamentos (filtrar IDs manuais)
-      const uniqueClientIds = [...new Set(appointmentsData.map(apt => apt.client_id))].filter(id => !id.startsWith('manual_'));
+      // Coleta IDs únicos dos agendamentos:
+      // - allClientIds: para mapear assinatura (inclui IDs manuais quando existirem)
+      // - uniqueClientIds: apenas IDs não manuais para lookup de profile
+      const allClientIds = [
+        ...new Set(
+          (appointmentsData || [])
+            .map((apt: any) => String(apt?.client_id || '').trim())
+            .filter(Boolean)
+        ),
+      ];
+      const uniqueClientIds = allClientIds.filter((id) => !id.startsWith('manual_'));
+      const todayDateKey = format(new Date(), 'yyyy-MM-dd');
 
       console.log('🔍 IDs únicos filtrados:', uniqueClientIds);
-
-      // Se não há IDs únicos, carregar apenas clientes manuais
-      if (uniqueClientIds.length === 0) {
-        console.log('📋 Nenhum client_id válido encontrado - carregando apenas clientes manuais');
-        const manualClients = await loadManualClientsFromStorage();
-        const uniqueClients: Client[] = Object.values(manualClients).map((manualClient: any) => ({
-          id: `manual_${manualClient.whatsapp}`,
-          whatsapp: manualClient.whatsapp,
-          name: manualClient.name,
-          appointmentCount: 0,
-          isSubscriber: false,
-          birthday: manualClient.birthday,
-          forceAdvancePayment: manualClient.forceAdvancePayment === true
-        }));
-        setClients(uniqueClients);
-        return;
-      }
 
       // Buscar todos os perfis disponíveis para encontrar correspondências
       const { data: allProfilesData, error: allProfilesError } = await supabase
@@ -16448,11 +16529,75 @@ Estamos te aguardando! 😎✂️`;
 
       console.log('✅ Perfis correspondentes encontrados:', profilesData);
 
+      const subscriptionStatusByClientId = new Map<string, 'paid' | 'expired'>();
+      const subscriptionStatusByWhatsapp = new Map<string, 'paid' | 'expired'>();
+      {
+        let { data: subscriptionsData, error: subscriptionsError } = await supabase
+          .from('client_subscriptions')
+          .select('client_id, payment_status, end_date, client_whatsapp, subscriber_whatsapp')
+          .eq('establishment_id', establishment.id);
+
+        if (subscriptionsError) {
+          const msg = String((subscriptionsError as any)?.message || '').toLowerCase();
+          const missingPhoneCols =
+            msg.includes('client_whatsapp') || msg.includes('subscriber_whatsapp');
+          if (missingPhoneCols) {
+            const fallback = await supabase
+              .from('client_subscriptions')
+              .select('client_id, payment_status, end_date')
+              .eq('establishment_id', establishment.id)
+              .in('client_id', allClientIds);
+            subscriptionsData = fallback.data as any;
+            subscriptionsError = fallback.error as any;
+          }
+        }
+
+        if (subscriptionsError) {
+          console.warn('⚠️ Não foi possível carregar status de assinatura em Meus Clientes:', subscriptionsError);
+        } else {
+          (subscriptionsData || []).forEach((row: any) => {
+            const clientId = String(row?.client_id || '').trim();
+            if (!clientId) return;
+            const paymentStatus = String(row?.payment_status || '').toLowerCase().trim();
+            const endDate = String(row?.end_date || '').slice(0, 10);
+            const isActiveByEndDate = Boolean(endDate) && endDate >= todayDateKey;
+            const isPaidAndActive = paymentStatus === 'paid' && isActiveByEndDate;
+            const previous = subscriptionStatusByClientId.get(clientId);
+            if (isPaidAndActive) {
+              subscriptionStatusByClientId.set(clientId, 'paid');
+            } else if (!previous) {
+              subscriptionStatusByClientId.set(clientId, 'expired');
+            }
+
+            const phoneCandidates = Array.from(
+              new Set([
+                ...possibleWhatsappLookupKeys(row?.client_whatsapp),
+                ...possibleWhatsappLookupKeys(row?.subscriber_whatsapp),
+              ])
+            )
+              .map((phone) => normalizeWhatsappKey(phone))
+              .filter(Boolean);
+            phoneCandidates.forEach((phoneKey) => {
+              const previousPhone = subscriptionStatusByWhatsapp.get(phoneKey);
+              if (isPaidAndActive) {
+                subscriptionStatusByWhatsapp.set(phoneKey, 'paid');
+              } else if (!previousPhone) {
+                subscriptionStatusByWhatsapp.set(phoneKey, 'expired');
+              }
+            });
+          });
+        }
+      }
+
       // Cria um mapa de perfis para acesso rápido (user_id -> profile e id -> profile)
-      const profilesMapForClients = new Map<string, { id: string; name: string; is_subscriber: boolean; birthday: string | null }>();
+      const profilesMapForClients = new Map<
+        string,
+        { id: string; user_id?: string | null; name: string; is_subscriber: boolean; birthday: string | null }
+      >();
       profilesData?.forEach(profile => {
         const profileData = {
           id: profile.id, // ID real do perfil para usar no update
+          user_id: profile.user_id,
           name: profile.name,
           is_subscriber: profile.is_subscriber,
           birthday: profile.birthday
@@ -16476,7 +16621,17 @@ Estamos te aguardando! 😎✂️`;
       // Mapeia e agrupa os clientes a partir dos dados de agendamento e perfis
       const clientsMap = new Map<
         string,
-        { id: string; name: string; count: number; completed: number; spent: number; isSubscriber: boolean; birthday: string | null; whatsapp: string }
+        {
+          id: string;
+          name: string;
+          count: number;
+          completed: number;
+          spent: number;
+          isSubscriber: boolean;
+          birthday: string | null;
+          whatsapp: string;
+          subscriberPaymentStatus: 'paid' | 'expired' | null;
+        }
       >();
 
       appointmentsData.forEach(appointment => {
@@ -16485,7 +16640,27 @@ Estamos te aguardando! 😎✂️`;
         if (key) {
           const currentClient = clientsMap.get(key);
           const profileInfo = profilesMapForClients.get(appointment.client_id); // Buscar pelo client_id (que corresponde ao user_id)
-          const isSubscriber = profileInfo?.is_subscriber || false;
+          const whatsappLookupKeys = Array.from(
+            new Set(possibleWhatsappLookupKeys(rawWhatsapp).map((phone) => normalizeWhatsappKey(phone)).filter(Boolean))
+          );
+          const subscriptionLookupIds = [
+            String(appointment.client_id || '').trim(),
+            String(profileInfo?.id || '').trim(),
+            String(profileInfo?.user_id || '').trim(),
+          ].filter(Boolean);
+          const subscriberPaymentStatus =
+            (subscriptionLookupIds
+              .map((lookupId) => subscriptionStatusByClientId.get(lookupId))
+              .find(Boolean) as 'paid' | 'expired' | undefined) ||
+            (whatsappLookupKeys
+              .map((phoneKey) => subscriptionStatusByWhatsapp.get(phoneKey))
+              .find(Boolean) as 'paid' | 'expired' | undefined) ||
+            null;
+          const hasSubscriptionRecord = subscriberPaymentStatus !== null;
+          const isSubscriber =
+            profileInfo?.is_subscriber === true ||
+            Boolean((appointment as any)?.is_subscriber) ||
+            hasSubscriptionRecord;
           const birthday = profileInfo?.birthday || null;
           const profileId = profileInfo?.id || appointment.client_id; // Usar o ID real do perfil para updates
 
@@ -16509,6 +16684,7 @@ Estamos te aguardando! 😎✂️`;
               isSubscriber: currentClient.isSubscriber || isSubscriber,
               birthday: birthday || currentClient.birthday, // Manter o birthday se já existe
               whatsapp: nextWhatsapp,
+              subscriberPaymentStatus: currentClient.subscriberPaymentStatus || subscriberPaymentStatus || null,
             });
           } else {
             const displayWhatsapp = String(rawWhatsapp || '').replace(/\D/g, '') || key;
@@ -16521,13 +16697,16 @@ Estamos te aguardando! 😎✂️`;
               isSubscriber: isSubscriber,
               birthday: birthday,
               whatsapp: displayWhatsapp,
+              subscriberPaymentStatus: subscriberPaymentStatus || null,
             });
           }
         }
       });
 
       // Converte o mapa de clientes para um array e atualiza o estado
-      const uniqueClients: Client[] = Array.from(clientsMap, ([key, { id, name, count, completed, spent, isSubscriber, birthday, whatsapp }]) => ({
+      const uniqueClients: Client[] = Array.from(
+        clientsMap,
+        ([key, { id, name, count, completed, spent, isSubscriber, birthday, whatsapp, subscriberPaymentStatus }]) => ({
         id, // Adicionar o ID
         whatsapp: whatsapp || key,
         name,
@@ -16538,7 +16717,9 @@ Estamos te aguardando! 😎✂️`;
         birthday: birthday,
         forceAdvancePayment: false,
         lastAppointmentAt: lastVisitByWhatsapp.get(key),
-      }));
+        subscriberPaymentStatus: isSubscriber ? subscriberPaymentStatus || 'expired' : null,
+      })
+      );
 
       // Carregar clientes manuais do Supabase
       const manualClients = await loadManualClientsFromStorage();
@@ -16564,7 +16745,8 @@ Estamos te aguardando! 😎✂️`;
             appointmentCount: 0,
             isSubscriber: false,
             birthday: manualClient.birthday,
-            forceAdvancePayment: manualClient.forceAdvancePayment === true
+            forceAdvancePayment: manualClient.forceAdvancePayment === true,
+            subscriberPaymentStatus: null,
           });
           console.log(`➕ Cliente manual adicionado: ${manualClient.name} (${cleanManualWhatsapp})`);
         } else {
@@ -31535,7 +31717,7 @@ Estamos te aguardando! 😎✂️`;
                                 ) : (
                                   <h3 className="text-lg font-medium text-gray-900 truncate">{client.name}</h3>
                                 )}
-                                {client.isSubscriber && <Crown className="h-5 w-5 text-yellow-500" />} {/* COROA PARA ASSINANTES */}
+                                {client.isSubscriber && <Crown className="h-5 w-5 text-yellow-500" />}
                               </div>
                               <div className="flex items-center gap-1 ml-2">
                                 {editingClient === client.whatsapp ? (
@@ -31628,6 +31810,21 @@ Estamos te aguardando! 😎✂️`;
                                   <span className="text-gray-600">✅</span>
                                   Realizados: {Number(client.completedCount || 0)}
                                 </p>
+                                {client.isSubscriber && (
+                                  <p className="text-gray-700 flex items-center gap-2 mb-1">
+                                    <Crown className="h-4 w-4 text-yellow-600" />
+                                    Assinante:{' '}
+                                    <span
+                                      className={`px-2 py-0.5 rounded-md border text-[11px] font-extrabold ${
+                                        client.subscriberPaymentStatus === 'paid'
+                                          ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+                                          : 'border-red-300 bg-red-50 text-red-900'
+                                      }`}
+                                    >
+                                      {client.subscriberPaymentStatus === 'paid' ? 'Pago' : 'Vencido'}
+                                    </span>
+                                  </p>
+                                )}
                                 {editingClientContact === client.whatsapp ? (
                                   <div className="mb-3 rounded-lg border border-gray-300 bg-gray-50 p-3 space-y-2">
                                     <input
@@ -38876,6 +39073,26 @@ Estamos te aguardando! 😎✂️`;
                           <span className={`px-2 py-0.5 rounded-md border text-xs font-bold ${outcomePillClass}`}>
                             {outcomeLabel}
                           </span>
+                          <div className="flex items-center gap-1">
+                            {!completed && (
+                              <button
+                                type="button"
+                                onClick={() => void handlePastAppointmentQuickAction(appointmentId, 'completed')}
+                                disabled={Boolean(pastAppointmentsActionById[appointmentId])}
+                                className="px-2 py-0.5 rounded-md border border-emerald-500 bg-emerald-600 text-white text-[11px] font-extrabold hover:bg-emerald-700 disabled:opacity-50"
+                              >
+                                {pastAppointmentsActionById[appointmentId] === 'completed' ? '...' : 'CONCLUIR'}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => void handlePastAppointmentQuickAction(appointmentId, 'cancelled')}
+                              disabled={Boolean(pastAppointmentsActionById[appointmentId])}
+                              className="px-2 py-0.5 rounded-md border border-red-500 bg-red-600 text-white text-[11px] font-extrabold hover:bg-red-700 disabled:opacity-50"
+                            >
+                              {pastAppointmentsActionById[appointmentId] === 'cancelled' ? '...' : 'CANCELAR'}
+                            </button>
+                          </div>
                           {apt.is_loyalty_reward === true && (
                             <span className="px-2 py-0.5 rounded-md border border-violet-400 bg-white text-xs font-bold text-violet-800">
                               Fidelidade

@@ -69,7 +69,8 @@ export function isIsoDateWithinRange(isoDate: string, range: IsoDateRange | null
 export function buildCarryoverMonthlyLimit(
   baseLimitRaw: unknown,
   currentMonthUsageRaw: unknown,
-  previousMonthUsageRaw: unknown
+  previousMonthUsageRaw: unknown,
+  includePreviousCarryover: boolean = true
 ): {
   baseLimit: number | null;
   currentMonthUsage: number;
@@ -102,7 +103,9 @@ export function buildCarryoverMonthlyLimit(
   }
 
   const normalizedBaseLimit = Math.max(0, Math.floor(baseLimit));
-  const carryover = Math.max(0, normalizedBaseLimit - previousMonthUsage);
+  const carryover = includePreviousCarryover
+    ? Math.max(0, normalizedBaseLimit - previousMonthUsage)
+    : 0;
   const effectiveLimit = normalizedBaseLimit + carryover;
   const remaining = Math.max(0, effectiveLimit - currentMonthUsage);
 
