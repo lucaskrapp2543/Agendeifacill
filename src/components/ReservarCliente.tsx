@@ -1834,6 +1834,7 @@ export default function ReservarCliente({
         });
       };
 
+      const allowInternalBlockOverride = Boolean((establishment as any)?.allow_internal_block_override);
       const datesWithBlockedConflict = datasSemConflito.filter((dateStr) => isBlockedConflictForDate(dateStr));
       const askUnlockBlockedConfirmation = (dates: string[]) =>
         window.confirm(
@@ -1925,27 +1926,42 @@ export default function ReservarCliente({
         return true;
       };
 
-      // Regra solicitada:
-      // No agendamento interno (Reservar Cliente), se o horário estiver bloqueado em qualquer data selecionada,
-      // perguntar se deseja DESBLOQUEAR nas datas selecionadas e agendar.
+      // Segurança: por padrão NÃO desbloqueia bloqueio automaticamente no Reservar Cliente.
       let didUnlockBlockedHours = false;
+      let datasParaInserir = [...datasSemConflito];
       if (datesWithBlockedConflict.length > 0) {
-        const shouldUnlock = askUnlockBlockedConfirmation(datesWithBlockedConflict);
-        if (!shouldUnlock) {
-          setLoading(false);
-          return;
+        if (!allowInternalBlockOverride) {
+          const blockedSet = new Set(datesWithBlockedConflict);
+          datasParaInserir = datasSemConflito.filter((dateStr) => !blockedSet.has(dateStr));
+          if (datasParaInserir.length === 0) {
+            setLoading(false);
+            alert(
+              'Este horário está bloqueado nas datas selecionadas.\n\n' +
+              `Horário: ${selectedTime}\n` +
+              `Datas com bloqueio: ${datesWithBlockedConflict.slice(0, 8).join(', ')}${datesWithBlockedConflict.length > 8 ? ` (+${datesWithBlockedConflict.length - 8})` : ''}\n\n` +
+              'Para manter a proteção da agenda, o sistema não desbloqueia automaticamente.\n' +
+              'Se precisar, desbloqueie manualmente em "Bloquear horários".'
+            );
+            return;
+          }
+        } else {
+          const shouldUnlock = askUnlockBlockedConfirmation(datesWithBlockedConflict);
+          if (!shouldUnlock) {
+            setLoading(false);
+            return;
+          }
+          const unlocked = await unlockBlockedHoursForDates(datesWithBlockedConflict);
+          if (!unlocked) {
+            setLoading(false);
+            return;
+          }
+          didUnlockBlockedHours = true;
         }
-        const unlocked = await unlockBlockedHoursForDates(datesWithBlockedConflict);
-        if (!unlocked) {
-          setLoading(false);
-          return;
-        }
-        didUnlockBlockedHours = true;
       }
 
       // Barbeiro cria a reserva: client_id tem que ser um id que existe em auth.users (NOT NULL + FK).
       // Sempre usamos o user do dono logado (currentUserId da sessão atualizada); cliente identificado por client_name e client_whatsapp.
-      const payloads = datasSemConflito.map((dateStr) => {
+      const payloads = datasParaInserir.map((dateStr) => {
         const loyaltyPointsSum = servicesToInsert.reduce(
           (sum, s) => sum + Math.max(0, Number((s as any).loyalty_points ?? 0)),
           0
@@ -1983,7 +1999,7 @@ export default function ReservarCliente({
         }
         // Segurança adicional: quando o dono confirmou desbloqueio no fluxo interno,
         // também envia override para não falhar por divergência de bloqueio legado.
-        if (didUnlockBlockedHours) {
+        if (allowInternalBlockOverride && didUnlockBlockedHours) {
           payload.allow_blocked_override = true;
         }
         return payload;
@@ -1992,6 +2008,13 @@ export default function ReservarCliente({
       if (payloads.length === 0) {
         alert('Não foi possível criar as reservas: todos os horários do mês já estão ocupados nesse horário.');
         return;
+      }
+      if (!allowInternalBlockOverride && datasParaInserir.length < datasSemConflito.length) {
+        const skippedByBlock = datasSemConflito.length - datasParaInserir.length;
+        toast(
+          `${skippedByBlock} data(s) foram ignoradas porque estavam bloqueadas. Nenhum bloqueio foi removido automaticamente.`,
+          { duration: 5500 }
+        );
       }
 
       const { data: insertedData, error: initialInsertError } = await supabase
@@ -2104,14 +2127,14 @@ export default function ReservarCliente({
 
       // Fallback de compatibilidade:
       // Se o banco bloquear (P0001), sempre faz uma segunda tentativa com override forçado.
-      if (insertError && isBlockedByTriggerError(insertError)) {
+      if (allowInternalBlockOverride && insertError && isBlockedByTriggerError(insertError)) {
         let unlockedAfterDbError = true;
         if (!didUnlockBlockedHours) {
-          const shouldUnlockAfterDbError = askUnlockBlockedConfirmation(datasSemConflito);
+          const shouldUnlockAfterDbError = askUnlockBlockedConfirmation(datasParaInserir);
           if (!shouldUnlockAfterDbError) {
             unlockedAfterDbError = false;
           } else {
-            unlockedAfterDbError = await unlockBlockedHoursForDates(datasSemConflito);
+            unlockedAfterDbError = await unlockBlockedHoursForDates(datasParaInserir);
           }
         }
 

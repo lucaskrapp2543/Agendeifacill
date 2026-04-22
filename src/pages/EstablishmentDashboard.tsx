@@ -1410,6 +1410,7 @@ const EstablishmentDashboard = () => {
   const [adicionarFilaNome, setAdicionarFilaNome] = useState('');
   const [adicionarFilaServiceId, setAdicionarFilaServiceId] = useState('');
   const [adicionarFilaSelectedServiceIds, setAdicionarFilaSelectedServiceIds] = useState<string[]>([]);
+  const [adicionarFilaDuracaoMinutos, setAdicionarFilaDuracaoMinutos] = useState('');
   const [isAddingFila, setIsAddingFila] = useState(false);
   const [showFinalizarFilaModal, setShowFinalizarFilaModal] = useState(false);
   const [finalizarFilaEntryId, setFinalizarFilaEntryId] = useState<string | null>(null);
@@ -2049,7 +2050,20 @@ const EstablishmentDashboard = () => {
     const nomes = selected.map((s: any) => String(s?.name || '').trim()).filter(Boolean);
     const serviceName = nomes.length ? nomes.join(' + ') : 'Serviço';
     const servicePrice = selected.reduce((sum: number, s: any) => sum + Number(s?.price ?? 0), 0);
-    const serviceDuration = selected.reduce((sum: number, s: any) => sum + Number(s?.duration ?? s?.service_duration ?? 0), 0);
+    const serviceDurationBase = selected.reduce((sum: number, s: any) => sum + Number(s?.duration ?? s?.service_duration ?? 0), 0);
+    const duracaoCustomRaw = String(adicionarFilaDuracaoMinutos || '').trim();
+    const hasDuracaoCustom = duracaoCustomRaw.length > 0;
+    const duracaoCustom = Number(duracaoCustomRaw);
+
+    if (hasDuracaoCustom && (!Number.isFinite(duracaoCustom) || duracaoCustom < 5)) {
+      toast.error('Tempo personalizado inválido. Use pelo menos 5 minutos.');
+      return;
+    }
+
+    const serviceDuration = hasDuracaoCustom
+      ? Math.floor(duracaoCustom)
+      : serviceDurationBase;
+
     if (!Number.isFinite(serviceDuration) || serviceDuration < 5) {
       toast.error('Selecione serviços que somem pelo menos 5 minutos.');
       return;
@@ -2191,6 +2205,7 @@ const EstablishmentDashboard = () => {
       setAdicionarFilaNome('');
       setAdicionarFilaServiceId('');
       setAdicionarFilaSelectedServiceIds([]);
+      setAdicionarFilaDuracaoMinutos('');
       await fetchFilaEntries();
     } catch (e: any) {
       console.error('❌ Erro ao adicionar manualmente à fila:', e);
@@ -2200,6 +2215,7 @@ const EstablishmentDashboard = () => {
     }
   }, [
     adicionarFilaNome,
+    adicionarFilaDuracaoMinutos,
     adicionarFilaServiceId,
     adicionarFilaSelectedServiceIds,
     establishment,
@@ -3927,6 +3943,20 @@ const EstablishmentDashboard = () => {
     };
   }, [showMercadoPagoModal]);
 
+  // ✅ Evitar scroll do fundo quando modal "Adicionar à fila" estiver aberto
+  useEffect(() => {
+    if (!showAdicionarFilaModal) return;
+    const prevOverflow = document.body.style.overflow;
+    const prevPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`;
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.paddingRight = prevPaddingRight;
+    };
+  }, [showAdicionarFilaModal]);
+
   const openPlanUpgradeModal = () => setShowPlanUpgradeModal(true);
   const closePlanUpgradeModal = () => setShowPlanUpgradeModal(false);
 
@@ -5195,7 +5225,6 @@ const EstablishmentDashboard = () => {
       };
     }
 
-    const now = new Date();
     const hasMercadoPagoConnected = !!String((establishment as any)?.mercadopago_access_token || '').trim();
     const hasPagarmeConnected = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
     const hasAnySubscriptionGatewayConnected = hasMercadoPagoConnected || hasPagarmeConnected;
@@ -5222,9 +5251,13 @@ const EstablishmentDashboard = () => {
             payment_status,
             last_payment_date,
             subscription_payment_provider,
+            subscriber_name,
+            subscriber_whatsapp,
             custom_subscription_value
           `)
         .eq('establishment_id', establishment.id)
+        .not('subscriber_name', 'is', null)
+        .not('subscriber_whatsapp', 'is', null)
       : await supabase
         .from('client_subscriptions')
         .select(`
@@ -5237,9 +5270,13 @@ const EstablishmentDashboard = () => {
             subscription_payment_provider,
             subscription_value,
             custom_subscription_value,
+            subscriber_name,
+            subscriber_whatsapp,
             subscriptions(value)
           `)
-        .eq('establishment_id', establishment.id);
+        .eq('establishment_id', establishment.id)
+        .not('subscriber_name', 'is', null)
+        .not('subscriber_whatsapp', 'is', null);
 
     if (subscriptionsError) {
       const subscriptionErrorMsg = String(subscriptionsError.message || '').toLowerCase();
@@ -5268,9 +5305,13 @@ const EstablishmentDashboard = () => {
             last_payment_date,
             subscription_payment_provider,
             custom_subscription_value,
+            subscriber_name,
+            subscriber_whatsapp,
             subscriptions(value)
           `)
-          .eq('establishment_id', establishment.id);
+          .eq('establishment_id', establishment.id)
+          .not('subscriber_name', 'is', null)
+          .not('subscriber_whatsapp', 'is', null);
 
         clientSubscriptions = retryWithoutSubscriptionValue.data;
         subscriptionsError = retryWithoutSubscriptionValue.error;
@@ -5286,9 +5327,13 @@ const EstablishmentDashboard = () => {
               payment_status,
               last_payment_date,
               subscription_payment_provider,
+              subscriber_name,
+              subscriber_whatsapp,
               custom_subscription_value
             `)
-            .eq('establishment_id', establishment.id);
+            .eq('establishment_id', establishment.id)
+            .not('subscriber_name', 'is', null)
+            .not('subscriber_whatsapp', 'is', null);
           clientSubscriptions = fallbackOnlyClientSubscription.data;
           subscriptionsError = fallbackOnlyClientSubscription.error;
         }
@@ -5316,13 +5361,74 @@ const EstablishmentDashboard = () => {
         .from('professional_payments')
         .select('amount,for_month,payment_date,payment_source')
         .eq('establishment_id', establishment.id)
-        .in('payment_source', ['subscription', 'assinatura']),
+        .eq('payment_source', 'subscription'),
     ]);
 
     const attendanceRows = attendancesResult.data || [];
     const commissionRows = saleCommissionsResult.data || [];
     const repassesPagosRows = repassesPagosResult.data || [];
-    const subscriptionsRows = clientSubscriptions || [];
+
+    const normalizeNameKey = (value: string): string =>
+      String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+
+    const normalizePhoneDigits = (value: string): string => {
+      const digits = String(value || '').replace(/\D/g, '');
+      if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+        return digits.slice(2);
+      }
+      return digits;
+    };
+
+    const toTime = (value: unknown): number => {
+      const raw = String(value || '').trim();
+      if (!raw) return 0;
+      const timestamp = new Date(raw).getTime();
+      return Number.isFinite(timestamp) ? timestamp : 0;
+    };
+
+    const deduplicateSubscriberRowsDashboard = (rows: any[]): any[] => {
+      const byKey = new Map<string, any>();
+
+      for (const row of rows || []) {
+        const phone = normalizePhoneDigits(String(row?.subscriber_whatsapp || row?.client_whatsapp || ''));
+        const nameKey = normalizeNameKey(String(row?.subscriber_name || row?.profiles?.full_name || ''));
+        const key = phone || (nameKey ? `name:${nameKey}` : `id:${String(row?.id || '')}`);
+        const previous = byKey.get(key);
+
+        if (!previous) {
+          byKey.set(key, row);
+          continue;
+        }
+
+        const prevEnd = toTime(previous?.end_date);
+        const curEnd = toTime(row?.end_date);
+        if (curEnd !== prevEnd) {
+          if (curEnd > prevEnd) byKey.set(key, row);
+          continue;
+        }
+
+        const prevPaid = String(previous?.payment_status || '').toLowerCase() === 'paid' ? 1 : 0;
+        const curPaid = String(row?.payment_status || '').toLowerCase() === 'paid' ? 1 : 0;
+        if (curPaid !== prevPaid) {
+          if (curPaid > prevPaid) byKey.set(key, row);
+          continue;
+        }
+
+        const prevUpdated = toTime(previous?.updated_at) || toTime(previous?.created_at);
+        const curUpdated = toTime(row?.updated_at) || toTime(row?.created_at);
+        if (curUpdated > prevUpdated) {
+          byKey.set(key, row);
+        }
+      }
+
+      return Array.from(byKey.values());
+    };
+
+    const subscriptionsRows = deduplicateSubscriberRowsDashboard((clientSubscriptions || []) as any[]);
     const subscriptionIds = Array.from(
       new Set(
         (subscriptionsRows as any[])
@@ -5468,30 +5574,32 @@ const EstablishmentDashboard = () => {
       return sum + getSubscriptionValue(cs);
     }, 0);
 
-    const isSubscriberActiveByEndDate = (cs: any) => {
+    const isSubscriptionActiveInReferenceMonth = (cs: any) => {
+      const rawStartDate = String(cs?.start_date || '').trim();
       const rawEndDate = String(cs?.end_date || '').trim();
-      if (!rawEndDate) return true;
+      const startDate = rawStartDate ? parseISO(rawStartDate) : null;
+      const endDate = rawEndDate ? parseISO(rawEndDate) : null;
 
-      const endDate = parseISO(rawEndDate);
-      if (Number.isNaN(endDate.getTime())) return true;
+      if (startDate && !Number.isNaN(startDate.getTime()) && startDate > end) return false;
+      if (endDate && !Number.isNaN(endDate.getTime()) && endDate < start) return false;
 
-      return endDate >= now;
+      return true;
     };
 
-    const isSubscriberActiveAndPaidNow = (cs: any) => {
+    const isSubscriberActiveAndPaidInReferenceMonth = (cs: any) => {
       const paymentStatus = String(cs?.payment_status || '').toLowerCase();
       if (paymentStatus !== 'paid') return false;
-      return isSubscriberActiveByEndDate(cs);
+      return isSubscriptionActiveInReferenceMonth(cs);
     };
 
-    const activeSubscribers = subscriptionsRows.filter((cs: any) => isSubscriberActiveAndPaidNow(cs));
+    const activeSubscribers = subscriptionsRows.filter((cs: any) => isSubscriberActiveAndPaidInReferenceMonth(cs));
     const brutoAtivo = activeSubscribers.reduce((sum, cs: any) => sum + getSubscriptionValue(cs), 0);
     const liquidoAtivo = activeSubscribers.reduce((sum, cs: any) => {
       const bruto = getSubscriptionValue(cs);
       return sum + getSubscriptionNetValue(bruto, cs?.subscription_payment_provider);
     }, 0);
 
-    const totalAssinantes = subscriptionsRows.filter((cs: any) => isSubscriberActiveByEndDate(cs)).length;
+    const totalAssinantes = subscriptionsRows.filter((cs: any) => isSubscriptionActiveInReferenceMonth(cs)).length;
 
     const assinantesNaoPagos = subscriptionsRows.filter((cs: any) => cs?.payment_status === 'unpaid').length;
 
@@ -22573,7 +22681,8 @@ Estamos te aguardando! 😎✂️`;
           onClick={() => setShowAtivarFilaModal(false)}
         >
           <div
-            className="w-full max-w-lg rounded-2xl shadow-2xl border border-gray-800 bg-[#0B0B0B] overflow-hidden"
+            className="w-full max-w-lg rounded-2xl shadow-2xl border border-gray-800 bg-[#0B0B0B] overflow-hidden max-h-[92vh] sm:max-h-[85vh] flex flex-col overscroll-contain"
+            style={{ WebkitOverflowScrolling: 'touch' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
@@ -22592,7 +22701,7 @@ Estamos te aguardando! 😎✂️`;
               </button>
             </div>
 
-            <div className="p-4 space-y-4">
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
               <div className="text-sm text-white/80">
                 Selecione até <strong>3 profissionais</strong> para ter <strong>filas separadas</strong> no booking (ex: “Fila do João”, “Fila do Pedro”).
                 <div className="mt-2 text-[11px] text-white/60">
@@ -22669,11 +22778,12 @@ Estamos te aguardando! 😎✂️`;
       {/* Modal: Adicionar à fila (manual) */}
       {showAdicionarFilaModal && (
         <div
-          className="fixed inset-0 z-[80] flex items-start sm:items-center justify-center bg-black/70 p-3 sm:p-4 pt-6 sm:pt-4"
+          className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4"
           onClick={() => setShowAdicionarFilaModal(false)}
         >
           <div
-            className="w-full max-w-lg rounded-2xl shadow-2xl border border-gray-800 bg-[#0B0B0B] overflow-hidden"
+            className="w-full max-w-lg h-[100dvh] sm:h-auto sm:max-h-[85vh] rounded-none sm:rounded-2xl shadow-2xl border-0 sm:border border-gray-800 bg-[#0B0B0B] overflow-hidden flex flex-col overscroll-contain"
+            style={{ WebkitOverflowScrolling: 'touch' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
@@ -22692,7 +22802,7 @@ Estamos te aguardando! 😎✂️`;
               </button>
             </div>
 
-            <div className="p-4 space-y-4">
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
               <div className="text-sm text-white/80">
                 Use isso quando o cliente chegou no local e você quer colocar ele na fila rapidamente (sem WhatsApp).
               </div>
@@ -22709,7 +22819,7 @@ Estamos te aguardando! 😎✂️`;
 
               <div className="space-y-2">
                 <label className="block text-xs text-white/70">Serviço</label>
-                <div className="rounded-lg border border-white/10 bg-black/30 p-2 max-h-56 overflow-y-auto space-y-2">
+                <div className="rounded-lg border border-white/10 bg-black/30 p-2 max-h-44 sm:max-h-56 overflow-y-auto space-y-2">
                   {(((establishment as any)?.services_with_prices || []) as any[]).map((s: any) => {
                     const id = String(s?.id ?? '');
                     const checked = adicionarFilaSelectedServiceIds.includes(id);
@@ -22741,6 +22851,35 @@ Estamos te aguardando! 😎✂️`;
                     );
                   })}
                 </div>
+                <div className="rounded-lg border border-white/10 bg-black/20 p-3 space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <label className="block text-xs text-white/80 font-semibold">
+                      Tempo do serviço (apenas neste agendamento interno)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setAdicionarFilaDuracaoMinutos('')}
+                      className="text-[11px] text-white/60 hover:text-white underline"
+                    >
+                      Usar tempo original
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={5}
+                      step={5}
+                      value={adicionarFilaDuracaoMinutos}
+                      onChange={(e) => setAdicionarFilaDuracaoMinutos(e.target.value)}
+                      placeholder="Ex: 30"
+                      className="w-28 px-2 py-1.5 rounded-md bg-black/50 border border-white/15 text-white text-sm outline-none focus:border-white/30"
+                    />
+                    <span className="text-xs text-white/60">minutos</span>
+                  </div>
+                  <p className="text-[11px] text-white/55">
+                    Ajuste para encaixe rápido sem alterar o tempo padrão cadastrado do serviço.
+                  </p>
+                </div>
                 {adicionarFilaSelectedServiceIds.length > 0 && (
                   <div className="text-[11px] text-white/70">
                     {(() => {
@@ -22754,6 +22893,10 @@ Estamos te aguardando! 😎✂️`;
                         (sum: number, s: any) => sum + Number(s?.duration ?? s?.service_duration ?? 0),
                         0
                       );
+                      const duracaoCustomRaw = String(adicionarFilaDuracaoMinutos || '').trim();
+                      const duracaoCustomNum = Number(duracaoCustomRaw);
+                      const hasDuracaoCustom = duracaoCustomRaw.length > 0 && Number.isFinite(duracaoCustomNum) && duracaoCustomNum > 0;
+                      const duracaoExibida = hasDuracaoCustom ? Math.floor(duracaoCustomNum) : totalDuration;
                       return (
                         <>
                           Selecionado: <span className="font-semibold text-white/85">{nomes.join(' + ')}</span>
@@ -22766,7 +22909,11 @@ Estamos te aguardando! 😎✂️`;
                           {Number.isFinite(totalDuration) && totalDuration > 0 && (
                             <>
                               {' '}
-                              • Tempo: <span className="font-semibold text-white/85">{totalDuration}min</span>
+                              • Tempo:{' '}
+                              <span className="font-semibold text-white/85">
+                                {duracaoExibida}min
+                                {hasDuracaoCustom ? ' (ajustado)' : ''}
+                              </span>
                             </>
                           )}
                         </>
@@ -22776,6 +22923,9 @@ Estamos te aguardando! 😎✂️`;
                 )}
               </div>
 
+            </div>
+
+            <div className="border-t border-gray-800 p-3 sm:p-4 bg-[#0B0B0B] pb-[max(12px,env(safe-area-inset-bottom))]">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -22789,7 +22939,7 @@ Estamos te aguardando! 😎✂️`;
                 <button
                   type="button"
                   onClick={() => setShowAdicionarFilaModal(false)}
-                  className="px-4 py-3 rounded-xl font-extrabold bg-white/10 text-white hover:bg-white/15 transition-colors"
+                  className="px-4 py-3 rounded-xl font-extrabold bg-white/10 text-white hover:bg-white/15 transition-colors shrink-0"
                 >
                   Cancelar
                 </button>
