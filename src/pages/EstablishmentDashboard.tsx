@@ -573,6 +573,115 @@ const EstablishmentDashboard = () => {
     return events;
   };
 
+  /**
+   * Failsafe: reconstrói blocked_hours usando o histórico de bloqueio/desbloqueio.
+   * Reaplica apenas datas >= hoje para evitar "ressuscitar" legado antigo.
+   * Isso protege quando algum fluxo sobrescreve professionals sem blocked_hours atualizado.
+   */
+  const reconcileProfessionalsBlockedHoursWithHistory = async (
+    establishmentId: string,
+    professionalsInput: any[]
+  ): Promise<any[]> => {
+    if (!establishmentId || !Array.isArray(professionalsInput) || professionalsInput.length === 0) {
+      return professionalsInput;
+    }
+
+    const todayKey = format(new Date(), 'yyyy-MM-dd');
+
+    try {
+      const { data, error } = await (supabase as any)
+        .from('professional_blocked_hours_history')
+        .select('id, professional_id, action_type, block_date, block_time, created_at')
+        .eq('establishment_id', establishmentId)
+        .gte('block_date', todayKey)
+        .order('created_at', { ascending: true })
+        .limit(10000);
+
+      if (error) {
+        const msg = String((error as any)?.message || '').toLowerCase();
+        const tableMissing =
+          msg.includes('professional_blocked_hours_history') &&
+          (msg.includes('does not exist') || msg.includes('relation') || msg.includes('schema cache') || msg.includes('column'));
+        if (!tableMissing) {
+          console.warn('Falha ao reconciliar bloqueios pelo histórico:', error);
+        }
+        return professionalsInput;
+      }
+
+      const rows = Array.isArray(data) ? data : [];
+      if (rows.length === 0) return professionalsInput;
+
+      const activeByProfessionalDate = new Map<string, Map<string, Set<string>>>();
+      const touchedDatesByProfessional = new Map<string, Set<string>>();
+
+      for (const row of rows) {
+        const professionalId = String((row as any)?.professional_id || '').trim();
+        const blockDate = String((row as any)?.block_date || '').slice(0, 10).trim();
+        const blockTime = String((row as any)?.block_time || '').trim();
+        const actionType = String((row as any)?.action_type || '').trim().toLowerCase();
+        if (!professionalId || !blockDate || !blockTime) continue;
+
+        let dateMap = activeByProfessionalDate.get(professionalId);
+        if (!dateMap) {
+          dateMap = new Map<string, Set<string>>();
+          activeByProfessionalDate.set(professionalId, dateMap);
+        }
+        let touchedDates = touchedDatesByProfessional.get(professionalId);
+        if (!touchedDates) {
+          touchedDates = new Set<string>();
+          touchedDatesByProfessional.set(professionalId, touchedDates);
+        }
+        touchedDates.add(blockDate);
+
+        let slotSet = dateMap.get(blockDate);
+        if (!slotSet) {
+          slotSet = new Set<string>();
+          dateMap.set(blockDate, slotSet);
+        }
+
+        if (actionType === 'unblock') {
+          slotSet.delete(blockTime);
+        } else {
+          slotSet.add(blockTime);
+        }
+      }
+
+      return professionalsInput.map((professional: any) => {
+        const professionalId = String(professional?.id || '').trim();
+        if (!professionalId) return professional;
+
+        const touchedDates = touchedDatesByProfessional.get(professionalId);
+        if (!touchedDates || touchedDates.size === 0) return professional;
+
+        const currentBlocked = normalizeBlockedHoursMap((professional as any)?.blocked_hours || {});
+        const nextBlocked = { ...currentBlocked } as Record<string, string[]>;
+
+        // Para datas tocadas no histórico, histórico vira fonte da verdade.
+        touchedDates.forEach((dateKey) => {
+          delete nextBlocked[dateKey];
+        });
+
+        const activeDates = activeByProfessionalDate.get(professionalId);
+        if (activeDates) {
+          for (const [dateKey, slotSet] of activeDates.entries()) {
+            const values = Array.from(slotSet).map((v) => String(v || '').trim()).filter(Boolean).sort();
+            if (values.length > 0) {
+              nextBlocked[dateKey] = values;
+            }
+          }
+        }
+
+        return {
+          ...professional,
+          blocked_hours: nextBlocked,
+        };
+      });
+    } catch (historyError) {
+      console.warn('Falha inesperada ao reconciliar bloqueios pelo histórico:', historyError);
+      return professionalsInput;
+    }
+  };
+
   const writeAppointmentChangeLog = async (params: {
     appointmentId: string;
     eventType: 'service_changed' | 'finished_early' | 'additional_service_added' | 'additional_service_removed';
@@ -1689,12 +1798,16 @@ const EstablishmentDashboard = () => {
   }, [profissionalFinanceiroFilaId]);
 
   const filaProfissionaisConfig = React.useMemo(() => {
+    const profs = (((establishment as any)?.professionals || []) as any[]) || [];
+    const validProfessionalIds = new Set(
+      profs.map((p: any) => String(p?.id || '').trim()).filter(Boolean)
+    );
     const ids = (filaEsperaProfissionalIds && filaEsperaProfissionalIds.length ? filaEsperaProfissionalIds : [])
       .map((x) => String(x || '').trim())
-      .filter(Boolean);
+      .filter((id) => Boolean(id) && validProfessionalIds.has(id));
     const legacy = String(filaEsperaProfissionalId || '').trim();
-    const finalIds = (ids.length ? ids : legacy ? [legacy] : []).slice(0, 3);
-    const profs = (((establishment as any)?.professionals || []) as any[]) || [];
+    const fallbackLegacy = legacy && validProfessionalIds.has(legacy) ? [legacy] : [];
+    const finalIds = (ids.length ? ids : fallbackLegacy).slice(0, 3);
     return finalIds.map((id) => {
       const p = profs.find((x: any) => String(x?.id) === String(id));
       return { id, name: String(p?.name || 'Profissional').trim() || 'Profissional' };
@@ -8408,12 +8521,17 @@ const EstablishmentDashboard = () => {
         services_with_prices: servicesWithPrices || [],
       });
 
+      const reconciledProfessionals = await reconcileProfessionalsBlockedHoursWithHistory(
+        establishment.id,
+        safeProfessionals
+      );
+
       const { error: updateError } = await supabase
         .from('establishments')
-        .update({ professionals: safeProfessionals })
+        .update({ professionals: reconciledProfessionals })
         .eq('id', establishment.id);
 
-      return { error: updateError, professionals: safeProfessionals };
+      return { error: updateError, professionals: reconciledProfessionals };
     });
   };
 
@@ -10903,18 +11021,25 @@ Estamos te aguardando! 😎✂️`;
         setExigirPagamentoAntecipadoMercadoPago((establishmentData as any).exigir_pagamento_antecipado_mercadopago ?? false); // Pagamento antecipado Mercado Pago
         setPagamentoAdiantadoOpcionalMercadoPago((establishmentData as any).pagamento_adiantado_opcional_mercadopago ?? false);
         setFilaEsperaAtiva((establishmentData as any).fila_espera_ativa ?? false);
-        setFilaEsperaProfissionalId(String((establishmentData as any).fila_espera_profissional_id || ''));
-        // novo: filas por profissional (até 3) — fallback para legado
+        // Sanitiza IDs de fila para ignorar profissionais removidos/inválidos.
         {
+          const validProfessionalIds = new Set(
+            (((establishmentData as any).professionals || []) as any[])
+              .map((p: any) => String(p?.id || '').trim())
+              .filter(Boolean)
+          );
           const idsRaw = (((establishmentData as any).fila_espera_profissional_ids || []) as any[])
             .map((x: any) => String(x || '').trim())
-            .filter(Boolean);
-          const legacy = String((establishmentData as any).fila_espera_profissional_id || '').trim();
+            .filter((id: string) => Boolean(id) && validProfessionalIds.has(id));
+          const legacyRaw = String((establishmentData as any).fila_espera_profissional_id || '').trim();
+          const legacy = legacyRaw && validProfessionalIds.has(legacyRaw) ? legacyRaw : '';
           const ids = idsRaw.length ? idsRaw.slice(0, 3) : legacy ? [legacy] : [];
+          const firstValid = ids[0] || '';
+          setFilaEsperaProfissionalId(firstValid);
           setFilaEsperaProfissionalIds(ids);
+          setProfissionalFinanceiroFilaId(firstValid);
         }
         setFilaEsperaFechada((establishmentData as any).fila_espera_fechada ?? false);
-        setProfissionalFinanceiroFilaId(String((establishmentData as any).fila_espera_profissional_id || ''));
         // Dados bancários / recebedor Pagar.me
         // ✅ Priorizar rascunho local (draft) caso a página tenha sido recarregada ao sair/voltar do app
         let draft: any = null;
@@ -11186,12 +11311,17 @@ Estamos te aguardando! 😎✂️`;
         // Se já está em uma aba válida (settings, professionals, service-categories), não força mudança
 
         // ✅ CORRIGIDO: Carrega os profissionais preservando TODOS os campos existentes
-        const professionalsWithPercentage = (establishmentData.professionals || []).map((prof: any) => ({
+        let professionalsWithPercentage = (establishmentData.professionals || []).map((prof: any) => ({
           ...prof, // ✅ Preserva TODOS os campos existentes (incluindo specific_services, whatsapp, etc.)
           percentage: normalizeProfessionalPercentage(prof.percentage), // Compat: corrige legado em escala x10 (1000->100)
           // ✅ IMPORTANTE: Garantir que specific_services seja sempre um array (mesmo que vazio)
           specific_services: Array.isArray(prof.specific_services) ? prof.specific_services : []
         }));
+
+        professionalsWithPercentage = await reconcileProfessionalsBlockedHoursWithHistory(
+          String(establishmentData.id || ''),
+          professionalsWithPercentage
+        );
 
         console.log('🔧 DEBUG - Carregando profissionais:', professionalsWithPercentage);
         console.log('🔧 DEBUG - Serviços específicos encontrados:', professionalsWithPercentage.map((p: any) => ({
@@ -23367,7 +23497,7 @@ Estamos te aguardando! 😎✂️`;
                   {/* ===== NOVA VISUALIZAÇÃO - TODOS OS PROFISSIONAIS ===== */}
                   <div className="mb-6">
                     <AllProfessionalsAppointmentsView
-                      professionals={establishment?.professionals || []}
+                      professionals={professionals || []}
                       appointments={appointments}
                       monthlyAppointments={monthlyAppointments}
                       selectedDate={selectedDate}
@@ -32862,8 +32992,12 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   </div>
 
-                  <div className="mb-4 p-3 rounded-lg border border-blue-500/40 bg-blue-900/20 text-blue-100 text-xs">
-                    Este histórico não é apagado no uso normal e registra cada horário bloqueado/desbloqueado para auditoria.
+                  <div className="mb-4 p-3 rounded-lg border border-blue-500/40 bg-blue-900/20 text-blue-100 text-xs space-y-1">
+                    <p>Este histórico não é apagado no uso normal e registra cada horário bloqueado/desbloqueado para auditoria.</p>
+                    <p>
+                      Os eventos desta tela afetam a agenda do profissional selecionado:{' '}
+                      <strong>{professionals.find((p) => p.id === selectedProfessionalForBlock)?.name || 'Não identificado'}</strong>.
+                    </p>
                   </div>
 
                   {isLoadingBlockedHourHistory ? (
@@ -32896,6 +33030,12 @@ Estamos te aguardando! 😎✂️`;
                             <div className="text-xs text-gray-300 space-y-1">
                               <p>
                                 Em: {createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toLocaleString('pt-BR') : 'Data inválida'}
+                              </p>
+                              <p>
+                                Afeta agenda de:{' '}
+                                {event.professional_name ||
+                                  professionals.find((p) => p.id === selectedProfessionalForBlock)?.name ||
+                                  'Não identificado'}
                               </p>
                               <p>Responsável: {actorLabel}</p>
                               <p>Origem: {event.source || 'não informada'}</p>

@@ -2445,11 +2445,18 @@ export default function BookingPage() {
   const filaEsperaAtiva = Boolean((establishment as any)?.fila_espera_ativa);
   const filaEsperaFechada = Boolean((establishment as any)?.fila_espera_fechada);
   const filaEsperaProfissionaisIds = (() => {
+    const validProfessionalIds = new Set(
+      ((((establishment as any)?.professionals || []) as any[])
+        .filter((p: any) => !p?.hidden_from_booking)
+        .map((p: any) => String(p?.id || '').trim())
+        .filter(Boolean))
+    );
     const ids = (((establishment as any)?.fila_espera_profissional_ids || []) as any[])
       .map((x: any) => String(x || '').trim())
-      .filter(Boolean);
+      .filter((id: string) => Boolean(id) && validProfessionalIds.has(id));
     if (ids.length) return ids;
-    const legacy = String((establishment as any)?.fila_espera_profissional_id || '').trim();
+    const legacyRaw = String((establishment as any)?.fila_espera_profissional_id || '').trim();
+    const legacy = legacyRaw && validProfessionalIds.has(legacyRaw) ? legacyRaw : '';
     return legacy ? [legacy] : [];
   })();
   const filaEsperaProfissionais = (() => {
@@ -2532,7 +2539,9 @@ export default function BookingPage() {
   useEffect(() => {
     if (!showWaitlistModal) return;
     // Se houver mais de uma fila, escolher a primeira como padrão ao abrir
-    if (!waitlistQueueProfessionalId && filaEsperaProfissionais.length > 0) {
+    const selectedPid = String(waitlistQueueProfessionalId || '').trim();
+    const hasSelectedInList = filaEsperaProfissionais.some((p) => String(p.id) === selectedPid);
+    if ((!selectedPid || !hasSelectedInList) && filaEsperaProfissionais.length > 0) {
       setWaitlistQueueProfessionalId(filaEsperaProfissionais[0].id);
     }
     fetchWaitlist();

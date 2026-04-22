@@ -2433,9 +2433,47 @@ export const AllProfessionalsAppointmentsView: React.FC<
         });
       });
 
-      // Verificar horários bloqueados para este profissional na data selecionada
+      // Verificar horários bloqueados para este profissional na data selecionada.
+      // Compatibilidade: alguns legados salvaram data/hora em formatos diferentes.
       const dateKey = format(selectedDate, 'yyyy-MM-dd');
-      const blockedHours = (professional as any).blocked_hours?.[dateKey] || [];
+      const legacyDateKeyBr = format(selectedDate, 'dd/MM/yyyy');
+      const legacyDateKeyBrShort = format(selectedDate, 'd/M/yyyy');
+      const normalizeBlockedTime = (raw: unknown): string => {
+        const value = String(raw || '').trim().replace(';', ':');
+        if (!value) return '';
+        if (/^\d{1,2}:\d{1,2}$/.test(value)) {
+          const [hRaw, mRaw] = value.split(':');
+          const h = Number(hRaw);
+          const m = Number(mRaw);
+          if (Number.isFinite(h) && Number.isFinite(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+          }
+        }
+        const digits = value.replace(/\D/g, '');
+        if (digits.length === 3) {
+          const h = Number(digits.slice(0, 1));
+          const m = Number(digits.slice(1));
+          if (Number.isFinite(h) && Number.isFinite(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+          }
+        }
+        if (digits.length === 4) {
+          const h = Number(digits.slice(0, 2));
+          const m = Number(digits.slice(2));
+          if (Number.isFinite(h) && Number.isFinite(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+          }
+        }
+        return '';
+      };
+      const blockedMap = ((professional as any).blocked_hours || {}) as Record<string, unknown>;
+      const blockedHours = Array.from(new Set([
+        ...(Array.isArray(blockedMap[dateKey]) ? (blockedMap[dateKey] as unknown[]) : []),
+        ...(Array.isArray(blockedMap[legacyDateKeyBr]) ? (blockedMap[legacyDateKeyBr] as unknown[]) : []),
+        ...(Array.isArray(blockedMap[legacyDateKeyBrShort]) ? (blockedMap[legacyDateKeyBrShort] as unknown[]) : []),
+      ]
+        .map((item) => normalizeBlockedTime(item))
+        .filter(Boolean)));
       const todayKey = format(new Date(), 'yyyy-MM-dd');
       const isToday = dateKey === todayKey;
       const now = new Date();
