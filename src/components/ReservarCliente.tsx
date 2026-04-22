@@ -1834,7 +1834,8 @@ export default function ReservarCliente({
         });
       };
 
-      const allowInternalBlockOverride = Boolean((establishment as any)?.allow_internal_block_override);
+      // ReservarCliente não recebe objeto `establishment`; manter override desativado por segurança.
+      const allowInternalBlockOverride = false;
       const datesWithBlockedConflict = datasSemConflito.filter((dateStr) => isBlockedConflictForDate(dateStr));
       const askUnlockBlockedConfirmation = (dates: string[]) =>
         window.confirm(
