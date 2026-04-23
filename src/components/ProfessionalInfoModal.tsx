@@ -84,7 +84,6 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   const [isLoadingPayments, setIsLoadingPayments] = useState(false);
   const [paymentHistory, setPaymentHistory] = useState<ProfessionalPaymentHistoryItem[]>([]);
   const [showPaymentHistory, setShowPaymentHistory] = useState(true);
-  const [operationalPendingAfterLastPayment, setOperationalPendingAfterLastPayment] = useState<number | null>(null);
 
   const handlePinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,14 +225,11 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   const totalWithdrawnDisplay = validatedVisiblePayments.totalWithdrawnVisible;
   const paymentCount = validatedVisiblePayments.paymentCountVisible;
   const lastPaymentDate = validatedVisiblePayments.lastPaymentDateVisible;
-  // Regra operacional solicitada: no modal de "Meus agendamentos",
-  // o líquido principal reflete o total efetivamente pago.
+  // Regra de espelhamento com o Financeiro:
+  // o pendente do modal deve bater com o saldo mensal (líquido do mês - pago válido).
   const reconciledMonthlyNet = Math.max(0, totalPaidDisplay);
   const pendingByMonthlyTotal = Math.max(0, Number(monthlyNet || 0) - totalPaidDisplay);
-  const pendingToReceive =
-    typeof operationalPendingAfterLastPayment === 'number'
-      ? Math.max(0, operationalPendingAfterLastPayment)
-      : pendingByMonthlyTotal;
+  const pendingToReceive = pendingByMonthlyTotal;
   const subscriberPaidPercent = subscriberMonthlyAccumulated > 0
     ? Math.min(100, Math.round((subscriberMonthlyPaid / subscriberMonthlyAccumulated) * 100))
     : 0;
@@ -243,112 +239,6 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   const subscriberAveragePerAttendance = subscriberAttendanceCount > 0
     ? subscriberMonthlyAccumulated / subscriberAttendanceCount
     : 0;
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadOperationalPendingAfterLastPayment = async () => {
-      if (!establishmentId || !professional?.id) {
-        if (!cancelled) setOperationalPendingAfterLastPayment(null);
-        return;
-      }
-
-      const lastPositivePayment = paymentHistory.find((row) => Number(row.amount || 0) > 0);
-      if (!lastPositivePayment?.payment_date) {
-        if (!cancelled) setOperationalPendingAfterLastPayment(null);
-        return;
-      }
-
-      const base = selectedMonth || new Date();
-      const startDate = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-01`;
-      const endDate = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(
-        new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate()
-      ).padStart(2, '0')}`;
-      const lastPaymentMs = new Date(lastPositivePayment.payment_date).getTime();
-      if (Number.isNaN(lastPaymentMs)) {
-        if (!cancelled) setOperationalPendingAfterLastPayment(null);
-        return;
-      }
-
-      const fallbackSelect =
-        'id,professional,appointment_date,appointment_time,status,price,total_price,additional_products';
-      const selectWithTip = `${fallbackSelect},professional_tip_amount`;
-      let queryRows: AppointmentForOperationalPending[] = [];
-
-      const withTip = await supabase
-        .from('appointments')
-        .select(selectWithTip)
-        .eq('establishment_id', establishmentId)
-        .gte('appointment_date', startDate)
-        .lte('appointment_date', endDate);
-
-      if (withTip.error) {
-        const fallback = await supabase
-          .from('appointments')
-          .select(fallbackSelect)
-          .eq('establishment_id', establishmentId)
-          .gte('appointment_date', startDate)
-          .lte('appointment_date', endDate);
-        if (fallback.error) {
-          if (!cancelled) setOperationalPendingAfterLastPayment(null);
-          return;
-        }
-        queryRows = (fallback.data || []) as AppointmentForOperationalPending[];
-      } else {
-        queryRows = (withTip.data || []) as AppointmentForOperationalPending[];
-      }
-
-      const normalize = (value: unknown) => String(value || '').trim().toLowerCase();
-      const professionalIdRef = normalize(professional.id);
-      const professionalNameRef = normalize(professional.name);
-      const percentageValue = Number(basePercentage ?? professional.percentage ?? 100);
-      const safePercentage = Number.isFinite(percentageValue) ? Math.max(0, Math.min(100, percentageValue)) : 100;
-
-      const parseAppointmentMs = (row: AppointmentForOperationalPending): number => {
-        const date = String(row?.appointment_date || '').slice(0, 10);
-        const timeRaw = String(row?.appointment_time || '').trim();
-        const normalizedTime = /^\d{2}:\d{2}(:\d{2})?$/.test(timeRaw)
-          ? (timeRaw.length === 5 ? `${timeRaw}:00` : timeRaw)
-          : '00:00:00';
-        const dt = new Date(`${date}T${normalizedTime}`);
-        return dt.getTime();
-      };
-
-      const calcNet = (row: AppointmentForOperationalPending): number => {
-        const totalPrice = Number(row?.total_price || 0);
-        const basePrice = Number(row?.price || 0);
-        const additional = Array.isArray(row?.additional_products)
-          ? row!.additional_products!.reduce((sum, item) => sum + Number(item?.price || 0), 0)
-          : 0;
-        const gross = totalPrice > 0 ? totalPrice : basePrice + additional;
-        const tip = Number(row?.professional_tip_amount || 0);
-        return Math.max(0, (gross * safePercentage) / 100) + (Number.isFinite(tip) ? Math.max(0, tip) : 0);
-      };
-
-      const completedStatuses = new Set(['completed', 'concluido', 'concluído']);
-      const pendingValue = queryRows
-        .filter((row) => {
-          const rowProfessional = normalize(row?.professional);
-          if (!rowProfessional) return false;
-          const sameProfessional =
-            rowProfessional === professionalIdRef || rowProfessional === professionalNameRef;
-          if (!sameProfessional) return false;
-          const status = normalize(row?.status);
-          if (!completedStatuses.has(status)) return false;
-          const appointmentMs = parseAppointmentMs(row);
-          if (!Number.isFinite(appointmentMs)) return false;
-          return appointmentMs > lastPaymentMs;
-        })
-        .reduce((sum, row) => sum + calcNet(row), 0);
-
-      if (!cancelled) setOperationalPendingAfterLastPayment(Math.max(0, pendingValue));
-    };
-
-    void loadOperationalPendingAfterLastPayment();
-    return () => {
-      cancelled = true;
-    };
-  }, [basePercentage, establishmentId, paymentHistory, professional, selectedMonth]);
 
   const formatDateTime = (value: string) => {
     const dt = new Date(value);
