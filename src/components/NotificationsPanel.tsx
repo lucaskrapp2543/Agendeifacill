@@ -205,6 +205,11 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       const isLocalDev =
         typeof window !== 'undefined' &&
         (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      const preferredSelectStorageKey = 'notifications_appointments_preferred_select';
+      const preferredSelect =
+        typeof window !== 'undefined'
+          ? window.sessionStorage.getItem(preferredSelectStorageKey) || ''
+          : '';
       const forceSafeMode =
         isLocalDev ||
         typeof window !== 'undefined' &&
@@ -215,14 +220,25 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
         data = safeResult.data as any;
         error = safeResult.error as any;
       } else {
-        for (const selectClause of selectAttempts) {
+        const mergedAttempts = Array.from(
+          new Set([preferredSelect, ...selectAttempts].filter(Boolean))
+        );
+        for (const selectClause of mergedAttempts) {
           // Estratégia progressiva para ambientes com proxy mais restrito.
           let result = await fetchByChunkSize(selectClause, 20);
           if (result.error) result = await fetchByChunkSize(selectClause, 10);
           if (result.error) result = await fetchByChunkSize(selectClause, 1);
           data = result.data as any;
           error = result.error as any;
-          if (!error) break;
+          if (!error) {
+            if (typeof window !== 'undefined') {
+              window.sessionStorage.setItem(preferredSelectStorageKey, selectClause);
+              if (selectClause === safeSelect) {
+                window.sessionStorage.setItem('notifications_appointments_safe_select', '1');
+              }
+            }
+            break;
+          }
         }
 
         if (error && typeof window !== 'undefined') {

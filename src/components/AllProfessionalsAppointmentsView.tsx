@@ -58,6 +58,8 @@ interface Appointment {
   client_street?: string;
   service: string;
   professional: string;
+  professional_id?: string;
+  professional_name?: string;
   appointment_date: string;
   appointment_time: string;
   status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
@@ -2178,13 +2180,37 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const appointmentBelongsToProfessionalColumn = (apt: Appointment, professional: Professional): boolean => {
-      const aptProfessional = String(apt?.professional || '').trim();
-      if (!aptProfessional) return false;
-      if (aptProfessional === String(professional?.id || '').trim()) return true;
-      const professionalName = String((professional as any)?.name || '').trim();
-      return professionalName
-        ? aptProfessional.toLowerCase() === professionalName.toLowerCase()
-        : false;
+      const normalizeProfessionalToken = (value: unknown): string =>
+        String(value ?? '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toLowerCase();
+      const isUuidValue = (value: string): boolean =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+      const professionalId = String(professional?.id || '').trim();
+      const professionalNameNorm = normalizeProfessionalToken((professional as any)?.name || '');
+      const aptProfessional = String((apt as any)?.professional || '').trim();
+      const aptProfessionalId = String((apt as any)?.professional_id || '').trim();
+      const aptProfessionalName = String((apt as any)?.professional_name || '').trim();
+
+      const normalizedProfessionalId = professionalId.toLowerCase();
+      if (
+        (aptProfessionalId && aptProfessionalId.toLowerCase() === normalizedProfessionalId) ||
+        (aptProfessional && aptProfessional.toLowerCase() === normalizedProfessionalId)
+      ) {
+        return true;
+      }
+
+      const nameCandidates = [
+        aptProfessionalName,
+        isUuidValue(aptProfessional) ? '' : aptProfessional,
+      ]
+        .map((value) => normalizeProfessionalToken(value))
+        .filter(Boolean);
+
+      return Boolean(professionalNameNorm) && nameCandidates.includes(professionalNameNorm);
     };
 
     const intervaloAgendaMinutos = getIntervaloAgendaMinutos();
@@ -3828,11 +3854,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 .limit(10000);
 
             if (withExtra.error) {
-              const message = String(withExtra.error?.message || '').toLowerCase();
-              const missingColumn =
-                message.includes('column') &&
-                (message.includes('cpf') || message.includes('street'));
-              if (!missingColumn && typeof window !== 'undefined') {
+              if (typeof window !== 'undefined') {
                 window.sessionStorage.setItem('manual_clients_safe_select', '1');
               }
               const legacy = await supabase

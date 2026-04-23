@@ -323,6 +323,8 @@ interface Appointment {
   establishment_id: string;
   service: string;
   professional: string;
+  professional_id?: string;
+  professional_name?: string;
   appointment_date: string;
   appointment_time: string;
   status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
@@ -1417,15 +1419,43 @@ const EstablishmentDashboard = () => {
       // Observação: não temos histórico de cada renovação, apenas o último pagamento por assinatura.
       // Ainda assim, isso resolve o caso mais comum: "paguei assinatura e o saldo ficou 0".
       try {
-        // Colunas extras existem no banco (migrations), mas podem não existir nos types gerados
-        // então usamos cast para não poluir o arquivo com @ts-expect-error.
-        const subsQuery = supabase.from('client_subscriptions') as any;
-        const { data: subsData, error: subsError } = await subsQuery
-          .select(
-            'id,payment_status,subscription_payment_provider,subscription_payment_order_id,subscription_id,subscriptions(value)'
+        // Compatibilidade: schema varia entre ambientes (relation subscriptions/value/custom).
+        const preferredSubsSelectStorageKey = 'mp_client_subscriptions_preferred_select';
+        const preferredSubsSelect =
+          typeof window !== 'undefined'
+            ? String(window.sessionStorage.getItem(preferredSubsSelectStorageKey) || '').trim()
+            : '';
+        const subscriptionsSelectAttempts = Array.from(
+          new Set(
+            [
+              preferredSubsSelect,
+              'id,payment_status,subscription_payment_provider,subscription_payment_order_id,subscription_id,custom_subscription_value,subscriptions(value)',
+              'id,payment_status,subscription_payment_provider,subscription_payment_order_id,subscription_id,subscriptions(value)',
+              'id,payment_status,subscription_payment_provider,subscription_payment_order_id,subscription_id,subscription_value,custom_subscription_value,subscriptions(value)',
+              'id,payment_status,subscription_payment_provider,subscription_payment_order_id,subscription_id,subscription_value,custom_subscription_value',
+              'id,payment_status,subscription_payment_provider,subscription_payment_order_id,subscription_id,custom_subscription_value',
+              'id,payment_status,subscription_payment_provider,subscription_payment_order_id,subscription_id,subscription_value',
+              'id,payment_status,subscription_payment_provider,subscription_payment_order_id,subscription_id',
+            ].filter(Boolean)
           )
-          .eq('establishment_id', establishment.id)
-          .eq('payment_status', 'paid');
+        );
+
+        let subsData: any[] | null = null;
+        let subsError: any = null;
+        for (const selectClause of subscriptionsSelectAttempts) {
+          const result = await (supabase.from('client_subscriptions') as any)
+            .select(selectClause)
+            .eq('establishment_id', establishment.id)
+            .eq('payment_status', 'paid');
+          subsData = result.data as any[] | null;
+          subsError = result.error as any;
+          if (!subsError) {
+            if (typeof window !== 'undefined') {
+              window.sessionStorage.setItem(preferredSubsSelectStorageKey, selectClause);
+            }
+            break;
+          }
+        }
 
         if (subsError) throw subsError;
 
@@ -1439,7 +1469,12 @@ const EstablishmentDashboard = () => {
           // Só contar assinaturas pagas pelo Mercado Pago (ex: mercadopago_pix / mercadopago_card)
           if (!provider.startsWith('mercadopago')) continue;
 
-          const bruto = Number((sub as any)?.subscriptions?.value ?? 0);
+          const bruto = Number(
+            (sub as any)?.subscriptions?.value ??
+            (sub as any)?.custom_subscription_value ??
+            (sub as any)?.subscription_value ??
+            0
+          );
           if (!Number.isFinite(bruto) || bruto <= 0) continue;
 
           // Assinatura por PIX (fluxo atual). Se no futuro tiver cartão, dá pra diferenciar pelo provider.
@@ -10435,50 +10470,73 @@ Estamos te aguardando! 😎✂️`;
       console.log('  - Start:', startOfSelectedDate);
       console.log('  - End:', endOfSelectedDate);
 
-      const baseSelect = `
-          id,
-          client_id,
-          client_name,
-          client_whatsapp,
-          client_cpf,
-          establishment_id,
-          service,
-          professional,
-          appointment_date,
-          appointment_time,
-          status,
-          created_at,
-          is_premium,
-          duration,
-          price,
-          payment_method,
-          card_brand,
-          pix_payment_status,
-          pix_proof_url,
-          observation,
-          establishment_observation,
-          is_child_service,
-          is_squeeze,
-          is_subscriber,
-          is_avulso,
-          additional_products,
-          total_price,
-          payment_split_details,
-          is_waitlist,
-          waitlist_entry_id,
-          professional_tip_amount,
-          is_loyalty_reward
-        `;
-
-      const baseSelectSansTip = baseSelect.replace(/,\s*professional_tip_amount\s*/i, '').trim();
-      const baseSelectSansLoyalty = baseSelect.replace(/,\s*is_loyalty_reward\s*/i, '').trim();
-      const baseSelectSansTipLoyalty = baseSelectSansTip.replace(/,\s*is_loyalty_reward\s*/i, '').trim();
+      const appointmentSelectStorageKey = 'appointments_select_missing_columns';
+      const parseMissingAppointmentColumns = (): Set<string> => {
+        if (typeof window === 'undefined') return new Set<string>();
+        const raw = String(window.sessionStorage.getItem(appointmentSelectStorageKey) || '').trim();
+        if (!raw) return new Set<string>();
+        return new Set(
+          raw
+            .split(',')
+            .map((x) => x.trim())
+            .filter(Boolean)
+        );
+      };
+      const persistMissingAppointmentColumns = (missing: Set<string>) => {
+        if (typeof window === 'undefined') return;
+        const serialized = Array.from(missing).sort().join(',');
+        if (serialized) {
+          window.sessionStorage.setItem(appointmentSelectStorageKey, serialized);
+        } else {
+          window.sessionStorage.removeItem(appointmentSelectStorageKey);
+        }
+      };
+      const appointmentSelectColumns = [
+        'id',
+        'client_id',
+        'client_name',
+        'client_whatsapp',
+        'client_cpf',
+        'establishment_id',
+        'service',
+        'professional',
+        'professional_id',
+        'professional_name',
+        'appointment_date',
+        'appointment_time',
+        'status',
+        'created_at',
+        'is_premium',
+        'duration',
+        'price',
+        'payment_method',
+        'card_brand',
+        'pix_payment_status',
+        'pix_proof_url',
+        'observation',
+        'establishment_observation',
+        'is_child_service',
+        'is_squeeze',
+        'is_subscriber',
+        'is_avulso',
+        'additional_products',
+        'total_price',
+        'payment_split_details',
+        'is_waitlist',
+        'waitlist_entry_id',
+        'professional_tip_amount',
+        'is_loyalty_reward',
+      ];
+      const buildAppointmentSelect = (missingColumns: Set<string>) =>
+        appointmentSelectColumns.filter((col) => !missingColumns.has(col)).join(', ');
 
       let appointmentsRaw: any[] = [];
       {
+        const missingColumns = parseMissingAppointmentColumns();
+        let selectClause = buildAppointmentSelect(missingColumns);
         let { data, error } = await supabase
           .from('appointments')
-          .select(baseSelect)
+          .select(selectClause)
           .eq('establishment_id', establishment.id)
           .gte('appointment_date', startOfSelectedDate)
           .lte('appointment_date', endOfSelectedDate)
@@ -10491,16 +10549,18 @@ Estamos te aguardando! 😎✂️`;
             msg0.includes('professional_tip_amount') ||
             (msg0.includes('column') && msg0.includes('professional_tip'));
           const missingLoyaltyCol = msg0.includes('is_loyalty_reward');
-          if (missingTipCol || missingLoyaltyCol) {
-            const selectAfterCompat =
-              missingTipCol && missingLoyaltyCol
-                ? baseSelectSansTipLoyalty
-                : missingTipCol
-                  ? baseSelectSansTip
-                  : baseSelectSansLoyalty;
+          const missingProfessionalIdCol = msg0.includes('professional_id');
+          const missingProfessionalNameCol = msg0.includes('professional_name');
+          if (missingTipCol || missingLoyaltyCol || missingProfessionalIdCol || missingProfessionalNameCol) {
+            if (missingTipCol) missingColumns.add('professional_tip_amount');
+            if (missingLoyaltyCol) missingColumns.add('is_loyalty_reward');
+            if (missingProfessionalIdCol) missingColumns.add('professional_id');
+            if (missingProfessionalNameCol) missingColumns.add('professional_name');
+            persistMissingAppointmentColumns(missingColumns);
+            selectClause = buildAppointmentSelect(missingColumns);
             const retryTip = await supabase
               .from('appointments')
-              .select(selectAfterCompat)
+              .select(selectClause)
               .eq('establishment_id', establishment.id)
               .gte('appointment_date', startOfSelectedDate)
               .lte('appointment_date', endOfSelectedDate)
@@ -10563,6 +10623,65 @@ Estamos te aguardando! 😎✂️`;
 
       const appointmentsData = (appointmentsRaw as Appointment[]).filter((apt) => !isWaitlistAppointment(apt));
 
+      const normalizeProfessionalTokenForMatch = (value: unknown): string =>
+        String(value ?? '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toLowerCase();
+      const isUuidValue = (value: string): boolean =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+      const professionalsById = new Map(
+        professionals
+          .map((prof) => {
+            const id = String(prof?.id || '').trim();
+            return [id, prof] as const;
+          })
+          .filter(([id]) => Boolean(id))
+      );
+      const professionalIdByNameToken = new Map<string, string>();
+      professionals.forEach((prof) => {
+        const id = String(prof?.id || '').trim();
+        const nameToken = normalizeProfessionalTokenForMatch(prof?.name || '');
+        if (id && nameToken && !professionalIdByNameToken.has(nameToken)) {
+          professionalIdByNameToken.set(nameToken, id);
+        }
+      });
+      appointmentsData.forEach((appointment) => {
+        const aptAny = appointment as any;
+        const rawProfessional = String(aptAny?.professional || '').trim();
+        const rawProfessionalId = String(aptAny?.professional_id || '').trim();
+        const rawProfessionalName = String(aptAny?.professional_name || '').trim();
+
+        let resolvedProfessionalId = '';
+        if (rawProfessionalId) {
+          resolvedProfessionalId = rawProfessionalId;
+        } else if (rawProfessional && professionalsById.has(rawProfessional)) {
+          resolvedProfessionalId = rawProfessional;
+        } else if (rawProfessional && isUuidValue(rawProfessional)) {
+          resolvedProfessionalId = rawProfessional;
+        } else {
+          const token = normalizeProfessionalTokenForMatch(rawProfessionalName || rawProfessional);
+          resolvedProfessionalId = token ? String(professionalIdByNameToken.get(token) || '') : '';
+        }
+
+        const resolvedProfessionalName =
+          rawProfessionalName ||
+          String(professionalsById.get(resolvedProfessionalId)?.name || '') ||
+          (isUuidValue(rawProfessional) ? '' : rawProfessional);
+
+        if (resolvedProfessionalId) {
+          aptAny.professional_id = resolvedProfessionalId;
+          aptAny.professional = resolvedProfessionalId;
+        } else if (!rawProfessional && resolvedProfessionalName) {
+          aptAny.professional = resolvedProfessionalName;
+        }
+
+        if (resolvedProfessionalName) {
+          aptAny.professional_name = resolvedProfessionalName;
+        }
+      });
+
       console.log('✅ AGENDAMENTOS ENCONTRADOS:', appointmentsData.length);
       console.log('📋 Dados:', appointmentsData);
 
@@ -10600,10 +10719,10 @@ Estamos te aguardando! 😎✂️`;
             const missingColumn =
               message.includes('column') &&
               (message.includes('cpf') || message.includes('street'));
+            if (typeof window !== 'undefined') {
+              window.sessionStorage.setItem('manual_clients_safe_select', '1');
+            }
             if (!missingColumn) {
-              if (typeof window !== 'undefined') {
-                window.sessionStorage.setItem('manual_clients_safe_select', '1');
-              }
               // Fallback extra de compatibilidade (RLS/tabela parcial/erro transitório):
               // tenta sem colunas opcionais para não quebrar o fluxo principal.
               const fallbackAnyError = await supabase
@@ -14820,6 +14939,13 @@ Estamos te aguardando! 😎✂️`;
   const saveAlert = async (clientWhatsapp: string, alert: string) => {
     try {
       console.log('⚠️ Salvando alerta:', { clientWhatsapp, alert });
+      const alertsCompatibilityKey = establishment?.id
+        ? `client_alerts_unavailable_${establishment.id}`
+        : '';
+      const alertsUnavailable =
+        typeof window !== 'undefined' &&
+        alertsCompatibilityKey &&
+        window.sessionStorage.getItem(alertsCompatibilityKey) === '1';
 
       // Buscar o cliente na lista local pelo WhatsApp para pegar o nome
       const client = clients.find(c => c.whatsapp === clientWhatsapp);
@@ -14836,23 +14962,39 @@ Estamos te aguardando! 😎✂️`;
 
       // 1. Tentar salvar no Supabase
       try {
-        const { data, error } = await supabase
-          .from('client_alerts')
-          .upsert({
-            establishment_id: establishment?.id,
-            client_whatsapp: clientWhatsapp,
-            client_name: client.name,
-            alert: alert.trim() || null
-          }, {
-            onConflict: 'establishment_id,client_whatsapp'
-          });
+        if (!alertsUnavailable) {
+          const { data, error } = await supabase
+            .from('client_alerts')
+            .upsert({
+              establishment_id: establishment?.id,
+              client_whatsapp: clientWhatsapp,
+              client_name: client.name,
+              alert: alert.trim() || null
+            }, {
+              onConflict: 'establishment_id,client_whatsapp'
+            });
 
-        if (error) throw error;
+          if (error) throw error;
 
-        console.log('✅ Alerta salvo no Supabase:', data);
-        toast('Alerta atualizado com sucesso!', 'success');
+          console.log('✅ Alerta salvo no Supabase:', data);
+          toast('Alerta atualizado com sucesso!', 'success');
+        } else {
+          throw new Error('client_alerts_unavailable');
+        }
 
       } catch (supabaseError: any) {
+        const raw = String(
+          supabaseError?.message || supabaseError?.details || supabaseError?.hint || supabaseError?.code || ''
+        ).toLowerCase();
+        const missingAlertsTable =
+          raw.includes('client_alerts') &&
+          (raw.includes('does not exist') ||
+            raw.includes('not found') ||
+            raw.includes('relation') ||
+            raw.includes('404'));
+        if (missingAlertsTable && typeof window !== 'undefined' && alertsCompatibilityKey) {
+          window.sessionStorage.setItem(alertsCompatibilityKey, '1');
+        }
         console.warn('⚠️ Erro ao salvar no Supabase, usando localStorage:', supabaseError.message);
 
         // 2. Fallback: Salvar no localStorage se Supabase falhar
@@ -14885,6 +15027,11 @@ Estamos te aguardando! 😎✂️`;
   // Função para carregar alertas do Supabase
   const loadAlertsFromSupabase = async (): Promise<Record<string, { alert: string; name: string }>> => {
     if (!establishment?.id) return {};
+    const alertsCompatibilityKey = `client_alerts_unavailable_${establishment.id}`;
+    const alertsUnavailable =
+      typeof window !== 'undefined' &&
+      window.sessionStorage.getItem(alertsCompatibilityKey) === '1';
+    if (alertsUnavailable) return {};
 
     try {
       const { data, error } = await supabase
@@ -14910,6 +15057,18 @@ Estamos te aguardando! 😎✂️`;
 
     } catch (error: any) {
       console.warn('⚠️ Erro ao carregar alertas do Supabase:', error.message);
+      const raw = String(
+        error?.message || error?.details || error?.hint || error?.code || ''
+      ).toLowerCase();
+      const missingAlertsTable =
+        raw.includes('client_alerts') &&
+        (raw.includes('does not exist') ||
+          raw.includes('not found') ||
+          raw.includes('relation') ||
+          raw.includes('404'));
+      if (missingAlertsTable && typeof window !== 'undefined') {
+        window.sessionStorage.setItem(alertsCompatibilityKey, '1');
+      }
       return {};
     }
   };
