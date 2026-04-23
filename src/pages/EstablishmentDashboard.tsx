@@ -415,6 +415,7 @@ interface ClientFutureAppointmentItem {
   status?: string | null;
   is_subscriber?: boolean | null;
   is_loyalty_reward?: boolean | null;
+  [key: string]: any;
 }
 
 interface Subscription {
@@ -805,6 +806,9 @@ const EstablishmentDashboard = () => {
   const [clientPastAppointments, setClientPastAppointments] = useState<ClientFutureAppointmentItem[]>([]);
   const [isLoadingClientPastAppointments, setIsLoadingClientPastAppointments] = useState(false);
   const [pastAppointmentsActionById, setPastAppointmentsActionById] = useState<Record<string, 'completed' | 'cancelled' | undefined>>({});
+  const [selectedPastAppointmentDetails, setSelectedPastAppointmentDetails] = useState<Record<string, any> | null>(null);
+  const [showPastAppointmentDetailsModal, setShowPastAppointmentDetailsModal] = useState(false);
+  const [isLoadingPastAppointmentDetails, setIsLoadingPastAppointmentDetails] = useState(false);
   const [pastModalLoyaltyRow, setPastModalLoyaltyRow] = useState<{ cycle_goal: number | null; cycle_progress: number } | null>(null);
   const [pastModalLoyaltyGoalInput, setPastModalLoyaltyGoalInput] = useState('');
   const [pastModalLoyaltyLoading, setPastModalLoyaltyLoading] = useState(false);
@@ -4340,6 +4344,7 @@ const EstablishmentDashboard = () => {
   const [showBlockHistoryModal, setShowBlockHistoryModal] = useState(false);
   const [blockedHourHistoryEvents, setBlockedHourHistoryEvents] = useState<BlockedHourHistoryEvent[]>([]);
   const [isLoadingBlockedHourHistory, setIsLoadingBlockedHourHistory] = useState(false);
+  const [blockedHourHistoryDateFilter, setBlockedHourHistoryDateFilter] = useState<string>(getLocalDateKey());
 
   /**
    * Evita condição de corrida em produção: várias leituras+escritas do JSON `professionals`
@@ -13353,7 +13358,6 @@ Estamos te aguardando! 😎✂️`;
       .eq('establishment_id', establishment.id)
       .in('client_whatsapp', whatsappKeys)
       .lte('appointment_date', todayKey)
-      .neq('status', 'cancelled')
       .order('appointment_date', { ascending: false })
       .order('appointment_time', { ascending: false });
 
@@ -13366,7 +13370,6 @@ Estamos te aguardando! 😎✂️`;
         .eq('establishment_id', establishment.id)
         .in('client_whatsapp', whatsappKeys)
         .lte('appointment_date', todayKey)
-        .neq('status', 'cancelled')
         .order('appointment_date', { ascending: false })
         .order('appointment_time', { ascending: false });
       data = retry.data;
@@ -13684,6 +13687,105 @@ Estamos te aguardando! 😎✂️`;
     const rows = await fetchClientPastAppointments(client);
     setClientPastAppointments(rows);
     await loadPastModalClientLoyalty(client);
+  };
+
+  const formatDateTimePtBr = (value: unknown): string => {
+    const raw = String(value || '').trim();
+    if (!raw) return '-';
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return raw;
+    return new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(date);
+  };
+
+  const formatDatePtBr = (value: unknown): string => {
+    const raw = String(value || '').trim();
+    if (!raw) return '-';
+    try {
+      return format(parseISO(raw), 'dd/MM/yyyy');
+    } catch {
+      const date = new Date(raw);
+      if (Number.isNaN(date.getTime())) return raw;
+      return new Intl.DateTimeFormat('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }).format(date);
+    }
+  };
+
+  const handleOpenPastAppointmentDetails = async (appointment: ClientFutureAppointmentItem) => {
+    const id = String(appointment?.id || '').trim();
+    if (!id || !establishment?.id) {
+      toast('Não foi possível abrir os detalhes deste agendamento.', 'error');
+      return;
+    }
+
+    setShowPastAppointmentDetailsModal(true);
+    setIsLoadingPastAppointmentDetails(true);
+    setSelectedPastAppointmentDetails(null);
+
+    try {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('id', id)
+        .eq('establishment_id', establishment.id)
+        .maybeSingle();
+      if (error) throw error;
+      const baseDetails = ((data as Record<string, any>) || (appointment as Record<string, any>));
+      let waitlistSource: string | null = null;
+      try {
+        const byAppointment = await supabase
+          .from('waitlist_entries')
+          .select('id,source')
+          .eq('establishment_id', establishment.id)
+          .eq('appointment_id', id)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (!byAppointment.error && Array.isArray(byAppointment.data) && byAppointment.data.length > 0) {
+          waitlistSource = String((byAppointment.data[0] as any)?.source || '').trim() || null;
+        } else if (baseDetails?.waitlist_entry_id) {
+          const byWaitlistId = await supabase
+            .from('waitlist_entries')
+            .select('id,source')
+            .eq('establishment_id', establishment.id)
+            .eq('id', String(baseDetails.waitlist_entry_id))
+            .maybeSingle();
+          if (!byWaitlistId.error) {
+            waitlistSource = String((byWaitlistId.data as any)?.source || '').trim() || null;
+          }
+        }
+      } catch {
+        // Sem bloqueio: origem fica como não informada se não for possível consultar.
+      }
+      setSelectedPastAppointmentDetails({
+        ...baseDetails,
+        waitlist_source: waitlistSource,
+      });
+    } catch (error: any) {
+      console.error('Erro ao carregar detalhes completos do agendamento:', error);
+      setSelectedPastAppointmentDetails(appointment as Record<string, any>);
+      toast(
+        [
+          error?.message || 'Não foi possível carregar todos os detalhes. Exibindo dados disponíveis.',
+          error?.code,
+          error?.details,
+          error?.hint,
+        ]
+          .filter(Boolean)
+          .join(' | '),
+        'error'
+      );
+    } finally {
+      setIsLoadingPastAppointmentDetails(false);
+    }
   };
 
   const handlePastAppointmentQuickAction = async (
@@ -19557,6 +19659,7 @@ Estamos te aguardando! 😎✂️`;
     setSelectedProfessionalForBlock(professionalId);
     setShowBlockHistoryModal(false);
     setBlockedHourHistoryEvents([]);
+    setBlockedHourHistoryDateFilter(getLocalDateKey());
 
     const professional = professionals.find(p => p.id === professionalId);
     setBlockTimeDate(getLocalDateKey());
@@ -19581,19 +19684,26 @@ Estamos te aguardando! 😎✂️`;
     setShowResetBlockConfirm(false);
     setShowBlockHistoryModal(false);
     setBlockedHourHistoryEvents([]);
+    setBlockedHourHistoryDateFilter(getLocalDateKey());
   };
 
-  const loadBlockedHoursHistory = async (professionalId: string) => {
+  const loadBlockedHoursHistory = async (professionalId: string, dateFilter: string = blockedHourHistoryDateFilter) => {
     if (!establishment?.id || !professionalId) return;
     setIsLoadingBlockedHourHistory(true);
     try {
-      const { data, error } = await (supabase as any)
+      let query = (supabase as any)
         .from('professional_blocked_hours_history')
         .select(
           'id, establishment_id, professional_id, professional_name, action_type, block_date, block_time, source, performed_by_user_id, metadata, created_at'
         )
         .eq('establishment_id', establishment.id)
-        .eq('professional_id', professionalId)
+        .eq('professional_id', professionalId);
+
+      if (dateFilter) {
+        query = query.eq('block_date', dateFilter);
+      }
+
+      const { data, error } = await query
         .order('created_at', { ascending: false })
         .limit(1000);
 
@@ -19667,8 +19777,10 @@ Estamos te aguardando! 😎✂️`;
 
   const handleOpenBlockedHoursHistoryModal = async () => {
     if (!selectedProfessionalForBlock) return;
+    const today = getLocalDateKey();
+    setBlockedHourHistoryDateFilter(today);
     setShowBlockHistoryModal(true);
-    await loadBlockedHoursHistory(selectedProfessionalForBlock);
+    await loadBlockedHoursHistory(selectedProfessionalForBlock, today);
   };
 
   const handleToggleBlockedHour = (hour: string) => {
@@ -20958,15 +21070,12 @@ Estamos te aguardando! 😎✂️`;
     let validPaid = 0;
     let ignoredAdvance = 0;
     let lastValidPaymentDate: string | null = null;
-    let outstandingAfterLastValid = 0;
-    let lastRegisteredPaymentDate: string | null = null;
     const ignoredByPayment = new Map<string, number>();
     const PAYMENT_EPSILON = 0.009;
 
     monthPayments.forEach((payment: any) => {
       const paymentAmount = Number(payment.amount || 0);
       const paymentTimeMs = new Date(payment.payment_date).getTime();
-      lastRegisteredPaymentDate = String(payment.payment_date || lastRegisteredPaymentDate || '');
       const realizedUntilPayment = getRealizedUntil(paymentTimeMs);
       const allowedAtPayment = Math.max(0, realizedUntilPayment - validPaid);
 
@@ -20975,7 +21084,6 @@ Estamos te aguardando! 😎✂️`;
       if (paymentAmount <= allowedAtPayment + PAYMENT_EPSILON) {
         validPaid += paymentAmount;
         lastValidPaymentDate = String(payment.payment_date || '');
-        outstandingAfterLastValid = Math.max(0, allowedAtPayment - paymentAmount);
       } else {
         ignoredAdvance += paymentAmount;
         ignoredByPayment.set(String(payment.id), paymentAmount);
@@ -20984,9 +21092,8 @@ Estamos te aguardando! 😎✂️`;
 
     const ignoredPaymentIds = Array.from(ignoredByPayment.keys());
 
-    // Regra operacional solicitada: o corte de "novas vendas" segue o último pagamento
-    // que aparece no financeiro do profissional (não apenas último pagamento "validado").
-    const referencePaymentDate = lastRegisteredPaymentDate || lastValidPaymentDate;
+    // Usar como referência apenas o último pagamento realmente válido (não adiantamento/ruído).
+    const referencePaymentDate = lastValidPaymentDate;
     const referencePaymentMs = referencePaymentDate ? new Date(referencePaymentDate).getTime() : Number.NaN;
     const newSalesSinceLastValid = Number.isNaN(referencePaymentMs)
       ? totalRealizedInMonth
@@ -20994,9 +21101,9 @@ Estamos te aguardando! 😎✂️`;
         .filter((row) => row.completedAt > referencePaymentMs)
         .reduce((sum, row) => sum + row.net, 0);
 
-    const pendingAllowed = Number.isNaN(referencePaymentMs)
-      ? Math.max(0, totalRealizedInMonth - validPaid)
-      : Math.max(0, newSalesSinceLastValid);
+    // Pendente operacional = saldo real do mês (total realizado - pagos válidos).
+    // Mantém proteção anti-adiantamento sem "sumir" com valores já realizados.
+    const pendingAllowed = Math.max(0, totalRealizedInMonth - validPaid);
 
     return {
       validPaid,
@@ -32973,9 +33080,40 @@ Estamos te aguardando! 😎✂️`;
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-gray-300 font-semibold" htmlFor="blocked-history-date-filter">
+                          Dia:
+                        </label>
+                        <input
+                          id="blocked-history-date-filter"
+                          type="date"
+                          value={blockedHourHistoryDateFilter}
+                          onChange={async (e) => {
+                            const nextDate = String(e.target.value || '').trim();
+                            setBlockedHourHistoryDateFilter(nextDate);
+                            if (selectedProfessionalForBlock) {
+                              await loadBlockedHoursHistory(selectedProfessionalForBlock, nextDate);
+                            }
+                          }}
+                          className="px-2 py-1.5 rounded-lg border border-gray-600 bg-[#242628] text-gray-100 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const today = getLocalDateKey();
+                            setBlockedHourHistoryDateFilter(today);
+                            if (selectedProfessionalForBlock) {
+                              await loadBlockedHoursHistory(selectedProfessionalForBlock, today);
+                            }
+                          }}
+                          className="px-2.5 py-1.5 bg-gray-700 text-gray-100 rounded-lg hover:bg-gray-600 transition-colors text-xs"
+                        >
+                          Hoje
+                        </button>
+                      </div>
                       <button
                         type="button"
-                        onClick={() => loadBlockedHoursHistory(selectedProfessionalForBlock)}
+                        onClick={() => loadBlockedHoursHistory(selectedProfessionalForBlock, blockedHourHistoryDateFilter)}
                         className="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors text-sm"
                       >
                         Atualizar
@@ -32994,6 +33132,14 @@ Estamos te aguardando! 😎✂️`;
 
                   <div className="mb-4 p-3 rounded-lg border border-blue-500/40 bg-blue-900/20 text-blue-100 text-xs space-y-1">
                     <p>Este histórico não é apagado no uso normal e registra cada horário bloqueado/desbloqueado para auditoria.</p>
+                    <p>
+                      Filtro atual:{' '}
+                      <strong>
+                        {blockedHourHistoryDateFilter
+                          ? new Date(`${blockedHourHistoryDateFilter}T12:00:00`).toLocaleDateString('pt-BR')
+                          : 'Todos os dias'}
+                      </strong>
+                    </p>
                     <p>
                       Os eventos desta tela afetam a agenda do profissional selecionado:{' '}
                       <strong>{professionals.find((p) => p.id === selectedProfessionalForBlock)?.name || 'Não identificado'}</strong>.
@@ -39238,7 +39384,7 @@ Estamos te aguardando! 😎✂️`;
                   {selectedClientForPastAppointments.name} - {selectedClientForPastAppointments.whatsapp}
                 </div>
                 <div className="text-xs text-gray-500 mt-1">
-                  Da data de hoje para trás (exceto cancelados). Indica se já foi concluído ou ainda está pendente.
+                  Da data de hoje para trás, incluindo cancelados como histórico. Indica se foi concluído, pendente ou cancelado.
                 </div>
               </div>
               <button
@@ -39333,13 +39479,19 @@ Estamos te aguardando! 😎✂️`;
                     }
                   })();
                   const timeLabel = String(apt.appointment_time || '--:--');
+                  const statusRaw = String(apt.status || '').toLowerCase().trim();
+                  const cancelled = statusRaw === 'cancelled';
                   const completed = isCompletedAppointmentStatus(apt);
-                  const outcomeLabel = completed
+                  const outcomeLabel = cancelled
+                    ? 'Cancelado'
+                    : completed
                     ? apt.is_subscriber === true
                       ? 'Concluído assinante'
                       : 'Concluído'
                     : 'Pendente';
-                  const outcomePillClass = completed
+                  const outcomePillClass = cancelled
+                    ? 'border-red-300 bg-red-50 text-red-900'
+                    : completed
                     ? apt.is_subscriber === true
                       ? 'border-indigo-300 bg-indigo-50 text-indigo-900'
                       : 'border-emerald-300 bg-emerald-50 text-emerald-900'
@@ -39364,7 +39516,7 @@ Estamos te aguardando! 😎✂️`;
                             {outcomeLabel}
                           </span>
                           <div className="flex items-center gap-1">
-                            {!completed && (
+                            {!completed && !cancelled && (
                               <button
                                 type="button"
                                 onClick={() => void handlePastAppointmentQuickAction(appointmentId, 'completed')}
@@ -39374,13 +39526,22 @@ Estamos te aguardando! 😎✂️`;
                                 {pastAppointmentsActionById[appointmentId] === 'completed' ? '...' : 'CONCLUIR'}
                               </button>
                             )}
+                            {!cancelled && (
+                              <button
+                                type="button"
+                                onClick={() => void handlePastAppointmentQuickAction(appointmentId, 'cancelled')}
+                                disabled={Boolean(pastAppointmentsActionById[appointmentId])}
+                                className="px-2 py-0.5 rounded-md border border-red-500 bg-red-600 text-white text-[11px] font-extrabold hover:bg-red-700 disabled:opacity-50"
+                              >
+                                {pastAppointmentsActionById[appointmentId] === 'cancelled' ? '...' : 'CANCELAR'}
+                              </button>
+                            )}
                             <button
                               type="button"
-                              onClick={() => void handlePastAppointmentQuickAction(appointmentId, 'cancelled')}
-                              disabled={Boolean(pastAppointmentsActionById[appointmentId])}
-                              className="px-2 py-0.5 rounded-md border border-red-500 bg-red-600 text-white text-[11px] font-extrabold hover:bg-red-700 disabled:opacity-50"
+                              onClick={() => void handleOpenPastAppointmentDetails(apt)}
+                              className="px-2 py-0.5 rounded-md border border-slate-400 bg-white text-slate-700 text-[11px] font-extrabold hover:bg-slate-50"
                             >
-                              {pastAppointmentsActionById[appointmentId] === 'cancelled' ? '...' : 'CANCELAR'}
+                              MAIS INFORMAÇÕES
                             </button>
                           </div>
                           {apt.is_loyalty_reward === true && (
@@ -39399,6 +39560,217 @@ Estamos te aguardando! 😎✂️`;
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showPastAppointmentDetailsModal && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80] p-4"
+          onClick={() => {
+            setShowPastAppointmentDetailsModal(false);
+            setSelectedPastAppointmentDetails(null);
+          }}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-5 border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <div className="text-lg font-extrabold text-gray-900">Mais informações do agendamento</div>
+                <div className="text-xs text-gray-500 mt-1">Detalhes completos para consulta de histórico.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPastAppointmentDetailsModal(false);
+                  setSelectedPastAppointmentDetails(null);
+                }}
+                className="px-3 py-2 rounded-lg bg-gray-200 text-gray-900 hover:bg-gray-300 transition-colors text-sm font-bold"
+              >
+                Fechar
+              </button>
+            </div>
+
+            {isLoadingPastAppointmentDetails ? (
+              <div className="py-8 text-center text-gray-600">Carregando detalhes...</div>
+            ) : !selectedPastAppointmentDetails ? (
+              <div className="py-8 text-center text-gray-600">Nenhuma informação disponível para este agendamento.</div>
+            ) : (
+              <div className="space-y-2">
+                {(() => {
+                  const details = selectedPastAppointmentDetails as Record<string, any>;
+                  const statusRaw = String(details?.status || '').toLowerCase().trim();
+                  const statusLabel =
+                    statusRaw === 'cancelled'
+                      ? 'Cancelado'
+                      : statusRaw === 'completed'
+                        ? 'Concluído'
+                        : statusRaw === 'pending_payment'
+                          ? 'Aguardando pagamento'
+                          : statusRaw === 'confirmed'
+                            ? 'Confirmado'
+                            : statusRaw === 'pending'
+                              ? 'Pendente'
+                              : String(details?.status || 'Não informado');
+                  const cancellationTimestampRaw =
+                    details?.cancelled_at ??
+                    details?.canceled_at ??
+                    details?.cancellation_at ??
+                    details?.cancellation_date ??
+                    null;
+                  const createdAtRaw = details?.created_at ?? details?.createdAt ?? null;
+                  const updatedAtRaw = details?.updated_at ?? details?.updatedAt ?? null;
+                  const cancelDisplay =
+                    cancellationTimestampRaw != null && String(cancellationTimestampRaw).trim() !== ''
+                      ? formatDateTimePtBr(cancellationTimestampRaw)
+                      : statusRaw === 'cancelled' && updatedAtRaw
+                        ? `${formatDateTimePtBr(updatedAtRaw)} (aproximado pelo último update)`
+                        : 'Não registrado neste banco';
+                  const professionalRaw =
+                    details?.professional_name ??
+                    professionals.find((p) => String(p.id) === String(details?.professional || ''))?.name ??
+                    details?.professional ??
+                    '-';
+                  const originRaw = String(
+                    details?.appointment_source ??
+                    details?.booking_source ??
+                    details?.waitlist_source ??
+                    details?.source ??
+                    details?.origin ??
+                    details?.created_via ??
+                    ''
+                  )
+                    .trim()
+                    .toLowerCase();
+                  const clientIdNorm = String(details?.client_id || '').trim();
+                  const ownerIdNorm = String((establishment as any)?.owner_id || '').trim();
+                  const paymentMethodNorm = String(details?.payment_method || '').trim().toLowerCase();
+                  const statusNorm = String(details?.status || '').trim().toLowerCase();
+                  const isInternalByOwner =
+                    clientIdNorm.length > 0 &&
+                    ownerIdNorm.length > 0 &&
+                    clientIdNorm === ownerIdNorm;
+                  const isLikelyBooking =
+                    statusNorm === 'pending_payment' ||
+                    paymentMethodNorm === 'pendente' ||
+                    paymentMethodNorm === 'pagar_local';
+                  const originLabel =
+                    originRaw === 'booking'
+                      ? 'Booking (página pública)'
+                      : originRaw === 'dashboard' || originRaw === 'internal' || originRaw === 'interno'
+                        ? 'Interno (painel)'
+                        : isInternalByOwner
+                          ? 'Interno (painel - inferido pelo cliente ID do dono)'
+                          : isLikelyBooking
+                            ? 'Booking (página pública - inferido pelo fluxo de pagamento)'
+                            : clientIdNorm && !isInternalByOwner
+                              ? 'Booking (página pública - inferido pelo cliente)'
+                              : 'Interno (painel - inferido por ausência de dados de booking)';
+
+                  const principalRows: Array<{ key: string; label: string; value: string }> = [
+                    { key: 'status', label: 'Status', value: statusLabel },
+                    { key: 'appointment_origin', label: 'Origem do agendamento', value: originLabel },
+                    { key: 'appointment_date', label: 'Data do agendamento', value: formatDatePtBr(details?.appointment_date) },
+                    { key: 'appointment_time', label: 'Horário do agendamento', value: String(details?.appointment_time || '-') },
+                    { key: 'created_at', label: 'Horário que criou o agendamento', value: createdAtRaw ? formatDateTimePtBr(createdAtRaw) : 'Não informado' },
+                    { key: 'cancelled_at', label: 'Horário do cancelamento', value: cancelDisplay },
+                    { key: 'updated_at', label: 'Última atualização', value: updatedAtRaw ? formatDateTimePtBr(updatedAtRaw) : 'Não informado' },
+                    { key: 'client_name', label: 'Cliente', value: String(details?.client_name || '-') },
+                    { key: 'client_whatsapp', label: 'WhatsApp', value: String(details?.client_whatsapp || '-') },
+                    { key: 'service', label: 'Serviço', value: String(details?.service || '-') },
+                    { key: 'professional', label: 'Profissional', value: String(professionalRaw || '-') },
+                    { key: 'payment_method', label: 'Forma de pagamento', value: String(details?.payment_method || '-') },
+                    { key: 'payment_status', label: 'Status do pagamento', value: String(details?.payment_status || '-') },
+                    { key: 'price', label: 'Valor', value: details?.price != null ? String(details.price) : '-' },
+                    { key: 'cancellation_source', label: 'Origem do cancelamento', value: String(details?.cancellation_source || '-') },
+                    { key: 'cancellation_detail', label: 'Detalhe do cancelamento', value: String(details?.cancellation_detail || '-') },
+                  ];
+
+                  const handledKeys = new Set([
+                    'status',
+                    'appointment_origin',
+                    'appointment_date',
+                    'appointment_time',
+                    'appointment_source',
+                    'booking_source',
+                    'waitlist_source',
+                    'source',
+                    'origin',
+                    'created_via',
+                    'created_at',
+                    'createdAt',
+                    'cancelled_at',
+                    'canceled_at',
+                    'cancellation_at',
+                    'cancellation_date',
+                    'updated_at',
+                    'updatedAt',
+                    'client_name',
+                    'client_whatsapp',
+                    'service',
+                    'professional',
+                    'professional_name',
+                    'payment_method',
+                    'payment_status',
+                    'price',
+                    'cancellation_source',
+                    'cancellation_detail',
+                  ]);
+
+                  const extras = Object.entries(details)
+                    .filter(([key, value]) => !handledKeys.has(key) && value !== null && value !== undefined && String(value).trim() !== '')
+                    .map(([key, value]) => ({
+                      key,
+                      label: key.replace(/_/g, ' '),
+                      value:
+                        typeof value === 'object'
+                          ? JSON.stringify(value)
+                          : typeof value === 'boolean'
+                            ? (value ? 'Sim' : 'Não')
+                            : String(value),
+                    }));
+
+                  return (
+                    <>
+                      {principalRows.map((row) => (
+                        <div
+                          key={row.key}
+                          className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 flex flex-col gap-1"
+                        >
+                          <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                            {row.label}
+                          </span>
+                          <span className="text-sm font-semibold text-gray-900 break-all">{row.value}</span>
+                        </div>
+                      ))}
+
+                      {extras.length > 0 && (
+                        <div className="pt-2">
+                          <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
+                            Outros detalhes técnicos
+                          </div>
+                          <div className="space-y-2">
+                            {extras.map((item) => (
+                              <div
+                                key={item.key}
+                                className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 flex flex-col gap-1"
+                              >
+                                <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                                  {item.label}
+                                </span>
+                                <span className="text-sm font-semibold text-gray-900 break-all">{item.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>
