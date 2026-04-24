@@ -1579,9 +1579,25 @@ const EstablishmentDashboard = () => {
   const getWhatsappLookupKeys = (raw: string): string[] => {
     const digits = String(raw || '').replace(/\D/g, '');
     if (!digits) return [];
-    if (digits.startsWith('55') && digits.length > 2) return Array.from(new Set([digits, digits.slice(2)]));
-    if (digits.length === 10 || digits.length === 11) return Array.from(new Set([digits, `55${digits}`]));
-    return [digits];
+
+    const local = digits.startsWith('55') && digits.length > 2 ? digits.slice(2) : digits;
+    const localVariants = new Set<string>([local]);
+    // Compatibilidade BR: alguns dados antigos existem com/sem o 9 adicional.
+    if (local.length === 10) {
+      localVariants.add(`${local.slice(0, 2)}9${local.slice(2)}`);
+    }
+    if (local.length === 11 && local.slice(2, 3) === '9') {
+      localVariants.add(`${local.slice(0, 2)}${local.slice(3)}`);
+    }
+
+    const out = new Set<string>();
+    localVariants.forEach((x) => {
+      const clean = String(x || '').replace(/\D/g, '');
+      if (!clean) return;
+      out.add(clean);
+      out.add(`55${clean}`);
+    });
+    return Array.from(out);
   };
 
   const parseValorBR = (raw: string): number => {
@@ -2166,6 +2182,89 @@ const EstablishmentDashboard = () => {
       }
     },
     [establishment?.id, fetchFilaEntries, tentarNotificarUmAntes]
+  );
+
+  const editarValorRecebidoHistoricoFila = useCallback(
+    async (log: any) => {
+      if (!establishment?.id) return;
+      const atual = Number(log?.gross_amount ?? 0);
+      const currentLabel = Number.isFinite(atual) ? String(atual.toFixed(2)).replace('.', ',') : '0,00';
+      const input = window.prompt('Informe o novo valor recebido (R$):', currentLabel);
+      if (input == null) return;
+      const bruto = Math.max(0, parseValorBR(input));
+
+      const professionalKey = String(log?.professional_id || profissionalFinanceiroFilaId || '').trim();
+      const { pct, liquido } = calcularLiquidoProfissionalFila(bruto, professionalKey);
+      const updatePayload: any = {
+        gross_amount: bruto,
+        professional_percentage: pct,
+        professional_amount: Number.isFinite(liquido) ? liquido : 0,
+      };
+
+      try {
+        const { data: updatedRows, error } = await supabase
+          .from('waitlist_financial_logs')
+          .update(updatePayload)
+          .eq('id', String(log?.id || '').trim())
+          .eq('establishment_id', establishment.id)
+          .select('id');
+        if (error) throw error;
+        if (!updatedRows || updatedRows.length === 0) {
+          throw new Error(
+            'Não foi possível editar este atendimento (nenhuma linha afetada). Verifique as policies/RLS da tabela waitlist_financial_logs.'
+          );
+        }
+
+        // Melhor esforço: manter preço do agendamento alinhado com o valor recebido editado.
+        if (log?.appointment_id) {
+          try {
+            await supabase
+              .from('appointments')
+              .update({ price: bruto } as any)
+              .eq('id', String(log.appointment_id));
+          } catch {
+            // ignore
+          }
+        }
+
+        toast('Valor recebido atualizado.', 'success');
+        await carregarHistoricoFinanceiroFila();
+      } catch (e: any) {
+        console.error('❌ Erro ao editar valor recebido da fila:', e);
+        toast(e?.message || 'Erro ao editar valor recebido', 'error');
+      }
+    },
+    [calcularLiquidoProfissionalFila, carregarHistoricoFinanceiroFila, establishment?.id, profissionalFinanceiroFilaId]
+  );
+
+  const apagarAtendimentoHistoricoFila = useCallback(
+    async (log: any) => {
+      if (!establishment?.id) return;
+      const ok = window.confirm(
+        `Apagar atendimento concluído de "${String(log?.client_name || 'Cliente')}" no financeiro da fila?\n\nEssa ação remove apenas o registro financeiro.`
+      );
+      if (!ok) return;
+      try {
+        const { data: deletedRows, error } = await supabase
+          .from('waitlist_financial_logs')
+          .delete()
+          .eq('id', String(log?.id || '').trim())
+          .eq('establishment_id', establishment.id)
+          .select('id');
+        if (error) throw error;
+        if (!deletedRows || deletedRows.length === 0) {
+          throw new Error(
+            'Não foi possível apagar este atendimento (nenhuma linha afetada). Verifique as policies/RLS da tabela waitlist_financial_logs.'
+          );
+        }
+        toast('Atendimento removido do financeiro da fila.', 'success');
+        await carregarHistoricoFinanceiroFila();
+      } catch (e: any) {
+        console.error('❌ Erro ao apagar atendimento da fila:', e);
+        toast(e?.message || 'Erro ao apagar atendimento', 'error');
+      }
+    },
+    [carregarHistoricoFinanceiroFila, establishment?.id]
   );
 
   const adicionarFilaManual = useCallback(async () => {
@@ -10533,46 +10632,61 @@ Estamos te aguardando! 😎✂️`;
       let appointmentsRaw: any[] = [];
       {
         const missingColumns = parseMissingAppointmentColumns();
-        let selectClause = buildAppointmentSelect(missingColumns);
-        let { data, error } = await supabase
-          .from('appointments')
-          .select(selectClause)
-          .eq('establishment_id', establishment.id)
-          .gte('appointment_date', startOfSelectedDate)
-          .lte('appointment_date', endOfSelectedDate)
-          .order('appointment_time', { ascending: true })
-          .abortSignal(new AbortController().signal); // Forçar busca sem cache
-
-        if (error) {
-          const msg0 = String((error as any)?.message || '').toLowerCase();
-          const missingTipCol =
-            msg0.includes('professional_tip_amount') ||
-            (msg0.includes('column') && msg0.includes('professional_tip'));
-          const missingLoyaltyCol = msg0.includes('is_loyalty_reward');
-          const missingProfessionalIdCol = msg0.includes('professional_id');
-          const missingProfessionalNameCol = msg0.includes('professional_name');
-          if (missingTipCol || missingLoyaltyCol || missingProfessionalIdCol || missingProfessionalNameCol) {
-            if (missingTipCol) missingColumns.add('professional_tip_amount');
-            if (missingLoyaltyCol) missingColumns.add('is_loyalty_reward');
-            if (missingProfessionalIdCol) missingColumns.add('professional_id');
-            if (missingProfessionalNameCol) missingColumns.add('professional_name');
-            persistMissingAppointmentColumns(missingColumns);
-            selectClause = buildAppointmentSelect(missingColumns);
-            const retryTip = await supabase
-              .from('appointments')
-              .select(selectClause)
-              .eq('establishment_id', establishment.id)
-              .gte('appointment_date', startOfSelectedDate)
-              .lte('appointment_date', endOfSelectedDate)
-              .order('appointment_time', { ascending: true })
-              .abortSignal(new AbortController().signal);
-            data = retryTip.data as any[];
-            error = retryTip.error as any;
+        const getSupabaseErrorText = (errorLike: any): string =>
+          [errorLike?.message, errorLike?.details, errorLike?.hint]
+            .map((x) => String(x || '').trim())
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+        const collectMissingColumnsFromError = (errorLike: any): string[] => {
+          const msg = getSupabaseErrorText(errorLike);
+          const found: string[] = [];
+          if (
+            msg.includes('professional_tip_amount') ||
+            (msg.includes('column') && msg.includes('professional_tip'))
+          ) {
+            found.push('professional_tip_amount');
           }
+          if (msg.includes('is_loyalty_reward')) found.push('is_loyalty_reward');
+          if (msg.includes('professional_id')) found.push('professional_id');
+          if (msg.includes('professional_name')) found.push('professional_name');
+          if (msg.includes('is_waitlist')) found.push('is_waitlist');
+          if (msg.includes('waitlist_entry_id')) found.push('waitlist_entry_id');
+          return found;
+        };
+
+        let selectClause = buildAppointmentSelect(missingColumns);
+        let data: any[] | null = null;
+        let error: any = null;
+
+        // Compatibilidade: remove progressivamente colunas inexistentes em bases legadas.
+        for (let attempt = 0; attempt < 8; attempt++) {
+          const response = await supabase
+            .from('appointments')
+            .select(selectClause)
+            .eq('establishment_id', establishment.id)
+            .gte('appointment_date', startOfSelectedDate)
+            .lte('appointment_date', endOfSelectedDate)
+            .order('appointment_time', { ascending: true })
+            .abortSignal(new AbortController().signal); // Forçar busca sem cache
+
+          data = response.data as any[];
+          error = response.error as any;
+
+          if (!error) break;
+
+          const missingDetected = collectMissingColumnsFromError(error);
+          const newMissingColumns = missingDetected.filter((col) => !missingColumns.has(col));
+          if (newMissingColumns.length === 0) break;
+
+          newMissingColumns.forEach((col) => missingColumns.add(col));
+          persistMissingAppointmentColumns(missingColumns);
+          selectClause = buildAppointmentSelect(missingColumns);
+          if (!selectClause.trim()) break;
         }
 
         if (error) {
-          const msg = String((error as any)?.message || '').toLowerCase();
+          const msg = getSupabaseErrorText(error);
           const missingWaitlistCols = msg.includes('is_waitlist') || msg.includes('waitlist_entry_id');
           if (!missingWaitlistCols) throw error;
 
@@ -13469,8 +13583,9 @@ Estamos te aguardando! 😎✂️`;
     const whatsappKeys = getWhatsappLookupKeys(client.whatsapp);
     if (whatsappKeys.length === 0) return [];
 
-    let selectPast =
-      'id,client_id,client_whatsapp,client_name,appointment_date,appointment_time,service,professional,status,is_subscriber,is_loyalty_reward';
+    const baseColumns =
+      'id,client_id,client_whatsapp,client_name,appointment_date,appointment_time,service,professional,status,is_subscriber,created_at';
+    let selectPast = `${baseColumns},is_loyalty_reward,loyalty_points_awarded`;
     let { data, error } = await supabase
       .from('appointments')
       .select(selectPast)
@@ -13480,9 +13595,14 @@ Estamos te aguardando! 😎✂️`;
       .order('appointment_date', { ascending: false })
       .order('appointment_time', { ascending: false });
 
-    if (error && String((error as any)?.message || '').toLowerCase().includes('is_loyalty_reward')) {
-      selectPast =
-        'id,client_id,client_whatsapp,client_name,appointment_date,appointment_time,service,professional,status,is_subscriber';
+    if (error) {
+      const msg = String((error as any)?.message || '').toLowerCase();
+      const hasLegacyMissingColumn =
+        msg.includes('is_loyalty_reward') ||
+        msg.includes('loyalty_points_awarded') ||
+        (msg.includes('column') && msg.includes('does not exist'));
+      if (!hasLegacyMissingColumn) throw error;
+      selectPast = baseColumns;
       const retry = await supabase
         .from('appointments')
         .select(selectPast)
@@ -13493,9 +13613,8 @@ Estamos te aguardando! 😎✂️`;
         .order('appointment_time', { ascending: false });
       data = retry.data;
       error = retry.error as any;
+      if (error) throw error;
     }
-
-    if (error) throw error;
 
     const rows = (data || []) as ClientFutureAppointmentItem[];
     const filtered = rows.filter((row) => {
@@ -13530,10 +13649,9 @@ Estamos te aguardando! 😎✂️`;
       }
       const { data, error } = await supabase
         .from('establishment_client_loyalty')
-        .select('cycle_goal,cycle_progress')
+        .select('client_whatsapp,cycle_goal,cycle_progress,created_at,updated_at')
         .eq('establishment_id', establishment.id)
-        .in('client_whatsapp', variants)
-        .limit(1);
+        .in('client_whatsapp', variants);
       if (error) {
         const msg = String((error as any)?.message || '').toLowerCase();
         if (msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('relation')) {
@@ -13543,16 +13661,36 @@ Estamos te aguardando! 😎✂️`;
         }
         throw error;
       }
-      const row = (data || [])[0] as { cycle_goal: number | null; cycle_progress: number } | undefined;
+      const rows = (data || []) as Array<
+        {
+          client_whatsapp?: string | null;
+          cycle_goal: number | null;
+          cycle_progress: number;
+          created_at?: string | null;
+          updated_at?: string | null;
+        }
+      >;
+      const row = rows
+        .slice()
+        .sort((a, b) => {
+          const aUpdated = new Date(String(a?.updated_at || a?.created_at || '')).getTime();
+          const bUpdated = new Date(String(b?.updated_at || b?.created_at || '')).getTime();
+          return (Number.isFinite(bUpdated) ? bUpdated : 0) - (Number.isFinite(aUpdated) ? aUpdated : 0);
+        })[0] as
+        | { cycle_goal: number | null; cycle_progress: number; created_at?: string | null }
+        | undefined;
       if (!row) {
         setPastModalLoyaltyRow(null);
         setPastModalLoyaltyGoalInput('');
       } else {
+        const goal = row.cycle_goal == null ? null : Number(row.cycle_goal);
+        let progress = Number(row.cycle_progress ?? 0);
+
         setPastModalLoyaltyRow({
-          cycle_goal: row.cycle_goal == null ? null : Number(row.cycle_goal),
-          cycle_progress: Number(row.cycle_progress ?? 0),
+          cycle_goal: goal,
+          cycle_progress: progress,
         });
-        setPastModalLoyaltyGoalInput(row.cycle_goal == null ? '' : String(row.cycle_goal));
+        setPastModalLoyaltyGoalInput(goal == null ? '' : String(goal));
       }
     } catch (e: any) {
       console.warn('Fidelidade: não foi possível carregar configuração:', e);
@@ -13570,7 +13708,10 @@ Estamos te aguardando! 😎✂️`;
       return;
     }
     const key = normalizeWhatsappForStorage(selectedClientForPastAppointments.whatsapp);
-    if (!key) {
+    const variants = Array.from(
+      new Set(getWhatsappLookupKeys(selectedClientForPastAppointments.whatsapp).map((k) => normalizeWhatsappForStorage(k)).filter(Boolean))
+    );
+    if (!key || variants.length === 0) {
       toast('WhatsApp do cliente inválido.', 'error');
       return;
     }
@@ -13582,7 +13723,7 @@ Estamos te aguardando! 😎✂️`;
           .from('establishment_client_loyalty')
           .delete()
           .eq('establishment_id', establishment.id)
-          .eq('client_whatsapp', key);
+          .in('client_whatsapp', variants);
         if (error) {
           const msg = String((error as any)?.message || '').toLowerCase();
           if (!msg.includes('does not exist') && !msg.includes('schema cache')) throw error;
@@ -13598,19 +13739,21 @@ Estamos te aguardando! 😎✂️`;
         toast('Informe um número inteiro maior ou igual a 2 (ex.: 10 atendimentos para o benefício).', 'error');
         return;
       }
-      const progressKeep = pastModalLoyaltyRow?.cycle_progress ?? 0;
-      const { error } = await supabase.from('establishment_client_loyalty').upsert(
-        {
-          establishment_id: establishment.id,
-          client_whatsapp: key,
-          cycle_goal: goal,
-          cycle_progress: Math.min(progressKeep, goal),
-          updated_at: new Date().toISOString(),
-        } as any,
-        { onConflict: 'establishment_id,client_whatsapp' }
-      );
+      const nowIso = new Date().toISOString();
+      const payloadRows = variants.map((variant) => ({
+        establishment_id: establishment.id,
+        client_whatsapp: variant,
+        cycle_goal: goal,
+        // Regra de negocio: sempre reinicia o ciclo quando meta e salva manualmente.
+        cycle_progress: 0,
+        created_at: nowIso,
+        updated_at: nowIso,
+      })) as any[];
+      const { error } = await supabase.from('establishment_client_loyalty').upsert(payloadRows as any, {
+        onConflict: 'establishment_id,client_whatsapp',
+      });
       if (error) throw error;
-      setPastModalLoyaltyRow({ cycle_goal: goal, cycle_progress: Math.min(progressKeep, goal) });
+      setPastModalLoyaltyRow({ cycle_goal: goal, cycle_progress: 0 });
       toast('Meta de fidelidade salva.', 'success');
       await loadPastModalClientLoyalty(selectedClientForPastAppointments);
     } catch (error: any) {
@@ -13693,16 +13836,23 @@ Estamos te aguardando! 😎✂️`;
     const prog = Math.floor(parsed);
     const prevGoal = existing?.cycle_goal ?? null;
     const goal = Math.max(prevGoal ?? 2, prog, 2);
-    const { error } = await supabase.from('establishment_client_loyalty').upsert(
-      {
-        establishment_id: establishment.id,
-        client_whatsapp: key,
-        cycle_goal: goal,
-        cycle_progress: Math.min(prog, goal),
-        updated_at: new Date().toISOString(),
-      } as any,
-      { onConflict: 'establishment_id,client_whatsapp' }
+    const nowIso = new Date().toISOString();
+    const variants = Array.from(
+      new Set(getWhatsappLookupKeys(key).map((k) => normalizeWhatsappForStorage(k)).filter(Boolean))
     );
+    const targets = variants.length > 0 ? variants : [key];
+    const rows = targets.map((variant) => ({
+      establishment_id: establishment.id,
+      client_whatsapp: variant,
+      cycle_goal: goal,
+      cycle_progress: Math.min(prog, goal),
+      // Ao salvar pontos manualmente (individual/lote), reinicia marco temporal do ciclo.
+      created_at: nowIso,
+      updated_at: nowIso,
+    })) as any[];
+    const { error } = await supabase.from('establishment_client_loyalty').upsert(rows as any, {
+      onConflict: 'establishment_id,client_whatsapp',
+    });
     if (error) {
       toast(
         [error?.message || 'Erro ao salvar pontos', error?.code, error?.details, error?.hint].filter(Boolean).join(' | '),
@@ -13747,8 +13897,8 @@ Estamos te aguardando! 😎✂️`;
   const handleLoyaltyBulkApplyAll = async () => {
     const raw = loyaltyBulkApplyAllInput.trim();
     const parsed = raw === '' ? NaN : parseInt(raw, 10);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      toast('Informe quantos pontos aplicar (número inteiro maior ou igual a 0).', 'error');
+    if (!Number.isFinite(parsed) || parsed < 2) {
+      toast('Informe a meta de atendimentos (número inteiro maior ou igual a 2).', 'error');
       return;
     }
     const targets = clients.filter((c) => !c.isSubscriber && normalizeWhatsappForStorage(c.whatsapp));
@@ -13759,14 +13909,35 @@ Estamos te aguardando! 😎✂️`;
     setLoyaltyBulkSavingAll(true);
     try {
       let okCount = 0;
+      const goal = Math.floor(parsed);
+      const nowIso = new Date().toISOString();
       for (const c of targets) {
         const key = normalizeWhatsappForStorage(c.whatsapp);
         if (!key) continue;
-        const ok = await upsertLoyaltyProgressPoints(key, String(parsed), loyaltyBulkByKey[key]);
-        if (ok) okCount += 1;
+        const variants = Array.from(
+          new Set(getWhatsappLookupKeys(key).map((k) => normalizeWhatsappForStorage(k)).filter(Boolean))
+        );
+        const rows = (variants.length > 0 ? variants : [key]).map((variant) => ({
+          establishment_id: establishment.id,
+          client_whatsapp: variant,
+          cycle_goal: goal,
+          cycle_progress: 0,
+          created_at: nowIso,
+          updated_at: nowIso,
+        })) as any[];
+        const { error } = await supabase.from('establishment_client_loyalty').upsert(rows as any, {
+          onConflict: 'establishment_id,client_whatsapp',
+        });
+        if (!error) {
+          okCount += 1;
+          setLoyaltyBulkByKey((prev) => ({
+            ...prev,
+            [key]: { cycle_goal: goal, cycle_progress: 0 },
+          }));
+        }
       }
       setLoyaltyBulkDraft({});
-      toast(`Pontos aplicados a ${okCount} cliente(s).`, 'success');
+      toast(`Meta de fidelidade aplicada (ciclo zerado) em ${okCount} cliente(s).`, 'success');
     } finally {
       setLoyaltyBulkSavingAll(false);
     }
@@ -25583,6 +25754,22 @@ Estamos te aguardando! 😎✂️`;
                                   {fmtBRL(Number(h.gross_amount || 0))} → {fmtBRL(Number(h.professional_amount || 0))}
                                 </div>
                                 <div className="text-[11px] text-gray-600">{Number(h.professional_percentage || 0)}%</div>
+                                <div className="mt-2 flex items-center justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => void editarValorRecebidoHistoricoFila(h)}
+                                    className="px-2 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors text-[11px] font-extrabold"
+                                  >
+                                    Editar valor
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void apagarAtendimentoHistoricoFila(h)}
+                                    className="px-2 py-1 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors text-[11px] font-extrabold"
+                                  >
+                                    Apagar atendido
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -34865,15 +35052,15 @@ Estamos te aguardando! 😎✂️`;
 
               <div className="flex flex-wrap items-end gap-3 mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
                 <div className="flex flex-col gap-1">
-                  <span className="text-xs font-bold text-gray-800">Colocar pontos em todos os clientes</span>
+                  <span className="text-xs font-bold text-gray-800">Definir meta (atendimentos) para todos os clientes</span>
                   <div className="flex flex-wrap items-center gap-2">
                     <input
                       type="number"
-                      min={0}
+                      min={2}
                       step={1}
                       value={loyaltyBulkApplyAllInput}
                       onChange={(e) => setLoyaltyBulkApplyAllInput(e.target.value)}
-                      placeholder="Ex.: 10"
+                      placeholder="Ex.: 18"
                       className="w-28 px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
                     />
                     <button
@@ -34885,7 +35072,7 @@ Estamos te aguardando! 😎✂️`;
                       {loyaltyBulkSavingAll ? 'Salvando...' : 'Salvar em todos'}
                     </button>
                   </div>
-                  <span className="text-[11px] text-gray-600">Aplica o mesmo número de pontos a todos os clientes não assinantes com WhatsApp válido.</span>
+                  <span className="text-[11px] text-gray-600">Define a meta de atendimentos e zera o ciclo para todos os clientes não assinantes com WhatsApp válido.</span>
                 </div>
               </div>
 

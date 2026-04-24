@@ -92,6 +92,31 @@ const formatCpfChat = (raw: string) => {
   return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
 };
 
+const buildLoyaltyPhoneLookupVariants = (rawPhone: string): string[] => {
+  const digits = onlyDigits(rawPhone);
+  if (!digits) return [];
+
+  const withoutCountry = digits.startsWith('55') && digits.length > 2 ? digits.slice(2) : digits;
+  const baseCandidates = new Set<string>([withoutCountry]);
+
+  // Compatibilidade BR: alguns históricos antigos podem existir com/sem o "9" local.
+  if (withoutCountry.length === 10) {
+    baseCandidates.add(`${withoutCountry.slice(0, 2)}9${withoutCountry.slice(2)}`);
+  }
+  if (withoutCountry.length === 11 && withoutCountry.slice(2, 3) === '9') {
+    baseCandidates.add(`${withoutCountry.slice(0, 2)}${withoutCountry.slice(3)}`);
+  }
+
+  const out = new Set<string>();
+  baseCandidates.forEach((base) => {
+    const clean = onlyDigits(base);
+    if (!clean) return;
+    out.add(clean);
+    out.add(`55${clean}`);
+  });
+  return Array.from(out);
+};
+
 const weekdayPtMap: Record<string, string> = {
   monday: 'segunda-feira',
   tuesday: 'terça-feira',
@@ -475,6 +500,72 @@ export function BookingChatFlow({
     if (subscriberAllowedWeekdays.length === 0) return true;
     return subscriberAllowedWeekdays.includes(getWeekdayKey(selectedDate));
   }, [isSubscriberFlow, selectedDate, subscriberAllowedWeekdays]);
+
+  const fetchPublicLoyaltyProgress = async (
+    establishmentId: string,
+    phoneRaw: string
+  ): Promise<{ cycle_goal: number; cycle_progress: number } | null> => {
+    const phoneVariants = buildLoyaltyPhoneLookupVariants(phoneRaw);
+    if (!establishmentId || phoneVariants.length === 0) return null;
+
+    let rows: Array<{ cycle_goal?: number; cycle_progress?: number }> = [];
+    for (const variant of phoneVariants) {
+      const { data, error } = await supabase.rpc('get_public_loyalty_progress', {
+        p_establishment_id: establishmentId,
+        p_client_whatsapp: variant,
+      });
+      if (error) {
+        const m = String(error.message || '').toLowerCase();
+        const isKnownMissingFn = m.includes('function') || m.includes('does not exist') || m.includes('schema cache');
+        if (!isKnownMissingFn) {
+          console.warn('Fidelidade (resumo público):', error);
+        }
+        continue;
+      }
+
+      const parsed = (Array.isArray(data) ? data[0] : data) as
+        | { cycle_goal?: number; cycle_progress?: number }
+        | null
+        | undefined;
+      if (!parsed || parsed.cycle_goal == null) continue;
+
+      const goal = Number(parsed.cycle_goal);
+      const prog = Number(parsed.cycle_progress ?? 0);
+      if (!Number.isFinite(goal) || goal < 2) continue;
+      if (!Number.isFinite(prog)) continue;
+      rows.push({ cycle_goal: goal, cycle_progress: Math.max(0, prog) });
+    }
+
+    if (rows.length === 0) return null;
+
+    const resolvedGoal = Math.max(...rows.map((r) => Number(r.cycle_goal || 0)));
+    const progresses = rows
+      .map((r) => Math.max(0, Number(r.cycle_progress || 0)))
+      .filter((x) => Number.isFinite(x));
+
+    const hasZero = progresses.some((x) => x === 0);
+    const nonZero = progresses.filter((x) => x > 0);
+
+    // Heurística de compatibilidade:
+    // - Se houver mistura de 0 e >0 entre variações do mesmo telefone, prioriza >0
+    //   (evita esconder progresso real recém acumulado para o cliente).
+    // - Fora isso, mantém critério conservador (menor valor).
+    const resolvedProgress =
+      hasZero && nonZero.length > 0
+        ? Math.max(...nonZero)
+        : Math.min(...progresses);
+
+    if (rows.length > 1) {
+      console.warn('Fidelidade: variacoes de telefone com progresso divergente no chat.', {
+        phoneVariants,
+        rows,
+        resolvedGoal,
+        resolvedProgress,
+      });
+    }
+
+    return { cycle_goal: resolvedGoal, cycle_progress: Math.min(resolvedGoal, Math.max(0, resolvedProgress)) };
+  };
 
   const effectiveSelectedService = useMemo(
     () => ({
@@ -1090,12 +1181,23 @@ export function BookingChatFlow({
       toast.error('Este estabelecimento exige CPF. Informe um CPF válido com 11 dígitos para confirmar.');
       return;
     }
+    let latestLoyaltyRow = publicLoyaltyRow;
+    if (!isSubscriberFlow) {
+      const establishmentId = String(establishment?.id || establishment?.establishment_id || '').trim();
+      try {
+        latestLoyaltyRow = await fetchPublicLoyaltyProgress(establishmentId, chatClientPhone);
+      } catch (error) {
+        console.warn('Fidelidade: falha ao revalidar no confirmar agendamento:', error);
+      }
+      setPublicLoyaltyRow(latestLoyaltyRow);
+    }
+
     const loyaltyFree =
       !isSubscriberFlow &&
       publicLoyaltyRedeemApplied &&
-      publicLoyaltyRow != null &&
-      publicLoyaltyRow.cycle_goal >= 2 &&
-      publicLoyaltyRow.cycle_progress >= publicLoyaltyRow.cycle_goal;
+      latestLoyaltyRow != null &&
+      latestLoyaltyRow.cycle_goal >= 2 &&
+      latestLoyaltyRow.cycle_progress >= latestLoyaltyRow.cycle_goal;
     if (publicLoyaltyRedeemApplied && !loyaltyFree) {
       toast.error('Não foi possível aplicar o benefício de fidelidade. Atualize a página e tente novamente.');
       return;
@@ -1346,33 +1448,12 @@ export function BookingChatFlow({
     }
     let cancelled = false;
     (async () => {
+      setPublicLoyaltyRow(null); // evita manter valor antigo na tela durante nova checagem
       setPublicLoyaltyLoading(true);
       try {
-        const { data, error } = await supabase.rpc('get_public_loyalty_progress', {
-          p_establishment_id: establishmentId,
-          p_client_whatsapp: phoneDigits,
-        });
+        const row = await fetchPublicLoyaltyProgress(establishmentId, phoneDigits);
         if (cancelled) return;
-        if (error) {
-          const m = String(error.message || '').toLowerCase();
-          if (!m.includes('function') && !m.includes('does not exist') && !m.includes('schema cache')) {
-            console.warn('Fidelidade (resumo público):', error);
-          }
-          setPublicLoyaltyRow(null);
-          return;
-        }
-        const row = (Array.isArray(data) ? data[0] : data) as { cycle_goal?: number; cycle_progress?: number } | null | undefined;
-        if (!row || row.cycle_goal == null) {
-          setPublicLoyaltyRow(null);
-          return;
-        }
-        const goal = Number(row.cycle_goal);
-        const prog = Number(row.cycle_progress ?? 0);
-        if (!Number.isFinite(goal) || goal < 2) {
-          setPublicLoyaltyRow(null);
-          return;
-        }
-        setPublicLoyaltyRow({ cycle_goal: goal, cycle_progress: prog });
+        setPublicLoyaltyRow(row);
       } finally {
         if (!cancelled) setPublicLoyaltyLoading(false);
       }
