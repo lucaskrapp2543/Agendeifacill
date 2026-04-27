@@ -4350,7 +4350,14 @@ const EstablishmentDashboard = () => {
     await ajustarFaltaCliente(client, 1);
     await fetchClients();
     try {
-      const { error } = await supabase.from('appointments').update({ status: 'cancelled' }).eq('id', appointment.id);
+      const { error } = await updateAppointmentCancelledWithSource(
+        supabase,
+        { id: appointment.id },
+        {
+          cancellation_source: CANCELLATION_SOURCE.ESTABLISHMENT_STAFF,
+          cancellation_detail: 'Cliente faltou ao atendimento.',
+        }
+      );
       if (error) throw error;
       toast.success('Agendamento cancelado.');
     } catch (e: any) {
@@ -4401,6 +4408,7 @@ const EstablishmentDashboard = () => {
   const [detailedAttendances, setDetailedAttendances] = useState<Appointment[]>([]);
   const [isLoadingDetailedAttendances, setIsLoadingDetailedAttendances] = useState(false);
   const lastDetailedAttendancesQueryKeyRef = useRef<string>('');
+  const cleanedAdvancePaymentsByMonthRef = useRef<Set<string>>(new Set());
   const [serviceRankingVisibleCount, setServiceRankingVisibleCount] = useState(20);
   const [cancelledServicesVisibleCount, setCancelledServicesVisibleCount] = useState(20);
   const [cancelledProfessionalsVisibleCount, setCancelledProfessionalsVisibleCount] = useState(5);
@@ -21385,6 +21393,72 @@ Estamos te aguardando! 😎✂️`;
       .filter((p: any) => paymentBelongsToSelectedMonth(p))
       .sort((a: any, b: any) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
 
+    // Regra oficial (sem adiantamento):
+    // todo pagamento positivo do mês conta imediatamente como pago.
+    const validPaid = monthPayments.reduce((sum: number, payment: any) => {
+      const paymentAmount = Number(payment.amount || 0);
+      return sum + (Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : 0);
+    }, 0);
+    const ignoredAdvance = 0;
+    const ignoredPaymentIds: string[] = [];
+    const referencePaymentDate =
+      monthPayments.length > 0
+        ? String(monthPayments[monthPayments.length - 1]?.payment_date || '')
+        : null;
+    const referencePaymentMs = referencePaymentDate ? new Date(referencePaymentDate).getTime() : Number.NaN;
+    const newSalesSinceLastValid = Number.isNaN(referencePaymentMs)
+      ? totalRealizedInMonth
+      : timeline
+        .filter((row) => row.completedAt > referencePaymentMs)
+        .reduce((sum, row) => sum + row.net, 0);
+
+    // Pendente operacional = saldo real do mês (total realizado - já pago).
+    const pendingAllowed = Math.max(0, totalRealizedInMonth - validPaid);
+
+    return {
+      validPaid,
+      ignoredAdvance,
+      ignoredPaymentIds,
+      newSalesSinceLastValid,
+      pendingAllowed,
+      lastValidPaymentDate: referencePaymentDate,
+      totalRealizedInMonth,
+    };
+  };
+
+  const findAdvancePaymentIdsByLegacyRule = (professional: any, appointmentsInMonth: Appointment[]): string[] => {
+    const monthStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
+    const monthEnd = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0, 23, 59, 59, 999);
+    const appointmentRows = appointmentsInMonth
+      .filter((apt) => appointmentBelongsToProfessional(apt, professional) && isCompletedAppointmentStatus(apt))
+      .filter((apt) => {
+        const aptDate = new Date(String(apt.appointment_date || ''));
+        if (Number.isNaN(aptDate.getTime())) return false;
+        return aptDate >= monthStart && aptDate <= monthEnd;
+      })
+      .map((apt) => ({
+        completedAt: getAppointmentCompletedAtMs(apt),
+        net: calculateProfessionalNetForAppointment(professional, apt),
+      }))
+      .filter((row) => Number.isFinite(row.net) && row.net > 0 && Number.isFinite(row.completedAt))
+      .sort((a, b) => a.completedAt - b.completedAt);
+
+    let cumulative = 0;
+    const timeline = appointmentRows.map((row) => {
+      cumulative += row.net;
+      return { ...row, cumulative };
+    });
+
+    const monthPayments = (allProfessionalPayments || [])
+      .filter((p: any) => p.professional_id === professional.id)
+      .filter((p: any) => Number(p.amount || 0) > 0)
+      .filter((p: any) => {
+        const src = String((p as any)?.payment_source || '').toLowerCase();
+        return !src || src === 'normal';
+      })
+      .filter((p: any) => paymentBelongsToSelectedMonth(p))
+      .sort((a: any, b: any) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
+
     const getRealizedUntil = (paymentTimeMs: number) => {
       let realized = 0;
       for (const row of timeline) {
@@ -21398,10 +21472,8 @@ Estamos te aguardando! 😎✂️`;
     };
 
     let validPaid = 0;
-    let ignoredAdvance = 0;
-    let lastValidPaymentDate: string | null = null;
-    const ignoredByPayment = new Map<string, number>();
     const PAYMENT_EPSILON = 0.009;
+    const ignoredIds: string[] = [];
 
     monthPayments.forEach((payment: any) => {
       const paymentAmount = Number(payment.amount || 0);
@@ -21409,42 +21481,61 @@ Estamos te aguardando! 😎✂️`;
       const realizedUntilPayment = getRealizedUntil(paymentTimeMs);
       const allowedAtPayment = Math.max(0, realizedUntilPayment - validPaid);
 
-      // Regra conservadora: pagamento só conta como "pago" quando estava 100% coberto
-      // pelo realizado até o momento do pagamento. Se não estava, fica como adiantamento ignorado.
       if (paymentAmount <= allowedAtPayment + PAYMENT_EPSILON) {
         validPaid += paymentAmount;
-        lastValidPaymentDate = String(payment.payment_date || '');
       } else {
-        ignoredAdvance += paymentAmount;
-        ignoredByPayment.set(String(payment.id), paymentAmount);
+        ignoredIds.push(String(payment.id || ''));
       }
     });
 
-    const ignoredPaymentIds = Array.from(ignoredByPayment.keys());
-
-    // Usar como referência apenas o último pagamento realmente válido (não adiantamento/ruído).
-    const referencePaymentDate = lastValidPaymentDate;
-    const referencePaymentMs = referencePaymentDate ? new Date(referencePaymentDate).getTime() : Number.NaN;
-    const newSalesSinceLastValid = Number.isNaN(referencePaymentMs)
-      ? totalRealizedInMonth
-      : timeline
-        .filter((row) => row.completedAt > referencePaymentMs)
-        .reduce((sum, row) => sum + row.net, 0);
-
-    // Pendente operacional = saldo real do mês (total realizado - pagos válidos).
-    // Mantém proteção anti-adiantamento sem "sumir" com valores já realizados.
-    const pendingAllowed = Math.max(0, totalRealizedInMonth - validPaid);
-
-    return {
-      validPaid,
-      ignoredAdvance,
-      ignoredPaymentIds,
-      newSalesSinceLastValid,
-      pendingAllowed,
-      lastValidPaymentDate: referencePaymentDate,
-      totalRealizedInMonth,
-    };
+    return ignoredIds.filter(Boolean);
   };
+
+  useEffect(() => {
+    const cleanupLegacyAdvancePayments = async () => {
+      const establishmentId = String(establishment?.id || '').trim();
+      if (!establishmentId) return;
+      if (!Array.isArray(establishment?.professionals) || establishment.professionals.length === 0) return;
+      if (!Array.isArray(monthlyAppointments) || monthlyAppointments.length === 0) return;
+      if (!Array.isArray(allProfessionalPayments) || allProfessionalPayments.length === 0) return;
+
+      const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+      const cleanupGuardKey = `${establishmentId}__${monthKey}`;
+      if (cleanedAdvancePaymentsByMonthRef.current.has(cleanupGuardKey)) return;
+
+      const idsToDelete = new Set<string>();
+      (establishment.professionals || []).forEach((professional: any) => {
+        const ignoredIds = findAdvancePaymentIdsByLegacyRule(professional, monthlyAppointments);
+        ignoredIds.forEach((id) => idsToDelete.add(id));
+      });
+
+      cleanedAdvancePaymentsByMonthRef.current.add(cleanupGuardKey);
+      if (idsToDelete.size === 0) return;
+
+      const idList = Array.from(idsToDelete);
+      const { error } = await supabase
+        .from('professional_payments')
+        .delete()
+        .in('id', idList);
+
+      if (error) {
+        console.error('❌ Erro ao remover pagamentos adiantados legados:', error);
+        hotToast.error(error?.message || 'Erro ao remover pagamentos adiantados antigos.');
+        return;
+      }
+
+      setAllProfessionalPayments((prev) => prev.filter((row: any) => !idsToDelete.has(String(row?.id || ''))));
+      hotToast.success(`${idList.length} pagamento(s) adiantado(s) legado(s) foram removidos deste mês.`);
+    };
+
+    void cleanupLegacyAdvancePayments();
+  }, [
+    establishment?.id,
+    establishment?.professionals,
+    selectedMonth,
+    allProfessionalPayments,
+    monthlyAppointments,
+  ]);
 
   // Função para calcular valor total que o CLIENTE PAGA (incluindo produtos V2)
   const calculateClientTotalPayment = (appointment: Appointment): number => {
@@ -31604,7 +31695,7 @@ Estamos te aguardando! 😎✂️`;
                           return products;
                         }, []);
 
-                        const paymentValidation = buildValidatedProfessionalPaymentData(professional, professionalRevenueAppointments);
+                        const paymentValidation = buildValidatedProfessionalPaymentData(professional, monthlyAppointments);
                         const subscriberProfessionalFinancial = subscriberFinancialByProfessional[professional.name] || {
                           totalAccumulated: 0,
                           totalPaid: 0,
@@ -31749,8 +31840,7 @@ Estamos te aguardando! 😎✂️`;
                                   professionalId={professional.id}
                                   professionalName={professional.name}
                                   currentLiquidValue={reconciledProfessionalLiquid}
-                                  // Regra global anti-adiantamento:
-                                  // só libera pagamento sobre vendas já realizadas até a data do pagamento.
+                                  // Regra oficial: pagamento limitado ao saldo pendente do mês.
                                   newSalesValue={paymentValidation.newSalesSinceLastValid}
                                   validatedPaidAmount={paymentValidation.validPaid}
                                   validatedPendingAmount={paymentValidation.pendingAllowed}

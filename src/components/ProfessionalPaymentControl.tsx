@@ -378,7 +378,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           )}
           {typeof validatedPendingAmount === 'number' && (
             <div className="text-[11px] text-gray-400">
-              Pendente do mês (pagamentos válidos aplicados)
+              Pendente do mês (sem adiantamento)
             </div>
           )}
         </div>

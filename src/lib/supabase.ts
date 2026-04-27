@@ -774,12 +774,35 @@ export const createAppointment = async (appointmentData: any) => {
 
     const parseDurationMinutes = (rawDuration: any): number => {
       if (typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration > 0) {
-        return rawDuration;
+        return Math.round(rawDuration);
       }
-      const raw = String(rawDuration || '').trim();
+      const raw = String(rawDuration || '').trim().toLowerCase();
       if (!raw) return 30;
+
+      const hhmmMatch = raw.match(/^(\d{1,2}):(\d{2})$/);
+      if (hhmmMatch) {
+        const h = Number(hhmmMatch[1]);
+        const m = Number(hhmmMatch[2]);
+        const total = h * 60 + m;
+        return Number.isFinite(total) && total > 0 ? total : 30;
+      }
+
       const numeric = Number(raw);
-      if (Number.isFinite(numeric) && numeric > 0) return numeric;
+      if (Number.isFinite(numeric) && numeric > 0) return Math.round(numeric);
+
+      const hourMatch = raw.match(/(\d+(?:[.,]\d+)?)\s*(h|hr|hrs|hora|horas)\b/);
+      if (hourMatch) {
+        const hours = Number(String(hourMatch[1]).replace(',', '.'));
+        const total = Math.round(hours * 60);
+        return Number.isFinite(total) && total > 0 ? total : 30;
+      }
+
+      const minuteMatch = raw.match(/(\d+)\s*(m|min|mins|minuto|minutos)\b/);
+      if (minuteMatch) {
+        const mins = Number(minuteMatch[1]);
+        return Number.isFinite(mins) && mins > 0 ? mins : 30;
+      }
+
       const match = raw.match(/(\d+)/);
       if (match) {
         const parsed = Number(match[1]);

@@ -218,13 +218,37 @@ export default function ReservarCliente({
     if (typeof rawDuration === 'number') {
       return Number.isFinite(rawDuration) && rawDuration > 0 ? Math.round(rawDuration) : 30;
     }
-    const rawText = String(rawDuration).trim();
+
+    const rawText = String(rawDuration).trim().toLowerCase();
     if (!rawText) return 30;
+
+    const hhmmMatch = rawText.match(/^(\d{1,2}):(\d{2})$/);
+    if (hhmmMatch) {
+      const h = Number(hhmmMatch[1]);
+      const m = Number(hhmmMatch[2]);
+      const total = h * 60 + m;
+      return Number.isFinite(total) && total > 0 ? total : 30;
+    }
+
     const direct = Number(rawText);
     if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
-    const match = rawText.match(/(\d+)/);
-    if (!match) return 30;
-    const parsed = Number(match[1]);
+
+    const hourMatch = rawText.match(/(\d+(?:[.,]\d+)?)\s*(h|hr|hrs|hora|horas)\b/);
+    if (hourMatch) {
+      const hours = Number(String(hourMatch[1]).replace(',', '.'));
+      const total = Math.round(hours * 60);
+      return Number.isFinite(total) && total > 0 ? total : 30;
+    }
+
+    const minuteMatch = rawText.match(/(\d+)\s*(m|min|mins|minuto|minutos)\b/);
+    if (minuteMatch) {
+      const mins = Number(minuteMatch[1]);
+      return Number.isFinite(mins) && mins > 0 ? mins : 30;
+    }
+
+    const numberMatch = rawText.match(/(\d+)/);
+    if (!numberMatch) return 30;
+    const parsed = Number(numberMatch[1]);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
   };
 
@@ -288,7 +312,7 @@ export default function ReservarCliente({
   const normalizeSpecificService = (raw: any, fallbackKey: string): Service | null => {
     const name = String(raw?.name || raw?.service_name || '').trim();
     const price = Number(raw?.price ?? raw?.service_price ?? 0);
-    const duration = Number(raw?.duration ?? raw?.service_duration_minutes ?? 0);
+    const duration = parseDurationMinutes(raw?.duration ?? raw?.service_duration_minutes ?? 0);
     const rawId = String(raw?.id || raw?.service_id || '').trim();
 
     if (!name || !Number.isFinite(price) || price <= 0) return null;
@@ -835,7 +859,7 @@ export default function ReservarCliente({
               id: String(s.id),
               name: String(s.name || '').trim(),
               price: Number(s.price || 0),
-              duration: Number(s.duration || 30),
+              duration: parseDurationMinutes(s.duration || 30),
               loyalty_points: Math.max(0, Math.floor(Number(s.loyalty_points ?? 0))),
             })).filter((s: any) => s.name && s.price > 0);
 
@@ -869,7 +893,7 @@ export default function ReservarCliente({
             id: String(service.id || Math.random().toString(36).substring(2)),
             name: String(service.name || '').trim(),
             price: Number(service.price || 0),
-            duration: Number(service.duration || 30),
+            duration: parseDurationMinutes(service.duration || 30),
             loyalty_points: Math.max(0, Math.floor(Number(service.loyalty_points ?? 0))),
           }))
           .filter((s: any) => s.name && s.price > 0);

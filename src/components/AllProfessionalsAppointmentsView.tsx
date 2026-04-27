@@ -390,6 +390,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [isLoadingMonthPending, setIsLoadingMonthPending] = useState(false);
     const [monthPendingFilterDate, setMonthPendingFilterDate] = useState('');
     const [showCancelledHistoryModal, setShowCancelledHistoryModal] = useState(false);
+    const [showStatusDetailsModal, setShowStatusDetailsModal] = useState(false);
+    const [statusDetailsRows, setStatusDetailsRows] = useState<Appointment[]>([]);
+    const [statusDetailsType, setStatusDetailsType] = useState<'pending' | 'completed'>('pending');
+    const [statusDetailsProfessionalName, setStatusDetailsProfessionalName] = useState('');
+    const [statusDetailsDate, setStatusDetailsDate] = useState('');
     const [cancelledHistoryRows, setCancelledHistoryRows] = useState<Appointment[]>([]);
     const [cancelledHistoryProfessionalName, setCancelledHistoryProfessionalName] = useState('');
     const [cancelledHistoryDate, setCancelledHistoryDate] = useState('');
@@ -1893,6 +1898,18 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return !Boolean(unlockedFinancialByProfessional[String(professional.id)]);
     };
 
+    const isClientNoShowCancellation = (apt: Appointment): boolean => {
+      if (apt.status !== 'cancelled') return false;
+      const source = String((apt as any)?.cancellation_source || '').toLowerCase();
+      const detail = String((apt as any)?.cancellation_detail || '').toLowerCase();
+      return (
+        source.includes('no_show') ||
+        detail.includes('falt') ||
+        detail.includes('nao comparec') ||
+        detail.includes('não comparec')
+      );
+    };
+
     const formatCurrency = (value: number) => {
       return new Intl.NumberFormat('pt-BR', {
         style: 'currency',
@@ -1907,6 +1924,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
         return mins > 0 ? `${hours}h ${mins}min` : `${hours}h`;
       }
       return `${mins}min`;
+    };
+
+    const formatAppointmentCreatedAt = (createdAtRaw: unknown) => {
+      const raw = String(createdAtRaw || '').trim();
+      if (!raw) return 'Não disponível';
+      try {
+        return format(parseISO(raw), 'dd/MM/yyyy HH:mm');
+      } catch {
+        return raw;
+      }
     };
 
     const calculateTotalPrice = (apt: Appointment) => {
@@ -4556,6 +4583,91 @@ export const AllProfessionalsAppointmentsView: React.FC<
         )}
 
 
+        {showStatusDetailsModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowStatusDetailsModal(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <div className={`text-white p-4 flex items-center justify-between ${statusDetailsType === 'completed'
+                ? 'bg-gradient-to-r from-green-700 to-green-800'
+                : 'bg-gradient-to-r from-yellow-700 to-yellow-800'
+                }`}>
+                <div>
+                  <h2 className="text-lg font-bold">
+                    {statusDetailsType === 'completed' ? '✅ Histórico de concluídos' : '⏳ Histórico de pendentes'}
+                  </h2>
+                  <p className={`text-xs ${statusDetailsType === 'completed' ? 'text-green-100' : 'text-yellow-100'}`}>
+                    {statusDetailsProfessionalName || 'Profissional'} • {String(statusDetailsDate || '').split('-').reverse().join('/')}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowStatusDetailsModal(false)}
+                  className="p-2 hover:bg-white/20 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-4 max-h-[70vh] overflow-y-auto">
+                {statusDetailsRows.length === 0 ? (
+                  <div className="py-8 text-center text-gray-600">
+                    {statusDetailsType === 'completed'
+                      ? 'Nenhum agendamento concluído nesse dia para este profissional.'
+                      : 'Nenhum agendamento pendente nesse dia para este profissional.'}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {statusDetailsRows.map((apt) => (
+                      <div
+                        key={`status-details-${statusDetailsType}-${apt.id}`}
+                        className={`rounded-lg border p-3 ${statusDetailsType === 'completed'
+                          ? 'border-green-200 bg-green-50'
+                          : 'border-yellow-200 bg-yellow-50'
+                          }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-extrabold text-gray-900 truncate">
+                              {String(getDisplayedClientName(apt) || apt.client_name || 'Cliente')}
+                            </div>
+                            <div className="text-xs text-gray-700 truncate">{String(apt.service || 'Serviço não informado')}</div>
+                            <div className="text-[11px] text-gray-700 mt-1">
+                              Data: {String(apt.appointment_date || '').slice(0, 10).split('-').reverse().join('/')} • Horário: {String(apt.appointment_time || '--:--')}
+                            </div>
+                            <div className="text-[11px] text-gray-700">
+                              Origem: {getAppointmentOriginLabel(apt)}
+                            </div>
+                            <div className="text-[11px] text-gray-700">
+                              Duração: {formatDuration(getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos))}
+                            </div>
+                            <div className="text-[11px] text-gray-700">
+                              Agendado em: {formatAppointmentCreatedAt((apt as any)?.created_at)}
+                            </div>
+                            {apt.client_whatsapp && (
+                              <div className="text-[11px] text-gray-700">
+                                WhatsApp: {apt.client_whatsapp}
+                              </div>
+                            )}
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <div className={`text-[11px] font-bold ${statusDetailsType === 'completed' ? 'text-green-700' : 'text-yellow-700'}`}>
+                              {apt.status === 'completed' ? 'CONCLUÍDO' : apt.status === 'confirmed' ? 'CONFIRMADO' : 'PENDENTE'}
+                            </div>
+                            <div className="text-xs text-gray-700">
+                              Base: {formatCurrency(Number(apt.price || 0))}
+                            </div>
+                            <div className="text-xs font-semibold text-gray-900">
+                              Total: {formatCurrency(calculateTotalPrice(apt))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {showCancelledHistoryModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowCancelledHistoryModal(false)}>
             <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -4593,7 +4705,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               Data: {String(apt.appointment_date || '').slice(0, 10).split('-').reverse().join('/')} • Horário: {String(apt.appointment_time || '--:--')}
                             </div>
                             <div className="text-[11px] text-gray-700">
+                              Origem: {getAppointmentOriginLabel(apt)}
+                            </div>
+                            <div className="text-[11px] text-gray-700">
                               Duração: {formatDuration(getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos))}
+                            </div>
+                            <div className="text-[11px] text-gray-700">
+                              Agendado em: {formatAppointmentCreatedAt((apt as any)?.created_at)}
                             </div>
                             {apt.client_whatsapp && (
                               <div className="text-[11px] text-gray-700">
@@ -4607,13 +4725,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             )}
                           </div>
                           <div className="shrink-0 text-right">
-                            <div className="text-[11px] font-bold text-red-700">CANCELADO</div>
+                            <div className={`text-[11px] font-bold ${isClientNoShowCancellation(apt) ? 'text-orange-700' : 'text-red-700'}`}>
+                              {isClientNoShowCancellation(apt) ? 'AUSENTE (FALTA)' : 'CANCELADO'}
+                            </div>
                             <div className="text-xs text-gray-700">
                               Base: {formatCurrency(Number(apt.price || 0))}
                             </div>
                             <div className="text-xs font-semibold text-gray-900">
                               Total: {formatCurrency(calculateTotalPrice(apt))}
                             </div>
+                            {(apt as any)?.cancellation_detail ? (
+                              <div className="mt-1 text-[10px] text-gray-600 max-w-[170px] whitespace-normal break-words">
+                                {String((apt as any).cancellation_detail)}
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       </div>
@@ -4676,11 +4801,33 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   (apt.status === 'pending' || apt.status === 'confirmed')
                 ).length;
 
+                const pendingAppointments = appointments
+                  .filter((apt) =>
+                    appointmentBelongsToProfessionalColumn(apt, professional) &&
+                    apt.appointment_date === selectedDateStr &&
+                    (apt.status === 'pending' || apt.status === 'confirmed')
+                  )
+                  .sort((a, b) =>
+                    parse(a.appointment_time, 'HH:mm', selectedDate).getTime() -
+                    parse(b.appointment_time, 'HH:mm', selectedDate).getTime()
+                  );
+
                 const completedCount = appointments.filter((apt) =>
                   appointmentBelongsToProfessionalColumn(apt, professional) &&
                   apt.appointment_date === selectedDateStr &&
                   apt.status === 'completed'
                 ).length;
+
+                const completedAppointments = appointments
+                  .filter((apt) =>
+                    appointmentBelongsToProfessionalColumn(apt, professional) &&
+                    apt.appointment_date === selectedDateStr &&
+                    apt.status === 'completed'
+                  )
+                  .sort((a, b) =>
+                    parse(a.appointment_time, 'HH:mm', selectedDate).getTime() -
+                    parse(b.appointment_time, 'HH:mm', selectedDate).getTime()
+                  );
 
                 const cancelledAppointments = appointments
                   .filter((apt) =>
@@ -4889,12 +5036,42 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           >
                             {appointmentsLocked ? '🔒' : `❌ ${cancelledCount}`}
                           </button>
-                          <span className="px-2 py-1 bg-yellow-600/80 text-white rounded border border-yellow-700">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (appointmentsLocked) {
+                                onRequestAppointmentsUnlock?.(professional.id);
+                                return;
+                              }
+                              setStatusDetailsRows(pendingAppointments);
+                              setStatusDetailsType('pending');
+                              setStatusDetailsProfessionalName(professional.name);
+                              setStatusDetailsDate(selectedDateStr);
+                              setShowStatusDetailsModal(true);
+                            }}
+                            className="px-2 py-1 bg-yellow-600/80 text-white rounded border border-yellow-700 hover:bg-yellow-700 transition-colors"
+                            title="Ver agendamentos pendentes deste profissional no dia"
+                          >
                             {appointmentsLocked ? '🔒' : `⏳ ${pendingCount}`}
-                          </span>
-                          <span className="px-2 py-1 bg-green-600/80 text-white rounded border border-green-700">
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (appointmentsLocked) {
+                                onRequestAppointmentsUnlock?.(professional.id);
+                                return;
+                              }
+                              setStatusDetailsRows(completedAppointments);
+                              setStatusDetailsType('completed');
+                              setStatusDetailsProfessionalName(professional.name);
+                              setStatusDetailsDate(selectedDateStr);
+                              setShowStatusDetailsModal(true);
+                            }}
+                            className="px-2 py-1 bg-green-600/80 text-white rounded border border-green-700 hover:bg-green-700 transition-colors"
+                            title="Ver agendamentos concluídos deste profissional no dia"
+                          >
                             {appointmentsLocked ? '🔒' : `✅ ${completedCount}`}
-                          </span>
+                          </button>
                         </div>
 
                         {/* Meta do Profissional */}
