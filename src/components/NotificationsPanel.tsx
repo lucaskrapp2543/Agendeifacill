@@ -1,5 +1,5 @@
 import { Bell, CheckCircle, Trash2, X, XCircle } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { describeCancellationSourcePt } from '../utils/appointmentCancellationMeta';
 import { dlog } from '../utils/debugConsole';
@@ -49,6 +49,53 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
   const [expandedReasonIds, setExpandedReasonIds] = useState<Set<string>>(new Set());
   const [markAllAsReadLoading, setMarkAllAsReadLoading] = useState(false);
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState(false);
+  const [hasLoadedNotificationsList, setHasLoadedNotificationsList] = useState(false);
+  const [useLightweightPollingMode, setUseLightweightPollingMode] = useState(true);
+  const [hasPendingNotificationsUpdate, setHasPendingNotificationsUpdate] = useState(false);
+  const unreadCountRef = useRef(0);
+
+  const applyUnreadCount = (count: number, options?: { fromLightweightPoll?: boolean }) => {
+    const safeCount = Math.max(0, Number(count || 0));
+    const previousCount = unreadCountRef.current;
+    unreadCountRef.current = safeCount;
+    setUnreadCount(safeCount);
+    onUnreadCountChange?.(safeCount);
+
+    if (
+      options?.fromLightweightPoll &&
+      useLightweightPollingMode &&
+      hasLoadedNotificationsList &&
+      safeCount > previousCount
+    ) {
+      setHasPendingNotificationsUpdate(true);
+    }
+
+    if (safeCount === 0) {
+      setHasPendingNotificationsUpdate(false);
+    }
+  };
+
+  const fetchUnreadCountOnly = async () => {
+    if (!establishmentId) return;
+    try {
+      const { count, error } = await supabase
+        .from('establishment_notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('establishment_id', establishmentId)
+        .eq('read', false);
+
+      if (error) {
+        console.error('❌ Erro ao buscar contador de notificações:', error);
+        return;
+      }
+
+      applyUnreadCount(Number(count || 0), { fromLightweightPoll: true });
+    } catch (error) {
+      console.error('❌ Erro inesperado ao buscar contador de notificações:', error);
+    }
+  };
+
 
   const isUuid = (value?: string | null) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
@@ -271,6 +318,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
 
   // Buscar notificações
   const fetchNotifications = async () => {
+    setIsLoadingNotifications(true);
     try {
       dlog('🔍 Buscando notificações para establishment:', establishmentId);
 
@@ -301,12 +349,9 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
 
       // Contar não lidas
       const unread = (visibleNotifications || []).filter((n: any) => !n.read).length;
-      setUnreadCount(unread);
-
-      // Notificar o componente pai sobre a mudança
-      if (onUnreadCountChange) {
-        onUnreadCountChange(unread);
-      }
+      applyUnreadCount(unread);
+      setHasLoadedNotificationsList(true);
+      setHasPendingNotificationsUpdate(false);
 
       dlog('🔔 Notificações não lidas:', unread);
 
@@ -321,6 +366,8 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
 
     } catch (error) {
       console.error('❌ Erro ao buscar notificações:', error);
+    } finally {
+      setIsLoadingNotifications(false);
     }
   };
 
@@ -483,22 +530,58 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
   // Buscar notificações quando abrir
   useEffect(() => {
     if (isOpen) {
-      fetchNotifications();
+      if (!useLightweightPollingMode) {
+        fetchNotifications();
+      } else {
+        fetchUnreadCountOnly();
+      }
     }
-  }, [isOpen, establishmentId]);
+  }, [isOpen, establishmentId, useLightweightPollingMode]);
 
-  // Buscar notificações periodicamente (mesmo fechado)
+  // Ler modo de polling a partir do localStorage.
+  // Fallback/compat: se "notifications_polling_mode=legacy", mantém comportamento antigo.
   useEffect(() => {
-    // Buscar imediatamente
-    fetchNotifications();
+    if (typeof window === 'undefined') return;
+    const mode = window.localStorage.getItem('notifications_polling_mode');
+    setUseLightweightPollingMode(mode !== 'legacy');
+  }, []);
 
-    // Buscar a cada 10 segundos
+  // Atualizar periodicamente: modo leve (contador) ou legado (lista completa).
+  useEffect(() => {
+    const run = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (useLightweightPollingMode) {
+        void fetchUnreadCountOnly();
+        return;
+      }
+      void fetchNotifications();
+    };
+
+    run();
     const interval = setInterval(() => {
-      fetchNotifications();
-    }, 10000);
+      run();
+    }, useLightweightPollingMode ? 30000 : 10000);
 
     return () => clearInterval(interval);
-  }, [establishmentId]);
+  }, [establishmentId, useLightweightPollingMode]);
+
+  // Ao voltar para a aba/app, atualiza rapidamente o badge no modo leve.
+  useEffect(() => {
+    if (!useLightweightPollingMode) return;
+
+    const handleForegroundRefresh = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      void fetchUnreadCountOnly();
+    };
+
+    document.addEventListener('visibilitychange', handleForegroundRefresh);
+    window.addEventListener('focus', handleForegroundRefresh);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleForegroundRefresh);
+      window.removeEventListener('focus', handleForegroundRefresh);
+    };
+  }, [establishmentId, useLightweightPollingMode]);
 
   // Atualizar status da permissão de notificações
   useEffect(() => {
@@ -510,6 +593,11 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
   useEffect(() => {
     fetchProfessionalNames();
   }, [establishmentId]);
+
+  const handleLoadNotifications = async () => {
+    await fetchNotifications();
+    setHasPendingNotificationsUpdate(false);
+  };
 
   // Filtrar notificações
   const filteredNotifications = notifications.filter(notification => {
@@ -542,24 +630,45 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setIsOpen(false)}>
           <div className="bg-white border border-gray-200 rounded-lg shadow-xl w-full max-w-md max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-200">
-              <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-3 p-4 border-b border-gray-200 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
                 <h3 className="text-lg font-semibold text-gray-900">Notificações</h3>
                 {/* Status das notificações */}
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-lg">
+                <div className="mt-1 flex flex-col gap-1">
+                  <div className="inline-flex w-fit items-center gap-2 px-3 py-1 bg-gray-100 rounded-lg">
                     <div className={`w-3 h-3 rounded-full ${notificationPermission === 'granted' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
                     <span className={`text-sm ${notificationPermission === 'granted' ? 'text-green-700' : 'text-gray-600'}`}>
                       {notificationPermission === 'granted' ? 'Ativo' : 'Inativo'}
                     </span>
                   </div>
                   {/* Dica para o usuário */}
-                  <p className="text-xs text-gray-500 italic">
+                  <p className="hidden text-xs text-gray-500 italic sm:block">
                     Clique nas notificações para sabermos que você viu
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2 sm:justify-start">
+                {useLightweightPollingMode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleLoadNotifications();
+                    }}
+                    disabled={isLoadingNotifications}
+                    className={`px-2 py-1.5 text-[11px] font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${
+                      hasPendingNotificationsUpdate
+                        ? 'text-blue-900 bg-blue-100 border border-blue-300 hover:bg-blue-200'
+                        : 'text-black bg-yellow-100 border border-yellow-300 hover:bg-yellow-200'
+                    }`}
+                    title="Carregar lista completa de notificações"
+                  >
+                    {isLoadingNotifications
+                      ? 'Carregando…'
+                      : hasPendingNotificationsUpdate
+                        ? 'Novas - Atualizar'
+                        : (hasLoadedNotificationsList ? 'Atualizar' : 'Carregar')}
+                  </button>
+                )}
                 {('Notification' in window && notificationPermission !== 'granted') && (
                   <button
                     onClick={async () => {
@@ -645,7 +754,26 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
 
             {/* Lista de notificações */}
             <div className="max-h-96 overflow-y-auto">
-              {filteredNotifications.length === 0 ? (
+              {useLightweightPollingMode && hasLoadedNotificationsList && hasPendingNotificationsUpdate && (
+                <div className="p-3 border-b border-blue-200 bg-blue-50">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleLoadNotifications();
+                    }}
+                    className="text-xs font-semibold text-blue-800 hover:text-blue-950 underline"
+                  >
+                    Novas notificações detectadas. Clique para atualizar a lista.
+                  </button>
+                </div>
+              )}
+              {useLightweightPollingMode && !hasLoadedNotificationsList ? (
+                <div className="p-4 text-center text-gray-600">
+                  <p className="text-sm">
+                    O contador já está atualizado. Clique em <strong>Carregar notificações</strong> para buscar a lista completa.
+                  </p>
+                </div>
+              ) : filteredNotifications.length === 0 ? (
                 <div className="p-4 text-center text-gray-500">
                   {filter === 'all'
                     ? 'Nenhuma notificação'
