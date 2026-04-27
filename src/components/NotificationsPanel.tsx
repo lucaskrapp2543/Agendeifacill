@@ -1,6 +1,7 @@
 import { Bell, CheckCircle, Trash2, X, XCircle } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { isAppStandbyActive, subscribeToAppStandby } from '../utils/appStandby';
 import { describeCancellationSourcePt } from '../utils/appointmentCancellationMeta';
 import { dlog } from '../utils/debugConsole';
 import { useToast } from './ui/Toaster';
@@ -54,6 +55,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
   const [useLightweightPollingMode, setUseLightweightPollingMode] = useState(true);
   const [hasPendingNotificationsUpdate, setHasPendingNotificationsUpdate] = useState(false);
   const unreadCountRef = useRef(0);
+  const standbyAbortRef = useRef<AbortController | null>(null);
 
   const applyUnreadCount = (count: number, options?: { fromLightweightPoll?: boolean }) => {
     const safeCount = Math.max(0, Number(count || 0));
@@ -76,14 +78,31 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
     }
   };
 
+  const createStandbyAwareController = () => {
+    standbyAbortRef.current?.abort();
+    const controller = new AbortController();
+    standbyAbortRef.current = controller;
+    return controller;
+  };
+
+  const releaseStandbyController = (controller: AbortController | null) => {
+    if (standbyAbortRef.current === controller) {
+      standbyAbortRef.current = null;
+    }
+  };
+
   const fetchUnreadCountOnly = async () => {
     if (!establishmentId) return;
+    if (isAppStandbyActive()) return;
+    let controller: AbortController | null = null;
     try {
+      controller = createStandbyAwareController();
       const { count, error } = await supabase
         .from('establishment_notifications')
         .select('id', { count: 'exact', head: true })
         .eq('establishment_id', establishmentId)
-        .eq('read', false);
+        .eq('read', false)
+        .abortSignal(controller.signal);
 
       if (error) {
         console.error('❌ Erro ao buscar contador de notificações:', error);
@@ -92,7 +111,10 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
 
       applyUnreadCount(Number(count || 0), { fromLightweightPoll: true });
     } catch (error) {
+      if ((error as any)?.name === 'AbortError') return;
       console.error('❌ Erro inesperado ao buscar contador de notificações:', error);
+    } finally {
+      releaseStandbyController(controller);
     }
   };
 
@@ -233,14 +255,15 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
         return {};
       }
 
-      const fetchByChunkSize = async (selectClause: string, chunkSize: number) => {
+      const fetchByChunkSize = async (selectClause: string, chunkSize: number, signal: AbortSignal) => {
         const mergedRows: any[] = [];
         for (let i = 0; i < safeAppointmentIds.length; i += chunkSize) {
           const chunk = safeAppointmentIds.slice(i, i + chunkSize);
           const result = await supabase
             .from('appointments')
             .select(selectClause)
-            .in('id', chunk);
+            .in('id', chunk)
+            .abortSignal(signal);
           if (result.error) {
             return { data: null as any[] | null, error: result.error as any };
           }
@@ -263,7 +286,8 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
         window.sessionStorage.getItem('notifications_appointments_safe_select') === '1';
 
       if (forceSafeMode) {
-        const safeResult = await fetchByChunkSize(safeSelect, 20);
+        const detailsController = createStandbyAwareController();
+        const safeResult = await fetchByChunkSize(safeSelect, 20, detailsController.signal);
         data = safeResult.data as any;
         error = safeResult.error as any;
       } else {
@@ -271,10 +295,11 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
           new Set([preferredSelect, ...selectAttempts].filter(Boolean))
         );
         for (const selectClause of mergedAttempts) {
+          const detailsController = createStandbyAwareController();
           // Estratégia progressiva para ambientes com proxy mais restrito.
-          let result = await fetchByChunkSize(selectClause, 20);
-          if (result.error) result = await fetchByChunkSize(selectClause, 10);
-          if (result.error) result = await fetchByChunkSize(selectClause, 1);
+          let result = await fetchByChunkSize(selectClause, 20, detailsController.signal);
+          if (result.error) result = await fetchByChunkSize(selectClause, 10, detailsController.signal);
+          if (result.error) result = await fetchByChunkSize(selectClause, 1, detailsController.signal);
           data = result.data as any;
           error = result.error as any;
           if (!error) {
@@ -291,7 +316,8 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
         if (error && typeof window !== 'undefined') {
           // Evita repetir 400 em todo refresh quando schema é legado.
           window.sessionStorage.setItem('notifications_appointments_safe_select', '1');
-          const safeResult = await fetchByChunkSize(safeSelect, 20);
+          const detailsController = createStandbyAwareController();
+          const safeResult = await fetchByChunkSize(safeSelect, 20, detailsController.signal);
           data = safeResult.data as any;
           error = safeResult.error as any;
         }
@@ -311,6 +337,9 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       setAppointmentDetailsMap(nextMap);
       return nextMap;
     } catch (error) {
+      if ((error as any)?.name === 'AbortError') {
+        return {};
+      }
       console.error('❌ Erro inesperado ao buscar agendamentos das notificações:', error);
       return {};
     }
@@ -318,16 +347,20 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
 
   // Buscar notificações
   const fetchNotifications = async () => {
+    if (isAppStandbyActive()) return;
     setIsLoadingNotifications(true);
+    let controller: AbortController | null = null;
     try {
       dlog('🔍 Buscando notificações para establishment:', establishmentId);
 
+      controller = createStandbyAwareController();
       const { data, error } = await supabase
         .from('establishment_notifications')
         .select('*')
         .eq('establishment_id', establishmentId)
         .order('created_at', { ascending: false })
-        .limit(100);
+        .limit(100)
+        .abortSignal(controller.signal);
 
       if (error) {
         console.error('❌ Erro ao buscar notificações:', error);
@@ -338,6 +371,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       dlog('📋 Notificações:', data);
 
       const detailsMap = await fetchAppointmentDetails((data || []) as Notification[]);
+      if (isAppStandbyActive()) return;
       const visibleNotifications = (data || []).filter((n: any) => {
         const appointmentId = String(n?.appointment_id || '').trim();
         if (!appointmentId) return true;
@@ -345,6 +379,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
         return !isLikelyLegacyWaitlist(snapshot);
       });
 
+      if (isAppStandbyActive()) return;
       setNotifications(visibleNotifications as any);
 
       // Contar não lidas
@@ -365,8 +400,10 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       }
 
     } catch (error) {
+      if ((error as any)?.name === 'AbortError') return;
       console.error('❌ Erro ao buscar notificações:', error);
     } finally {
+      releaseStandbyController(controller);
       setIsLoadingNotifications(false);
     }
   };
@@ -546,10 +583,20 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
     setUseLightweightPollingMode(mode !== 'legacy');
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = subscribeToAppStandby(({ active }) => {
+      if (!active) return;
+      standbyAbortRef.current?.abort();
+      standbyAbortRef.current = null;
+    });
+    return unsubscribe;
+  }, []);
+
   // Atualizar periodicamente: modo leve (contador) ou legado (lista completa).
   useEffect(() => {
     const run = () => {
       if (typeof document !== 'undefined' && document.hidden) return;
+      if (isAppStandbyActive()) return;
       if (useLightweightPollingMode) {
         void fetchUnreadCountOnly();
         return;
@@ -571,6 +618,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
 
     const handleForegroundRefresh = () => {
       if (typeof document !== 'undefined' && document.hidden) return;
+      if (isAppStandbyActive()) return;
       void fetchUnreadCountOnly();
     };
 

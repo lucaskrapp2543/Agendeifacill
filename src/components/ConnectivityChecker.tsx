@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { isAppStandbyActive } from '../utils/appStandby';
 import { dlog } from '../utils/debugConsole';
 
 interface ConnectivityCheckerProps {
@@ -46,6 +47,10 @@ export const ConnectivityChecker: React.FC<ConnectivityCheckerProps> = ({
   };
 
   const checkConnectivity = async () => {
+    if (isAppStandbyActive()) {
+      dlog('🟢 ConnectivityChecker pausado: app em standby');
+      return;
+    }
     setIsChecking(true);
     try {
       // 1) Sem rede local no aparelho: desconectado imediatamente.

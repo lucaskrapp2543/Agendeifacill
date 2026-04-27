@@ -2,8 +2,8 @@ import React from 'react';
 import { Toaster } from 'react-hot-toast';
 import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { CacheBuster } from './components/CacheBuster';
+import { AppStandbyGuard } from './components/AppStandbyGuard';
 import { ConnectionStatus } from './components/ConnectionStatus';
-import { ConnectivityChecker } from './components/ConnectivityChecker';
 import { EnvironmentError } from './components/EnvironmentError';
 import ErrorBoundary from './components/ErrorBoundary';
 import { RefreshButton } from './components/RefreshButton';
@@ -108,10 +108,10 @@ function App() {
         />
         <SupabaseProvider>
           <AuthProvider>
-            <ConnectivityChecker>
-              <Router>
-                <PWARedirect />
-                <Routes>
+            <Router>
+              <PWARedirect />
+              <AppStandbyGuard />
+              <Routes>
                   <Route path="/" element={<LandingVendas />} />
                   <Route path="/info" element={<LandingInfo />} />
                   <Route path="/landing" element={<LandingPage />} />
@@ -199,10 +199,8 @@ function App() {
                   <Route path="/:slug" element={<EstablishmentDirectBooking />} />
 
                   <Route path="*" element={<NotFound />} />
-                </Routes>
-
-              </Router>
-            </ConnectivityChecker>
+              </Routes>
+            </Router>
           </AuthProvider>
         </SupabaseProvider>
       </div>

@@ -48,6 +48,7 @@ import {
   updateAppointmentCancelledWithSource,
 } from '../utils/appointmentCancellationMeta';
 import { fireMercadoPagoPendingReconcile } from '../utils/fireMercadoPagoPendingReconcile';
+import { isAppStandbyActive, subscribeToAppStandby } from '../utils/appStandby';
 import { LEGACY_LIMITE_CANCELAMENTO_MINUTOS } from '../utils/regrasCancelamento';
 import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
 
@@ -726,7 +727,7 @@ const EstablishmentDashboard = () => {
 
   // Estados básicos
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<TabType>('passo-a-passo');
+  const [activeTab, setActiveTab] = useState<TabType>('appointments');
   const [top10LeaderboardRows, setTop10LeaderboardRows] = useState<TopBarbershopLeaderboardRow[]>([]);
   const [top10LeaderboardTotalBarbershops, setTop10LeaderboardTotalBarbershops] = useState(0);
   const [isLoadingTop10Leaderboard, setIsLoadingTop10Leaderboard] = useState(false);
@@ -771,6 +772,7 @@ const EstablishmentDashboard = () => {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const previousAppointmentsRef = useRef<Appointment[]>([]);
   const fetchAppointmentsRequestSeqRef = useRef(0);
+  const standbyPollingAbortRef = useRef<AbortController | null>(null);
   const paymentDropdownRef = useRef<HTMLDivElement>(null);
   const onboardingCompletedRef = useRef(false); // Evita múltiplas chamadas ao completar onboarding
   const onboardingWelcomeShownThisLoadRef = useRef(false); // Evita reabrir após fechar (só volta no reload)
@@ -10489,6 +10491,7 @@ Estamos te aguardando! 😎✂️`;
 
   const fetchAppointments = async () => {
     if (!establishment) return;
+    if (isAppStandbyActive()) return;
 
     const requestSeq = ++fetchAppointmentsRequestSeqRef.current;
     const selectedDateKeySnapshot = format(selectedDate, 'yyyy-MM-dd');
@@ -12399,6 +12402,8 @@ Estamos te aguardando! 😎✂️`;
     if (!establishment) return;
 
     const interval = setInterval(async () => {
+      if (isAppStandbyActive()) return;
+      if (typeof document !== 'undefined' && document.hidden) return;
 
 
       // Salvar estado atual dos agendamentos
@@ -12406,7 +12411,10 @@ Estamos te aguardando! 😎✂️`;
 
 
       // Buscar novos dados
+      let requestController: AbortController | null = null;
       try {
+        requestController = new AbortController();
+        standbyPollingAbortRef.current = requestController;
         const { data: newAppointments } = await supabase
           .from('appointments')
           .select(`
@@ -12420,7 +12428,10 @@ Estamos te aguardando! 😎✂️`;
           .gte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
           .lte('appointment_date', format(selectedDate, 'yyyy-MM-dd'))
           .order('appointment_time')
-          .abortSignal(new AbortController().signal); // Forçar busca sem cache
+          .abortSignal(requestController.signal);
+
+        // Se entrou em standby durante a request, ignora resultado.
+        if (isAppStandbyActive()) return;
 
         if (newAppointments) {
           const normalizedIncomingAppointments = (newAppointments as any[]).filter(
@@ -12475,6 +12486,8 @@ Estamos te aguardando! 😎✂️`;
           // 1) atualiza agendamentos já existentes (status, pagamento, valores, etc)
           // 2) adiciona novos
           // 3) não remove os que sumiram da query para preservar o comportamento atual
+          if (isAppStandbyActive()) return;
+
           setAppointments(currentList => {
             const incomingById = new Map(normalizedIncomingAppointments.map((item: any) => [item.id, item]));
             const currentIds = new Set(currentList.map((item) => item.id));
@@ -12505,19 +12518,35 @@ Estamos te aguardando! 😎✂️`;
           if (hasUpdatesInExistingAppointments) {
             // Mantém o financeiro e os resumos sincronizados quando houver mudança
             // de status/forma de pagamento/valor em agendamentos já existentes.
+            if (isAppStandbyActive()) return;
             void fetchMonthlyAppointments(selectedMonth);
           }
 
           previousAppointmentsRef.current = normalizedIncomingAppointments as any;
         }
       } catch (error) {
+        if ((error as any)?.name === 'AbortError') return;
         console.error('❌ Erro na atualização automática:', error);
+      } finally {
+        if (standbyPollingAbortRef.current === requestController) {
+          standbyPollingAbortRef.current = null;
+        }
       }
 
     }, 10000); // 10 segundos
 
     return () => clearInterval(interval);
   }, [establishment, selectedDate]);
+
+  // Em standby, aborta imediatamente qualquer polling que esteja em voo.
+  useEffect(() => {
+    const unsubscribe = subscribeToAppStandby(({ active }) => {
+      if (!active) return;
+      standbyPollingAbortRef.current?.abort();
+      standbyPollingAbortRef.current = null;
+    });
+    return unsubscribe;
+  }, []);
 
   // Atualizar ref quando appointments mudarem
   useEffect(() => {
@@ -12560,6 +12589,7 @@ Estamos te aguardando! 😎✂️`;
     if (!establishment?.id) return;
 
     const runForegroundSync = () => {
+      if (isAppStandbyActive()) return;
       const nowMs = Date.now();
       // Evita rajada de múltiplos eventos (focus + visibilitychange + pageshow)
       if (nowMs - lastForegroundSyncAtRef.current < 2500) return;
