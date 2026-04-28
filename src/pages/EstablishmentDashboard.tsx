@@ -406,6 +406,17 @@ interface Client {
   subscriberPaymentStatus?: 'paid' | 'expired' | null;
 }
 
+interface ClientInsightsLast60d {
+  singleVisitClients: number;
+}
+
+interface ClientInsightListItem {
+  whatsapp: string;
+  name: string;
+  completedVisits: number;
+  lastCompletedAt: number;
+}
+
 interface ClientFutureAppointmentItem {
   id: string;
   client_id?: string | null;
@@ -777,6 +788,11 @@ const EstablishmentDashboard = () => {
   const onboardingCompletedRef = useRef(false); // Evita múltiplas chamadas ao completar onboarding
   const onboardingWelcomeShownThisLoadRef = useRef(false); // Evita reabrir após fechar (só volta no reload)
   const [clients, setClients] = useState<Client[]>([]);
+  const [clientInsightsLast60d, setClientInsightsLast60d] = useState<ClientInsightsLast60d>({
+    singleVisitClients: 0,
+  });
+  const [singleVisitClientListLast60d, setSingleVisitClientListLast60d] = useState<ClientInsightListItem[]>([]);
+  const [showSingleVisitClientList, setShowSingleVisitClientList] = useState(false);
   const [establishmentReviews, setEstablishmentReviews] = useState<EstablishmentReview[]>([]);
   const [pendingReviewsCount, setPendingReviewsCount] = useState(0);
   const [pendingSubscribersCount, setPendingSubscribersCount] = useState(0);
@@ -11232,7 +11248,28 @@ Estamos te aguardando! 😎✂️`;
         window.location.hostname === 'localhost' ||
         window.location.hostname === '127.0.0.1';
       if (shouldBlock && !isLocalEnv) {
-        navigate('/blocked');
+        const blockedTarget = (establishmentsPool[0] as any) || null;
+        if (blockedTarget?.id) {
+          try {
+            localStorage.setItem(
+              'blocked_billing_target',
+              JSON.stringify({
+                id: String(blockedTarget.id),
+                name: String(blockedTarget.name || 'Estabelecimento'),
+              })
+            );
+          } catch {
+            // noop
+          }
+        }
+        navigate('/blocked', {
+          state: blockedTarget?.id
+            ? {
+                establishmentId: String(blockedTarget.id),
+                establishmentName: String(blockedTarget.name || 'Estabelecimento'),
+              }
+            : undefined,
+        });
         return;
       }
 
@@ -16384,6 +16421,20 @@ Estamos te aguardando! 😎✂️`;
     return `https://wa.me/${cleanNumber}`;
   };
 
+  const openClientWhatsApp = (rawWhatsapp: string) => {
+    let phone = String(rawWhatsapp || '').replace(/\D/g, '');
+    if (!phone) {
+      toast('WhatsApp do cliente não encontrado.', 'error');
+      return;
+    }
+
+    if (phone.length === 10 || phone.length === 11) {
+      phone = `55${phone}`;
+    }
+
+    openWhatsAppWithBusinessPriority(phone, 'Ola');
+  };
+
   const handleDeleteLoyalCustomer = async (customerId: string) => {
     if (!confirm('Tem certeza que deseja apagar este cliente do sorteio?')) {
       return;
@@ -17100,14 +17151,15 @@ Estamos te aguardando! 😎✂️`;
     console.log('🔄 Iniciando fetchClients...');
 
     try {
-      // Busca todos os agendamentos do estabelecimento para obter os clientes + estatísticas
+      // Busca todos os agendamentos do estabelecimento para obter os clientes + estatísticas.
+      const baseAppointmentsSelect =
+        'client_id, client_name, client_whatsapp, status, price, total_price, appointment_date, appointment_time';
       const { data: appointmentsData, error: appointmentsError } = await supabase
         .from('appointments')
-        .select('client_id, client_name, client_whatsapp, status, price, total_price, appointment_date, appointment_time')
+        .select(baseAppointmentsSelect)
         .eq('establishment_id', establishment.id)
         .not('client_whatsapp', 'is', null) // Apenas agendamentos com WhatsApp
         .order('created_at', { ascending: false });
-
       if (appointmentsError) throw appointmentsError;
 
       const appointmentDateTimeToTs = (dateStr: string, timeRaw: unknown): number | null => {
@@ -17164,21 +17216,67 @@ Estamos te aguardando! 😎✂️`;
       };
 
       const lastVisitByWhatsapp = new Map<string, number>();
+      const completedVisitsInWindowByWhatsapp = new Map<string, number>();
+      const completedClientInfoByWhatsapp = new Map<
+        string,
+        { name: string; whatsapp: string; latestCompletedTs: number }
+      >();
+      const nowTs = Date.now();
+      const sixtyDaysAgoTs = nowTs - (60 * 24 * 60 * 60 * 1000);
       (appointmentsData || []).forEach((raw: any) => {
         const key = normalizeWhatsappKey(raw?.client_whatsapp);
         if (!key) return;
         const st = String(raw?.status || '').toLowerCase();
-        if (st === 'cancelled') return;
         const ds = String(raw?.appointment_date || '').trim();
-        if (!ds) return;
+        if (st === 'cancelled' || !ds) return;
         const ts = appointmentDateTimeToTs(ds, raw?.appointment_time);
         if (ts == null || !Number.isFinite(ts)) return;
+        if (st === 'completed' && ts >= sixtyDaysAgoTs && ts <= nowTs) {
+          completedVisitsInWindowByWhatsapp.set(
+            key,
+            Number(completedVisitsInWindowByWhatsapp.get(key) || 0) + 1
+          );
+
+          const rawClientName = String(raw?.client_name || '').trim();
+          const displayName = rawClientName || 'Cliente sem nome';
+          const displayWhatsapp = String(raw?.client_whatsapp || '').replace(/\D/g, '') || key;
+          const prevInfo = completedClientInfoByWhatsapp.get(key);
+          if (!prevInfo || ts > prevInfo.latestCompletedTs) {
+            completedClientInfoByWhatsapp.set(key, {
+              name: displayName,
+              whatsapp: displayWhatsapp,
+              latestCompletedTs: ts,
+            });
+          }
+        }
         const prev = lastVisitByWhatsapp.get(key);
         if (prev == null || ts > prev) lastVisitByWhatsapp.set(key, ts);
       });
 
+      const singleVisitClientList: ClientInsightListItem[] = Array.from(completedVisitsInWindowByWhatsapp.entries())
+        .filter(([, completedVisits]) => completedVisits === 1)
+        .map(([whatsappKey, completedVisits]) => {
+          const info = completedClientInfoByWhatsapp.get(whatsappKey);
+          return {
+            whatsapp: info?.whatsapp || whatsappKey,
+            name: info?.name || 'Cliente sem nome',
+            completedVisits,
+            lastCompletedAt: Number(info?.latestCompletedTs || 0),
+          };
+        })
+        .sort((a, b) => b.lastCompletedAt - a.lastCompletedAt);
+
+      setClientInsightsLast60d({
+        singleVisitClients: singleVisitClientList.length,
+      });
+      setSingleVisitClientListLast60d(singleVisitClientList);
+
       if (!appointmentsData || appointmentsData.length === 0) {
         console.log('📋 Nenhum agendamento encontrado - carregando apenas clientes manuais');
+        setClientInsightsLast60d({
+          singleVisitClients: 0,
+        });
+        setSingleVisitClientListLast60d([]);
         // Mesmo sem agendamentos, carregar clientes manuais
         const manualClients = await loadManualClientsFromStorage();
         console.log('👤 Clientes manuais carregados:', manualClients);
@@ -32353,6 +32451,54 @@ Estamos te aguardando! 😎✂️`;
                   <p className="text-gray-600 mb-4">
                     Aqui você encontra todos os clientes que já agendaram em seu estabelecimento.
                   </p>
+
+                  <div className="mb-4 p-4 rounded-lg border border-gray-200 bg-gray-50">
+                    <p className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Ultimos 60 dias (concluidos)</p>
+                    <p className="text-2xl font-extrabold text-gray-900 mt-1">{clientInsightsLast60d.singleVisitClients}</p>
+                    <p className="text-sm text-gray-700 mt-1">Clientes que agendaram somente 1 vez e nao voltaram</p>
+                    <p className="mt-2 inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">
+                      💡 Essa opcao serve para voce fazer repescagem de clientes que nao vieram mais.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowSingleVisitClientList((prev) => !prev)}
+                      className="mt-3 px-3 py-1.5 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-800 transition-colors"
+                    >
+                      {showSingleVisitClientList ? 'Ocultar clientes' : `Ver clientes (${singleVisitClientListLast60d.length})`}
+                    </button>
+                  </div>
+
+                  {showSingleVisitClientList && (
+                    <div className="rounded-lg border border-gray-200 bg-white p-4 mb-6">
+                      <h4 className="text-sm font-bold text-gray-900 mb-2">Clientes que vieram so 1 vez nos ultimos 60 dias</h4>
+                      {singleVisitClientListLast60d.length === 0 ? (
+                        <p className="text-sm text-gray-500">Nenhum cliente encontrado neste periodo.</p>
+                      ) : (
+                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                          {singleVisitClientListLast60d.map((client) => (
+                            <div
+                              key={`single-visit-${client.whatsapp}`}
+                              className="rounded-md border border-gray-100 bg-gray-50 px-3 py-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2"
+                            >
+                              <div>
+                                <p className="text-sm font-semibold text-gray-900">{client.name}</p>
+                                <p className="text-xs text-gray-600">
+                                  {client.whatsapp} • Ultimo agendamento: {client.lastCompletedAt ? format(new Date(client.lastCompletedAt), 'dd/MM/yyyy HH:mm') : '-'} • Ja veio {client.completedVisits}x
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => openClientWhatsApp(client.whatsapp)}
+                                className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
+                              >
+                                WhatsApp
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Botões de navegação */}
                   <div className="flex flex-col sm:flex-row gap-3 mb-6">

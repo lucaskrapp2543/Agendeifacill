@@ -1,6 +1,6 @@
 import { ArrowLeft, Loader2, Lock } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { EstablishmentBillingPaymentModal } from '../components/EstablishmentBillingPaymentModal';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -8,12 +8,37 @@ import { supabase } from '../lib/supabase';
 const BlockedPage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [showBillingPaymentModal, setShowBillingPaymentModal] = useState(false);
   const [isLoadingEstablishment, setIsLoadingEstablishment] = useState(true);
   const [billingTarget, setBillingTarget] = useState<{ id: string; name: string } | null>(null);
   const [loadingMessage, setLoadingMessage] = useState('');
 
   useEffect(() => {
+    const routeState = (location.state || {}) as { establishmentId?: string; establishmentName?: string };
+    const targetFromRoute =
+      routeState?.establishmentId
+        ? {
+            id: String(routeState.establishmentId),
+            name: String(routeState.establishmentName || 'Estabelecimento'),
+          }
+        : null;
+    const getStoredTarget = (): { id: string; name: string } | null => {
+      try {
+        const raw = localStorage.getItem('blocked_billing_target');
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        const id = String(parsed?.id || '').trim();
+        if (!id) return null;
+        return {
+          id,
+          name: String(parsed?.name || 'Estabelecimento'),
+        };
+      } catch {
+        return null;
+      }
+    };
+
     const loadBlockedEstablishment = async () => {
       if (!user?.id) {
         setIsLoadingEstablishment(false);
@@ -26,40 +51,61 @@ const BlockedPage = () => {
           .from('establishments')
           .select('id, name, is_blocked, is_deleted, created_at')
           .eq('owner_id', user.id)
-          .or('is_deleted.is.null,is_deleted.eq.false')
           .order('created_at', { ascending: false });
 
         if (error) throw error;
 
+        // IMPORTANTE: considera também estabelecimentos na lixeira para não bloquear renovação.
         const establishments = Array.isArray(data) ? data : [];
+
         if (establishments.length === 0) {
-          setBillingTarget(null);
+          const fallbackTarget = targetFromRoute || getStoredTarget();
+          if (fallbackTarget) {
+            setBillingTarget(fallbackTarget);
+            setLoadingMessage('');
+          } else {
+            setBillingTarget(null);
+            setLoadingMessage('Nao encontramos estabelecimento vinculado ao seu usuario para abrir o pagamento automatico.');
+          }
           return;
         }
 
         const blocked = establishments.find((est: any) => Boolean(est?.is_blocked));
         const target = blocked || establishments[0];
-        setBillingTarget({
+        const normalizedTarget = {
           id: String(target?.id || ''),
           name: String(target?.name || 'Estabelecimento'),
-        });
+        };
+        setBillingTarget(normalizedTarget);
+        try {
+          localStorage.setItem('blocked_billing_target', JSON.stringify(normalizedTarget));
+        } catch {
+          // noop
+        }
+        setLoadingMessage('');
       } catch (error: any) {
         const messageParts = [
           String(error?.message || '').trim(),
           error?.code ? `(código: ${error.code})` : '',
           String(error?.details || error?.hint || '').trim(),
         ].filter(Boolean);
-        setLoadingMessage(
-          messageParts.join(' ') || 'Não foi possível carregar os dados para pagamento automático.'
-        );
-        setBillingTarget(null);
+        const fallbackTarget = targetFromRoute || getStoredTarget();
+        if (fallbackTarget) {
+          setBillingTarget(fallbackTarget);
+          setLoadingMessage('');
+        } else {
+          setLoadingMessage(
+            messageParts.join(' ') || 'Não foi possível carregar os dados para pagamento automático.'
+          );
+          setBillingTarget(null);
+        }
       } finally {
         setIsLoadingEstablishment(false);
       }
     };
 
     void loadBlockedEstablishment();
-  }, [user?.id]);
+  }, [location.state, user?.id]);
 
   const canOpenAutomatedBilling = useMemo(
     () => !isLoadingEstablishment && Boolean(billingTarget?.id),

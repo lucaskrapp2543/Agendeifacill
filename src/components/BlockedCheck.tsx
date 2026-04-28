@@ -34,7 +34,7 @@ const BlockedCheck: React.FC<BlockedCheckProps> = ({ children }) => {
         // Evita falso bloqueio quando existem registros antigos/deletados.
         const { data: establishmentsData, error } = await supabase
           .from('establishments')
-          .select('id,is_blocked,is_deleted,created_at')
+          .select('id,name,is_blocked,is_deleted,created_at')
           .eq('owner_id', user.id)
           .or('is_deleted.is.null,is_deleted.eq.false')
           .order('created_at', { ascending: false });
@@ -57,8 +57,29 @@ const BlockedCheck: React.FC<BlockedCheckProps> = ({ children }) => {
         // Regra defensiva: só bloqueia se TODOS os estabelecimentos ativos estiverem bloqueados.
         const shouldBlock = activeEstablishments.every((est) => Boolean((est as any)?.is_blocked));
         if (shouldBlock) {
+          const target = (activeEstablishments[0] as any) || null;
+          if (target?.id) {
+            try {
+              localStorage.setItem(
+                'blocked_billing_target',
+                JSON.stringify({
+                  id: String(target.id),
+                  name: String(target.name || 'Estabelecimento'),
+                })
+              );
+            } catch {
+              // noop
+            }
+          }
           setIsBlocked(true);
-          navigate('/blocked');
+          navigate('/blocked', {
+            state: target?.id
+              ? {
+                  establishmentId: String(target.id),
+                  establishmentName: String(target.name || 'Estabelecimento'),
+                }
+              : undefined,
+          });
           return;
         }
 
