@@ -65,7 +65,6 @@ const handleChunkErrors = () => {
       if ((src.includes('chunk-') || (src.includes('.js') && src.includes('assets/'))) &&
         (event.message?.includes('404') || event.message?.includes('Failed to load'))) {
         console.error('❌ Erro 404 detectado em chunk:', src);
-        console.log('🔄 Tentando recuperar...');
 
         // ⚠️ PROTEÇÃO: Verificar se navegador tem proteções agressivas antes de fazer reload
         const hasProtections = disableAggressiveReloads; // Já inclui detecção de navegadores com proteções
@@ -91,7 +90,6 @@ const handleChunkErrors = () => {
                 await Promise.all(cacheNames.map(name => caches.delete(name)));
               }
 
-              console.log('✅ Cache limpo, recarregando...');
               window.location.reload();
             } catch (error) {
               console.error('❌ Erro ao limpar cache:', error);
@@ -101,9 +99,7 @@ const handleChunkErrors = () => {
             }
           }, 1000);
         } else {
-          if (hasProtections) {
-            console.warn('🛡️ Navegador com proteções detectado - Reload automático desabilitado (evita loops infinitos)');
-          } else {
+          if (!hasProtections) {
             console.error('❌ Muitas tentativas de reload (ou modo seguro em mobile/in-app), parando...');
           }
           // Mostrar mensagem ao usuário
@@ -137,7 +133,6 @@ const handleChunkErrors = () => {
     if (event.reason?.message?.includes('chunk') ||
       event.reason?.message?.includes('404') ||
       event.reason?.message?.includes('Failed to load')) {
-      console.log('🔄 Erro de chunk detectado, tentando recuperar...');
       if (!disableAggressiveReloads && reloadAttempts < maxReloadAttempts) {
         reloadAttempts++;
         setTimeout(() => window.location.reload(), 1000);
@@ -167,14 +162,12 @@ if (
     const hasLoop = detectAndCleanReloadLoop();
 
     if (hasLoop) {
-      console.warn('🚨 Loop de reload detectado! Limpeza realizada. Aguardando antes de continuar...');
       // Aguardar um pouco antes de continuar para evitar reload imediato
       setTimeout(() => {
         // Continuar com verificação de atualizações normalmente
         import('./utils/versionManager').then(({ checkForUpdates }) => {
           const updateInfo = checkForUpdates();
           if (updateInfo.hasUpdate) {
-            console.log('🔄 Atualização detectada na inicialização:', updateInfo);
             window.dispatchEvent(new CustomEvent('app-update-available', {
               detail: updateInfo
             }));
@@ -186,7 +179,6 @@ if (
       import('./utils/versionManager').then(({ checkForUpdates }) => {
         const updateInfo = checkForUpdates();
         if (updateInfo.hasUpdate) {
-          console.log('🔄 Atualização detectada na inicialização:', updateInfo);
           window.dispatchEvent(new CustomEvent('app-update-available', {
             detail: updateInfo
           }));
@@ -194,8 +186,6 @@ if (
       });
     }
   });
-} else if (shouldDisableAggressiveReloads()) {
-  console.log('🛡️ Navegador com proteções/mobile detectado - Detecção de loops desabilitada (evita reloads infinitos)');
 }
 
 // Verificar se o root existe antes de renderizar

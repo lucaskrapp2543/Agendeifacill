@@ -27,14 +27,6 @@ export const useProfessionalLiquidValue = (
   // Valor pendente para pagamento
   const pendingAmount = currentLiquidValue;
 
-  console.log('💰 Cálculo valor líquido para', professionalId, ':', {
-    originalLiquidValue,
-    totalPaid: paymentSummary.totalPaid,
-    totalWithdrawn,
-    currentLiquidValue,
-    pendingAmount
-  });
-
   return {
     currentLiquidValue,
     pendingAmount,

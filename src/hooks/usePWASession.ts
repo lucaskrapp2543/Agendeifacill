@@ -18,8 +18,6 @@ export const usePWASession = () => {
 
       const isPWA = isStandalone || isIOSPWA || isAndroidPWA;
       setIsPWAMode(isPWA);
-
-      console.log('📱 Modo PWA detectado:', isPWA);
       return isPWA;
     };
 
@@ -27,24 +25,19 @@ export const usePWASession = () => {
 
     // Se for PWA, configurar persistência especial
     if (isPWA) {
-      console.log('🔧 Configurando persistência PWA...');
-
       // Listener para mudanças de visibilidade (app sendo fechado/aberto)
       const handleVisibilityChange = () => {
         if (document.visibilityState === 'visible') {
-          console.log('👁️ PWA voltou ao foco, verificando sessão...');
           checkAndRestoreSession();
         }
       };
 
       // Listener para antes de fechar o app
       const handleBeforeUnload = () => {
-        console.log('🚪 PWA sendo fechado, salvando estado...');
         // Força salvar a sessão atual
         supabase.auth.getSession().then(({ data: { session } }) => {
           if (session) {
             localStorage.setItem('agendafacil_auth_token', JSON.stringify(session));
-            console.log('💾 Sessão salva antes de fechar PWA');
           }
         });
       };
@@ -60,11 +53,9 @@ export const usePWASession = () => {
             const margin = 10 * 60; // 10 minutos de margem
 
             if (expiresAt && (expiresAt - margin) > now) {
-              console.log('✅ Sessão PWA válida, restaurando...');
               setSessionRestored(true);
               return true;
             } else {
-              console.log('⏰ Sessão PWA expirada, removendo...');
               localStorage.removeItem('agendafacil_auth_token');
             }
           }
@@ -98,7 +89,6 @@ export const usePWASession = () => {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
           localStorage.setItem('agendafacil_auth_token', JSON.stringify(session));
-          console.log('🔄 Sessão PWA verificada e salva');
           return true;
         }
       }

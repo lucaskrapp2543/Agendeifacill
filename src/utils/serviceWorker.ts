@@ -16,7 +16,6 @@ export async function unregisterServiceWorker(): Promise<void> {
     try {
       const registrations = await navigator.serviceWorker.getRegistrations();
       await Promise.all(registrations.map((registration) => registration.unregister()));
-      console.log('🗑️ Service Workers removidos');
     } catch (error) {
       console.error('❌ Erro ao remover Service Workers:', error);
     }
@@ -28,7 +27,6 @@ export async function clearAllCaches(): Promise<void> {
     try {
       const cacheNames = await caches.keys();
       await Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)));
-      console.log('🗑️ Todos os caches limpos');
     } catch (error) {
       console.error('❌ Erro ao limpar caches:', error);
     }
@@ -56,23 +54,18 @@ export const registerServiceWorker = async (): Promise<void> => {
   // ✅ Em desenvolvimento: se existir SW antigo em localhost, REMOVER
   // (isso evita exatamente o problema de UI “antiga”/cacheada aparecer do nada)
   if (!isProduction()) {
-    console.log('🧹 Dev: garantindo limpeza de Service Worker/caches em localhost');
     await unregisterServiceWorker();
     await clearAllCaches();
-    console.log('🚫 Service Worker desabilitado em desenvolvimento');
     return;
   }
 
   // ⚠️ NÃO registrar em mobile (causa página branca)
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   if (isMobile) {
-    console.log('📱 Service Worker desabilitado em mobile (evita página branca)');
-    
     // Remover Service Workers existentes
     if ('serviceWorker' in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations();
       await Promise.all(registrations.map(reg => reg.unregister()));
-      console.log('🗑️ Service Workers removidos em mobile');
     }
     return;
   }
@@ -82,8 +75,6 @@ export const registerServiceWorker = async (): Promise<void> => {
       const registration = await navigator.serviceWorker.register('/sw.js', {
         scope: '/'
       });
-      
-      console.log('✅ Service Worker registrado:', registration);
       
       // ⚠️ NÃO tentar atualizar imediatamente (evita loops)
       // O navegador verifica atualizações automaticamente a cada 24h
@@ -97,8 +88,6 @@ export const registerServiceWorker = async (): Promise<void> => {
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
               // Nova versão disponível
-              console.log('🔄 Nova versão do Service Worker disponível');
-              
               // Notificar o app sobre a atualização
               window.dispatchEvent(new CustomEvent('sw-update-available', {
                 detail: { registration, newWorker }
@@ -110,9 +99,7 @@ export const registerServiceWorker = async (): Promise<void> => {
       
       // Escutar mensagens do Service Worker
       navigator.serviceWorker.addEventListener('message', (event) => {
-        if (event.data && event.data.type === 'CACHE_UPDATED') {
-          console.log('📦 Cache atualizado pelo Service Worker');
-        }
+        if (event.data && event.data.type === 'CACHE_UPDATED') return;
       });
       
       // Verificar atualizações periodicamente (a cada 30 minutos), não imediatamente

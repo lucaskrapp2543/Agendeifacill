@@ -91,6 +91,21 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
     }
   };
 
+  const isAbortLikeError = (errorLike: any): boolean => {
+    const name = String(errorLike?.name || '').toLowerCase();
+    const code = String(errorLike?.code || '').toLowerCase();
+    const message = String(errorLike?.message || '').toLowerCase();
+    const details = String(errorLike?.details || '').toLowerCase();
+    return (
+      name === 'aborterror' ||
+      code === '20' ||
+      message.includes('aborterror') ||
+      message.includes('signal is aborted') ||
+      details.includes('aborterror') ||
+      details.includes('signal is aborted')
+    );
+  };
+
   const fetchUnreadCountOnly = async () => {
     if (!establishmentId) return;
     if (isAppStandbyActive()) return;
@@ -105,13 +120,14 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
         .abortSignal(controller.signal);
 
       if (error) {
+        if (isAbortLikeError(error)) return;
         console.error('❌ Erro ao buscar contador de notificações:', error);
         return;
       }
 
       applyUnreadCount(Number(count || 0), { fromLightweightPoll: true });
     } catch (error) {
-      if ((error as any)?.name === 'AbortError') return;
+      if (isAbortLikeError(error)) return;
       console.error('❌ Erro inesperado ao buscar contador de notificações:', error);
     } finally {
       releaseStandbyController(controller);
@@ -324,6 +340,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       }
 
       if (error) {
+        if (isAbortLikeError(error)) return {};
         console.error('❌ Erro ao buscar detalhes dos agendamentos das notificações:', error);
         return {};
       }
@@ -337,7 +354,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       setAppointmentDetailsMap(nextMap);
       return nextMap;
     } catch (error) {
-      if ((error as any)?.name === 'AbortError') {
+      if (isAbortLikeError(error)) {
         return {};
       }
       console.error('❌ Erro inesperado ao buscar agendamentos das notificações:', error);
@@ -363,6 +380,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
         .abortSignal(controller.signal);
 
       if (error) {
+        if (isAbortLikeError(error)) return;
         console.error('❌ Erro ao buscar notificações:', error);
         return;
       }
@@ -400,7 +418,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
       }
 
     } catch (error) {
-      if ((error as any)?.name === 'AbortError') return;
+      if (isAbortLikeError(error)) return;
       console.error('❌ Erro ao buscar notificações:', error);
     } finally {
       releaseStandbyController(controller);

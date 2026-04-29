@@ -303,10 +303,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onRequestAppointmentsUnlock,
   onRequestFinancialUnlock,
 }) => {
-    console.log('📋 AllProfessionalsAppointmentsView - Total de appointments recebidos:', appointments.length);
-    console.log('📅 Data selecionada:', selectedDate.toISOString());
-    console.log('🔍 Appointments:', appointments);
-
     const { toast } = useToast();
     const { user } = useAuth();
 

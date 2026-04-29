@@ -64,18 +64,14 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
   // Carregar despesas
   const loadExpenses = useCallback(async () => {
     if (!establishmentId || establishmentId.trim() === '') {
-      console.log('⚠️ establishmentId não disponível ainda:', establishmentId);
       setIsLoading(false);
       return;
     }
 
-    console.log('🔄 Carregando despesas para:', establishmentId, selectedMonth);
     try {
       setIsLoading(true);
       const startDate = startOfMonth(selectedMonth);
       const endDate = endOfMonth(selectedMonth);
-
-      console.log('📅 Período:', startDate.toISOString(), 'até', endDate.toISOString());
 
       const startDay = format(startDate, 'yyyy-MM-dd');
       const endDay = format(endDate, 'yyyy-MM-dd');
@@ -110,7 +106,6 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
       if (error) {
         console.error('❌ Erro ao carregar despesas:', error);
         if (error.message.includes('relation "establishment_expenses" does not exist')) {
-          console.log('📋 Tabela establishment_expenses não existe. Criando...');
           toast('Tabela de despesas não existe. Execute a migração primeiro.', 'error');
         } else {
           toast('Erro ao carregar despesas', 'error');
@@ -118,7 +113,6 @@ export const ExpensesManager: React.FC<ExpensesManagerProps> = ({
         return;
       }
 
-      console.log('✅ Despesas carregadas:', data?.length || 0);
       setExpenses(data || []);
     } catch (error) {
       console.error('❌ Erro ao carregar despesas:', error);

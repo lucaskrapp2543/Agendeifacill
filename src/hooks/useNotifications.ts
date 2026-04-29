@@ -46,23 +46,7 @@ export const useNotifications = () => {
 
       const pwaDetected = isStandalone || isIOSStandalone || (isInApp && hasServiceWorker);
 
-      console.log('🔍 DETECÇÃO PWA:', {
-        isStandalone,
-        isIOSStandalone,
-        isInApp,
-        hasServiceWorker,
-        userAgent: window.navigator.userAgent,
-        url: window.location.href,
-        pwaDetected
-      });
-
       setIsPWA(pwaDetected);
-
-      if (pwaDetected) {
-        console.log('📱 PWA detectado!');
-      } else {
-        console.log('🌐 Navegador normal detectado');
-      }
     };
 
     // Verificar imediatamente
@@ -74,34 +58,22 @@ export const useNotifications = () => {
 
   // Solicitar permissão para notificações
   const requestPermission = async (): Promise<boolean> => {
-    console.log('🔔 REQUEST PERMISSION - Iniciando...');
-
     if (!isSupported) {
-      console.log('❌ Notificações não são suportadas neste navegador');
+      return false;
+    }
+
+    // Evita loop de prompt quando o navegador já bloqueou definitivamente.
+    if (Notification.permission === 'denied') {
+      setPermission('denied');
       return false;
     }
 
     try {
-      console.log('🔔 Chamando Notification.requestPermission()...');
       const result = await Notification.requestPermission();
-      console.log('🔔 Resultado da permissão:', result);
-
       setPermission(result);
-
-      // Log detalhado para debug
-      console.log('🔔 DEBUG - Status atual:', {
-        result,
-        isSupported,
-        userAgent: navigator.userAgent,
-        isSecureContext: window.isSecureContext,
-        location: window.location.href,
-        isPWA
-      });
 
       // Se permissão concedida, mostrar notificação de teste
       if (result === 'granted') {
-        console.log('✅ Permissão concedida! Enviando notificação de teste...');
-
         // Enviar notificação de teste imediatamente
         setTimeout(() => {
           new Notification('Agendei Fácil', {
@@ -110,21 +82,10 @@ export const useNotifications = () => {
             tag: 'test-notification'
           });
         }, 500);
-      } else if (result === 'denied') {
-        console.log('❌ Permissão negada pelo usuário');
-      } else {
-        console.log('⚠️ Permissão não decidida (default)');
       }
-
       return result === 'granted';
     } catch (error) {
       console.error('❌ Erro ao solicitar permissão:', error);
-      console.error('❌ Detalhes do erro:', {
-        error,
-        isSupported,
-        userAgent: navigator.userAgent,
-        isSecureContext: window.isSecureContext
-      });
       return false;
     }
   };
@@ -229,33 +190,24 @@ export const useNotifications = () => {
 
   // Enviar notificação
   const sendNotification = async (options: NotificationOptions) => {
-    console.log('🔔 SEND NOTIFICATION:', {
-      options,
-      isSupported,
-      permission,
-      isPWA,
-      pushSupported,
-      userAgent: window.navigator.userAgent,
-      url: window.location.href
-    });
-
     if (!isSupported) {
-      console.log('❌ Notificações não são suportadas');
+      return;
+    }
+
+    if (permission === 'denied' || Notification.permission === 'denied') {
+      setPermission('denied');
       return;
     }
 
     if (permission !== 'granted') {
-      console.log('⚠️ Permissão não concedida, solicitando...');
       const granted = await requestPermission();
       if (!granted) {
-        console.log('❌ Permissão de notificação negada');
         return;
       }
     }
 
     try {
       // Usar notificação nativa simples (mais confiável)
-      console.log('🔔 Enviando notificação nativa...');
       const notification = new Notification(options.title, {
         body: options.body,
         icon: '/novo-icone.png',
@@ -272,7 +224,6 @@ export const useNotifications = () => {
 
       // Listener para clique na notificação
       notification.onclick = () => {
-        console.log('🔔 Notificação clicada!');
         window.focus();
         notification.close();
       };
@@ -282,24 +233,13 @@ export const useNotifications = () => {
         notification.close();
       }, 5000);
 
-      console.log('✅ Notificação enviada com sucesso!');
-
     } catch (error) {
       console.error('❌ Erro ao enviar notificação:', error);
-      console.error('❌ Detalhes do erro:', {
-        error,
-        isSupported,
-        permission,
-        userAgent: navigator.userAgent,
-        isSecureContext: window.isSecureContext
-      });
     }
   };
 
   // Notificação de novo agendamento
   const notifyNewAppointment = (clientName: string, service: string, time: string, professionalName?: string) => {
-    console.log('🔔 NOTIFY NEW APPOINTMENT:', { clientName, service, time, professionalName, isPWA });
-
     const professionalText = professionalName ? ` com ${professionalName}` : '';
     sendNotification({
       title: 'Agendei Fácil',
@@ -310,8 +250,6 @@ export const useNotifications = () => {
 
   // Notificação de agendamento cancelado
   const notifyCancelledAppointment = (clientName: string, service: string, time: string, professionalName?: string) => {
-    console.log('🔔 NOTIFY CANCELLED APPOINTMENT:', { clientName, service, time, professionalName, isPWA });
-
     const professionalText = professionalName ? ` com ${professionalName}` : '';
     sendNotification({
       title: 'Agendei Fácil',

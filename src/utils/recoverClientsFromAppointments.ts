@@ -16,8 +16,6 @@ export interface RecoveredClient {
 
 export const recoverClientsFromAppointments = async (establishmentId: string): Promise<RecoveredClient[]> => {
   try {
-    console.log('🔍 Buscando clientes únicos dos agendamentos...');
-    
     // Buscar todos os agendamentos do estabelecimento
     const { data: appointments, error } = await supabase
       .from('appointments')
@@ -33,7 +31,6 @@ export const recoverClientsFromAppointments = async (establishmentId: string): P
     }
 
     if (!appointments || appointments.length === 0) {
-      console.log('📋 Nenhum agendamento encontrado');
       return [];
     }
 
@@ -75,8 +72,6 @@ export const recoverClientsFromAppointments = async (establishmentId: string): P
     });
 
     const recoveredClients = Array.from(clientsMap.values());
-    console.log(`✅ Encontrados ${recoveredClients.length} clientes únicos nos agendamentos`);
-    
     return recoveredClients;
   } catch (error) {
     console.error('❌ Erro ao recuperar clientes dos agendamentos:', error);
@@ -111,13 +106,11 @@ export const migrateRecoveredClients = async (establishmentId: string, recovered
         };
         
         migratedCount++;
-        console.log(`✅ Cliente migrado: ${client.name} (${whatsapp}) - ${client.appointmentCount} agendamentos`);
       }
     });
 
     if (migratedCount > 0) {
       localStorage.setItem(storageKey, JSON.stringify(existingClients));
-      console.log(`🎉 Migração concluída: ${migratedCount} clientes recuperados`);
     }
 
     return migratedCount;
@@ -129,8 +122,6 @@ export const migrateRecoveredClients = async (establishmentId: string, recovered
 
 export const autoRecoverClients = async (establishmentId: string): Promise<{ recovered: number; total: number }> => {
   try {
-    console.log('🚀 Iniciando recuperação automática de clientes...');
-    
     const recoveredClients = await recoverClientsFromAppointments(establishmentId);
     const migratedCount = await migrateRecoveredClients(establishmentId, recoveredClients);
     

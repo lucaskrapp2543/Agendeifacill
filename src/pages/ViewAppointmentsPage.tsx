@@ -504,9 +504,13 @@ export default function ViewAppointmentsPage() {
         .from('appointments')
         .update(cancelPayload as any)
         .eq('id', appointmentId)
-        .select();
+        .select('id, status');
       if (cancelError && String((cancelError as any).code || '') === '42703') {
-        const fb = await supabase.from('appointments').update({ status: 'cancelled' }).eq('id', appointmentId).select();
+        const fb = await supabase
+          .from('appointments')
+          .update({ status: 'cancelled' })
+          .eq('id', appointmentId)
+          .select('id, status');
         cancelError = fb.error;
         updateData = fb.data;
       }

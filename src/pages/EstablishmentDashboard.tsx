@@ -784,9 +784,21 @@ const EstablishmentDashboard = () => {
   const previousAppointmentsRef = useRef<Appointment[]>([]);
   const fetchAppointmentsRequestSeqRef = useRef(0);
   const standbyPollingAbortRef = useRef<AbortController | null>(null);
+  const newClientsInfoRef = useRef<Record<string, boolean>>({});
+  const lastAppointmentsFetchRef = useRef<{ key: string; atMs: number }>({ key: '', atMs: 0 });
+  const lastMonthlyFetchRef = useRef<{ key: string; atMs: number }>({ key: '', atMs: 0 });
+  const lastPaidSubscribersFetchRef = useRef<{ key: string; atMs: number }>({ key: '', atMs: 0 });
+  const paidSubscribersInFlightRef = useRef<Promise<void> | null>(null);
+  const lastExpensesFetchRef = useRef<{ key: string; atMs: number }>({ key: '', atMs: 0 });
+  const expensesInFlightRef = useRef<Promise<void> | null>(null);
+  const lastProfessionalPaymentsFetchRef = useRef<{ key: string; atMs: number }>({ key: '', atMs: 0 });
+  const professionalPaymentsInFlightRef = useRef<Promise<void> | null>(null);
   const paymentDropdownRef = useRef<HTMLDivElement>(null);
   const onboardingCompletedRef = useRef(false); // Evita múltiplas chamadas ao completar onboarding
   const onboardingWelcomeShownThisLoadRef = useRef(false); // Evita reabrir após fechar (só volta no reload)
+  const APPOINTMENTS_FETCH_DEDUPE_MS = 1200;
+  const MONTHLY_FETCH_DEDUPE_MS = 1500;
+  const DASHBOARD_AUX_FETCH_DEDUPE_MS = 5000;
   const [clients, setClients] = useState<Client[]>([]);
   const [clientInsightsLast60d, setClientInsightsLast60d] = useState<ClientInsightsLast60d>({
     singleVisitClients: 0,
@@ -5380,7 +5392,7 @@ const EstablishmentDashboard = () => {
 
       // 2) Buscar appointment_products apenas desses agendamentos (em blocos).
       if (appointmentIds.length > 0) {
-        const chunkSize = 500;
+        const chunkSize = 120;
         for (let i = 0; i < appointmentIds.length; i += chunkSize) {
           const idsChunk = appointmentIds.slice(i, i + chunkSize);
           const { data: productRows, error: productRowsError } = await supabase
@@ -5458,11 +5470,6 @@ const EstablishmentDashboard = () => {
           payoutByProduct[pid] = Math.round(((payoutByProduct[pid] || 0) + payout) * 100) / 100;
         });
       }
-
-      console.log('📊 Vendas de produtos no período:', {
-        month: month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
-        salesByProduct
-      });
 
       if (target === 'dashboard') {
         setDashboardProductSalesByPeriod(salesByProduct);
@@ -6134,7 +6141,6 @@ const EstablishmentDashboard = () => {
         }
       });
 
-      console.log('🔍 DEBUG - Mapeamento ID -> Nome:', professionalIdToName);
 
       // 2. Buscar vendas deste produto
       const { data, error } = await supabase
@@ -6155,12 +6161,11 @@ const EstablishmentDashboard = () => {
 
       // 3. Buscar appointments relacionados
       const appointmentIds = data?.map(sale => sale.appointment_id) || [];
-      console.log('🔍 DEBUG - Appointment IDs para buscar:', appointmentIds);
 
       const batchedAppointments: any[] = [];
       if (appointmentIds.length > 0) {
         const uniqueIds = Array.from(new Set(appointmentIds.filter(Boolean)));
-        const batchSize = 120;
+        const batchSize = 60;
         for (let i = 0; i < uniqueIds.length; i += batchSize) {
           const chunk = uniqueIds.slice(i, i + batchSize);
           const { data: chunkAppointments, error: chunkError } = await supabase
@@ -6179,13 +6184,10 @@ const EstablishmentDashboard = () => {
       }
       const appointments = batchedAppointments;
 
-      console.log('🔍 DEBUG - Appointments encontrados (SEM filtro de establishment):', appointments);
-
       // Filtrar por establishment e status (só CONCLUÍDO) após buscar
       const filteredAppointments = appointments?.filter(
         (apt) => apt.establishment_id === establishment.id && isCompletedAppointmentStatus(apt)
       );
-      console.log('🔍 DEBUG - Appointments filtrados por establishment:', filteredAppointments);
 
       // 4. Inicializar TODOS os funcionários com 0 vendas
       const salesByProfessional: Record<string, {
@@ -6212,10 +6214,6 @@ const EstablishmentDashboard = () => {
       }) || [];
 
       // 6. Processar vendas reais do período
-      console.log('🔍 DEBUG - Dados de vendas:', data);
-      console.log('🔍 DEBUG - Appointments encontrados:', appointments);
-      console.log('🔍 DEBUG - Appointments do período:', periodAppointments);
-
       const periodAppointmentIds = new Set(periodAppointments.map(apt => apt.id));
 
       data?.forEach(sale => {
@@ -6238,18 +6236,10 @@ const EstablishmentDashboard = () => {
           }
         }
 
-        console.log('🔍 DEBUG - Venda:', sale);
-        console.log('🔍 DEBUG - Appointment encontrado:', appointment);
-        console.log('🔍 DEBUG - Professional ID/Nome original:', appointment?.professional);
-        console.log('🔍 DEBUG - Nome do profissional convertido:', professionalName);
-
         if (salesByProfessional[professionalName]) {
           salesByProfessional[professionalName].total_quantity += sale.quantity;
           salesByProfessional[professionalName].total_value += sale.quantity * sale.unit_price;
           salesByProfessional[professionalName].sales_count += 1;
-          console.log('🔍 DEBUG - Venda atribuída ao profissional:', professionalName);
-        } else {
-          console.log('🔍 DEBUG - Profissional não encontrado:', professionalName);
         }
       });
 
@@ -6973,18 +6963,6 @@ const EstablishmentDashboard = () => {
       }
       const unique = Array.from(byId.values());
 
-      console.log('🧩 SERVICES DEBUG - fetchServiceSubcategories:', {
-        establishmentId: establishment.id,
-        total: normalized.length,
-        unique: unique.length,
-        sample: unique.slice(0, 5).map((s: any) => ({
-          id: s?.id,
-          name: s?.name,
-          category_id: s?.category_id,
-          display_order: s?.display_order,
-        })),
-      });
-
       // Garantir ordenação estável também no estado (independente do backend)
       unique.sort((a, b) => {
         const cat = a.category_id.localeCompare(b.category_id);
@@ -7287,19 +7265,6 @@ const EstablishmentDashboard = () => {
         })
         .select('*')
         .single();
-
-      console.log('🧩 SERVICES DEBUG - insert subcategory result:', {
-        ok: !error,
-        inserted: insertedSubcategory
-          ? {
-            id: (insertedSubcategory as any)?.id,
-            name: (insertedSubcategory as any)?.name,
-            category_id: (insertedSubcategory as any)?.category_id,
-            display_order: (insertedSubcategory as any)?.display_order,
-          }
-          : null,
-        error,
-      });
 
       let effectiveInsertedSubcategory = insertedSubcategory;
       let effectiveError = error;
@@ -9823,10 +9788,6 @@ const EstablishmentDashboard = () => {
   };
 
   const handleCancelAppointment = async (appointmentId: string) => {
-    console.log('========================================');
-    console.log('🔐 CANCELAMENTO DO ESTABELECIMENTO - INICIANDO');
-    console.log('========================================');
-
     try {
       // Encontrar o agendamento antes de cancelar para notificação
       const appointmentToCancel = appointments.find(apt => apt.id === appointmentId);
@@ -9837,12 +9798,9 @@ const EstablishmentDashboard = () => {
       }
 
       // A senha já foi validada no modal antes de chegar aqui
-      console.log('✅ Prosseguindo com cancelamento...');
 
       // 🔥 VALIDAÇÃO DE REMARCAÇÃO NO MESMO DIA PARA ASSINANTES
       if (appointmentToCancel.is_subscriber) {
-        console.log('🔍 Verificando se é assinante e se pode cancelar...');
-
         // Verificar se o estabelecimento tem a configuração ativada
         const { data: establishmentData, error: establishmentError } = await supabase
           .from('establishments')
@@ -9881,7 +9839,6 @@ const EstablishmentDashboard = () => {
 
       // Enviar notificação de cancelamento
       if (appointmentToCancel) {
-        console.log('🔔 ENVIANDO NOTIFICAÇÃO DE CANCELAMENTO:', appointmentToCancel);
         const professionalName = getProfessionalName(appointmentToCancel.professional);
         notifyCancelledAppointment(
           appointmentToCancel.client_name,
@@ -9921,11 +9878,6 @@ const EstablishmentDashboard = () => {
   };
 
   const handleCancelClick = async (appointmentId: string) => {
-    console.log('🔍 DEBUG CANCELAR - Verificando configurações:');
-    console.log('  - requireCancelPassword (estado):', requireCancelPassword);
-    console.log('  - establishment?.pin_password:', establishment?.pin_password);
-    console.log('  - establishment?.require_cancel_password:', (establishment as any)?.require_cancel_password);
-
     // Buscar valor atualizado do banco para garantir
     if (establishment?.id) {
       const { data: currentEstablishment, error } = await supabase
@@ -9935,21 +9887,14 @@ const EstablishmentDashboard = () => {
         .single();
 
       if (!error && currentEstablishment) {
-        console.log('  - Valor do banco (require_cancel_password):', currentEstablishment.require_cancel_password);
-        console.log('  - Valor do banco (pin_password existe):', !!currentEstablishment.pin_password);
-
         const needsPassword = currentEstablishment.require_cancel_password === true;
         const hasPassword = currentEstablishment.pin_password &&
           currentEstablishment.pin_password !== '0000' &&
           currentEstablishment.pin_password.trim() !== '';
 
-        console.log('  - needsPassword (do banco):', needsPassword);
-        console.log('  - hasPassword (do banco):', hasPassword);
-
         setAppointmentToCancel(appointmentId);
 
         if (needsPassword && hasPassword) {
-          console.log('✅ Pedindo senha para cancelar');
           setShowCancelPasswordModal(true);
           return;
         }
@@ -9962,17 +9907,11 @@ const EstablishmentDashboard = () => {
       establishment.pin_password !== '0000' &&
       establishment.pin_password.trim() !== '';
 
-    console.log('  - needsPassword (fallback):', needsPassword);
-    console.log('  - hasPassword (fallback):', hasPassword);
-
     setAppointmentToCancel(appointmentId);
 
     if (needsPassword && hasPassword) {
-      console.log('✅ Pedindo senha para cancelar (fallback)');
       setShowCancelPasswordModal(true);
     } else {
-      console.log('❌ Não precisa de senha - mostrando confirmação direto');
-      console.log('  - Motivo: needsPassword =', needsPassword, ', hasPassword =', hasPassword);
       setShowCancelConfirm(true);
     }
   };
@@ -10509,8 +10448,19 @@ Estamos te aguardando! 😎✂️`;
     if (!establishment) return;
     if (isAppStandbyActive()) return;
 
-    const requestSeq = ++fetchAppointmentsRequestSeqRef.current;
     const selectedDateKeySnapshot = format(selectedDate, 'yyyy-MM-dd');
+    const requestKey = `${establishment.id}|${selectedDateKeySnapshot}`;
+    const nowMs = Date.now();
+    const lastAppointmentsFetch = lastAppointmentsFetchRef.current;
+    if (
+      lastAppointmentsFetch.key === requestKey &&
+      nowMs - lastAppointmentsFetch.atMs < APPOINTMENTS_FETCH_DEDUPE_MS
+    ) {
+      return;
+    }
+    lastAppointmentsFetchRef.current = { key: requestKey, atMs: nowMs };
+
+    const requestSeq = ++fetchAppointmentsRequestSeqRef.current;
     setIsLoading(true);
 
     try {
@@ -10590,12 +10540,6 @@ Estamos te aguardando! 😎✂️`;
         typeof window !== 'undefined' &&
         (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-      console.log('🔍 BUSCANDO AGENDAMENTOS:');
-      console.log('  - Establishment ID:', establishment.id);
-      console.log('  - Data selecionada:', selectedDate.toISOString());
-      console.log('  - Start:', startOfSelectedDate);
-      console.log('  - End:', endOfSelectedDate);
-
       const appointmentSelectStorageKey = 'appointments_select_missing_columns';
       const parseMissingAppointmentColumns = (): Set<string> => {
         if (typeof window === 'undefined') return new Set<string>();
@@ -10665,21 +10609,51 @@ Estamos te aguardando! 😎✂️`;
             .filter(Boolean)
             .join(' ')
             .toLowerCase();
+        const extractMissingColumns = (text: string): string[] => {
+          const found = new Set<string>();
+          const normalized = String(text || '').toLowerCase();
+          if (!normalized) return [];
+
+          // Ex: "column appointments.professional_tip_amount does not exist"
+          const genericColumnRegex = /column[^a-z0-9_]+([a-z0-9_."]+)/gi;
+          let genericMatch: RegExpExecArray | null = null;
+          while ((genericMatch = genericColumnRegex.exec(normalized)) !== null) {
+            const raw = String(genericMatch[1] || '')
+              .replace(/"/g, '')
+              .trim();
+            const col = raw.includes('.') ? raw.split('.').pop() || '' : raw;
+            if (col) found.add(col);
+          }
+
+          // Ex: "Could not find the 'professional_id' column of 'appointments'"
+          const quotedRegex = /'([a-z0-9_]+)'/gi;
+          let quotedMatch: RegExpExecArray | null = null;
+          while ((quotedMatch = quotedRegex.exec(normalized)) !== null) {
+            const col = String(quotedMatch[1] || '').trim();
+            if (col) found.add(col);
+          }
+
+          return Array.from(found).filter((col) => appointmentSelectColumns.includes(col));
+        };
         const collectMissingColumnsFromError = (errorLike: any): string[] => {
           const msg = getSupabaseErrorText(errorLike);
-          const found: string[] = [];
+          const extracted = extractMissingColumns(msg);
+          if (extracted.length > 0) return extracted;
+
+          // Fallback legado para mensagens mais vagas
+          const fallback: string[] = [];
           if (
             msg.includes('professional_tip_amount') ||
             (msg.includes('column') && msg.includes('professional_tip'))
           ) {
-            found.push('professional_tip_amount');
+            fallback.push('professional_tip_amount');
           }
-          if (msg.includes('is_loyalty_reward')) found.push('is_loyalty_reward');
-          if (msg.includes('professional_id')) found.push('professional_id');
-          if (msg.includes('professional_name')) found.push('professional_name');
-          if (msg.includes('is_waitlist')) found.push('is_waitlist');
-          if (msg.includes('waitlist_entry_id')) found.push('waitlist_entry_id');
-          return found;
+          if (msg.includes('is_loyalty_reward')) fallback.push('is_loyalty_reward');
+          if (msg.includes('professional_id')) fallback.push('professional_id');
+          if (msg.includes('professional_name')) fallback.push('professional_name');
+          if (msg.includes('is_waitlist')) fallback.push('is_waitlist');
+          if (msg.includes('waitlist_entry_id')) fallback.push('waitlist_entry_id');
+          return fallback;
         };
 
         let selectClause = buildAppointmentSelect(missingColumns);
@@ -10822,9 +10796,6 @@ Estamos te aguardando! 😎✂️`;
           aptAny.professional_name = resolvedProfessionalName;
         }
       });
-
-      console.log('✅ AGENDAMENTOS ENCONTRADOS:', appointmentsData.length);
-      console.log('📋 Dados:', appointmentsData);
 
       // Enriquecer CPF/endereço do cliente usando manual_clients (sem quebrar legado).
       try {
@@ -11034,10 +11005,10 @@ Estamos te aguardando! 😎✂️`;
         setAppointments(safeMergedAppointments);
       }
 
-      // Verificar quais clientes são novos
-      const newClientsMap: Record<string, boolean> = {};
+      // Verificar quais clientes são novos (com cache local em memória para evitar rajadas).
+      const newClientsMap: Record<string, boolean> = { ...newClientsInfoRef.current };
       for (const appointment of appointmentsData) {
-        if (appointment.client_id && !newClientsMap[appointment.client_id]) {
+        if (appointment.client_id && newClientsMap[appointment.client_id] === undefined) {
           try {
             const isNew = await isNewClient(appointment.client_id);
             newClientsMap[appointment.client_id] = isNew;
@@ -11048,7 +11019,15 @@ Estamos te aguardando! 😎✂️`;
         }
       }
       if (requestSeq === fetchAppointmentsRequestSeqRef.current) {
-        setNewClientsInfo(newClientsMap);
+        const currentEntries = Object.entries(newClientsInfoRef.current);
+        const nextEntries = Object.entries(newClientsMap);
+        const hasChanged =
+          currentEntries.length !== nextEntries.length ||
+          nextEntries.some(([clientId, isNew]) => newClientsInfoRef.current[clientId] !== isNew);
+
+        if (hasChanged) {
+          setNewClientsInfo(newClientsMap);
+        }
       }
     } catch (error: any) {
       console.error('Error fetching appointments:', error);
@@ -11073,22 +11052,19 @@ Estamos te aguardando! 😎✂️`;
       const start = startOfMonth(month); // Início do mês selecionado
       const end = endOfMonth(month); // Fim do mês selecionado
 
-      console.log('🔍 DEBUG - fetchMonthlyAppointments chamado para:', {
-        month: month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
-        start: start.toISOString(),
-        end: end.toISOString(),
-        monthObject: month
-      });
-      console.log('🏢 Establishment ID:', establishment.id);
-
       // Formatar datas para comparação (YYYY-MM-DD)
       const startDateStr = format(start, 'yyyy-MM-dd');
       const endDateStr = format(end, 'yyyy-MM-dd');
-
-      console.log('🔍 DEBUG - Query de agendamentos mensais:');
-      console.log('  - Start:', startDateStr);
-      console.log('  - End:', endDateStr);
-      console.log('  - Mês:', month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }));
+      const requestKey = `${establishment.id}|${startDateStr}|${endDateStr}`;
+      const nowMs = Date.now();
+      const lastMonthlyFetch = lastMonthlyFetchRef.current;
+      if (
+        lastMonthlyFetch.key === requestKey &&
+        nowMs - lastMonthlyFetch.atMs < MONTHLY_FETCH_DEDUPE_MS
+      ) {
+        return;
+      }
+      lastMonthlyFetchRef.current = { key: requestKey, atMs: nowMs };
 
       const { data: appointments, error } = await supabase
         .from('appointments')
@@ -11098,27 +11074,9 @@ Estamos te aguardando! 😎✂️`;
         .lte('appointment_date', endDateStr)
         .order('appointment_date', { ascending: true });
 
-      console.log('  - Agendamentos retornados pela query:', appointments?.length || 0);
-
       if (error) {
         console.error('Erro ao buscar agendamentos:', error);
         return;
-      }
-
-      console.log(`🔍 DEBUG - Encontrados ${appointments?.length || 0} agendamentos para ${month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`);
-
-      // Log dos agendamentos encontrados
-      if (appointments && appointments.length > 0) {
-        console.log('📋 DEBUG - Agendamentos encontrados:', appointments.map(apt => ({
-          id: apt.id,
-          date: apt.appointment_date,
-          client: apt.client_name,
-          professional: apt.professional,
-          price: apt.price,
-          total_price: apt.total_price
-        })));
-      } else {
-        console.log('📋 DEBUG - Nenhum agendamento encontrado para este mês');
       }
 
       const rows = ((appointments as any[]) || []).filter((apt) => !isWaitlistAppointment(apt));
@@ -11169,7 +11127,6 @@ Estamos te aguardando! 😎✂️`;
         ...(monthlyCompletedAppointments as Appointment[]),
         ...preservedCompletedAppointments,
       ]);
-      console.log('🔍 DEBUG - Vou atualizar monthlyAppointments com:', safeMonthlyCompleted.length, 'agendamentos');
       setMonthlyAppointments(safeMonthlyCompleted as any);
 
       const summary = rows.reduce(
@@ -11486,8 +11443,6 @@ Estamos te aguardando! 😎✂️`;
         );
         const requireCancelPasswordValue = (establishmentData as any).require_cancel_password ?? false;
         setRequireCancelPassword(requireCancelPasswordValue); // Exigir senha para cancelar agendamento
-        console.log('🔍 Carregado require_cancel_password do banco:', requireCancelPasswordValue);
-        console.log('🔍 establishmentData completo:', establishmentData);
         setCreditCardTaxPercentage(establishmentData.credit_card_tax_percentage ?? 3.5); // Taxa do cartão de crédito
         setDebitCardTaxPercentage(establishmentData.debit_card_tax_percentage ?? 2.5); // Taxa do cartão de débito
         setPaymentMethodsEnabled(establishmentData.payment_methods_enabled || ['pix', 'credito', 'debito', 'dinheiro', 'pagar_local']); // Formas de pagamento ativas
@@ -11565,11 +11520,6 @@ Estamos te aguardando! 😎✂️`;
 
         // Carrega o progresso do onboarding
         const currentOnboardingStep = establishmentData.onboarding_step ?? 4; // Default = 4 (completo) para contas antigas
-        console.log('🎯 DEBUG Onboarding - Carregando onboarding_step:', {
-          fromDatabase: establishmentData.onboarding_step,
-          currentStep: currentOnboardingStep,
-          servicesCount: (establishmentData.services_with_prices || []).length
-        });
         setOnboardingStep(currentOnboardingStep);
 
         // ✅ Mostrar popup de boas-vindas SEM persistir "fechado" (fecha só até recarregar)
@@ -11608,12 +11558,6 @@ Estamos te aguardando! 😎✂️`;
           String(establishmentData.id || ''),
           professionalsWithPercentage
         );
-
-        console.log('🔧 DEBUG - Carregando profissionais:', professionalsWithPercentage);
-        console.log('🔧 DEBUG - Serviços específicos encontrados:', professionalsWithPercentage.map((p: any) => ({
-          name: p.name,
-          specific_services: p.specific_services
-        })));
 
         setProfessionals(professionalsWithPercentage);
 
@@ -11691,7 +11635,6 @@ Estamos te aguardando! 😎✂️`;
           if (hasSavedBusinessHours) {
             // Se já existe horário salvo, respeitar o que está no banco (apenas normalizando null/vazio)
             const normalized = normalizeBusinessHours(businessHoursFromDB, defaultBusinessHoursForNew);
-            console.log('✅ (Onboarding) Mantendo horários salvos do banco:', normalized);
             setBusinessHours(normalized);
             setEstablishment((prev: any) => (prev ? { ...prev, business_hours: normalized } : prev));
           } else {
@@ -11717,11 +11660,9 @@ Estamos te aguardando! 😎✂️`;
         } else if (businessHoursFromDB) {
           // Usar horários salvos no banco, normalizando campos vazios/null
           const normalized = normalizeBusinessHours(businessHoursFromDB, defaultBusinessHoursForOld);
-          console.log('✅ Carregando horários do banco de dados:', normalized);
           setBusinessHours(normalized);
         } else {
           // Só usar padrão se não houver horários salvos (contas antigas sem business_hours)
-          console.log('⚠️ Nenhum horário salvo, usando padrão (antigo):', defaultBusinessHoursForOld);
           setBusinessHours(defaultBusinessHoursForOld);
         }
 
@@ -12069,24 +12010,10 @@ Estamos te aguardando! 😎✂️`;
 
   // Monitora quando um serviço válido é adicionado e desbloqueia tudo automaticamente
   useEffect(() => {
-    // Sempre logar para ver o que está acontecendo
-    console.log('🔍 DEBUG Onboarding - useEffect executado:', {
-      onboardingStep,
-      hasEstablishment: !!establishment,
-      establishmentId: establishment?.id,
-      servicesCount: servicesWithPrices.length,
-      validServicesCount: servicesWithPrices.filter(s => s.name && s.name.trim().length > 0 && s.price > 0).length,
-      services: servicesWithPrices.map(s => ({ name: s.name, price: s.price })),
-      onboardingCompletedRef: onboardingCompletedRef.current
-    });
-
     if (onboardingStep === 3 && establishment && !onboardingCompletedRef.current) {
-      console.log('✅ DEBUG Onboarding - Condições atendidas! Verificando serviços válidos...');
       const validServices = servicesWithPrices.filter(s =>
         s.name && s.name.trim().length > 0 && s.price > 0
       );
-
-      console.log('✅ DEBUG Onboarding - Serviços válidos encontrados:', validServices);
 
       if (validServices.length > 0) {
         // Tem pelo menos um serviço válido, salvar no banco e completar onboarding
@@ -12248,21 +12175,21 @@ Estamos te aguardando! 😎✂️`;
   }, [activeTab, establishment?.id, selectedMonth, carregarSaldoProdutosPorProfissional]);
 
   useEffect(() => {
-    if (establishment) {
-      fetchAppointments();
-      fetchMonthlyAppointments(selectedMonth);
-      fetchProducts(); // Carregar produtos automaticamente
-      // Valores iniciais agora são gerenciados por mês
+    if (!establishment?.id) return;
+    fetchAppointments();
+    fetchMonthlyAppointments(selectedMonth);
+    fetchProducts(); // Carregar produtos automaticamente
+  }, [establishment?.id]);
 
-      // Notificações agora são gerenciadas pelo painel interno
+  useEffect(() => {
+    if (!establishment?.id) return;
+    fetchAppointments();
+  }, [establishment?.id, selectedDate]);
 
-    }
-
-    // Cleanup ao desmontar
-    return () => {
-      // Cleanup do sistema de notificações internas
-    };
-  }, [establishment, selectedDate, selectedMonth]);
+  useEffect(() => {
+    if (!establishment?.id) return;
+    fetchMonthlyAppointments(selectedMonth);
+  }, [establishment?.id, selectedMonth]);
 
   useEffect(() => {
     // Mantém o novo painel detalhado sincronizado com o mês selecionado no financeiro.
@@ -12492,7 +12419,6 @@ Estamos te aguardando! 😎✂️`;
             const prevApp = previousAppointments.find(prev => prev.id === currentApp.id);
 
             if (!prevApp && currentApp.status !== 'cancelled') {
-              console.log('🔔 DETECTADO NOVO AGENDAMENTO:', currentApp);
               const professionalName = getProfessionalName(currentApp.professional);
               notifyNewAppointment(
                 currentApp.client_name,
@@ -12508,7 +12434,6 @@ Estamos te aguardando! 😎✂️`;
             const currentApp = normalizedIncomingAppointments.find(curr => curr.id === prevApp.id);
 
             if (currentApp && prevApp.status !== 'cancelled' && currentApp.status === 'cancelled') {
-              console.log('🔔 DETECTADO CANCELAMENTO EXTERNO:', currentApp);
               const professionalName = getProfessionalName(currentApp.professional);
               notifyCancelledAppointment(
                 currentApp.client_name,
@@ -12543,9 +12468,6 @@ Estamos te aguardando! 😎✂️`;
             const newAppointmentsToAdd = normalizedIncomingAppointments.filter(
               (incomingItem: any) => !currentIds.has(incomingItem.id)
             );
-            if (newAppointmentsToAdd.length > 0) {
-              console.log('🔄 Adicionando novos agendamentos:', newAppointmentsToAdd.length);
-            }
 
             return newAppointmentsToAdd.length > 0
               ? [...mergedCurrent, ...newAppointmentsToAdd]
@@ -12590,10 +12512,14 @@ Estamos te aguardando! 😎✂️`;
     previousAppointmentsRef.current = appointments;
   }, [appointments]);
 
+  // Evita consultas repetidas de "novo cliente" para os mesmos IDs.
+  useEffect(() => {
+    newClientsInfoRef.current = newClientsInfo;
+  }, [newClientsInfo]);
+
   // Recalcular dados financeiros quando agendamentos mudarem
   useEffect(() => {
     if (appointments.length > 0 && establishment?.professionals) {
-      console.log('🔄 Recalculando dados financeiros devido a mudanças nos agendamentos');
       // Forçar re-render dos dados financeiros
       setForceUpdate(prev => prev + 1);
     }
@@ -12690,7 +12616,6 @@ Estamos te aguardando! 😎✂️`;
   // Recarregar agendamentos quando abrir a aba de agendamentos
   useEffect(() => {
     if (establishment && activeTab === 'appointments') {
-      console.log('🔄 Aba de agendamentos aberta - Recarregando agendamentos...');
       fetchAppointments();
       fetchMonthlyAppointments(selectedMonth);
     }
@@ -12699,53 +12624,80 @@ Estamos te aguardando! 😎✂️`;
   // Funções para gerenciar despesas
   const loadExpenses = useCallback(async () => {
     if (!establishment?.id) return;
+    const monthKey = format(selectedMonth, 'yyyy-MM');
+    const requestKey = `${establishment.id}|${monthKey}`;
+    const nowMs = Date.now();
+    const lastFetch = lastExpensesFetchRef.current;
+    if (
+      lastFetch.key === requestKey &&
+      nowMs - lastFetch.atMs < DASHBOARD_AUX_FETCH_DEDUPE_MS
+    ) {
+      return;
+    }
+    if (expensesInFlightRef.current) return expensesInFlightRef.current;
 
-    try {
+    const task = (async () => {
+      try {
       // Calcular período do mês selecionado
       const startDate = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
       const endDate = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0, 23, 59, 59, 999);
 
-      console.log('💰 Carregando despesas para o mês:', selectedMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }));
-      console.log('📅 Período:', startDate.toISOString(), 'até', endDate.toISOString());
-      console.log('🔍 Establishment ID:', establishment.id);
-
       const expensesData = await getExpensesByMonth(establishment.id, startDate.toISOString(), endDate.toISOString());
-
-      console.log('💰 Despesas carregadas:', expensesData.length);
-      console.log('📋 Despesas encontradas:', expensesData);
 
       setExpenses(expensesData);
 
       // Calcular total das despesas do mês
       const total = expensesData.reduce((sum, expense) => sum + expense.amount, 0);
       setExpensesTotal(total);
+      lastExpensesFetchRef.current = { key: requestKey, atMs: Date.now() };
+      } catch (error) {
+        console.error('❌ Erro ao carregar despesas:', error);
+      } finally {
+        expensesInFlightRef.current = null;
+      }
+    })();
 
-      console.log('💰 Total de despesas:', total);
-    } catch (error) {
-      console.error('❌ Erro ao carregar despesas:', error);
-    }
+    expensesInFlightRef.current = task;
+    return task;
   }, [establishment?.id, selectedMonth]);
 
   const loadProfessionalPayments = useCallback(async () => {
     if (!establishment?.id) return;
-
-    try {
-      const { data, error } = await supabase
-        .from('professional_payments')
-        .select('*')
-        .eq('establishment_id', establishment.id)
-        .order('payment_date', { ascending: false });
-
-      if (error) {
-        console.error('❌ Erro ao carregar pagamentos profissionais:', error);
-        return;
-      }
-
-      setAllProfessionalPayments(data || []);
-      console.log('💰 Pagamentos profissionais carregados:', data?.length || 0);
-    } catch (error) {
-      console.error('❌ Erro ao carregar pagamentos profissionais:', error);
+    const requestKey = String(establishment.id);
+    const nowMs = Date.now();
+    const lastFetch = lastProfessionalPaymentsFetchRef.current;
+    if (
+      lastFetch.key === requestKey &&
+      nowMs - lastFetch.atMs < DASHBOARD_AUX_FETCH_DEDUPE_MS
+    ) {
+      return;
     }
+    if (professionalPaymentsInFlightRef.current) return professionalPaymentsInFlightRef.current;
+
+    const task = (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('professional_payments')
+          .select('*')
+          .eq('establishment_id', establishment.id)
+          .order('payment_date', { ascending: false });
+
+        if (error) {
+          console.error('❌ Erro ao carregar pagamentos profissionais:', error);
+          return;
+        }
+
+        setAllProfessionalPayments(data || []);
+        lastProfessionalPaymentsFetchRef.current = { key: requestKey, atMs: Date.now() };
+      } catch (error) {
+        console.error('❌ Erro ao carregar pagamentos profissionais:', error);
+      } finally {
+        professionalPaymentsInFlightRef.current = null;
+      }
+    })();
+
+    professionalPaymentsInFlightRef.current = task;
+    return task;
   }, [establishment?.id]);
 
   const loadInitialValuesForMonth = useCallback(async () => {
@@ -13046,7 +12998,7 @@ Estamos te aguardando! 😎✂️`;
     professionalAbsences,
   ]);
 
-  // Carregar assinantes pagos e despesas quando trocar de aba ou estabelecimento mudar
+  // Carregar assinantes pagos e despesas no carregamento inicial e troca de mês.
   useEffect(() => {
     if (establishment?.id && establishment.professionals && establishment.professionals.length > 0) {
       loadPaidSubscribers();
@@ -13055,7 +13007,7 @@ Estamos te aguardando! 😎✂️`;
       loadInitialValuesForMonth();
       loadGrossValueHistory();
     }
-  }, [establishment?.id, activeTab, establishment?.professionals, selectedMonth, loadExpenses, loadProfessionalPayments, loadInitialValuesForMonth, loadGrossValueHistory]);
+  }, [establishment?.id, establishment?.professionals?.length, selectedMonth, loadExpenses, loadProfessionalPayments, loadInitialValuesForMonth, loadGrossValueHistory]);
 
   useEffect(() => {
     if (!establishment?.id) return;
@@ -13352,14 +13304,6 @@ Estamos te aguardando! 😎✂️`;
     const percentage = appointment
       ? getProfessionalPercentageForAppointment(appointment, professional)
       : normalizeProfessionalPercentage(professional?.percentage);
-
-    console.log('🚨 TESTE - Buscando percentual:', {
-      professionalName,
-      found: !!professional,
-      professionalData: professional,
-      percentage,
-      allProfessionals: professionals.map(p => ({ id: p.id, name: p.name, percentage: p.percentage }))
-    });
 
     return percentage;
   };
@@ -14444,7 +14388,6 @@ Estamos te aguardando! 😎✂️`;
             .eq('establishment_id', establishment?.id)
             .eq('whatsapp', cleanOldWhatsapp);
         }
-        console.log('💾 Cliente manual atualizado no Supabase');
       }
 
       // Também atualizar no localStorage como backup
@@ -15184,14 +15127,20 @@ Estamos te aguardando! 😎✂️`;
   // Função para salvar alerta do cliente
   const saveAlert = async (clientWhatsapp: string, alert: string) => {
     try {
-      console.log('⚠️ Salvando alerta:', { clientWhatsapp, alert });
       const alertsCompatibilityKey = establishment?.id
         ? `client_alerts_unavailable_${establishment.id}`
+        : '';
+      const alertsCompatibilityPersistentKey = establishment?.id
+        ? `client_alerts_unavailable_persistent_${establishment.id}`
         : '';
       const alertsUnavailable =
         typeof window !== 'undefined' &&
         alertsCompatibilityKey &&
-        window.sessionStorage.getItem(alertsCompatibilityKey) === '1';
+        (
+          window.sessionStorage.getItem(alertsCompatibilityKey) === '1' ||
+          (alertsCompatibilityPersistentKey &&
+            window.localStorage.getItem(alertsCompatibilityPersistentKey) === '1')
+        );
 
       // Buscar o cliente na lista local pelo WhatsApp para pegar o nome
       const client = clients.find(c => c.whatsapp === clientWhatsapp);
@@ -15222,7 +15171,6 @@ Estamos te aguardando! 😎✂️`;
 
           if (error) throw error;
 
-          console.log('✅ Alerta salvo no Supabase:', data);
           toast('Alerta atualizado com sucesso!', 'success');
         } else {
           throw new Error('client_alerts_unavailable');
@@ -15240,8 +15188,10 @@ Estamos te aguardando! 😎✂️`;
             raw.includes('404'));
         if (missingAlertsTable && typeof window !== 'undefined' && alertsCompatibilityKey) {
           window.sessionStorage.setItem(alertsCompatibilityKey, '1');
+          if (alertsCompatibilityPersistentKey) {
+            window.localStorage.setItem(alertsCompatibilityPersistentKey, '1');
+          }
         }
-        console.warn('⚠️ Erro ao salvar no Supabase, usando localStorage:', supabaseError.message);
 
         // 2. Fallback: Salvar no localStorage se Supabase falhar
         const storageKey = `client_alerts_${establishment?.id}`;
@@ -15254,7 +15204,6 @@ Estamos te aguardando! 😎✂️`;
         };
 
         localStorage.setItem(storageKey, JSON.stringify(savedAlerts));
-        console.log('✅ Alerta salvo no localStorage (fallback)');
         toast('Alerta atualizado com sucesso!', 'success');
       }
 
@@ -15274,9 +15223,13 @@ Estamos te aguardando! 😎✂️`;
   const loadAlertsFromSupabase = async (): Promise<Record<string, { alert: string; name: string }>> => {
     if (!establishment?.id) return {};
     const alertsCompatibilityKey = `client_alerts_unavailable_${establishment.id}`;
+    const alertsCompatibilityPersistentKey = `client_alerts_unavailable_persistent_${establishment.id}`;
     const alertsUnavailable =
       typeof window !== 'undefined' &&
-      window.sessionStorage.getItem(alertsCompatibilityKey) === '1';
+      (
+        window.sessionStorage.getItem(alertsCompatibilityKey) === '1' ||
+        window.localStorage.getItem(alertsCompatibilityPersistentKey) === '1'
+      );
     if (alertsUnavailable) return {};
 
     try {
@@ -15298,11 +15251,9 @@ Estamos te aguardando! 😎✂️`;
         }
       });
 
-      console.log('⚠️ Alertas carregados do Supabase:', alertsMap);
       return alertsMap;
 
     } catch (error: any) {
-      console.warn('⚠️ Erro ao carregar alertas do Supabase:', error.message);
       const raw = String(
         error?.message || error?.details || error?.hint || error?.code || ''
       ).toLowerCase();
@@ -15314,7 +15265,10 @@ Estamos te aguardando! 😎✂️`;
           raw.includes('404'));
       if (missingAlertsTable && typeof window !== 'undefined') {
         window.sessionStorage.setItem(alertsCompatibilityKey, '1');
+        window.localStorage.setItem(alertsCompatibilityPersistentKey, '1');
+        return {};
       }
+      console.warn('⚠️ Erro ao carregar alertas do Supabase:', error.message);
       return {};
     }
   };
@@ -15340,7 +15294,6 @@ Estamos te aguardando! 😎✂️`;
         };
       });
 
-      console.log('🎂 Aniversários carregados do Supabase:', birthdaysMap);
       return birthdaysMap;
 
     } catch (error: any) {
@@ -15422,10 +15375,7 @@ Estamos te aguardando! 😎✂️`;
             appointmentCount: 0
           };
         });
-        console.log('✅ Clientes manuais carregados do Supabase:', supabaseClients.length, 'clientes');
-        console.log('📋 Detalhes dos clientes:', supabaseClients.map(c => ({ name: c.name, whatsapp: c.whatsapp })));
       } else {
-        console.log('📋 Nenhum cliente manual encontrado no Supabase');
       }
 
       // Mesclar dados extras do localStorage (fallback/compatibilidade quando coluna nova não existir no banco).
@@ -15612,9 +15562,20 @@ Estamos te aguardando! 😎✂️`;
 
   const loadPaidSubscribers = async () => {
     if (!establishment?.id) return;
+    const monthKey = format(selectedMonth, 'yyyy-MM');
+    const requestKey = `${establishment.id}|${monthKey}`;
+    const nowMs = Date.now();
+    const lastFetch = lastPaidSubscribersFetchRef.current;
+    if (
+      lastFetch.key === requestKey &&
+      nowMs - lastFetch.atMs < DASHBOARD_AUX_FETCH_DEDUPE_MS
+    ) {
+      return;
+    }
+    if (paidSubscribersInFlightRef.current) return paidSubscribersInFlightRef.current;
 
-    try {
-      console.log('🔍 Buscando assinantes pagos...');
+    const task = (async () => {
+      try {
 
       // Passo 1: Buscar assinaturas pagas
       const { data: subscriptions, error: subsError } = await supabase
@@ -15629,20 +15590,18 @@ Estamos te aguardando! 😎✂️`;
       }
 
       if (!subscriptions || subscriptions.length === 0) {
-        console.log('📋 Nenhuma assinatura paga encontrada');
         setPaidSubscribers(new Set());
+        lastPaidSubscribersFetchRef.current = { key: requestKey, atMs: Date.now() };
         return;
       }
-
-      console.log('✅ Assinaturas pagas encontradas:', subscriptions);
 
       // Passo 2: Buscar WhatsApps dos agendamentos desses clientes
       const clientIds = subscriptions.map(sub => sub.client_id).filter(id => !id.startsWith('manual_'));
 
       // Se não há clientIds válidos, não fazer a consulta
       if (clientIds.length === 0) {
-        console.log('📋 Nenhum client_id válido encontrado');
         setPaidSubscribers(new Set());
+        lastPaidSubscribersFetchRef.current = { key: requestKey, atMs: Date.now() };
         return;
       }
 
@@ -15658,18 +15617,22 @@ Estamos te aguardando! 😎✂️`;
         return;
       }
 
-      console.log('📱 Agendamentos encontrados:', appointmentsData);
-
       // Passo 3: Criar Set com WhatsApp únicos dos assinantes pagos
       const whatsappSet = new Set(
         appointmentsData?.map(apt => apt.client_whatsapp?.replace(/\D/g, '')).filter(Boolean) || []
       );
 
-      console.log('📱 WhatsApps de assinantes pagos:', Array.from(whatsappSet));
       setPaidSubscribers(whatsappSet);
-    } catch (error) {
-      console.error('❌ Erro geral ao carregar assinantes pagos:', error);
-    }
+      lastPaidSubscribersFetchRef.current = { key: requestKey, atMs: Date.now() };
+      } catch (error) {
+        console.error('❌ Erro geral ao carregar assinantes pagos:', error);
+      } finally {
+        paidSubscribersInFlightRef.current = null;
+      }
+    })();
+
+    paidSubscribersInFlightRef.current = task;
+    return task;
   };
 
   // Função para adicionar cliente manualmente
@@ -15777,7 +15740,6 @@ Estamos te aguardando! 😎✂️`;
           throw error;
         }
         savedData = data;
-        console.log('✅ Cliente manual atualizado no banco de dados:', savedData);
       } else {
         // Criar novo cliente
         const insertPayloadBase: any = {
@@ -15822,7 +15784,6 @@ Estamos te aguardando! 😎✂️`;
           throw error;
         }
         savedData = data;
-        console.log('✅ Cliente manual salvo no banco de dados:', savedData);
       }
 
       // Também salvar no localStorage como backup/cache
@@ -17148,8 +17109,6 @@ Estamos te aguardando! 😎✂️`;
   const fetchClients = async () => {
     if (!establishment) return;
 
-    console.log('🔄 Iniciando fetchClients...');
-
     try {
       // Busca todos os agendamentos do estabelecimento para obter os clientes + estatísticas.
       const baseAppointmentsSelect =
@@ -17272,14 +17231,12 @@ Estamos te aguardando! 😎✂️`;
       setSingleVisitClientListLast60d(singleVisitClientList);
 
       if (!appointmentsData || appointmentsData.length === 0) {
-        console.log('📋 Nenhum agendamento encontrado - carregando apenas clientes manuais');
         setClientInsightsLast60d({
           singleVisitClients: 0,
         });
         setSingleVisitClientListLast60d([]);
         // Mesmo sem agendamentos, carregar clientes manuais
         const manualClients = await loadManualClientsFromStorage();
-        console.log('👤 Clientes manuais carregados:', manualClients);
 
         const uniqueClients: Client[] = Object.values(manualClients).map((manualClient: any) => ({
           id: `manual_${manualClient.whatsapp}`,
@@ -17291,7 +17248,6 @@ Estamos te aguardando! 😎✂️`;
           forceAdvancePayment: manualClient.forceAdvancePayment === true
         }));
 
-        console.log('✅ Clientes finais (apenas manuais):', uniqueClients);
         setClients(uniqueClients);
         return;
       }
@@ -17309,7 +17265,6 @@ Estamos te aguardando! 😎✂️`;
       const uniqueClientIds = allClientIds.filter((id) => !id.startsWith('manual_'));
       const todayDateKey = format(new Date(), 'yyyy-MM-dd');
 
-      console.log('🔍 IDs únicos filtrados:', uniqueClientIds);
 
       // Buscar todos os perfis disponíveis para encontrar correspondências
       const { data: allProfilesData, error: allProfilesError } = await supabase
@@ -17318,8 +17273,6 @@ Estamos te aguardando! 😎✂️`;
 
       if (allProfilesError) throw allProfilesError;
 
-      console.log('🔍 IDs únicos buscados:', uniqueClientIds);
-      console.log('👤 Todos os perfis disponíveis:', allProfilesData);
 
       // Criar um mapa de perfis por user_id e por id
       const profilesMap = new Map();
@@ -17333,7 +17286,6 @@ Estamos te aguardando! 😎✂️`;
         .map(clientId => profilesMap.get(clientId))
         .filter(Boolean);
 
-      console.log('✅ Perfis correspondentes encontrados:', profilesData);
 
       const subscriptionStatusByClientId = new Map<string, 'paid' | 'expired'>();
       const subscriptionStatusByWhatsapp = new Map<string, 'paid' | 'expired'>();
@@ -17415,13 +17367,6 @@ Estamos te aguardando! 😎✂️`;
         }
         profilesMapForClients.set(profile.id, profileData);
 
-        console.log(`✅ Perfil mapeado:`, {
-          user_id: profile.user_id,
-          profile_id: profile.id,
-          name: profile.name,
-          is_subscriber: profile.is_subscriber,
-          birthday: profile.birthday
-        });
       });
 
       // Mapeia e agrupa os clientes a partir dos dados de agendamento e perfis
@@ -17529,7 +17474,6 @@ Estamos te aguardando! 😎✂️`;
 
       // Carregar clientes manuais do Supabase
       const manualClients = await loadManualClientsFromStorage();
-      console.log('👤 Clientes manuais carregados:', manualClients);
 
       // Adicionar clientes manuais que ainda não existem na lista
       Object.values(manualClients).forEach((manualClient: any) => {
@@ -17554,7 +17498,6 @@ Estamos te aguardando! 😎✂️`;
             forceAdvancePayment: manualClient.forceAdvancePayment === true,
             subscriberPaymentStatus: null,
           });
-          console.log(`➕ Cliente manual adicionado: ${manualClient.name} (${cleanManualWhatsapp})`);
         } else {
           // Cliente manual que já fez agendamentos - usar nome mais atualizado
           existingClient.name = manualClient.name;
@@ -17566,7 +17509,6 @@ Estamos te aguardando! 😎✂️`;
             existingClient.birthday = manualClient.birthday;
           }
           existingClient.forceAdvancePayment = manualClient.forceAdvancePayment === true;
-          console.log(`🔄 Cliente manual atualizado: ${manualClient.name} (${cleanManualWhatsapp})`);
         }
       });
 
@@ -17576,14 +17518,12 @@ Estamos te aguardando! 😎✂️`;
 
       // Mesclar: Supabase tem prioridade
       const allBirthdays = { ...localBirthdays, ...supabaseBirthdays };
-      console.log('🎂 Aniversários mesclados (Supabase + localStorage):', allBirthdays);
 
       uniqueClients.forEach(client => {
         const keys = possibleWhatsappLookupKeys(client.whatsapp);
         const savedBirthday = keys.map((k) => allBirthdays[k]).find(Boolean);
         if (savedBirthday) {
           client.birthday = savedBirthday.birthday;
-          console.log(`✅ Aniversário aplicado ao cliente ${client.name}:`, savedBirthday.birthday);
         }
       });
 
@@ -17593,14 +17533,12 @@ Estamos te aguardando! 😎✂️`;
 
       // Mesclar: Supabase tem prioridade
       const allAlerts = { ...localAlerts, ...supabaseAlerts };
-      console.log('⚠️ Alertas mesclados (Supabase + localStorage):', allAlerts);
 
       uniqueClients.forEach(client => {
         const keys = possibleWhatsappLookupKeys(client.whatsapp);
         const savedAlert = keys.map((k) => allAlerts[k]).find(Boolean);
         if (savedAlert) {
           client.alert = savedAlert.alert;
-          console.log(`⚠️ Alerta aplicado ao cliente ${client.name}:`, savedAlert.alert);
         }
       });
 
@@ -17636,14 +17574,6 @@ Estamos te aguardando! 😎✂️`;
       } catch (e) {
         console.warn('⚠️ Falha ao mesclar faltas no fetchClients:', e);
       }
-
-      console.log('🔍 Clientes finais processados:', uniqueClients.map(c => ({
-        name: c.name,
-        id: c.id,
-        isSubscriber: c.isSubscriber,
-        birthday: c.birthday,
-        alert: c.alert
-      })));
 
       setClients(uniqueClients);
     } catch (error: any) {
@@ -20073,7 +20003,6 @@ Estamos te aguardando! 😎✂️`;
     const currentYear = selectedMonth.getFullYear();
     const currentMonth = selectedMonth.getMonth() + 1;
 
-    console.log('🔍 DEBUG - Carregando progresso de metas para todos os profissionais');
 
     const progressData: Record<string, any> = {};
 
@@ -20111,7 +20040,6 @@ Estamos te aguardando! 😎✂️`;
     });
 
     setProfessionalGoalProgress(progressData);
-    console.log('🔍 DEBUG - Todos os progressos carregados:', progressData);
   }, [
     establishment,
     selectedMonth,
@@ -21207,16 +21135,6 @@ Estamos te aguardando! 😎✂️`;
 
     // Calcular o líquido total (bruto do SERVIÇO + SERVIÇOS EXTRA - taxas de cartão)
     // IMPORTANTE: Produtos V2 (appointment_products) NÃO entram, mas serviços extra (additional_products) SIM
-    console.log(`🔍 DEBUG calculateOwnerNetValue para ${professionalName}:`, {
-      totalAppointments: professionalAppointments.length,
-      appointments: professionalAppointments.map(apt => ({
-        client: apt.client_name,
-        status: apt.status,
-        price: apt.price,
-        payment_method: apt.payment_method
-      }))
-    });
-
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (!isCompletedAppointmentStatus(appointment)) return total;
       const tip = getProfessionalTipAmount(appointment);
@@ -21228,16 +21146,13 @@ Estamos te aguardando! 😎✂️`;
         if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
           const cardTax = (baseValue * paymentTax) / 100;
           servicePart = baseValue - cardTax;
-          console.log(`💰 DONO ${appointment.client_name}: R$ ${baseValue} (serviço) - R$ ${cardTax} (taxa) = R$ ${servicePart}`);
         } else {
           servicePart = baseValue;
-          console.log(`💰 DONO ${appointment.client_name}: R$ ${baseValue} (serviço, sem taxa)`);
         }
       }
       return total + servicePart + tip;
     }, 0);
 
-    console.log(`✅ Total líquido DONO ${professionalName}: R$ ${totalNet}`);
     return totalNet;
   };
 
@@ -21256,18 +21171,6 @@ Estamos te aguardando! 😎✂️`;
       appointmentBelongsToProfessional(apt, professional)
     );
 
-    console.log(`🔍 Calculando líquido para ${professionalName}:`, {
-      professionalId: professional.id,
-      appointments: professionalAppointments.map(apt => ({
-        id: apt.id,
-        client: apt.client_name,
-        professional: apt.professional,
-        status: apt.status,
-        value: apt.total_price || apt.price,
-        payment_method: apt.payment_method
-      }))
-    });
-
     // Calcular o líquido total (% sobre serviço + gorjeta 100% fora da %)
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (!isCompletedAppointmentStatus(appointment)) return total;
@@ -21280,12 +21183,10 @@ Estamos te aguardando! 😎✂️`;
         const effectivePercentage = getProfessionalPercentageForAppointment(appointment, professional);
         servicePart = (netBase * effectivePercentage) / 100;
 
-        console.log(`💰 ${appointment.client_name}: R$ ${baseValue} → Líquido: R$ ${servicePart} (${effectivePercentage}%)`);
       }
       return total + servicePart + tip;
     }, 0);
 
-    console.log(`✅ Total líquido ${professionalName}: R$ ${totalNet}`);
     return totalNet;
   };
 
@@ -21317,53 +21218,19 @@ Estamos te aguardando! 😎✂️`;
     const cardTaxAmount = getCardTaxAmountFromAppointment(appointment, baseValue);
     const tip = getProfessionalTipAmount(appointment);
 
-    console.log('🚨 TESTE - Cálculo líquido:', {
-      appointment: appointment.client_name,
-      baseValue,
-      professional: appointment.professional,
-      percentage,
-      paymentMethod: appointment.payment_method,
-      cardBrand: appointment.card_brand,
-      paymentTax: cardTaxAmount,
-      establishmentTaxes: {
-        credit: establishment?.credit_card_tax_percentage,
-        debit: establishment?.debit_card_tax_percentage,
-        cardBrandTaxes: establishment?.card_brand_taxes
-      }
-    });
-
     // Se houver cartão e a taxa é do profissional, desconta antes do percentual
     if (cardTaxAmount > 0) {
       if (establishment?.tax_deducted_by_establishment) {
         const result = (baseValue * percentage) / 100;
-        console.log('🚨 TESTE - Cartão (taxa pelo estabelecimento):', {
-          baseValue,
-          cardTaxAmount,
-          percentage,
-          result
-        });
         return result + tip;
       }
       const valueAfterCardTax = Math.max(0, baseValue - cardTaxAmount);
       const result = (valueAfterCardTax * percentage) / 100;
-      console.log('🚨 TESTE - Cartão (taxa pelo profissional):', {
-        baseValue,
-        cardTaxAmount,
-        valueAfterCardTax,
-        percentage,
-        result
-      });
       return result + tip;
     }
 
     // Se não for cartão, usar cálculo normal (apenas percentual do profissional)
     const result = (baseValue * percentage) / 100;
-    console.log('🚨 TESTE - Outros métodos:', {
-      baseValue,
-      percentage,
-      result,
-      calculation: `${baseValue} * ${percentage}% = ${result}`
-    });
     return result + tip;
   };
 
@@ -22773,8 +22640,6 @@ Estamos te aguardando! 😎✂️`;
 
   // ✅ Função customizada para mudança de tab com validação automática
   const handleTabChange = (tab: string) => {
-    console.log('🔄 Tentando mudar para tab:', tab);
-
     const hasPin =
       Boolean(establishment?.pin_password) &&
       String(establishment?.pin_password || '').trim().length > 0 &&
@@ -31790,16 +31655,11 @@ Estamos te aguardando! 😎✂️`;
                             isCompletedAppointmentStatus(apt)
                         );
 
-                        console.log(`🔍 Profissional: ${professional.name}`);
-                        console.log(`📋 Agendamentos encontrados:`, professionalAppointments);
-
                         const professionalRevenue = professionalAppointments.reduce((total, apt) => {
                           if (isSubscriberAppointment(apt)) {
-                            console.log(`💰 Assinante pago - não contabilizado: ${apt.client_name} - R$ ${apt.total_price || apt.price}`);
                             return total; // Não adiciona ao faturamento se for assinante pago
                           }
                           const appointmentValue = getAppointmentRevenueBase(apt);
-                          console.log(`💰 Agendamento normal: ${apt.client_name} - R$ ${appointmentValue}`);
                           return total + appointmentValue;
                         }, 0);
 
@@ -31840,8 +31700,6 @@ Estamos te aguardando! 😎✂️`;
                         const totalProfessionalLiquidWithSubscribers =
                           reconciledProfessionalLiquid +
                           subscriberProfessionalFinancial.pending;
-
-                        console.log(`✅ ${professional.name}: R$ ${professionalRevenue} - ${extraProductsSold} produtos extras`);
 
                         return (
                           <div key={professional.id} className="p-6 bg-gradient-to-r from-[#121722] to-[#171b24] rounded-xl border border-gray-700/70 shadow-lg hover:shadow-2xl hover:border-gray-600 transition-all duration-300 space-y-4 backdrop-blur-sm">

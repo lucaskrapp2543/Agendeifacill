@@ -89,7 +89,6 @@ export const useProfessionalPayments = (
         });
       }
       setPayments(list);
-      console.log('💰 Pagamentos carregados para o mês:', selectedMonth?.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) || 'todos', ':', list.length);
     } catch (err: any) {
       console.error('❌ Erro ao buscar pagamentos:', err);
       setError(err.message);
@@ -128,7 +127,6 @@ export const useProfessionalPayments = (
 
       // Atualizar lista local
       setPayments(prev => [data, ...prev]);
-      console.log('✅ Pagamento registrado:', data);
 
       return data;
     } catch (err: any) {
@@ -157,13 +155,6 @@ export const useProfessionalPayments = (
     const lastPayment = professionalPayments[0]; // Já ordenado por data decrescente
     const paymentCount = professionalPayments.length;
 
-    console.log('💰 Resumo de pagamentos para', professionalId, ':', {
-      totalPaid,
-      totalWithdrawn,
-      paymentCount,
-      allPayments: professionalPayments.map(p => ({ amount: p.amount, date: p.payment_date }))
-    });
-
     return {
       totalPaid,
       lastPaymentDate: lastPayment?.payment_date || null,
@@ -191,7 +182,6 @@ export const useProfessionalPayments = (
 
       // Atualizar lista local removendo o pagamento deletado
       setPayments(prev => prev.filter(p => p.id !== paymentId));
-      console.log('✅ Pagamento deletado:', paymentId);
 
       return true;
     } catch (err: any) {
@@ -216,11 +206,6 @@ export const useProfessionalPayments = (
   useEffect(() => {
     fetchPayments();
   }, [establishmentId, selectedMonth]);
-
-  // Monitorar mudanças nos pagamentos para re-renderizar componentes
-  useEffect(() => {
-    console.log('🔄 Pagamentos atualizados:', payments.length);
-  }, [payments]);
 
   return {
     payments,

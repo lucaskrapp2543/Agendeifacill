@@ -267,8 +267,6 @@ export const getSubscriberByWhatsapp = async (whatsapp: string, establishmentId:
  */
 export const getEstablishmentSubscribers = async (establishmentId: string) => {
   try {
-    console.log('🔍 Buscando assinantes do estabelecimento:', establishmentId);
-
     const { data, error } = await supabase
       .from('client_subscriptions')
       .select(`
@@ -285,7 +283,6 @@ export const getEstablishmentSubscribers = async (establishmentId: string) => {
       return { data: null, error };
     }
 
-    console.log('📋 Assinantes encontrados:', data?.length || 0);
     return { data: data || [], error: null };
   } catch (error) {
     console.error('❌ Erro ao buscar assinantes do estabelecimento:', error);

@@ -102,17 +102,13 @@ export function ProfessionalSelector({
   useEffect(() => {
     // Só carregar meta se showGoalProgress for true (dashboard do estabelecimento)
     if (!showGoalProgress) {
-      console.log('🚫 Meta não será carregada - showGoalProgress = false (tela de agendamento)');
       return;
     }
 
     const currentMonth = selectedDate.getMonth() + 1;
     const currentYear = selectedDate.getFullYear();
 
-    console.log('🎯 useEffect disparado - selectedProfessional:', selectedProfessional, 'establishmentId:', establishmentId, 'selectedDate:', selectedDate.toISOString(), 'mês/ano:', currentMonth + '/' + currentYear);
-
     if (selectedProfessional && selectedProfessional !== null) {
-      console.log('✅ Carregando meta para profissional selecionado:', selectedProfessional, 'mês:', currentMonth, 'ano:', currentYear);
       loadGoalProgress(selectedProfessional);
     }
   }, [selectedProfessional, establishmentId, selectedDate.getMonth(), selectedDate.getFullYear(), showGoalProgress]);

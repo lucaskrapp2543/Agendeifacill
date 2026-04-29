@@ -333,19 +333,31 @@ export function EstablishmentWhatsappRemindersInfo({ establishmentId }: { establ
         ];
         let loadedAppointments = false;
         let lastAppointmentError: any = null;
+        const chunkSize = 60;
         for (const selectCols of appointmentSelectCandidates) {
-          const { data: aptData, error: aptErr } = await supabase
-            .from('appointments')
-            .select(selectCols)
-            .in('id', appointmentLookupIds);
-          if (!aptErr) {
+          let hasChunkError = false;
+          for (let i = 0; i < appointmentLookupIds.length; i += chunkSize) {
+            const chunk = appointmentLookupIds.slice(i, i + chunkSize);
+            const { data: aptData, error: aptErr } = await supabase
+              .from('appointments')
+              .select(selectCols)
+              .in('id', chunk);
+
+            if (aptErr) {
+              lastAppointmentError = aptErr;
+              hasChunkError = true;
+              break;
+            }
+
             for (const apt of (aptData as any[]) || []) {
               appointmentById.set(String(apt.id), apt as AppointmentMini);
             }
+          }
+
+          if (!hasChunkError) {
             loadedAppointments = true;
             break;
           }
-          lastAppointmentError = aptErr;
         }
         if (!loadedAppointments) {
           // Não derruba a UI: mantém histórico com fallback por mensagem/telefone.

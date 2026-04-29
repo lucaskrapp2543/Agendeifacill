@@ -90,15 +90,6 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
       const startDay = format(startDate, 'yyyy-MM-dd');
       const endDay = format(endDate, 'yyyy-MM-dd');
 
-      console.log('💰 Carregando despesas para o mês:', format(selectedMonth, 'MMMM yyyy', { locale: ptBR }));
-      console.log('📅 Período:', startDate.toISOString(), 'até', endDate.toISOString());
-      console.log('🔍 Establishment ID:', establishmentId);
-
-      console.log('🔍 Query Supabase:');
-      console.log('- establishment_id:', establishmentId);
-      console.log('- startDate:', startDate.toISOString());
-      console.log('- endDate:', endDate.toISOString());
-
       let { data, error } = await supabase
         .from('establishment_expenses')
         .select('*')
@@ -122,21 +113,9 @@ export const FinancialDashboard = ({ appointments, professionals, selectedMonth,
         return;
       }
 
-      console.log('💰 Despesas carregadas:', data?.length || 0);
-      console.log('📋 Despesas encontradas:', data);
-
-      // Log das datas das despesas
-      if (data && data.length > 0) {
-        console.log('📅 Datas das despesas:');
-        data.forEach((expense, index) => {
-          console.log(`  ${index + 1}. ${expense.name}: ${expense.expense_date || expense.created_at}`);
-        });
-      }
-
       setExpenses(data || []);
       const total = (data || []).reduce((sum, expense) => sum + expense.amount, 0);
       setTotalExpenses(total);
-      console.log('💰 Total de despesas:', total);
     } catch (error) {
       console.error('Erro ao carregar despesas:', error);
     }

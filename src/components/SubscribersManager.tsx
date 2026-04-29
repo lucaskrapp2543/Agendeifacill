@@ -1343,8 +1343,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Função para buscar profissionais do estabelecimento
   const fetchProfessionals = async () => {
     try {
-      console.log('🔍 Buscando profissionais do estabelecimento:', establishmentId);
-
       // Buscar o estabelecimento com os profissionais
       const { data: establishmentData, error: establishmentError } = await supabase
         .from('establishments')
@@ -1358,9 +1356,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         return;
       }
 
-      console.log('🏢 Estabelecimento encontrado:', establishmentData);
-      console.log('👥 Profissionais do estabelecimento:', establishmentData.professionals);
-
       // Os profissionais estão em establishment.professionals como array JSONB
       const professionals = (establishmentData.professionals || []).map((prof: any) => ({
         id: prof.id || prof.name, // Usar id se existir, senão usar name como id
@@ -1368,7 +1363,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         percentage: normalizeProfessionalPercentage(prof?.percentage),
       }));
 
-      console.log('✅ Profissionais mapeados:', professionals);
       setProfessionals(professionals);
 
     } catch (error) {
@@ -1406,7 +1400,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         return;
       }
 
-      console.log('📋 Atendimentos encontrados (mês atual):', data);
       setSubscriberAttendances(data || []);
     } catch (error) {
       console.error('Erro ao buscar atendimentos de assinantes:', error);
@@ -1784,7 +1777,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         return paymentDate >= periodStart && paymentDate <= periodEnd;
       });
 
-      console.log('💰 Pagamentos encontrados (mês selecionado):', paymentsInSelectedMonth);
       setProfessionalPayments(paymentsInSelectedMonth);
     } catch (error) {
       console.error('Erro ao buscar pagamentos:', error);
@@ -2357,7 +2349,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       }));
 
       const dedupedSubscribers = deduplicateSubscriberRows(transformedSubscribers as ClientSubscription[]);
-      console.log('📋 Assinantes carregados (novo sistema):', transformedSubscribers.length, '| após dedupe:', dedupedSubscribers.length);
       setClientSubscriptions(dedupedSubscribers);
     } catch (error) {
       console.error('Erro ao buscar assinantes:', error);
@@ -2402,7 +2393,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           const result = await autoRecoverClients(establishmentId);
 
           if (result.recovered > 0) {
-            console.log(`🔄 Recuperação automática: ${result.recovered} clientes migrados`);
             // Recarregar dados após recuperação
             fetchClientSubscriptions();
             if (onClientUpdated) onClientUpdated();
@@ -2507,17 +2497,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
 
     try {
-      console.log('✅ Adicionando assinante independente:', {
-        name: newClientName,
-        phone: newClientPhone,
-        email: newClientEmail,
-        paymentMethod: newSubscriberPaymentMethod,
-        observation: newSubscriberObservation,
-        startDate,
-        endDate,
-        subscriptionId: selectedSubscriptionToAdd
-      });
-
       // Normalizar telefone para padrao unico (DDD + numero, sem 55)
       const normalizedPhone = normalizePhoneDigits(newClientPhone);
 
@@ -2568,12 +2547,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
 
     try {
-      console.log('🔥 FORÇANDO atualização do status:', {
-        id: clientSubscription.id,
-        newStatus,
-        currentStatus: clientSubscription.payment_status
-      });
-
       const updatePayload: any = {
         payment_status: newStatus,
         updated_at: new Date().toISOString()
@@ -2609,7 +2582,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         throw error;
       }
 
-      console.log('✅ Status FORÇADO para:', newStatus);
       if (newStatus === 'paid') {
         const renewedEndDate = getRenewedEndDateFromPaymentDate(getPaymentDateForImmediateStatusChange());
         toast(`Status FORÇADO para Pago e vencimento renovado para ${formatIsoDateSafe(renewedEndDate, renewedEndDate)}!`, 'success');
@@ -2649,8 +2621,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
     if (window.confirm(confirmMessage)) {
       try {
-        console.log(`🔐 ${action === 'ocultar' ? 'Ocultando' : 'Desocultando'} assinatura:`, subscriptionId);
-
         const { error } = await supabase
           .from('subscriptions')
           .update({ is_hidden: !currentHiddenState })
@@ -2952,8 +2922,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     const monthName = monthNames[selectedMonth];
     if (window.confirm(`Tem certeza que deseja LIMPAR todos os registros de atendimento do profissional "${professionalName}" de ${monthName} ${selectedYear}?\n\nIsso irá ZERAR o valor acumulado e apagar o histórico de atendimentos deste profissional no mês.\n\nEsta ação NÃO PODE ser desfeita!`)) {
       try {
-        console.log('🗑️ Deletando atendimentos do profissional:', professionalName);
-
         // Calcular período do mês selecionado
         const firstDay = new Date(selectedYear, selectedMonth, 1);
         const firstDayStr = firstDay.toISOString().split('T')[0]; // YYYY-MM-DD
@@ -2961,8 +2929,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         // Último dia do mês selecionado
         const lastDay = new Date(selectedYear, selectedMonth + 1, 0);
         const lastDayStr = lastDay.toISOString().split('T')[0]; // YYYY-MM-DD
-
-        console.log('📅 Período calculado:', { firstDayStr, lastDayStr, month: selectedMonth, year: selectedYear });
 
         // Deletar todos os subscriber_attendances deste profissional no mês selecionado
         const { error } = await supabase
@@ -2977,7 +2943,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           throw error;
         }
 
-        console.log('✅ Atendimentos deletados com sucesso');
         toast.success(`Profissional "${professionalName}" removido do controle com sucesso!`);
 
         // Recarregar dados
@@ -3493,8 +3458,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       localStorage.setItem('subscriber_audit_logs', JSON.stringify(existingLogs));
 
-      console.log('📝 Log de auditoria registrado:', auditLog);
-
       // Aqui você pode implementar o envio para uma tabela de logs no banco se necessário
       // await supabase.from('audit_logs').insert(auditLog);
 
@@ -3511,8 +3474,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     today.setHours(0, 0, 0, 0);
     let hasChanges = false;
 
-    console.log('🔍 Iniciando checagem diária de vencimento...');
-
     for (const cs of clientSubscriptions) {
       const endDate = parseIsoDateSafe(cs.end_date);
       if (!endDate) continue;
@@ -3521,8 +3482,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       // Se a data de término já passou e o status ainda não foi atualizado
       if (endDate < today && cs.payment_status === 'paid') {
         try {
-          console.log(`⚠️ Assinante ${cs.profiles?.full_name} venceu em ${endDate.toLocaleDateString('pt-BR')}, atualizando status...`);
-
           await supabase
             .from('client_subscriptions')
             .update({
@@ -3532,7 +3491,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             .eq('id', cs.id);
 
           hasChanges = true;
-          console.log(`✅ Status atualizado para ${cs.profiles?.full_name}: VENCIDO`);
         } catch (error) {
           console.error(`❌ Erro ao atualizar status de ${cs.profiles?.full_name}:`, error);
         }
@@ -3541,7 +3499,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
     // Recarregar dados se houve mudanças
     if (hasChanges) {
-      console.log('🔄 Recarregando dados após atualizações...');
       await fetchClientSubscriptions();
     }
   };
@@ -3559,18 +3516,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         const endDate = new Date(cs.end_date);
         endDate.setHours(0, 0, 0, 0);
 
-        console.log(`📅 Cliente ${cs.profiles?.full_name || 'Desconhecido'}:`, {
-          endDate: endDate.toLocaleDateString('pt-BR'),
-          today: today.toLocaleDateString('pt-BR'),
-          currentStatus: cs.payment_status,
-          isExpired: today > endDate
-        });
-
         // Se a data de fim passou E está marcado como 'paid', marcar como 'unpaid'
         if (today > endDate && cs.payment_status === 'paid') {
           try {
-            console.log(`🔄 Cliente ${cs.profiles?.full_name || 'Desconhecido'} venceu em ${endDate.toLocaleDateString('pt-BR')} - Marcando como não pago`);
-
             // Atualizar diretamente no banco
             const { error } = await supabase
               .from('client_subscriptions')
@@ -3593,7 +3541,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       // Só re-fetch se houve mudanças para evitar loop infinito
       if (hasChanges) {
-        console.log('🔄 Recarregando dados após mudanças de status por data de fim');
         fetchClientSubscriptions();
       }
     };
@@ -3921,20 +3868,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setIsRefreshingSaldoAssinantes(false);
     }
   };
-
-  console.log('📊 Resumo calculado:', {
-    brutoAtivo,
-    liquidoAtivo,
-    emContaMes,
-    totalRepasses,
-    totalAssinantes: clientSubscriptions.length,
-    clientSubscriptions: clientSubscriptions.map(cs => ({
-      name: cs.profiles?.full_name,
-      value: getSubscriptionValue(cs),
-      paymentStatus: cs.payment_status,
-      endDate: cs.end_date
-    }))
-  });
 
   const totalAssinantes = clientSubscriptions.filter(cs => isSubscriptionActiveByEndDate(cs)).length;
 
@@ -5820,15 +5753,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
                       const whatsappNumber = cleanNumber;
                       const displayNumber = cs.client_whatsapp.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
-
-                      // Debug para verificar formatação
-                      console.log('🔍 WhatsApp Debug:', {
-                        original: cs.client_whatsapp,
-                        cleanNumber,
-                        whatsappNumber,
-                        displayNumber,
-                        finalUrl: `https://wa.me/${whatsappNumber}`
-                      });
 
                       return (
                         <div className={`flex items-center gap-2 text-xs sm:text-sm ${textColor}/80`}>

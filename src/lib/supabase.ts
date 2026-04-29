@@ -1131,7 +1131,16 @@ export const getClientAppointments = async (clientId: string) => {
       .from('appointments')
       .select(`
         *,
-        establishments (*)
+        establishments (
+          id,
+          name,
+          code,
+          professionals,
+          pix_payment_link,
+          review_link,
+          affiliate_link,
+          skip_client_whatsapp_booking_nudge
+        )
       `)
       .eq('client_id', clientId)
       .order('appointment_date', { ascending: true });
@@ -1260,7 +1269,16 @@ export const getAppointmentsByPhone = async (phone: string) => {
     try {
       const result1 = await supabase
         .from('appointments')
-        .select(`*, establishments (*)`)
+        .select(`
+          *,
+          establishments (
+            id,
+            name,
+            code,
+            professionals,
+            skip_client_whatsapp_booking_nudge
+          )
+        `)
         .ilike('client_whatsapp', `%${cleanPhone}%`)
         .neq('status', 'cancelled'); // ✅ Excluir agendamentos cancelados
       data1 = result1.data || [];
@@ -1279,7 +1297,16 @@ export const getAppointmentsByPhone = async (phone: string) => {
       try {
         const result2 = await supabase
           .from('appointments')
-          .select(`*, establishments (*)`)
+          .select(`
+            *,
+            establishments (
+              id,
+              name,
+              code,
+              professionals,
+              skip_client_whatsapp_booking_nudge
+            )
+          `)
           .ilike('client_whatsapp', `%${localNumber}%`)
           .neq('status', 'cancelled'); // ✅ Excluir agendamentos cancelados
         data2 = result2.data || [];
@@ -1309,7 +1336,16 @@ export const getAppointmentsByPhone = async (phone: string) => {
 
       const result3 = await supabase
         .from('appointments')
-        .select(`*, establishments (*)`)
+        .select(`
+          *,
+          establishments (
+            id,
+            name,
+            code,
+            professionals,
+            skip_client_whatsapp_booking_nudge
+          )
+        `)
         .ilike('client_whatsapp', `%${formattedPhone}%`)
         .neq('status', 'cancelled'); // ✅ Excluir agendamentos cancelados
       data3 = result3.data || [];
@@ -1463,6 +1499,58 @@ export const getUserPremiumSubscriptions = async () => {
 };
 
 export const getEstablishmentPremiumSubscribers = async (establishmentId: string) => {
+  const PREMIUM_SUBSCRIBERS_UNAVAILABLE_KEY = 'premium_subscribers_unavailable_persistent';
+  const isLocalDev = () => {
+    if (typeof window === 'undefined') return false;
+    const hostname = String(window.location.hostname || '').toLowerCase();
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  };
+  const isPremiumSubscribersUnavailable = () => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return (
+        window.sessionStorage.getItem(PREMIUM_SUBSCRIBERS_UNAVAILABLE_KEY) === '1' ||
+        window.localStorage.getItem(PREMIUM_SUBSCRIBERS_UNAVAILABLE_KEY) === '1'
+      );
+    } catch {
+      return false;
+    }
+  };
+  const markPremiumSubscribersUnavailable = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.sessionStorage.setItem(PREMIUM_SUBSCRIBERS_UNAVAILABLE_KEY, '1');
+      window.localStorage.setItem(PREMIUM_SUBSCRIBERS_UNAVAILABLE_KEY, '1');
+    } catch {
+      // noop
+    }
+  };
+  const isPremiumSubscribersMissingTableError = (error: any) => {
+    const status = Number((error as any)?.status || 0);
+    const code = String((error as any)?.code || '').toLowerCase();
+    const message = String((error as any)?.message || '').toLowerCase();
+    const details = String((error as any)?.details || '').toLowerCase();
+    const hint = String((error as any)?.hint || '').toLowerCase();
+    const combined = `${message} ${details} ${hint}`;
+
+    return (
+      status === 404 ||
+      code === '42p01' ||
+      combined.includes('premium_subscribers') ||
+      combined.includes('relation') ||
+      combined.includes('does not exist') ||
+      combined.includes('could not find the table')
+    );
+  };
+
+  if (isPremiumSubscribersUnavailable()) {
+    return [];
+  }
+
+  if (isLocalDev()) {
+    return [];
+  }
+
   try {
     const { data, error } = await supabase
       .from('premium_subscribers')
@@ -1471,13 +1559,17 @@ export const getEstablishmentPremiumSubscribers = async (establishmentId: string
 
     // Se der erro 42P01 (relation does not exist) ou qualquer outro erro, retorna lista vazia
     if (error) {
-      console.log('Info: Premium subscribers table not available');
+      if (isPremiumSubscribersMissingTableError(error)) {
+        markPremiumSubscribersUnavailable();
+      }
       return [];
     }
 
     return data || [];
-  } catch (error) {
-    console.log('Info: Error fetching premium subscribers');
+  } catch (error: any) {
+    if (isPremiumSubscribersMissingTableError(error)) {
+      markPremiumSubscribersUnavailable();
+    }
     return [];
   }
 };
@@ -1669,9 +1761,19 @@ export const cancelAppointment = async (
     withMeta.cancellation_source = opts.cancellation_source;
     withMeta.cancellation_detail = opts.cancellation_detail ?? null;
   }
-  const first = await supabase.from('appointments').update(withMeta as any).eq('id', appointmentId).select().single();
+  const first = await supabase
+    .from('appointments')
+    .update(withMeta as any)
+    .eq('id', appointmentId)
+    .select('id, status')
+    .single();
   if (first.error && String((first.error as any).code || '') === '42703' && opts?.cancellation_source) {
-    return await supabase.from('appointments').update({ status: 'cancelled' }).eq('id', appointmentId).select().single();
+    return await supabase
+      .from('appointments')
+      .update({ status: 'cancelled' })
+      .eq('id', appointmentId)
+      .select('id, status')
+      .single();
   }
   return first;
 };
@@ -2365,12 +2467,14 @@ const getSubscriptionById = async (subscriptionId: string) => {
   return { data, error };
 };
 
+const IS_NEW_CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
+const isNewClientCache = new Map<string, { value: boolean; expiresAt: number }>();
+const isNewClientInFlight = new Map<string, Promise<boolean>>();
+
 
 // Função para verificar se um usuário é um novo cliente e buscar seus dados
 export const getClientProfileData = async (userId: string) => {
   try {
-    console.log('🔍 DEBUG - getClientProfileData chamada para userId:', userId);
-
     // Primeiro, verificar se o usuário existe na tabela profiles
     const { data: userExists, error: existsError } = await supabase
       .from('profiles')
@@ -2378,15 +2482,12 @@ export const getClientProfileData = async (userId: string) => {
       .eq('id', userId)
       .maybeSingle();
 
-    console.log('🔍 DEBUG - Usuário existe?', { userExists, existsError });
-
     if (existsError) {
       console.error('Erro ao verificar se usuário existe:', existsError);
       return { data: null, error: existsError };
     }
 
     if (!userExists) {
-      console.log('🔍 DEBUG - Usuário não encontrado na tabela profiles');
       return { data: null, error: { message: 'Usuário não encontrado na tabela profiles' } };
     }
 
@@ -2397,8 +2498,6 @@ export const getClientProfileData = async (userId: string) => {
       .eq('id', userId)
       .maybeSingle();
 
-    console.log('🔍 DEBUG - getClientProfileData resultado:', { data, error });
-
     if (error) {
       console.error('Erro ao buscar dados do perfil:', error);
       return { data: null, error };
@@ -2406,7 +2505,6 @@ export const getClientProfileData = async (userId: string) => {
 
     // Se não encontrou dados, retornar estrutura vazia
     if (!data) {
-      console.log('🔍 DEBUG - Nenhum dado encontrado para o usuário');
       return {
         data: {
           first_name: null,
@@ -2427,39 +2525,42 @@ export const getClientProfileData = async (userId: string) => {
 
 // Função para verificar se um usuário é um novo cliente
 export const isNewClient = async (userId: string): Promise<boolean> => {
-  try {
-    console.log('🔍 DEBUG - isNewClient chamada para userId:', userId);
+  const safeUserId = String(userId || '').trim();
+  if (!safeUserId) return false;
 
-    // Primeiro, verificar se o usuário tem dados de autenticação que indicam que é novo cliente
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const now = Date.now();
+  const cached = isNewClientCache.get(safeUserId);
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
 
-    if (authError) {
-      console.error('Erro ao buscar dados de autenticação:', authError);
-    } else if (user) {
-      console.log('🔍 DEBUG - Dados de autenticação do usuário:', {
-        id: user.id,
-        email: user.email,
-        metadata: user.user_metadata,
-        app_metadata: user.app_metadata
-      });
+  const inflight = isNewClientInFlight.get(safeUserId);
+  if (inflight) return inflight;
 
-      // Verificar se o usuário foi criado com is_new_client = true
-      if (user.user_metadata?.is_new_client === true) {
-        console.log('🔍 DEBUG - Usuário identificado como novo cliente via metadata');
+  const requestPromise = (async () => {
+    try {
+      // Se for o próprio usuário autenticado, valida metadata primeiro.
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && user.id === safeUserId && user.user_metadata?.is_new_client === true) {
+        isNewClientCache.set(safeUserId, { value: true, expiresAt: Date.now() + IS_NEW_CLIENT_CACHE_TTL_MS });
         return true;
       }
-    }
 
-    // Se não encontrou nos metadados, verificar na tabela profiles
-    const { data, error } = await getClientProfileData(userId);
-    console.log('🔍 DEBUG - isNewClient resultado:', { data, error });
-    const isNew = data?.is_new_client === true;
-    console.log('🔍 DEBUG - isNewClient retornando:', isNew);
-    return isNew;
-  } catch (error) {
-    console.error('Erro ao verificar se é novo cliente:', error);
-    return false;
-  }
+      // Fallback: verificar flag na tabela profiles.
+      const { data } = await getClientProfileData(safeUserId);
+      const isNew = data?.is_new_client === true;
+      isNewClientCache.set(safeUserId, { value: isNew, expiresAt: Date.now() + IS_NEW_CLIENT_CACHE_TTL_MS });
+      return isNew;
+    } catch (error) {
+      console.error('Erro ao verificar se é novo cliente:', error);
+      return false;
+    } finally {
+      isNewClientInFlight.delete(safeUserId);
+    }
+  })();
+
+  isNewClientInFlight.set(safeUserId, requestPromise);
+  return requestPromise;
 };
 
 // Função para buscar dados do cliente dos metadados de autenticação

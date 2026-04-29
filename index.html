@@ -83,14 +83,14 @@
                            (navigator.userAgent.includes('Firefox') && navigator.userAgent.includes('Privacy'));
     
     if (hasProtections) {
-      console.log('🛡️ Navegador com proteções detectado - Service Worker desabilitado (evita loops)');
+      // Mantém comportamento sem poluir console.
     }
-    
+
     // ⚠️ VERIFICAR se SW foi desabilitado por detecção de loop (qualquer navegador)
     const swDisabledByLoop = localStorage.getItem('sw_disabled_loop_detection') === 'true';
     
     if (swDisabledByLoop) {
-      console.log('🛡️ Service Worker desabilitado (loop detectado anteriormente)');
+      // Mantém comportamento sem poluir console.
     }
     
     if ('serviceWorker' in navigator &&
@@ -209,9 +209,7 @@
       
       if (isMobile || isBookingPage || hasProtectionsSync) {
         if (hasProtectionsSync) {
-          console.log('🛡️ Navegador com proteções detectado - Service Worker desabilitado (evita loops)');
-        } else {
-          console.log('📱 Service Worker desabilitado em mobile/booking (evita página branca e cache problemático)');
+          // Mantém comportamento sem poluir console.
         }
 
         // ⚠️ REMOVER Service Workers existentes em mobile/booking E remover listeners
@@ -247,7 +245,7 @@
           });
         }
       } else {
-        console.log('🚫 Service Worker desabilitado em desenvolvimento');
+        // Mantém comportamento sem poluir console.
       }
 
       // Limpar qualquer service worker existente em desenvolvimento
@@ -295,7 +293,6 @@
         console.log('✅ Limpeza concluída! Recarregue a página.');
       };
 
-      console.log('💡 Use window.clearAppCache() no console para limpeza manual');
     }
 
     // ⚠️ REMOVIDO: Parâmetro ?v= não é mais necessário
@@ -334,7 +331,7 @@
       // ⚠️ DESABILITADO: Limpeza agressiva em mobile causava loops e erros
       // Service Worker já está desabilitado em mobile, não precisa de limpeza agressiva
       if (isMobile) {
-        console.log('📱 Mobile detectado - Service Worker já desabilitado (sem limpeza agressiva para evitar loops)');
+        // Mantém comportamento sem poluir console.
       }
     })();
   </script>
@@ -356,7 +353,6 @@
                                             (navigator.userAgent.includes('Firefox') && navigator.userAgent.includes('Privacy'));
       
       if (hasProtectionsForWhiteScreen) {
-        console.log('🛡️ Navegador com proteções detectado - Detecção de página branca DESABILITADA (evita loops infinitos)');
         return; // NÃO EXECUTAR NADA em navegadores com proteções
       }
 

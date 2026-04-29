@@ -41,7 +41,6 @@ export function SupabaseProvider({ children }: SupabaseProviderProps) {
       throw new Error('Missing Supabase environment variables. Please check your .env file.');
     }
 
-    console.log('✅ Supabase client initialized successfully');
     return { supabase };
   }, []);
 

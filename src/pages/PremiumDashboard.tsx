@@ -447,12 +447,8 @@ const PremiumDashboard = () => {
 
       toast.success('Agendamento cancelado com sucesso');
 
-      // Aguardar um pouco e recarregar
-      setTimeout(() => {
-        fetchAppointments();
-      }, 500);
-
-      fetchAppointments();
+      // Recarregar uma única vez para reduzir carga duplicada no banco.
+      await fetchAppointments();
     } catch (error: any) {
       console.error('❌ Error cancelling appointment:', error);
       toast.error(error.message || 'Erro ao cancelar agendamento');
