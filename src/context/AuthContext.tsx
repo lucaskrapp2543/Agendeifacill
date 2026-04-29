@@ -28,6 +28,25 @@ type AuthProviderProps = {
   children: React.ReactNode;
 };
 
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error(timeoutMessage));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+};
+
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<UserRole>(null);
@@ -81,8 +100,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
             console.log(`⏰ Tempo até expirar: ${hoursUntilExpiry.toFixed(2)} horas`);
 
-            // Se ainda tem mais de 30 minutos, usar a sessão antiga diretamente
-            if (timeUntilExpiry > 1800 && isMounted) {
+            // Se já expirou, limpar imediatamente para evitar travar em renovação inválida
+            if (timeUntilExpiry <= 0) {
+              console.log('⏰ Sessão do localStorage já expirou, removendo antes de renovar...');
+              localStorage.removeItem('agendafacil_auth_token');
+            } else if (timeUntilExpiry > 1800 && isMounted) {
+              // Se ainda tem mais de 30 minutos, usar a sessão antiga diretamente
               console.log('✅ Sessão ainda válida (>30min), usando sem renovar...');
               console.log('📱 CELULAR: Evitando renovação desnecessária');
               setSession(parsedSession);
@@ -93,40 +116,64 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 markInitialized();
               }
               return;
-            }
+            } else {
+              // Se tem menos de 30 minutos (mas ainda válida), tentar renovar
+              console.log('🔄 Sessão próxima de expirar (<30min), tentando renovar...');
+              console.log('📱 CELULAR: URL atual:', window.location.href);
+              console.log('📱 CELULAR: isSecureContext:', window.isSecureContext);
 
-            // Se tem menos de 30 minutos, tentar renovar
-            console.log('🔄 Sessão próxima de expirar (<30min), tentando renovar...');
-            console.log('📱 CELULAR: URL atual:', window.location.href);
-            console.log('📱 CELULAR: isSecureContext:', window.isSecureContext);
+              try {
+                const { data, error } = await withTimeout(
+                  supabase.auth.setSession({
+                    access_token: parsedSession.access_token,
+                    refresh_token: parsedSession.refresh_token
+                  }),
+                  7000,
+                  'Timeout ao renovar sessão'
+                );
 
-            try {
-              const { data, error } = await supabase.auth.setSession({
-                access_token: parsedSession.access_token,
-                refresh_token: parsedSession.refresh_token
-              });
+                if (!error && data.session && isMounted) {
+                  console.log('✅ Sessão renovada com sucesso!');
+                  console.log('📅 Nova expiração:', new Date(data.session.expires_at! * 1000).toLocaleString());
+                  setSession(data.session);
+                  setUser(data.session.user);
+                  setUserRole(data.session.user?.user_metadata?.role as UserRole || null);
+                  localStorage.setItem('agendafacil_auth_token', JSON.stringify(data.session));
+                  if (isMounted) {
+                    setIsLoading(false);
+                    markInitialized();
+                  }
+                  return; // Sair aqui se renovação foi bem-sucedida
+                } else {
+                  console.error('❌ Erro ao renovar sessão:', error);
+                  console.error('📱 CELULAR: Detalhes do erro:', JSON.stringify(error, null, 2));
+                  console.log('⚠️ Tentando usar sessão antiga do localStorage...');
 
-              if (!error && data.session && isMounted) {
-                console.log('✅ Sessão renovada com sucesso!');
-                console.log('📅 Nova expiração:', new Date(data.session.expires_at! * 1000).toLocaleString());
-                setSession(data.session);
-                setUser(data.session.user);
-                setUserRole(data.session.user?.user_metadata?.role as UserRole || null);
-                localStorage.setItem('agendafacil_auth_token', JSON.stringify(data.session));
-                if (isMounted) {
-                  setIsLoading(false);
-                  markInitialized();
+                  // Mesmo com erro, se a sessão ainda é válida, usar
+                  if (expiresAt && expiresAt > now && isMounted) {
+                    console.log('✅ Sessão antiga ainda válida, usando mesmo com erro de renovação...');
+                    console.log('📱 CELULAR: Mantendo sessão antiga válida');
+                    setSession(parsedSession);
+                    setUser(parsedSession.user);
+                    setUserRole(parsedSession.user?.user_metadata?.role as UserRole || null);
+                    if (isMounted) {
+                      setIsLoading(false);
+                      markInitialized();
+                    }
+                    return;
+                  } else {
+                    console.log('⏰ Sessão antiga expirada, removendo...');
+                    localStorage.removeItem('agendafacil_auth_token');
+                  }
                 }
-                return; // Sair aqui se renovação foi bem-sucedida
-              } else {
-                console.error('❌ Erro ao renovar sessão:', error);
-                console.error('📱 CELULAR: Detalhes do erro:', JSON.stringify(error, null, 2));
-                console.log('⚠️ Tentando usar sessão antiga do localStorage...');
+              } catch (renewError) {
+                console.error('❌ Exceção ao renovar sessão:', renewError);
+                console.error('📱 CELULAR: Stack trace:', renewError);
 
-                // Mesmo com erro, se a sessão ainda é válida, usar
+                // Mesmo com exceção, se a sessão ainda é válida, usar
                 if (expiresAt && expiresAt > now && isMounted) {
-                  console.log('✅ Sessão antiga ainda válida, usando mesmo com erro de renovação...');
-                  console.log('📱 CELULAR: Mantendo sessão antiga válida');
+                  console.log('✅ Sessão ainda válida, usando apesar da exceção...');
+                  console.log('📱 CELULAR: Mantendo sessão válida');
                   setSession(parsedSession);
                   setUser(parsedSession.user);
                   setUserRole(parsedSession.user?.user_metadata?.role as UserRole || null);
@@ -136,28 +183,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
                   }
                   return;
                 } else {
-                  console.log('⏰ Sessão antiga expirada, removendo...');
                   localStorage.removeItem('agendafacil_auth_token');
                 }
-              }
-            } catch (renewError) {
-              console.error('❌ Exceção ao renovar sessão:', renewError);
-              console.error('📱 CELULAR: Stack trace:', renewError);
-
-              // Mesmo com exceção, se a sessão ainda é válida, usar
-              if (expiresAt && expiresAt > now && isMounted) {
-                console.log('✅ Sessão ainda válida, usando apesar da exceção...');
-                console.log('📱 CELULAR: Mantendo sessão válida');
-                setSession(parsedSession);
-                setUser(parsedSession.user);
-                setUserRole(parsedSession.user?.user_metadata?.role as UserRole || null);
-                if (isMounted) {
-                  setIsLoading(false);
-                  markInitialized();
-                }
-                return;
-              } else {
-                localStorage.removeItem('agendafacil_auth_token');
               }
             }
           } catch (error) {
@@ -168,7 +195,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         // Estratégia 2: Buscar do Supabase (fallback)
         console.log('🌐 Buscando sessão do Supabase...');
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const { data: { session }, error } = await withTimeout(
+          supabase.auth.getSession(),
+          7000,
+          'Timeout ao recuperar sessão do Supabase'
+        );
 
         if (error) {
           console.error('❌ Erro ao recuperar sessão do Supabase:', error);
@@ -275,10 +306,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const trimmedPassword = rawPassword.trim();
       const hasEdgeSpacesInPassword = rawPassword !== trimmedPassword;
 
-      let { data, error } = await supabase.auth.signInWithPassword({
-        email: normalizedEmail,
-        password: rawPassword,
-      });
+      if (!navigator.onLine) {
+        const offlineError = new Error('Sem conexão com a internet. Verifique sua rede e tente novamente.');
+        (offlineError as any).code = 'OFFLINE';
+        throw offlineError;
+      }
+
+      let { data, error } = await withTimeout(
+        supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password: rawPassword,
+        }),
+        15000,
+        'Timeout no login. Verifique conexão/Supabase e tente novamente.'
+      );
 
       // Fallback de compatibilidade: alguns preenchimentos automáticos adicionam espaço nas bordas.
       if (
@@ -286,10 +327,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
         String(error?.message || '').toLowerCase().includes('invalid login credentials') &&
         hasEdgeSpacesInPassword
       ) {
-        const retry = await supabase.auth.signInWithPassword({
-          email: normalizedEmail,
-          password: trimmedPassword,
-        });
+        const retry = await withTimeout(
+          supabase.auth.signInWithPassword({
+            email: normalizedEmail,
+            password: trimmedPassword,
+          }),
+          10000,
+          'Timeout na segunda tentativa de login.'
+        );
         data = retry.data;
         error = retry.error;
       }
@@ -305,40 +350,42 @@ export function AuthProvider({ children }: AuthProviderProps) {
         console.log('✅ Login salvo no localStorage para PWA');
       }
       return { user: data.user, session: data.session }; // Retorna o user e a session
-    } catch (error) {
+    } catch (error: any) {
+      const message = String(error?.message || '').toLowerCase();
+      if (message.includes('timeout') || message.includes('load failed') || message.includes('failed to fetch')) {
+        error.code = error?.code || 'NETWORK_TIMEOUT';
+        error.details = error?.details || 'A API de autenticação não respondeu a tempo.';
+        error.hint = error?.hint || 'Valide internet, DNS/firewall e status do Supabase.';
+      }
       throw error;
     }
   };
 
 
   const signUp = async (email: string, password: string, name: string, additionalData?: any) => {
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            name,
-            role: 'client', // Role padrão para novos usuários
-            ...additionalData, // Incluir dados adicionais (first_name, last_name, whatsapp, is_new_client)
-          },
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name,
+          role: 'client', // Role padrão para novos usuários
+          ...additionalData, // Incluir dados adicionais (first_name, last_name, whatsapp, is_new_client)
         },
-      });
+      },
+    });
 
-      if (error) throw error;
+    if (error) throw error;
 
-      setUser(data.user);
-      setSession(data.session);
-      setUserRole(data.user?.user_metadata?.role as UserRole || null);
+    setUser(data.user);
+    setSession(data.session);
+    setUserRole(data.user?.user_metadata?.role as UserRole || null);
 
-      if (data.session && data.user) {
-        localStorage.setItem('agendafacil_auth_token', JSON.stringify(data.session));
-        console.log('✅ Cadastro salvo no localStorage para PWA');
-      }
-      return { user: data.user, session: data.session };
-    } catch (error) {
-      throw error;
+    if (data.session && data.user) {
+      localStorage.setItem('agendafacil_auth_token', JSON.stringify(data.session));
+      console.log('✅ Cadastro salvo no localStorage para PWA');
     }
+    return { user: data.user, session: data.session };
   };
 
   const signOut = async () => {

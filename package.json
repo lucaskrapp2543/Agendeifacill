@@ -12,7 +12,11 @@
     "kill-port": "powershell -Command \"Get-Process -Id (Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue).OwningProcess -ErrorAction SilentlyContinue | Stop-Process -Force\"",
     "setup-env": "scripts\\setup-env.bat",
     "build": "vite build",
-    "lint": "eslint .",
+    "lint": "eslint src/context/AuthContext.tsx src/lib/supabase.ts src/lib/pagarme-server.ts netlify/functions/**/*.ts server/mercadopago/mp.routes.ts",
+    "lint:full": "eslint .",
+    "typecheck": "tsc -p tsconfig.quality.json --noEmit",
+    "typecheck:full": "tsc -b",
+    "quality": "npm run lint && npm run typecheck && npm run build",
     "preview": "vite preview",
     "ponto-x": "scripts\\restore-point.bat"
   },

@@ -14,7 +14,7 @@
 // Variável de ambiente do SERVIDOR (não do frontend)
 // Nota: Esta variável é lida quando o módulo é importado
 // Certifique-se de que dotenv.config() foi chamado antes de importar este módulo
-let PAGARME_SECRET_KEY = process.env.PAGARME_SECRET_KEY || '';
+const PAGARME_SECRET_KEY = process.env.PAGARME_SECRET_KEY || '';
 
 // Função para obter a chave (permite recarregar após dotenv)
 export function getPagarMeSecretKey(): string {
@@ -1203,7 +1203,7 @@ export async function createPayment(
               qr_code: pixQrCode,
               qr_code_url: pixQrCodeUrl,
               expires_in: pixExpiresIn,
-            }
+            } as any
           : undefined,
       charges: data.charges,
     };

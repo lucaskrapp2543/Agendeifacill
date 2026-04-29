@@ -5,6 +5,3 @@ export const InstallAppButton: React.FC = () => {
   // O usuário deve clicar no botão "Instalar app" no header se quiser instalar
   return null;
 };
-
-
-};

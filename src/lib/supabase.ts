@@ -1181,7 +1181,7 @@ export const getClientAppointments = async (clientId: string) => {
 
     // Resolver nomes dos profissionais se necessário
     if (combinedData && combinedData.length > 0) {
-      for (let appointment of combinedData) {
+      for (const appointment of combinedData as any[]) {
         // Se professional é um ID e não um nome, tentar buscar o nome
         if (appointment.professional && appointment.professional.length > 10 && !appointment.professional_name) {
           try {
@@ -1366,7 +1366,7 @@ export const getAppointmentsByPhone = async (phone: string) => {
 
     // Resolver nomes dos profissionais se necessário
     if (filteredAppointments && filteredAppointments.length > 0) {
-      for (let appointment of filteredAppointments) {
+      for (const appointment of filteredAppointments as any[]) {
         if (appointment.professional && appointment.professional.length > 10 && !appointment.professional_name) {
           try {
             if (appointment.establishments && appointment.establishments.professionals) {

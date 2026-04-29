@@ -313,6 +313,7 @@ export const handler: Handler = async (event) => {
                     .update({
                       payment_status: 'paid',
                       is_blocked: false,
+                      is_deleted: false,
                       payment_alert_enabled: false,
                       payment_paid_at: nowIso,
                       payment_due_date: getNextDueDate((estData as any)?.plan_type),
@@ -483,6 +484,7 @@ export const handler: Handler = async (event) => {
             .update({
               payment_status: 'paid',
               is_blocked: false,
+              is_deleted: false,
               payment_alert_enabled: false,
               payment_paid_at: nowIso,
               payment_due_date: getNextDueDate((estData as any)?.plan_type),

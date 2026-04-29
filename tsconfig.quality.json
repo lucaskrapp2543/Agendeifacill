@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "strict": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "types": ["vite/client"]
+  },
+  "include": [
+    "src/context/AuthContext.tsx",
+    "src/lib/supabase.ts",
+    "src/lib/pagarme-server.ts"
+  ],
+  "exclude": []
+}

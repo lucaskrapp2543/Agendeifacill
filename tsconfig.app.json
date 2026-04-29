@@ -20,5 +20,13 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": [
+    "src/**/*backup*.ts",
+    "src/**/*backup*.tsx",
+    "src/**/*temp*.ts",
+    "src/**/*temp*.tsx",
+    "src/**/*working*.ts",
+    "src/**/*working*.tsx"
+  ]
 }

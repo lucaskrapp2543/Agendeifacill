@@ -1,7 +1,7 @@
 # Force deploy update - v1
 [build]
   publish = "dist"
-  command = "npm install --include=dev && npm run build"
+  command = "npm install --include=dev && npm run quality"
 
 ## Netlify Functions (API em produção)
 [functions]
@@ -207,7 +207,7 @@
 # Variáveis de ambiente serão definidas no painel do Netlify 
 
 [context.deploy-preview]
-  command = "npm install --include=dev && npm run build"
+  command = "npm install --include=dev && npm run quality"
 
 [context.branch-deploy]
-  command = "npm install --include=dev && npm run build" 
+  command = "npm install --include=dev && npm run quality"

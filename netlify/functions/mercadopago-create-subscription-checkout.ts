@@ -106,7 +106,7 @@ export const handler: Handler = async (event) => {
     const rawFeeBrl = Number.isFinite(applicationFeeCentsParsed)
       ? Number((applicationFeeCentsParsed / 100).toFixed(2))
       : 1;
-    let applicationFee = rawFeeBrl > 0 && rawFeeBrl < txAmountBrl ? rawFeeBrl : 0;
+    const applicationFee = rawFeeBrl > 0 && rawFeeBrl < txAmountBrl ? rawFeeBrl : 0;
     if (rawFeeBrl > 0 && applicationFee === 0) {
       console.warn('[MP preapproval] application_fee omitida: valor da assinatura insuficiente para o split', {
         txAmountBrl,
