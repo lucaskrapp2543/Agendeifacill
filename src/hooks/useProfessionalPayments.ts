@@ -41,20 +41,10 @@ export const useProfessionalPayments = (
     setError(null);
 
     try {
-      let query = supabase
+      const query = supabase
         .from('professional_payments')
         .select('*')
         .eq('establishment_id', establishmentId);
-
-      // Filtrar por origem do pagamento (se a coluna existir)
-      // - normal: payment_source NULL ou 'normal'
-      // - subscription: payment_source = 'subscription'
-      // - all: sem filtro
-      if (paymentSource === 'subscription') {
-        query = query.eq('payment_source', 'subscription');
-      } else if (paymentSource === 'normal') {
-        query = query.or('payment_source.is.null,payment_source.eq.normal');
-      }
 
       // Não filtrar por data aqui quando há selectedMonth: vamos filtrar por for_month + fallback por payment_date
       let { data, error } = await query.order('payment_date', { ascending: false });
@@ -77,6 +67,16 @@ export const useProfessionalPayments = (
       }
 
       let list = data || [];
+      // Filtragem por origem feita em memória para manter compatibilidade entre bancos
+      // com valores antigos/diferentes em payment_source.
+      if (paymentSource !== 'all') {
+        list = list.filter((p: ProfessionalPayment & { payment_source?: string | null }) => {
+          const src = String((p as any)?.payment_source || '').trim().toLowerCase();
+          const isSubscription = src === 'subscription' || src === 'assinatura';
+          if (paymentSource === 'subscription') return isSubscription;
+          return !isSubscription;
+        });
+      }
       // Quando há mês selecionado: considerar pagamentos "deste mês" por for_month ou por payment_date (compat)
       if (selectedMonth) {
         const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
@@ -113,15 +113,35 @@ export const useProfessionalPayments = (
         professional_id: professionalId,
         professional_name: professionalName,
         amount: amount,
-        payment_date: new Date().toISOString()
+        payment_date: new Date().toISOString(),
+        payment_source: 'normal'
       };
       if (forMonth) payload.for_month = forMonth;
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('professional_payments')
         .insert(payload)
         .select()
         .single();
+
+      // Compatibilidade com bancos antigos sem colunas novas.
+      if (error) {
+        const msg = String((error as any)?.message || '').toLowerCase();
+        const missingPaymentSource = msg.includes('payment_source') && msg.includes('does not exist');
+        const missingForMonth = msg.includes('for_month') && msg.includes('does not exist');
+        if (missingPaymentSource || missingForMonth) {
+          const fallbackPayload = { ...payload };
+          if (missingPaymentSource) delete (fallbackPayload as any).payment_source;
+          if (missingForMonth) delete (fallbackPayload as any).for_month;
+          const retry = await supabase
+            .from('professional_payments')
+            .insert(fallbackPayload)
+            .select()
+            .single();
+          data = retry.data;
+          error = retry.error;
+        }
+      }
 
       if (error) throw error;
 

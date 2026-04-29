@@ -21383,7 +21383,7 @@ Estamos te aguardando! 😎✂️`;
       .filter((p: any) => Number(p.amount || 0) > 0)
       .filter((p: any) => {
         const src = String((p as any)?.payment_source || '').toLowerCase();
-        return !src || src === 'normal';
+        return src !== 'subscription' && src !== 'assinatura';
       })
       .filter((p: any) => paymentBelongsToSelectedMonth(p))
       .sort((a: any, b: any) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
@@ -21449,7 +21449,7 @@ Estamos te aguardando! 😎✂️`;
       .filter((p: any) => Number(p.amount || 0) > 0)
       .filter((p: any) => {
         const src = String((p as any)?.payment_source || '').toLowerCase();
-        return !src || src === 'normal';
+        return src !== 'subscription' && src !== 'assinatura';
       })
       .filter((p: any) => paymentBelongsToSelectedMonth(p))
       .sort((a: any, b: any) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
@@ -21488,6 +21488,12 @@ Estamos te aguardando! 😎✂️`;
 
   useEffect(() => {
     const cleanupLegacyAdvancePayments = async () => {
+      // Segurança: nunca remover automaticamente pagamentos sem opt-in explícito.
+      // Esse cleanup legado pode apagar pagamentos válidos e causar "voltar pendente" após reload.
+      if (typeof window !== 'undefined' && window.localStorage.getItem('enable_legacy_advance_cleanup') !== '1') {
+        return;
+      }
+
       const establishmentId = String(establishment?.id || '').trim();
       if (!establishmentId) return;
       if (!Array.isArray(establishment?.professionals) || establishment.professionals.length === 0) return;
@@ -25516,7 +25522,7 @@ Estamos te aguardando! 😎✂️`;
                         </p>
                       </div>
 
-                      <div className="aspect-video w-full overflow-hidden rounded-xl border border-gray-200 shadow-md">
+                      <div className="w-full max-w-[380px] sm:max-w-none mx-auto aspect-[9/16] sm:aspect-video overflow-hidden rounded-xl border border-gray-200 shadow-md">
                         <YouTubeResumePlayer
                           videoId="pSdlB_FuQzc"
                           storageKey={`how_it_works_pSdlB_FuQzc_${establishment?.id || 'global'}`}
@@ -30699,10 +30705,10 @@ Estamos te aguardando! 😎✂️`;
                         </button>
                       </div>
 
-                      <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
+                      <div className="relative w-full max-w-[380px] sm:max-w-none mx-auto h-0 pb-[177.78%] sm:pb-[56.25%] rounded-lg overflow-hidden">
                         <iframe
                           className="absolute top-0 left-0 w-full h-full"
-                          src="https://www.youtube.com/embed/5cIGlklZLr0"
+                          src="https://www.youtube.com/embed/7Rbn2Jrq-Zo"
                           title="Tutorial: Como Usar o Dashboard"
                           frameBorder="0"
                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -30712,7 +30718,7 @@ Estamos te aguardando! 😎✂️`;
 
                       <div className="mt-3 text-center">
                         <a
-                          href="https://youtu.be/5cIGlklZLr0"
+                          href="https://www.youtube.com/watch?v=7Rbn2Jrq-Zo"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-gray-600 hover:text-gray-800 text-sm font-medium"
@@ -31833,8 +31839,7 @@ Estamos te aguardando! 😎✂️`;
                                   ignoredPaymentIds={paymentValidation.ignoredPaymentIds}
                                   selectedMonth={selectedMonth}
                                   onPaymentRecorded={() => {
-                                    // Recarregar dados se necessário
-                                    console.log('💰 Pagamento registrado para', professional.name);
+                                    void loadProfessionalPayments();
                                   }}
                                 />
                               )}
@@ -39358,10 +39363,10 @@ Estamos te aguardando! 😎✂️`;
                 Aqui você pode ver e gerenciar todas as informações financeiras do seu estabelecimento, veja o vídeo tutorial para aprender como funciona/usar.
               </p>
 
-              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
+              <div className="relative w-full max-w-[380px] sm:max-w-none mx-auto h-0 pb-[177.78%] sm:pb-[56.25%] rounded-lg overflow-hidden mb-4">
                 <iframe
                   className="absolute top-0 left-0 w-full h-full"
-                  src="https://www.youtube.com/embed/5cIGlklZLr0"
+                  src="https://www.youtube.com/embed/7Rbn2Jrq-Zo"
                   title="Tutorial: Como Usar o Dashboard"
                   frameBorder="0"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"

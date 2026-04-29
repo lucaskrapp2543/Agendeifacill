@@ -11,7 +11,11 @@ export const useProfessionalLiquidValue = (
 ) => {
   // ✅ Nesta tela (Receita por Profissional), consideramos apenas pagamentos "normais"
   // (payment_source NULL ou 'normal'). Pagamentos via assinatura são tratados em outra aba.
-  const { getPaymentSummary, getProfessionalPayments } = useProfessionalPayments(establishmentId, selectedMonth, 'normal');
+  const { getPaymentSummary, getProfessionalPayments, refreshPayments } = useProfessionalPayments(
+    establishmentId,
+    selectedMonth,
+    'normal'
+  );
 
   const paymentSummary = getPaymentSummary(professionalId);
   const allPayments = getProfessionalPayments(professionalId);
@@ -32,6 +36,7 @@ export const useProfessionalLiquidValue = (
     pendingAmount,
     totalPaid: paymentSummary.totalPaid,
     totalWithdrawn,
-    hasPayments: paymentSummary.paymentCount > 0
+    hasPayments: paymentSummary.paymentCount > 0,
+    refreshLiquidValue: refreshPayments
   };
 };

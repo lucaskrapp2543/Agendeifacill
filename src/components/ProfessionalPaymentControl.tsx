@@ -36,8 +36,8 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     loading,
     recordPayment,
     deletePayment,
-    getPaymentSummary,
-    getProfessionalPayments
+    getProfessionalPayments,
+    refreshPayments
   } = useProfessionalPayments(establishmentId, selectedMonth, 'normal');
 
   const [showHistory, setShowHistory] = useState(false);
@@ -54,8 +54,8 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   // Usar hook para calcular valor líquido correto
   const {
     currentLiquidValue: currentLiquidDisplay,
-    pendingAmount,
-    totalPaid
+    totalPaid,
+    refreshLiquidValue
   } = useProfessionalLiquidValue(establishmentId, professionalId, currentLiquidValue, selectedMonth);
 
   // O valor original (total do mês) é o currentLiquidValue passado como prop
@@ -74,7 +74,6 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       ? Math.max(0, totalPaidEffective + pendingToPay)
       : totalLiquidValue;
 
-  const paymentSummary = getPaymentSummary(professionalId);
   const professionalPayments = getProfessionalPayments(professionalId).filter(
     (payment) => !(payment.amount > 0 && ignoredPaymentIds.includes(payment.id))
   );
@@ -104,15 +103,10 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
     try {
       await recordPayment(professionalId, professionalName, pendingToPay, forMonthKey);
+      await Promise.all([refreshPayments(), refreshLiquidValue()]);
       toast.success(`Pagamento de ${formatCurrency(pendingToPay)} registrado para ${professionalName}`);
       onPaymentRecorded?.();
       setShowPaymentOptions(false);
-
-      // Forçar refresh da página após pagamento para garantir atualização
-      setTimeout(() => {
-        console.log('🔄 Fazendo refresh após pagamento');
-        window.location.reload();
-      }, 1000);
     } catch (error: any) {
       console.error('Erro ao registrar pagamento:', error);
       toast.error('Erro ao registrar pagamento: ' + error.message);
@@ -143,17 +137,12 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
     try {
       await recordPayment(professionalId, professionalName, amount, forMonthKey);
+      await Promise.all([refreshPayments(), refreshLiquidValue()]);
       toast.success(`Pagamento de ${formatCurrency(amount)} registrado para ${professionalName}`);
       onPaymentRecorded?.();
       setCustomAmount('');
       setShowCustomInput(false);
       setShowPaymentOptions(false);
-
-      // Forçar refresh da página após pagamento para garantir atualização
-      setTimeout(() => {
-        console.log('🔄 Fazendo refresh após pagamento customizado');
-        window.location.reload();
-      }, 1000);
     } catch (error: any) {
       console.error('Erro ao registrar pagamento:', error);
       toast.error('Erro ao registrar pagamento: ' + error.message);
@@ -211,33 +200,44 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
         professional_id: professionalId,
         professional_name: professionalName,
         amount: -amount,
-        payment_date: new Date().toISOString()
+        payment_date: new Date().toISOString(),
+        payment_source: 'normal'
       };
       if (forMonthKey) retiradaPayload.for_month = forMonthKey;
-      const { data, error } = await supabase
+      let { error } = await supabase
         .from('professional_payments')
         .insert(retiradaPayload)
         .select()
         .single();
 
       if (error) {
+        const msg = String((error as any)?.message || '').toLowerCase();
+        const missingPaymentSource = msg.includes('payment_source') && msg.includes('does not exist');
+        const missingForMonth = msg.includes('for_month') && msg.includes('does not exist');
+        if (missingPaymentSource || missingForMonth) {
+          const fallbackPayload = { ...retiradaPayload };
+          if (missingPaymentSource) delete (fallbackPayload as any).payment_source;
+          if (missingForMonth) delete (fallbackPayload as any).for_month;
+          const retry = await supabase
+            .from('professional_payments')
+            .insert(fallbackPayload)
+            .select()
+            .single();
+          error = retry.error;
+        }
+      }
+
+      if (error) {
         console.error('Erro ao registrar retirada:', error);
         throw error;
       }
-
-      console.log('✅ Retirada registrada com sucesso:', data);
 
       toast.success(`Valor de ${formatCurrency(amount)} retirado de ${professionalName} e adicionado ao caixa`);
       setTakeValueAmount('');
       setTakeValueReason('');
       setShowTakeValueModal(false);
+      await Promise.all([refreshPayments(), refreshLiquidValue()]);
       onPaymentRecorded?.();
-
-      // Forçar refresh da página após retirada
-      setTimeout(() => {
-        console.log('🔄 Fazendo refresh após retirada de valor');
-        window.location.reload();
-      }, 1000);
     } catch (error: any) {
       console.error('Erro ao retirar valor:', error);
       toast.error('Erro ao retirar valor: ' + error.message);
@@ -333,14 +333,9 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
     try {
       await deletePayment(paymentId);
+      await Promise.all([refreshPayments(), refreshLiquidValue()]);
       toast.success(`Pagamento de ${formatCurrency(paymentAmount)} deletado com sucesso!`);
       onPaymentRecorded?.();
-
-      // Forçar refresh da página após deletar para garantir atualização
-      setTimeout(() => {
-        console.log('🔄 Fazendo refresh após deletar pagamento');
-        window.location.reload();
-      }, 1000);
     } catch (error: any) {
       console.error('Erro ao deletar pagamento:', error);
       toast.error('Erro ao deletar pagamento: ' + error.message);
@@ -388,6 +383,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           {/* Botão PAGAR */}
           {pendingToPay > 0 && !showPaymentOptions && (
             <button
+              type="button"
               onClick={handlePaymentClick}
               disabled={isProcessing || loading}
               className="w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
@@ -401,6 +397,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           {/* Botão PEGAR VALOR */}
           {currentLiquidDisplay > 0 && !showTakeValueModal && (
             <button
+              type="button"
               onClick={handleTakeValueClick}
               disabled={isProcessing || loading}
               className="w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 bg-orange-600 text-white text-sm font-medium rounded hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
@@ -430,6 +427,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           {/* Botão Histórico */}
           {professionalPayments.length > 0 && (
             <button
+              type="button"
               onClick={() => setShowHistory(!showHistory)}
               className="w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700"
             >
@@ -448,6 +446,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
               Opções de Pagamento - {professionalName}
             </h4>
             <button
+              type="button"
               onClick={() => setShowPaymentOptions(false)}
               className="text-blue-300 hover:text-blue-200"
             >
@@ -458,6 +457,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           <div className="space-y-3">
             {/* Pagar Todo */}
             <button
+              type="button"
               onClick={handlePayFullAmount}
               disabled={isProcessing}
               className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -469,6 +469,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             {/* Pagar Valor Específico */}
             <div className="space-y-2">
               <button
+                type="button"
                 onClick={() => setShowCustomInput(!showCustomInput)}
                 className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700"
               >
@@ -486,6 +487,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                   />
                   <div className="flex space-x-2">
                     <button
+                      type="button"
                       onClick={handlePayCustomAmount}
                       disabled={isProcessing || !customAmount}
                       className="flex-1 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -493,6 +495,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                       {isProcessing ? 'Processando...' : 'Confirmar Pagamento'}
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
                         setCustomAmount('');
                         setShowCustomInput(false);
@@ -522,6 +525,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
               )}
             </h4>
             <button
+              type="button"
               onClick={() => setShowHistory(false)}
               className="text-gray-400 hover:text-gray-200"
             >
@@ -549,6 +553,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                     {payment.amount > 0 ? '✓ Pago' : '↩ Retirado'}
                   </div>
                   <button
+                    type="button"
                     onClick={() => handleDeletePayment(payment.id, payment.amount)}
                     disabled={isProcessing}
                     className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -607,6 +612,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                 Retirar Valor - {professionalName}
               </h3>
               <button
+                type="button"
                 onClick={() => {
                   setShowTakeValueModal(false);
                   setTakeValueAmount('');
@@ -658,6 +664,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
               {/* Botões */}
               <div className="flex space-x-3 pt-4">
                 <button
+                  type="button"
                   onClick={handleTakeValue}
                   disabled={isProcessing || !takeValueAmount || !takeValueReason.trim()}
                   className="flex-1 px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -665,6 +672,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                   {isProcessing ? 'Processando...' : 'Confirmar Retirada'}
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     setShowTakeValueModal(false);
                     setTakeValueAmount('');
