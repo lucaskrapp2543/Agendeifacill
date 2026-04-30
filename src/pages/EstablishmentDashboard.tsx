@@ -787,6 +787,11 @@ const EstablishmentDashboard = () => {
   const newClientsInfoRef = useRef<Record<string, boolean>>({});
   const lastAppointmentsFetchRef = useRef<{ key: string; atMs: number }>({ key: '', atMs: 0 });
   const lastMonthlyFetchRef = useRef<{ key: string; atMs: number }>({ key: '', atMs: 0 });
+  const lastAppointmentDetailsInteractionAtRef = useRef(0);
+  const lastAppointmentsMaintenanceRef = useRef<{ establishmentId: string; atMs: number }>({
+    establishmentId: '',
+    atMs: 0,
+  });
   const lastPaidSubscribersFetchRef = useRef<{ key: string; atMs: number }>({ key: '', atMs: 0 });
   const paidSubscribersInFlightRef = useRef<Promise<void> | null>(null);
   const lastExpensesFetchRef = useRef<{ key: string; atMs: number }>({ key: '', atMs: 0 });
@@ -798,6 +803,8 @@ const EstablishmentDashboard = () => {
   const onboardingWelcomeShownThisLoadRef = useRef(false); // Evita reabrir após fechar (só volta no reload)
   const APPOINTMENTS_FETCH_DEDUPE_MS = 1200;
   const MONTHLY_FETCH_DEDUPE_MS = 1500;
+  const APPOINTMENT_DETAILS_STABILITY_GUARD_MS = 6000;
+  const APPOINTMENTS_MAINTENANCE_COOLDOWN_MS = 90_000;
   const DASHBOARD_AUX_FETCH_DEDUPE_MS = 5000;
   const [clients, setClients] = useState<Client[]>([]);
   const [clientInsightsLast60d, setClientInsightsLast60d] = useState<ClientInsightsLast60d>({
@@ -1431,16 +1438,6 @@ const EstablishmentDashboard = () => {
         const taxaMercadoPago = bruto * taxaPercentual;
         const liquido = Math.max(0, bruto - taxaMercadoPago - taxaPlataforma);
 
-        console.log('💰 [MP Saldo] Venda:', {
-          id,
-          bruto,
-          payment_method: paymentMethod,
-          taxa_percentual: taxaPercentual * 100,
-          taxa_mp: taxaMercadoPago,
-          taxa_plataforma: taxaPlataforma,
-          liquido,
-        });
-
         total += liquido;
         vendasCount += 1;
       }
@@ -1511,16 +1508,6 @@ const EstablishmentDashboard = () => {
           const taxaPercentual = provider.includes('card') ? taxaCreditoPercent : taxaPixPercent;
           const taxaMercadoPago = bruto * taxaPercentual;
           const liquido = Math.max(0, bruto - taxaMercadoPago - taxaPlataforma);
-
-          console.log('💳💰 [MP Saldo] Assinatura:', {
-            id: sid,
-            bruto,
-            provider,
-            taxa_percentual: taxaPercentual * 100,
-            taxa_mp: taxaMercadoPago,
-            taxa_plataforma: taxaPlataforma,
-            liquido,
-          });
 
           total += liquido;
         }
@@ -4393,8 +4380,7 @@ const EstablishmentDashboard = () => {
     } catch (e: any) {
       toast.error(e?.message || 'Erro ao cancelar agendamento');
     } finally {
-      fetchAppointments();
-      fetchMonthlyAppointments();
+      void refreshAppointmentsData();
       fetchClients();
     }
   };
@@ -9296,8 +9282,6 @@ const EstablishmentDashboard = () => {
       let recentAppointments: any[] = [];
       let appointmentsError: any = null;
       const appointmentSelectAttempts = [
-        'professional, professional_id, professional_name, appointment_date',
-        'professional, professional_name, appointment_date',
         'professional, appointment_date',
       ];
 
@@ -9521,6 +9505,57 @@ const EstablishmentDashboard = () => {
     setServicesWithPrices(prev => prev.map(s =>
       s.id === id ? { ...s, [field]: value } : s
     ));
+  };
+
+  const handleSaveLegacyServicesFallback = async () => {
+    if (!establishment?.id) return;
+
+    const sanitizedServices = (servicesWithPrices || [])
+      .map((service, index) => {
+        const id = String(service?.id || '').trim() || `legacy-${Date.now()}-${index}`;
+        const name = String(service?.name || '').trim();
+        const price = Number(service?.price || 0);
+        const duration = Number(service?.duration || 0);
+
+        return {
+          id,
+          name,
+          price: Number.isFinite(price) && price > 0 ? price : 0,
+          duration: Number.isFinite(duration) && duration > 0 ? duration : 30,
+        };
+      })
+      .filter((service) => service.name.length > 0 && service.price > 0);
+
+    if (sanitizedServices.length === 0) {
+      toast('Adicione ao menos 1 serviço com nome e valor maior que zero.', 'warning');
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('establishments')
+        .update({
+          services_with_prices: sanitizedServices,
+        })
+        .eq('id', establishment.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setServicesWithPrices(sanitizedServices as any);
+      setEstablishment((prev) => (prev ? { ...prev, services_with_prices: sanitizedServices } : prev));
+      if (data) {
+        setEstablishment((prev) => (prev ? { ...prev, ...data } : prev));
+      }
+      toast.success('Serviços legados salvos com sucesso!');
+    } catch (error: any) {
+      console.error('Erro ao salvar serviços legados:', error);
+      toast(
+        [error?.message, error?.code, error?.details, error?.hint].filter(Boolean).join(' | ') || 'Erro ao salvar serviços legados',
+        'error'
+      );
+    }
   };
 
 
@@ -9865,10 +9900,7 @@ const EstablishmentDashboard = () => {
         )
       );
 
-      await Promise.all([
-        fetchAppointments(),
-        fetchMonthlyAppointments()
-      ]);
+      await refreshAppointmentsData();
 
       toast('Agendamento cancelado com sucesso', 'success');
     } catch (error) {
@@ -10319,10 +10351,7 @@ Estamos te aguardando! 😎✂️`;
         throw error;
       }
 
-      await Promise.all([
-        fetchAppointments(),
-        fetchMonthlyAppointments()
-      ]);
+      await refreshAppointmentsData();
 
       const statusMessages = {
         'pending': 'Agendamento marcado como PENDENTE',
@@ -10392,10 +10421,7 @@ Estamos te aguardando! 😎✂️`;
         throw error;
       }
 
-      await Promise.all([
-        fetchAppointments(),
-        fetchMonthlyAppointments()
-      ]);
+      await refreshAppointmentsData();
 
       toast('Método de pagamento atualizado', 'success');
     } catch (error) {
@@ -10415,10 +10441,7 @@ Estamos te aguardando! 😎✂️`;
         throw error;
       }
 
-      await Promise.all([
-        fetchAppointments(),
-        fetchMonthlyAppointments()
-      ]);
+      await refreshAppointmentsData();
 
       toast('Bandeira atualizada', 'success');
     } catch (error) {
@@ -10464,73 +10487,86 @@ Estamos te aguardando! 😎✂️`;
     setIsLoading(true);
 
     try {
-      // ✅ Reconciliar com Mercado Pago antes de cancelar pendências (reduz falso positivo)
-      await fireMercadoPagoPendingReconcile(establishment.id);
+      const nowMaintenanceMs = Date.now();
+      const maintenanceSnapshot = lastAppointmentsMaintenanceRef.current;
+      const shouldRunMaintenance =
+        maintenanceSnapshot.establishmentId !== String(establishment.id) ||
+        nowMaintenanceMs - maintenanceSnapshot.atMs >= APPOINTMENTS_MAINTENANCE_COOLDOWN_MS;
 
-      // ✅ LIMPEZA AUTOMÁTICA: liberar horários travados por pagamentos pendentes antigos
-      // Problema real: registros em `pending_payment` podem ficar presos (inclusive com transaction_id) se o cliente abandonar.
-      // Isso vira "reservas fantasmas" e prejudica TODO MUNDO.
-      // Estratégia:
-      // - Sem transaction_id: cancelar rapidamente
-      // - Com transaction_id: dar uma janela maior, mas cancelar se ficar velho demais sem confirmação
-      const thresholdNoTxMinutes = PENDING_PAYMENT_NO_TX_MINUTES;
-      const thresholdWithTxMinutes = PENDING_PAYMENT_WITH_TX_MINUTES;
-      const thresholdNoTxDate = new Date(Date.now() - thresholdNoTxMinutes * 60 * 1000).toISOString();
-      const thresholdWithTxDate = new Date(Date.now() - thresholdWithTxMinutes * 60 * 1000).toISOString();
-
-      // 1) Pendências sem transaction_id (antigas): cancelar
-      {
-        const payload: Record<string, unknown> = {
-          status: 'cancelled',
-          payment_status: 'failed',
-          cancellation_source: CANCELLATION_SOURCE.SYSTEM_ABANDONED_CHECKOUT,
-          cancellation_detail: buildStalePaymentDetail('no_tx'),
+      if (shouldRunMaintenance) {
+        lastAppointmentsMaintenanceRef.current = {
+          establishmentId: String(establishment.id),
+          atMs: nowMaintenanceMs,
         };
-        const rNoTx = await supabase
-          .from('appointments')
-          .update(payload as any)
-          .eq('establishment_id', establishment.id)
-          .eq('status', 'pending_payment')
-          .is('payment_transaction_id', null)
-          .lt('created_at', thresholdNoTxDate);
-        if (rNoTx.error && String((rNoTx.error as any).code || '') === '42703') {
-          await supabase
+
+        // ✅ Reconciliar com Mercado Pago antes de cancelar pendências (reduz falso positivo)
+        await fireMercadoPagoPendingReconcile(establishment.id);
+
+        // ✅ LIMPEZA AUTOMÁTICA: liberar horários travados por pagamentos pendentes antigos
+        // Problema real: registros em `pending_payment` podem ficar presos (inclusive com transaction_id) se o cliente abandonar.
+        // Isso vira "reservas fantasmas" e prejudica TODO MUNDO.
+        // Estratégia:
+        // - Sem transaction_id: cancelar rapidamente
+        // - Com transaction_id: dar uma janela maior, mas cancelar se ficar velho demais sem confirmação
+        const thresholdNoTxMinutes = PENDING_PAYMENT_NO_TX_MINUTES;
+        const thresholdWithTxMinutes = PENDING_PAYMENT_WITH_TX_MINUTES;
+        const thresholdNoTxDate = new Date(Date.now() - thresholdNoTxMinutes * 60 * 1000).toISOString();
+        const thresholdWithTxDate = new Date(Date.now() - thresholdWithTxMinutes * 60 * 1000).toISOString();
+
+        // 1) Pendências sem transaction_id (antigas): cancelar
+        {
+          const payload: Record<string, unknown> = {
+            status: 'cancelled',
+            payment_status: 'failed',
+            cancellation_source: CANCELLATION_SOURCE.SYSTEM_ABANDONED_CHECKOUT,
+            cancellation_detail: buildStalePaymentDetail('no_tx'),
+          };
+          const rNoTx = await supabase
             .from('appointments')
-            .update({ status: 'cancelled', payment_status: 'failed' } as any)
+            .update(payload as any)
             .eq('establishment_id', establishment.id)
             .eq('status', 'pending_payment')
             .is('payment_transaction_id', null)
             .lt('created_at', thresholdNoTxDate);
+          if (rNoTx.error && String((rNoTx.error as any).code || '') === '42703') {
+            await supabase
+              .from('appointments')
+              .update({ status: 'cancelled', payment_status: 'failed' } as any)
+              .eq('establishment_id', establishment.id)
+              .eq('status', 'pending_payment')
+              .is('payment_transaction_id', null)
+              .lt('created_at', thresholdNoTxDate);
+          }
         }
-      }
 
-      // 2) Pendências com transaction_id (muito antigas) e sem confirmação: cancelar por ID
-      const { data: staleWithTx, error: staleWithTxError } = await supabase
-        .from('appointments')
-        .select('id,payment_status,pix_payment_status')
-        .eq('establishment_id', establishment.id)
-        .eq('status', 'pending_payment')
-        .not('payment_transaction_id', 'is', null)
-        .lt('created_at', thresholdWithTxDate);
+        // 2) Pendências com transaction_id (muito antigas) e sem confirmação: cancelar por ID
+        const { data: staleWithTx, error: staleWithTxError } = await supabase
+          .from('appointments')
+          .select('id,payment_status,pix_payment_status')
+          .eq('establishment_id', establishment.id)
+          .eq('status', 'pending_payment')
+          .not('payment_transaction_id', 'is', null)
+          .lt('created_at', thresholdWithTxDate);
 
-      if (!staleWithTxError && Array.isArray(staleWithTx) && staleWithTx.length > 0) {
-        const idsToCancel = staleWithTx
-          .filter((row: any) => {
-            const paymentStatus = String(row?.payment_status || '').toLowerCase();
-            const pixStatus = String(row?.pix_payment_status || '').toLowerCase();
-            const isPaid = paymentStatus === 'paid';
-            const isPixConfirmed = pixStatus === 'confirmado' || pixStatus === 'aprovado';
-            return !isPaid && !isPixConfirmed;
-          })
-          .map((row: any) => row.id)
-          .filter(Boolean);
+        if (!staleWithTxError && Array.isArray(staleWithTx) && staleWithTx.length > 0) {
+          const idsToCancel = staleWithTx
+            .filter((row: any) => {
+              const paymentStatus = String(row?.payment_status || '').toLowerCase();
+              const pixStatus = String(row?.pix_payment_status || '').toLowerCase();
+              const isPaid = paymentStatus === 'paid';
+              const isPixConfirmed = pixStatus === 'confirmado' || pixStatus === 'aprovado';
+              return !isPaid && !isPixConfirmed;
+            })
+            .map((row: any) => row.id)
+            .filter(Boolean);
 
-        if (idsToCancel.length > 0) {
-          await updateAppointmentCancelledWithSource(supabase, { ids: idsToCancel }, {
-            cancellation_source: CANCELLATION_SOURCE.SYSTEM_PAYMENT_TIMEOUT,
-            cancellation_detail: buildStalePaymentDetail('with_tx'),
-            payment_status: 'failed',
-          });
+          if (idsToCancel.length > 0) {
+            await updateAppointmentCancelledWithSource(supabase, { ids: idsToCancel }, {
+              cancellation_source: CANCELLATION_SOURCE.SYSTEM_PAYMENT_TIMEOUT,
+              cancellation_detail: buildStalePaymentDetail('with_tx'),
+              payment_status: 'failed',
+            });
+          }
         }
       }
 
@@ -10942,10 +10978,10 @@ Estamos te aguardando! 😎✂️`;
         }
       }
 
-      // Reforço anti-sumiço: se a resposta vier com menos itens do que já estavam visíveis,
+      // Reforço anti-sumiço: se algum item visível sumir na resposta transitória,
       // preserva temporariamente os faltantes que ainda existem ativos no banco.
       let preservedSameDayAppointments: Appointment[] = [];
-      if (canApplyIncomingAppointments && appointmentsData.length < currentVisibleSameDayCount) {
+      if (canApplyIncomingAppointments && currentVisibleSameDayCount > 0) {
         const incomingIds = new Set(appointmentsData.map((apt) => String((apt as any)?.id || '').trim()));
         const missingVisibleItems = appointments.filter((apt) => {
           const id = String((apt as any)?.id || '').trim();
@@ -10982,13 +11018,31 @@ Estamos te aguardando! 😎✂️`;
               stillActiveIds.has(String((apt as any)?.id || '').trim())
             );
 
-            if (preservedSameDayAppointments.length > 0) {
-              console.warn('🛡️ Anti-sumiço ativo: preservando agendamentos ainda ativos no banco.', {
-                preservedCount: preservedSameDayAppointments.length,
-                selectedDate: selectedDateKeySnapshot,
-              });
-            }
+            // Mantém os itens ainda ativos para evitar "piscar/sumir" no grid.
           }
+        }
+      }
+
+      // Guard rail extra: logo após abrir "ver detalhes", nunca liberar slot por refresh transitório.
+      // Mantém os itens já visíveis por alguns segundos e evita piscar/voltar "livre" por engano.
+      const detailsInteractionMsAgo = Date.now() - lastAppointmentDetailsInteractionAtRef.current;
+      if (canApplyIncomingAppointments && detailsInteractionMsAgo <= APPOINTMENT_DETAILS_STABILITY_GUARD_MS) {
+        const incomingIds = new Set(appointmentsData.map((apt) => String((apt as any)?.id || '').trim()));
+        const currentlyVisibleSameDay = appointments.filter((apt) => {
+          const aptId = String((apt as any)?.id || '').trim();
+          const aptDate = String((apt as any)?.appointment_date || '').slice(0, 10);
+          const aptStatus = String((apt as any)?.status || '').toLowerCase().trim();
+          return Boolean(aptId) && aptDate === selectedDateKeySnapshot && aptStatus !== 'cancelled';
+        });
+        const transientMissing = currentlyVisibleSameDay.filter((apt) => {
+          const aptId = String((apt as any)?.id || '').trim();
+          return aptId && !incomingIds.has(aptId);
+        });
+        if (transientMissing.length > 0) {
+          preservedSameDayAppointments = dedupeAppointmentsById([
+            ...preservedSameDayAppointments,
+            ...transientMissing,
+          ]);
         }
       }
 
@@ -11167,6 +11221,21 @@ Estamos te aguardando! 😎✂️`;
       setMonthlyStatusSummary({ completed: 0, cancelled: 0, pending: 0 });
       setMonthlyPendingAppointments([]);
     }
+  };
+
+  const refreshAppointmentsData = async (options?: {
+    month?: Date;
+    includeDaily?: boolean;
+    includeMonthly?: boolean;
+  }) => {
+    const includeDaily = options?.includeDaily !== false;
+    const includeMonthly = options?.includeMonthly !== false;
+    const monthToRefresh = options?.month || selectedMonth;
+    const tasks: Promise<any>[] = [];
+    if (includeDaily) tasks.push(fetchAppointments());
+    if (includeMonthly) tasks.push(fetchMonthlyAppointments(monthToRefresh));
+    if (tasks.length === 0) return;
+    await Promise.all(tasks);
   };
 
   const fetchEstablishment = async () => {
@@ -12176,8 +12245,7 @@ Estamos te aguardando! 😎✂️`;
 
   useEffect(() => {
     if (!establishment?.id) return;
-    fetchAppointments();
-    fetchMonthlyAppointments(selectedMonth);
+    void refreshAppointmentsData({ month: selectedMonth });
     fetchProducts(); // Carregar produtos automaticamente
   }, [establishment?.id]);
 
@@ -12557,8 +12625,7 @@ Estamos te aguardando! 😎✂️`;
       // Evita rajada de múltiplos eventos (focus + visibilitychange + pageshow)
       if (nowMs - lastForegroundSyncAtRef.current < 2500) return;
       lastForegroundSyncAtRef.current = nowMs;
-      void fetchAppointments();
-      void fetchMonthlyAppointments(selectedMonth);
+      void refreshAppointmentsData({ month: selectedMonth });
       void loadSubscribersFinancialSummary();
       void loadSubscriberProfessionalFinancial();
     };
@@ -12596,14 +12663,12 @@ Estamos te aguardando! 😎✂️`;
   // Listener para recarregar clientes E AGENDAMENTOS quando um agendamento for criado
   useEffect(() => {
     const handleClientAppointmentCreated = () => {
-      console.log('🔄 Evento recebido: clientAppointmentCreated - Recarregando clientes e agendamentos...');
       if (establishment) {
         if (activeTab === 'clients' || activeTab === 'subscribers' || activeTab === 'client-loyalty-bulk') {
           fetchClients();
         }
         // SEMPRE recarregar agendamentos quando criar uma nova reserva
-        fetchAppointments();
-        fetchMonthlyAppointments(selectedMonth);
+        void refreshAppointmentsData({ month: selectedMonth });
       }
     };
 
@@ -12616,8 +12681,7 @@ Estamos te aguardando! 😎✂️`;
   // Recarregar agendamentos quando abrir a aba de agendamentos
   useEffect(() => {
     if (establishment && activeTab === 'appointments') {
-      fetchAppointments();
-      fetchMonthlyAppointments(selectedMonth);
+      void refreshAppointmentsData({ month: selectedMonth });
     }
   }, [activeTab]);
 
@@ -14141,8 +14205,7 @@ Estamos te aguardando! 😎✂️`;
       }
 
       await Promise.all([
-        fetchAppointments(),
-        fetchMonthlyAppointments(),
+        refreshAppointmentsData(),
         fetchClients(),
       ]);
       await refreshClientPastAppointmentsModalData(selectedClientForPastAppointments);
@@ -14268,8 +14331,7 @@ Estamos te aguardando! 😎✂️`;
       setSelectedFutureAppointmentIds([]);
 
       await Promise.all([
-        fetchAppointments(),
-        fetchMonthlyAppointments(),
+        refreshAppointmentsData(),
         fetchClients(),
       ]);
 
@@ -16822,10 +16884,7 @@ Estamos te aguardando! 😎✂️`;
       toast('Horário alterado com sucesso!', 'success');
 
       // Recarregar listas (dia e mês) para refletir a mudança
-      await Promise.all([
-        fetchAppointments(),
-        fetchMonthlyAppointments(selectedMonth),
-      ]);
+      await refreshAppointmentsData({ month: selectedMonth });
     } catch (e: any) {
       console.error('❌ Erro ao trocar horário:', {
         message: e?.message,
@@ -16904,10 +16963,7 @@ Estamos te aguardando! 😎✂️`;
       toast.success('Serviço alterado com sucesso!');
 
       // Recarregar listas (dia e mês) para refletir a mudança
-      await Promise.all([
-        fetchAppointments(),
-        fetchMonthlyAppointments(selectedMonth),
-      ]);
+      await refreshAppointmentsData({ month: selectedMonth });
     } catch (e) {
       console.error('❌ Erro ao trocar serviço:', e);
       toast.error('Erro ao trocar serviço. Tente novamente.');
@@ -17001,10 +17057,7 @@ Estamos te aguardando! 😎✂️`;
       });
 
       // ✅ OTIMIZAÇÃO: Atualizar lista em background (sem await para não bloquear)
-      Promise.all([
-        fetchAppointments(),
-        fetchMonthlyAppointments()
-      ]).catch(err => {
+      refreshAppointmentsData().catch(err => {
         console.error('Erro ao recarregar agendamentos:', err);
         // Não mostrar erro para o usuário, apenas logar
       });
@@ -17699,10 +17752,7 @@ Estamos te aguardando! 😎✂️`;
 
       console.log('✅ Status PIX atualizado com sucesso!');
 
-      await Promise.all([
-        fetchAppointments(),
-        fetchMonthlyAppointments()
-      ]);
+      await refreshAppointmentsData();
 
       toast('Status do pagamento PIX atualizado com sucesso', 'success');
     } catch (error) {
@@ -24037,8 +24087,7 @@ Estamos te aguardando! 😎✂️`;
                       serviceSubcategories={serviceSubcategories}
                       onDateChange={(newDate) => setSelectedDate(newDate)}
                       onAppointmentUpdate={() => {
-                        fetchAppointments();
-                        fetchMonthlyAppointments();
+                        void refreshAppointmentsData();
                       }}
                       onOpenTransferModal={handleOpenTransferModal as any}
                       onOpenObservationModal={handleOpenObservationModal as any}
@@ -24063,6 +24112,7 @@ Estamos te aguardando! 😎✂️`;
                       onCancelAppointment={handleCancelClick}
                       onClientNoShow={handleClientNoShowFromAppointment}
                       onAppointmentDetailsOpen={() => {
+                        lastAppointmentDetailsInteractionAtRef.current = Date.now();
                         if (showAppointmentsTutorial && appointmentsTutorialStep === 6) {
                           setAppointmentsTutorialDetailsOpened(true);
                           hotToast.success('🎉 Boa! Agora clique em Próximo.', {
@@ -35676,6 +35726,81 @@ Estamos te aguardando! 😎✂️`;
                   >
                     {isServiceWizardOnboarding ? 'Adicionar primeira categoria' : 'Adicionar Primeira Categoria'}
                   </button>
+
+                  {servicesWithPrices.length > 0 && (
+                    <div className="mt-6 text-left border border-amber-300 bg-amber-50 rounded-xl p-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                        <h4 className="text-sm font-extrabold text-amber-900">
+                          Fallback legado: serviços encontrados no banco antigo
+                        </h4>
+                        <span className="text-[11px] font-semibold text-amber-800">
+                          Compatibilidade para contas antigas
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-amber-900 mb-4">
+                        Encontramos serviços no formato antigo (`services_with_prices`). Você pode editar por aqui sem quebrar o novo fluxo de categorias.
+                      </p>
+
+                      <div className="space-y-2">
+                        {servicesWithPrices.map((service, index) => (
+                          <div key={service.id} className="grid grid-cols-1 md:grid-cols-[1fr_120px_140px_auto] gap-2 items-center">
+                            <input
+                              type="text"
+                              value={service.name}
+                              onChange={(e) => handleServiceChange(service.id, 'name', e.target.value)}
+                              className="px-3 py-2 bg-white border border-amber-300 rounded-lg text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                              placeholder={`Serviço ${index + 1}`}
+                            />
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={service.price}
+                              onChange={(e) => handleServiceChange(service.id, 'price', Number(e.target.value))}
+                              className="px-3 py-2 bg-white border border-amber-300 rounded-lg text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                              placeholder="Valor"
+                            />
+                            <select
+                              value={service.duration}
+                              onChange={(e) => handleServiceChange(service.id, 'duration', Number(e.target.value))}
+                              className="px-3 py-2 bg-white border border-amber-300 rounded-lg text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                            >
+                              {durationOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveService(service.id)}
+                              className="px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors"
+                            >
+                              Excluir
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                        <button
+                          type="button"
+                          onClick={handleAddService}
+                          className="px-4 py-2 rounded-lg bg-amber-700 text-white text-sm font-semibold hover:bg-amber-800 transition-colors"
+                        >
+                          Adicionar serviço legado
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSaveLegacyServicesFallback}
+                          className="px-4 py-2 rounded-lg bg-black text-white text-sm font-extrabold hover:bg-gray-800 transition-colors"
+                        >
+                          Salvar serviços legados
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-6">

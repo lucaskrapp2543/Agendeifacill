@@ -442,7 +442,6 @@ export default function ReservarCliente({
 
     setLoadingClients(true);
     try {
-      console.log('🔍 Carregando clientes para establishment:', establishmentId);
 
       // Buscar todos os agendamentos do estabelecimento com paginação
       // (Não filtrar is_avulso aqui, senão a lista pode ficar vazia mesmo tendo clientes no "Meus Clientes")
@@ -509,7 +508,6 @@ export default function ReservarCliente({
       };
 
       const manualClients = loadManualClientsFromStorage();
-      console.log('📋 Clientes manuais encontrados:', Object.keys(manualClients).length);
 
       // Adicionar clientes manuais que ainda não estão na lista
       Object.values(manualClients).forEach((manualClient: any) => {
@@ -561,7 +559,6 @@ export default function ReservarCliente({
         }
 
         if (Array.isArray(manualDb) && manualDb.length > 0) {
-          console.log('📋 Clientes manuais (banco) encontrados:', manualDb.length);
           manualDb.forEach((mc: any) => {
             const cleanWhatsapp = normalizeWhatsappKey(mc?.whatsapp);
             const nome = String(mc?.name || '').trim();
@@ -594,7 +591,6 @@ export default function ReservarCliente({
       // Ordenar por nome
       clientsArray.sort((a, b) => a.name.localeCompare(b.name));
 
-      console.log('✅ Clientes carregados:', clientsArray.length);
       setClients(clientsArray);
     } catch (error) {
       console.error('❌ Erro ao carregar clientes:', error);
@@ -622,7 +618,6 @@ export default function ReservarCliente({
   useEffect(() => {
     const loadProfessionals = async () => {
       try {
-        console.log('🔍 Carregando profissionais para establishment:', establishmentId);
         const { data, error } = await supabase
           .from('establishments')
           .select('professionals, use_20_minute_schedule, exigir_pagamento_antecipado, pagarme_recipient_id')
@@ -634,16 +629,13 @@ export default function ReservarCliente({
           throw error;
         }
 
-        console.log('✅ Establishment carregado:', data);
 
         // Carregar configuração de horários de 20 em 20 minutos
         setUse20MinuteSchedule(data?.use_20_minute_schedule ?? false);
-        console.log('✅ Configuração de horários 20min:', data?.use_20_minute_schedule);
 
         // Carregar configuração de pagamento antecipado
         setExigirPagamentoAntecipado((data as any)?.exigir_pagamento_antecipado ?? false);
         setPagarmeRecipientId((data as any)?.pagarme_recipient_id || '');
-        console.log('✅ Pagamento antecipado:', (data as any)?.exigir_pagamento_antecipado);
 
         // Converter profissionais do formato JSON para o formato esperado
         // NÃO filtrar profissionais ocultos aqui - "Reservar Cliente" é funcionalidade interna
@@ -657,7 +649,6 @@ export default function ReservarCliente({
           specific_services: Array.isArray(prof?.specific_services) ? prof.specific_services : [],
         }));
 
-        console.log('✅ Profissionais formatados:', formattedProfessionals);
         setProfessionals(formattedProfessionals);
       } catch (error) {
         console.error('❌ Erro ao carregar profissionais:', error);
@@ -696,12 +687,10 @@ export default function ReservarCliente({
   useEffect(() => {
     const loadSubscriptions = async () => {
       if (!establishmentId) {
-        console.log('⚠️ establishmentId não fornecido para carregar assinaturas');
         return;
       }
 
       try {
-        console.log('🔍 Carregando assinaturas para establishment:', establishmentId);
 
         // Usar a mesma função do Booking/Painel (já respeita sort_order quando existir)
         const { getSubscriptions } = await import('../lib/supabase');
@@ -715,8 +704,6 @@ export default function ReservarCliente({
         // Filtrar assinaturas NÃO OCULTAS (is_hidden = false ou null)
         const visible = (allSubs || []).filter((s: any) => !s?.is_hidden);
 
-        console.log('✅ Assinaturas encontradas (apenas visíveis):', visible);
-        console.log('✅ Total de assinaturas visíveis:', visible?.length || 0);
 
         setSubscriptions(visible);
       } catch (error) {
@@ -733,7 +720,6 @@ export default function ReservarCliente({
       if (!establishmentId) return;
 
       try {
-        console.log('🔍 Carregando categorias de serviços para establishment:', establishmentId);
         const { data: categories, error: categoriesError } = await supabase
           .from('service_categories')
           .select('*')
@@ -743,7 +729,6 @@ export default function ReservarCliente({
 
         if (categoriesError) throw categoriesError;
 
-        console.log('🔍 Categorias encontradas:', categories);
         setServiceCategories(categories || []);
       } catch (error) {
         console.error('Erro ao carregar categorias:', error);
@@ -766,7 +751,6 @@ export default function ReservarCliente({
       }
 
       try {
-        console.log('🔍 Carregando subcategorias para categoria:', selectedCategory.name);
         const { data: subcategories, error: subcategoriesError } = await supabase
           .from('service_subcategories')
           .select('*')
@@ -776,7 +760,6 @@ export default function ReservarCliente({
 
         if (subcategoriesError) throw subcategoriesError;
 
-        console.log('🔍 Subcategorias encontradas:', subcategories);
         setServiceSubcategories(subcategories || []);
       } catch (error) {
         console.error('Erro ao carregar subcategorias:', error);
@@ -792,7 +775,6 @@ export default function ReservarCliente({
       if (!selectedProfessional) return;
 
       try {
-        console.log('🔍 Carregando serviços (mesma fonte do "Meus serviços") para establishment:', establishmentId);
 
         // ✅ Serviços específicos do profissional (configurado em "Profissionais")
         const specificRaw = Array.isArray((selectedProfessional as any)?.specific_services)
@@ -864,7 +846,6 @@ export default function ReservarCliente({
             })).filter((s: any) => s.name && s.price > 0);
 
           const combined = mergeSpecific(formatted);
-          console.log('✅ Serviços (categorias) carregados:', combined);
           setServices(combined);
           return;
         }
@@ -872,7 +853,6 @@ export default function ReservarCliente({
         if (subErr) {
           console.warn('⚠️ Falha ao buscar serviços por categorias, tentando fallback legado:', subErr);
         } else {
-          console.log('ℹ️ Nenhum serviço por categorias encontrado; usando fallback legado (services_with_prices).');
         }
 
         // 2) Fallback: sistema antigo (services_with_prices)
@@ -901,7 +881,6 @@ export default function ReservarCliente({
         const combinedLegacy = mergeSpecific(formattedLegacy);
         // Se não há serviços gerais mas há específicos, mostrar os específicos
         const finalList = combinedLegacy.length > 0 ? combinedLegacy : formattedSpecific;
-        console.log('✅ Serviços (fallback legado + específicos) carregados:', finalList);
         setServices(finalList);
       } catch (error) {
         console.error('❌ Erro ao carregar serviços:', error);
@@ -929,26 +908,10 @@ export default function ReservarCliente({
 
         if (error) throw error;
 
-        console.log('🔍 Agendamentos encontrados:', appointments);
-        console.log('🔍 Profissional selecionado:', selectedProfessional?.name);
-        console.log('🔍 ID do profissional selecionado:', selectedProfessional?.id);
-        console.log('🔍 Data selecionada:', selectedDate);
-        console.log('🔍 Establishment ID:', establishmentId);
 
         // Log detalhado de cada agendamento
-        if (appointments && appointments.length > 0) {
-          console.log('🔍 Detalhes dos agendamentos:');
-          appointments.forEach((apt, index) => {
-            console.log(`  Agendamento ${index + 1}:`, {
-              professional: apt.professional,
-              appointment_time: apt.appointment_time,
-              duration: apt.duration,
-              is_avulso: apt.is_avulso,
-              status: apt.status
-            });
-          });
-        } else {
-          console.log('⚠️ NENHUM AGENDAMENTO ENCONTRADO para a data:', selectedDate);
+        if (!appointments || appointments.length === 0) {
+          // Sem agendamentos para o dia/profissional selecionado.
         }
 
         // Calcular duração total dos serviços selecionados
@@ -974,12 +937,6 @@ export default function ReservarCliente({
         const dayOfWeek = selectedDateObj.getDay(); // 0 = domingo, 1 = segunda, etc.
         const dayName = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][dayOfWeek];
 
-        console.log('🔍 DEBUG - Data selecionada:', selectedDate);
-        console.log('🔍 DEBUG - Data objeto:', selectedDateObj);
-        console.log('🔍 DEBUG - Dia da semana:', dayOfWeek, dayName);
-        console.log('🔍 DEBUG - Data formatada:', selectedDateObj.toLocaleDateString('pt-BR'));
-        console.log('🔍 DEBUG - Establishment hours:', establishmentHours.data);
-        console.log('🔍 DEBUG - Professional hours:', professionalHours.data);
 
         let workHours = null;
 
@@ -990,7 +947,6 @@ export default function ReservarCliente({
           const professional = professionalHours.data.professionals.find(p => p.id === selectedProfessional?.id);
           if (professional?.work_hours?.[dayName]) {
             const profHours = professional.work_hours[dayName];
-            console.log('🔍 Horários brutos do profissional para', dayName, ':', profHours);
 
             // Só usar horários do profissional se estiver habilitado
             if (profHours.enabled) {
@@ -1012,36 +968,29 @@ export default function ReservarCliente({
                 }
 
                 hasProfessionalHours = true;
-                console.log('🔍 Usando horários específicos do profissional para', dayName, ':', workHours);
               } else {
                 workHours = profHours;
                 hasProfessionalHours = true;
               }
             } else {
-              console.log('🔍 Profissional tem horário para', dayName, 'mas está DESABILITADO - usando horário do estabelecimento');
             }
           } else {
-            console.log('🔍 Profissional não tem horário específico para', dayName, '- usando horário do estabelecimento');
           }
         }
 
         // Se não tem horário específico do profissional, usar horário do estabelecimento
         if (!hasProfessionalHours && establishmentHours.data?.business_hours?.[dayName]) {
           workHours = establishmentHours.data.business_hours[dayName];
-          console.log('🔍 Usando horários do estabelecimento para', dayName, ':', workHours);
         }
 
         // Se não tem nenhum horário definido, usar padrão 8h-18h
         if (!workHours) {
           workHours = { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null };
-          console.log('🔍 Usando horário padrão:', workHours);
         }
 
-        console.log('🔍 DEBUG - Work hours final:', workHours);
 
         // Verificar se o dia está habilitado
         if (!workHours.enabled) {
-          console.log('⚠️ Dia não habilitado para trabalho');
           setTimeSlots([]);
           setBreakRange(null);
           return;
@@ -1078,7 +1027,6 @@ export default function ReservarCliente({
         } else if (!use15MinuteInterval) {
           interval = 15; // Horários de 15 em 15 minutos (quando DESMARCADO)
         }
-        console.log('🔍 DEBUG - Intervalo de horários:', interval, 'minutos');
 
         // Agendamentos do profissional para incluir horário de término como slot (ex: 14:50)
         const selectedProfessionalIdNorm = normalizeText(selectedProfessional?.id);
@@ -1112,13 +1060,6 @@ export default function ReservarCliente({
           const startMinutes = timeToMinutes(workHours.open1);
           const endMinutes = timeToMinutes(workHours.close1);
 
-          console.log('🔍 DEBUG - Gerando slots período 1:', {
-            open1: workHours.open1,
-            close1: workHours.close1,
-            startMinutes,
-            endMinutes,
-            interval
-          });
 
           const periodMinutes = buildPeriodSlotMinutes(startMinutes, endMinutes);
           for (const minutes of periodMinutes) {
@@ -1228,11 +1169,6 @@ export default function ReservarCliente({
             });
           }
         }
-
-        console.log('✅ Slots gerados:', slots.length);
-        console.log('✅ Slots disponíveis:', slots.filter(s => s.available).length);
-        console.log('✅ Slots bloqueados:', slots.filter(s => !s.available).length);
-        console.log('🔍 DEBUG - Todos os slots:', slots);
 
         setTimeSlots(slots);
       } catch (error) {
@@ -2219,7 +2155,6 @@ export default function ReservarCliente({
 
       // ✅ SEMPRE disparar evento para recarregar agendamentos no dashboard
       // (Independente de ser cliente conhecido, avulso ou assinante)
-      console.log('✅ Agendamento criado com sucesso, disparando evento para recarregar agendamentos');
       window.dispatchEvent(new CustomEvent('clientAppointmentCreated', {
         detail: {
           clientId: isKnownClient && selectedClient ? selectedClient.id : clientId,

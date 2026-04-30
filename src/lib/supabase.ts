@@ -2162,13 +2162,6 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
   try {
     // Normalizar o número de telefone (remover formatação)
     const normalizedWhatsapp = normalizePhoneNumber(whatsapp);
-    console.log('🔍 MOBILE DEBUG - Verificando assinante (sistema antigo):', {
-      original: whatsapp,
-      normalized: normalizedWhatsapp,
-      establishmentId,
-      userAgent: navigator.userAgent,
-      isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-    });
 
     // CORREÇÃO: Verificar se o client_id existe em auth.users (evitar registros órfãos)
     // Buscar TODOS os assinantes (ativos e vencidos) para detectar vencidos
@@ -2202,14 +2195,6 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
       const clientPhone = normalizePhoneNumber(sub.client_whatsapp || '');
       const subscriberPhone = normalizePhoneNumber(sub.subscriber_whatsapp || '');
 
-      console.log('🔍 Comparando:', {
-        clientPhone,
-        subscriberPhone,
-        normalizedWhatsapp,
-        matchClient: clientPhone === normalizedWhatsapp,
-        matchSubscriber: subscriberPhone === normalizedWhatsapp
-      });
-
       return clientPhone === normalizedWhatsapp || subscriberPhone === normalizedWhatsapp;
     });
 
@@ -2219,7 +2204,6 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
         subscriber.payment_status === 'unpaid';
 
       if (isExpired) {
-        console.log('⚠️ Assinante vencido encontrado (sistema antigo):', subscriber);
         return {
           data: {
             ...subscriber,
@@ -2229,12 +2213,10 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
           error: null
         };
       } else {
-        console.log('✅ Assinante ativo encontrado (sistema antigo):', subscriber);
         return { data: subscriber, error: null };
       }
     }
 
-    console.log('❌ Nenhum assinante encontrado para WhatsApp:', whatsapp);
     return { data: null, error: null };
   } catch (error) {
     console.error('Erro na verificação de assinante:', error);
@@ -2738,8 +2720,6 @@ export const getProfessionalGoal = async (
   month: number
 ) => {
   try {
-    console.log('🔍 getProfessionalGoal - Buscando meta:', { establishmentId, professionalId, year, month });
-
     const { data, error } = await supabase
       .from('professional_goals')
       .select('*')
@@ -2747,19 +2727,16 @@ export const getProfessionalGoal = async (
       .eq('professional_id', professionalId)
       .eq('year', year)
       .eq('month', month)
-      .single();
+      .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-      console.error('❌ Erro ao buscar meta:', error);
+    if (error) {
       throw error;
     }
 
-    if (error && error.code === 'PGRST116') {
-      console.log('ℹ️ Nenhuma meta encontrada para este profissional');
+    if (!data) {
       return { data: null, error: null };
     }
 
-    console.log('✅ Meta encontrada:', data);
     return { data, error: null };
   } catch (error) {
     console.error('❌ Erro ao buscar meta do profissional:', error);
@@ -2795,9 +2772,6 @@ export const getProfessionalGoalProgress = async (
   month: number
 ) => {
   try {
-    console.log('🔍 getProfessionalGoalProgress chamado:', { establishmentId, professionalId, year, month });
-
-    // Primeiro, obter o nome do profissional
     const { data: establishmentData, error: establishmentError } = await supabase
       .from('establishments')
       .select('professionals')
@@ -2805,107 +2779,50 @@ export const getProfessionalGoalProgress = async (
       .single();
 
     if (establishmentError) {
-      console.error('❌ Erro ao buscar estabelecimento:', establishmentError);
       throw establishmentError;
     }
 
-    console.log('✅ Estabelecimento encontrado:', establishmentData);
-
     const professional = establishmentData.professionals?.find((p: any) => p.id === professionalId);
-    if (!professional) {
-      console.error('❌ Profissional não encontrado:', professionalId);
-      throw new Error('Profissional não encontrado');
-    }
-
-    const professionalName = professional.name;
-    console.log('✅ Nome do profissional:', professionalName);
-
-    // Buscar a meta mais recente (independente do mês)
-    console.log('🔍 Buscando meta mais recente para profissional:', professionalId);
+    const professionalName = String(professional?.name || '');
 
     const { data: goalData, error: goalError } = await supabase
       .from('professional_goals')
-      .select('*')
+      .select('goal_amount')
       .eq('establishment_id', establishmentId)
       .eq('professional_id', professionalId)
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (goalError && goalError.code !== 'PGRST116') { // PGRST116 = no rows returned
-      console.error('❌ Erro ao buscar meta:', goalError);
+    if (goalError) {
       throw goalError;
     }
 
     const goalAmount = goalData?.goal_amount || 0;
-    console.log('✅ Meta encontrada (mais recente):', goalAmount, 'criada em:', goalData?.created_at);
-
-    // Calcular serviços completados no mês
     const startDate = new Date(year, month - 1, 1).toISOString().split('T')[0];
     const endDate = new Date(year, month, 0).toISOString().split('T')[0];
 
-    console.log('🔍 Buscando agendamentos entre:', startDate, 'e', endDate, 'para o mês:', month, 'ano:', year);
-
-    // Buscar agendamentos sem filtrar por profissional primeiro
-    console.log('🔍 Buscando agendamentos do estabelecimento...');
-
     const { data: appointmentsData, error: appointmentsError } = await supabase
       .from('appointments')
-      .select('*')
+      .select('professional')
       .eq('establishment_id', establishmentId)
       .eq('status', 'completed')
       .gte('appointment_date', startDate)
       .lte('appointment_date', endDate);
 
     if (appointmentsError) {
-      console.error('❌ Erro ao buscar agendamentos:', appointmentsError);
       throw appointmentsError;
     }
 
-    console.log('✅ Agendamentos encontrados:', appointmentsData);
-
-    // Filtrar agendamentos do profissional específico
     let completedServices = 0;
     if (appointmentsData && appointmentsData.length > 0) {
-      console.log('🔍 Estrutura do primeiro agendamento:', Object.keys(appointmentsData[0]));
-
       completedServices = appointmentsData.filter(appointment => {
-        // Tentar diferentes campos possíveis para o nome do profissional
-        const appointmentProfessional = appointment.professional ||
-          appointment.professional_name ||
-          appointment.service_name ||
-          appointment.professional_id;
-
-        console.log('🔍 Agendamento:', {
-          id: appointment.id,
-          professional: appointment.professional,
-          professional_name: appointment.professional_name,
-          service_name: appointment.service_name,
-          professional_id: appointment.professional_id
-        });
-
-        console.log('🔍 Comparando:', {
-          professionalName,
-          professionalId,
-          appointmentProfessional,
-          appointmentProfessionalId: appointment.professional
-        });
-
-        // Comparar por UUID do profissional (que é o que está sendo usado)
-        const matches = appointment.professional === professionalId;
-
-        if (matches) {
-          console.log('✅ Match encontrado!');
-        }
-
-        return matches;
+        return String(appointment?.professional || '').trim() === professionalId;
       }).length;
     }
 
     const progressPercentage = goalAmount > 0 ? (completedServices / goalAmount) * 100 : 0;
     const remainingServices = Math.max(goalAmount - completedServices, 0);
-
-    console.log('✅ Meta:', goalAmount, 'serviços | Completados em', year + '/' + month + ':', completedServices, '| Progresso:', progressPercentage + '%');
 
     return {
       data: {

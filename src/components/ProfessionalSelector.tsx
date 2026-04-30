@@ -55,20 +55,34 @@ export function ProfessionalSelector({
     remainingServices: number;
     professionalName: string;
   }>>({});
+  const goalProgressRequestRef = useRef<{ key: string; inFlight: boolean; requestedAt: number }>({
+    key: '',
+    inFlight: false,
+    requestedAt: 0
+  });
 
   // Função para carregar progresso da meta de um profissional
   const loadGoalProgress = async (professionalId: string) => {
-    if (!establishmentId) {
-      console.log('❌ establishmentId não encontrado');
-      return;
-    }
+    if (!establishmentId) return;
 
     try {
-      // Usar a data selecionada no calendário para buscar agendamentos do mês
       const year = selectedDate.getFullYear();
       const month = selectedDate.getMonth() + 1;
+      const requestKey = `${establishmentId}:${professionalId}:${year}:${month}`;
+      const now = Date.now();
+      const isDuplicateInFlight =
+        goalProgressRequestRef.current.inFlight && goalProgressRequestRef.current.key === requestKey;
+      const isRecentDuplicate =
+        goalProgressRequestRef.current.key === requestKey &&
+        now - goalProgressRequestRef.current.requestedAt < 1000;
 
-      console.log('🔍 Carregando meta para profissional:', professionalId, 'ano:', year, 'mês:', month, 'data selecionada:', selectedDate.toISOString());
+      if (isDuplicateInFlight || isRecentDuplicate) return;
+
+      goalProgressRequestRef.current = {
+        key: requestKey,
+        inFlight: true,
+        requestedAt: now
+      };
 
       const { data, error } = await getProfessionalGoalProgress(
         establishmentId,
@@ -82,19 +96,20 @@ export function ProfessionalSelector({
         return;
       }
 
-      console.log('✅ Dados da meta carregados:', data);
-
       if (data && data.goalAmount > 0) {
         setGoalProgress(prev => ({
           ...prev,
           [professionalId]: data
         }));
-        console.log('🎯 Meta mantida:', data.goalAmount, 'serviços | Progresso atualizado para', year + '/' + month);
-      } else {
-        console.log('ℹ️ Nenhuma meta definida para este profissional');
       }
     } catch (error) {
       console.error('❌ Erro ao carregar progresso da meta:', error);
+    } finally {
+      goalProgressRequestRef.current = {
+        ...goalProgressRequestRef.current,
+        inFlight: false,
+        requestedAt: Date.now()
+      };
     }
   };
 
@@ -270,18 +285,14 @@ export function ProfessionalSelector({
   };
 
   const handlePhotoChange = async (professionalId: string, file: File) => {
-    console.log('🔍 DEBUG - handlePhotoChange chamado para profissional:', professionalId);
-
     // Verificar se o profissional precisa de senha para alterar foto
     const needsPassword = await checkIfNeedsPassword(professionalId);
 
     if (needsPassword) {
-      console.log('🔒 Profissional precisa de senha, mostrando modal');
       // Armazenar o arquivo pendente e mostrar modal de PIN
       setPendingFile({ file, professionalId });
       setShowPinModal(true);
     } else {
-      console.log('✅ Profissional não precisa de senha, fazendo upload direto');
       // Fazer upload direto sem pedir senha
       await handlePhotoUpload(professionalId, file);
     }
@@ -430,7 +441,6 @@ export function ProfessionalSelector({
   const getCountryCodeFromEstablishment = (): string => {
     // Se não tiver estabelecimento ou WhatsApp, usar padrão (Brasil)
     if (!establishment?.whatsapp) {
-      console.log('⚠️ Estabelecimento sem WhatsApp, usando padrão 55');
       return '55';
     }
 
@@ -452,7 +462,6 @@ export function ProfessionalSelector({
     // Verificar se o número já começa com algum código de país
     for (const { code, minLength } of countryCodes) {
       if (cleanWhatsapp.startsWith(code) && cleanWhatsapp.length >= minLength) {
-        console.log('✅ Código do país detectado do estabelecimento:', code, 'do número:', cleanWhatsapp);
         return code;
       }
     }
@@ -460,12 +469,10 @@ export function ProfessionalSelector({
     // Se não tiver código de país detectado, tentar inferir pelo tamanho
     // Números brasileiros geralmente têm 10 ou 11 dígitos sem código do país
     if (cleanWhatsapp.length >= 10 && cleanWhatsapp.length <= 11) {
-      console.log('⚠️ Não detectou código, inferindo Brasil (55) pelo tamanho:', cleanWhatsapp.length);
       return '55'; // Padrão Brasil
     }
 
     // Se não conseguir detectar, usar padrão Brasil
-    console.log('⚠️ Não conseguiu detectar código, usando padrão 55');
     return '55';
   };
 
@@ -656,13 +663,6 @@ export function ProfessionalSelector({
                           finalNumber = countryCode + cleanWhatsapp;
                         }
                         
-                        console.log('🔍 WhatsApp Profissional:', {
-                          original: professional.whatsapp,
-                          limpo: cleanWhatsapp,
-                          temCodigo: hasCountryCode,
-                          numeroFinal: finalNumber
-                        });
-                        
                         const whatsappUrl = `https://wa.me/${finalNumber}?text=Olá`;
                         window.open(whatsappUrl, '_blank');
                       }}
@@ -690,7 +690,6 @@ export function ProfessionalSelector({
       {/* Exibição da Meta do Profissional Selecionado - APENAS no dashboard */}
       {showGoalProgress && selectedProfessional && selectedProfessional !== null && goalProgress[selectedProfessional] && goalProgress[selectedProfessional].goalAmount > 0 && (
         <div className="mt-4">
-          {console.log('🎯 Renderizando barra de progresso para:', selectedProfessional, goalProgress[selectedProfessional])}
           <GoalProgressBar
             goalAmount={goalProgress[selectedProfessional].goalAmount}
             completedServices={goalProgress[selectedProfessional].completedServices}
