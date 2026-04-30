@@ -6160,9 +6160,10 @@ const EstablishmentDashboard = () => {
               id,
               professional,
               appointment_date,
-              status,
-              establishment_id
+              status
             `)
+            .eq('establishment_id', establishment.id)
+            .eq('status', 'completed')
             .in('id', chunk);
           if (chunkError) throw chunkError;
           batchedAppointments.push(...(chunkAppointments || []));
@@ -6170,10 +6171,8 @@ const EstablishmentDashboard = () => {
       }
       const appointments = batchedAppointments;
 
-      // Filtrar por establishment e status (só CONCLUÍDO) após buscar
-      const filteredAppointments = appointments?.filter(
-        (apt) => apt.establishment_id === establishment.id && isCompletedAppointmentStatus(apt)
-      );
+      // Já vem filtrado do banco por establishment + status completed
+      const filteredAppointments = appointments || [];
 
       // 4. Inicializar TODOS os funcionários com 0 vendas
       const salesByProfessional: Record<string, {
