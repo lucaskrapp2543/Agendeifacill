@@ -23826,7 +23826,7 @@ Estamos te aguardando! 😎✂️`;
                   const btn = document.querySelector<HTMLButtonElement>('[data-notifications-button]');
                   btn?.click();
                 }}
-                className="md:hidden fixed right-4 bottom-52 z-[9999] bg-black hover:bg-gray-800 text-white p-4 rounded-full shadow-lg transition-all transform hover:scale-110 active:scale-95"
+                className="md:hidden fixed right-4 bottom-52 z-30 bg-black hover:bg-gray-800 text-white p-4 rounded-full shadow-lg transition-all transform hover:scale-110 active:scale-95"
                 title="Notificações"
                 aria-label="Notificações"
               >

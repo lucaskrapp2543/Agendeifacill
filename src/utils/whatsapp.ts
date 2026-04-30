@@ -26,20 +26,16 @@ export const openWhatsAppWithBusinessPriority = (phoneDigits: string, message: s
   const isAndroid = /Android/i.test(userAgent);
   const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
 
-  // Android: força app Business pelo package, com fallback seguro na mesma aba
-  // (evita popup bloqueado por não estar em gesto direto do usuário).
+  // Android: prioriza Business, mas SEM forçar package intent (que pode jogar para Play Store
+  // e impedir fallback para WhatsApp normal).
   if (isAndroid) {
-    const androidBusinessIntent = `intent://send?phone=${cleanPhone}&text=${encodedMessage}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end`;
-    window.location.href = androidBusinessIntent;
+    window.location.href = waBusinessScheme;
     setTimeout(() => {
-      window.location.href = waBusinessScheme;
+      window.location.href = waRegularScheme;
       setTimeout(() => {
-        window.location.href = waRegularScheme;
-        setTimeout(() => {
-          window.location.href = waWeb;
-        }, 500);
-      }, 350);
-    }, 300);
+        window.location.href = waWeb;
+      }, 500);
+    }, 350);
     return;
   }
 
