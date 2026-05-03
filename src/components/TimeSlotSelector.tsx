@@ -145,6 +145,14 @@ export function TimeSlotSelector({
     const slots: TimeSlot[] = [];
     const selectedDateString = format(selectedDate, 'yyyy-MM-dd');
     const dayOfWeek = getDayOfWeek(selectedDate);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const selectedDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+
+    // Regra global de booking/chat: nunca permitir slots em datas passadas.
+    if (selectedDay.getTime() < today.getTime()) {
+      return slots;
+    }
 
     // Log de debug
     console.log(`🕒 TimeSlotSelector - Gerando horários com filtro de horários passados: ${filterPastTimes}`);

@@ -21401,17 +21401,43 @@ Estamos te aguardando! 😎✂️`;
     return serviceNet + tip;
   };
 
-  const paymentBelongsToSelectedMonth = (payment: any): boolean => {
-    const monthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+  const resolveProfessionalRevenueReferenceMonth = (): Date => {
+    const startRaw = String(professionalRevenueRangeStart || '').trim();
+    const endRaw = String(professionalRevenueRangeEnd || '').trim();
+    if (!startRaw || !endRaw) return selectedMonth;
+
+    const startDt = new Date(`${startRaw}T12:00:00`);
+    const endDt = new Date(`${endRaw}T12:00:00`);
+    if (Number.isNaN(startDt.getTime()) || Number.isNaN(endDt.getTime())) return selectedMonth;
+
+    const sameMonth =
+      startDt.getFullYear() === endDt.getFullYear() &&
+      startDt.getMonth() === endDt.getMonth();
+    if (!sameMonth) return selectedMonth;
+
+    const fullMonthStart = format(startOfMonth(startDt), 'yyyy-MM-dd');
+    const fullMonthEnd = format(endOfMonth(startDt), 'yyyy-MM-dd');
+    const isFullMonthRange = startRaw === fullMonthStart && endRaw === fullMonthEnd;
+    if (!isFullMonthRange) return selectedMonth;
+
+    return new Date(startDt.getFullYear(), startDt.getMonth(), 1);
+  };
+
+  const paymentBelongsToSelectedMonth = (payment: any, monthReference: Date = selectedMonth): boolean => {
+    const monthKey = `${monthReference.getFullYear()}-${String(monthReference.getMonth() + 1).padStart(2, '0')}`;
     if (payment?.for_month != null && String(payment.for_month).trim() !== '') {
       return String(payment.for_month) === monthKey;
     }
     const dt = new Date(payment?.payment_date);
-    return dt.getFullYear() === selectedMonth.getFullYear() && dt.getMonth() === selectedMonth.getMonth();
+    return dt.getFullYear() === monthReference.getFullYear() && dt.getMonth() === monthReference.getMonth();
   };
 
-  const buildValidatedProfessionalPaymentData = (professional: any, appointmentsInMonth: Appointment[]) => {
-    const appointmentRows = appointmentsInMonth
+  const buildValidatedProfessionalPaymentData = (
+    professional: any,
+    appointmentsInRange: Appointment[],
+    monthReference: Date = selectedMonth
+  ) => {
+    const appointmentRows = appointmentsInRange
       .filter((apt) => appointmentBelongsToProfessional(apt, professional) && isCompletedAppointmentStatus(apt))
       .map((apt) => ({
         completedAt: getAppointmentCompletedAtMs(apt),
@@ -21434,7 +21460,7 @@ Estamos te aguardando! 😎✂️`;
         const src = String((p as any)?.payment_source || '').toLowerCase();
         return src !== 'subscription' && src !== 'assinatura';
       })
-      .filter((p: any) => paymentBelongsToSelectedMonth(p))
+      .filter((p: any) => paymentBelongsToSelectedMonth(p, monthReference))
       .sort((a: any, b: any) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
 
     // Regra oficial (sem adiantamento):
@@ -31738,7 +31764,12 @@ Estamos te aguardando! 😎✂️`;
                           return products;
                         }, []);
 
-                        const paymentValidation = buildValidatedProfessionalPaymentData(professional, monthlyAppointments);
+                        const professionalRevenuePaymentMonth = resolveProfessionalRevenueReferenceMonth();
+                        const paymentValidation = buildValidatedProfessionalPaymentData(
+                          professional,
+                          professionalRevenueAppointments,
+                          professionalRevenuePaymentMonth
+                        );
                         const subscriberProfessionalFinancial = subscriberFinancialByProfessional[professional.name] || {
                           totalAccumulated: 0,
                           totalPaid: 0,
@@ -31886,7 +31917,7 @@ Estamos te aguardando! 😎✂️`;
                                   validatedPaidAmount={paymentValidation.validPaid}
                                   validatedPendingAmount={paymentValidation.pendingAllowed}
                                   ignoredPaymentIds={paymentValidation.ignoredPaymentIds}
-                                  selectedMonth={selectedMonth}
+                                  selectedMonth={professionalRevenuePaymentMonth}
                                   onPaymentRecorded={() => {
                                     void loadProfessionalPayments();
                                   }}

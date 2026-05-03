@@ -1811,12 +1811,20 @@ export function BookingChatFlow({
                 <input
                   type="date"
                   value={format(selectedDate, 'yyyy-MM-dd')}
+                  min={format(new Date(), 'yyyy-MM-dd')}
                   onChange={(event) => {
                     const value = String(event.target.value || '').trim();
                     if (!value) return;
                     const [year, month, day] = value.split('-').map(Number);
                     if (!year || !month || !day) return;
                     const nextDate = new Date(year, month - 1, day, 12, 0, 0);
+                    const now = new Date();
+                    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    const normalizedNext = new Date(nextDate.getFullYear(), nextDate.getMonth(), nextDate.getDate());
+                    if (normalizedNext.getTime() < today.getTime()) {
+                      toast.error('Nao e permitido agendar em data passada. Selecione hoje ou uma data futura.');
+                      return;
+                    }
                     onSelectDate(nextDate);
                     setSelectedTime('');
                     if (isSubscriberFlow && subscriberAllowedWeekdays.length > 0) {

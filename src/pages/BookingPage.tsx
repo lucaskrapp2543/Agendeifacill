@@ -1619,6 +1619,33 @@ export default function BookingPage() {
 
     if (!establishment) return;
 
+    // Regra global de seguranca: booking nunca pode salvar data passada
+    // (cobre fluxo legado + chat, mesmo se o cliente burlar UI).
+    const targetDateRaw = String(appointmentData?.appointment_date || format(selectedDate, 'yyyy-MM-dd')).slice(0, 10);
+    const [targetYear, targetMonth, targetDay] = targetDateRaw.split('-').map(Number);
+    const targetDate = new Date(targetYear || 0, (targetMonth || 1) - 1, targetDay || 1);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const isValidTargetDate =
+      Number.isFinite(targetYear) &&
+      Number.isFinite(targetMonth) &&
+      Number.isFinite(targetDay) &&
+      targetYear > 1900 &&
+      targetMonth >= 1 &&
+      targetMonth <= 12 &&
+      targetDay >= 1 &&
+      targetDay <= 31;
+
+    if (!isValidTargetDate) {
+      toast.error('Data de agendamento invalida. Selecione novamente a data e o horario.');
+      return;
+    }
+
+    if (targetDate.getTime() < today.getTime()) {
+      toast.error('Nao e permitido agendar data passada. Escolha hoje ou uma data futura.');
+      return;
+    }
+
     // Se não tem user, mas tem guestClientData, criar/fazer login automaticamente
     let currentUser = user;
     if (!currentUser && guestClientData) {
