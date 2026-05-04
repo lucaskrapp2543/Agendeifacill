@@ -55,6 +55,18 @@ const resolveWhatsAppPreferenceForCurrentSend = (): Exclude<WhatsAppAppPreferenc
   return wantsBusiness ? 'business' : 'regular';
 };
 
+const sanitizeWhatsAppMessage = (message: string): string => {
+  const raw = String(message || '');
+  // Evita caracteres de substituição e emojis/símbolos que quebram em alguns WebViews/PWA.
+  return raw
+    .replace(/\uFFFD/g, '')
+    .replace(/[\u200D\uFE0E\uFE0F]/g, '')
+    .replace(/[\u{10000}-\u{10FFFF}]/gu, '')
+    .normalize('NFC')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim();
+};
+
 const tryOpenSchemeWithWebFallback = (schemeUrl: string, webUrl: string, fallbackDelayMs: number) => {
   let appOpenedOrPageHidden = false;
 
@@ -85,6 +97,93 @@ const tryOpenSchemeWithWebFallback = (schemeUrl: string, webUrl: string, fallbac
     if (appOpenedOrPageHidden || document.visibilityState === 'hidden') return;
     window.location.href = webUrl;
   }, Math.max(400, fallbackDelayMs));
+};
+
+const tryOpenIOSUniversalLink = (apiUrl: string, webUrl: string) => {
+  // iOS/Safari/PWA pode rejeitar schemes customizados com "endereço inválido".
+  // Link universal evita esse erro e abre o app quando disponível.
+  let pageHidden = false;
+
+  const markHidden = () => {
+    pageHidden = true;
+  };
+
+  const cleanup = () => {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    window.removeEventListener('pagehide', markHidden);
+    window.removeEventListener('blur', markHidden);
+  };
+
+  const onVisibilityChange = () => {
+    if (document.visibilityState === 'hidden') markHidden();
+  };
+
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('pagehide', markHidden);
+  window.addEventListener('blur', markHidden);
+
+  window.location.href = apiUrl;
+
+  window.setTimeout(() => {
+    cleanup();
+    if (pageHidden || document.visibilityState === 'hidden') return;
+    window.location.href = webUrl;
+  }, 1300);
+};
+
+const tryOpenAndroidBusinessAppWithFallback = (
+  waBusinessScheme: string,
+  waRegularScheme: string,
+  waWeb: string
+) => {
+  // Importante: no Android, o package do Business responde melhor com scheme=whatsapp.
+  // Usar scheme=whatsapp-business pode redirecionar incorretamente para Play Store.
+  const businessIntentUrl = waRegularScheme
+    .replace('whatsapp://', 'intent://')
+    + '#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end';
+
+  let appOpenedOrPageHidden = false;
+
+  const markHidden = () => {
+    appOpenedOrPageHidden = true;
+  };
+
+  const cleanup = () => {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    window.removeEventListener('pagehide', markHidden);
+    window.removeEventListener('blur', markHidden);
+  };
+
+  const onVisibilityChange = () => {
+    if (document.visibilityState === 'hidden') markHidden();
+  };
+
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('pagehide', markHidden);
+  window.addEventListener('blur', markHidden);
+
+  // 1) Tenta abrir explicitamente o pacote do WhatsApp Business.
+  window.location.href = businessIntentUrl;
+
+  // 2) Se não abriu, tenta o esquema padrão do WhatsApp Business.
+  window.setTimeout(() => {
+    if (appOpenedOrPageHidden || document.visibilityState === 'hidden') {
+      cleanup();
+      return;
+    }
+
+    window.location.href = waBusinessScheme;
+
+    // 3) Se ainda não abriu, tenta o WhatsApp normal antes de ir para web.
+    window.setTimeout(() => {
+      if (appOpenedOrPageHidden || document.visibilityState === 'hidden') {
+        cleanup();
+        return;
+      }
+      cleanup();
+      tryOpenAndroidRegularAppWithFallback(waRegularScheme, waWeb);
+    }, 1200);
+  }, 700);
 };
 
 const tryOpenAndroidRegularAppWithFallback = (
@@ -139,6 +238,7 @@ const openWhatsAppByPreference = (
   preference: Exclude<WhatsAppAppPreference, 'ask'>,
   waBusinessScheme: string,
   waRegularScheme: string,
+  waApi: string,
   waWeb: string,
   isAndroid: boolean,
   isIOS: boolean
@@ -152,12 +252,25 @@ const openWhatsAppByPreference = (
     return;
   }
 
+  // Android: quando escolhe business, tenta pacote business -> scheme business ->
+  // app normal -> web. Evita cair cedo no "baixar app" do navegador.
+  if (isAndroid && preference === 'business') {
+    tryOpenAndroidBusinessAppWithFallback(waBusinessScheme, waRegularScheme, waWeb);
+    return;
+  }
+
+  // iOS: usa link universal para evitar erro "endereço inválido" no Safari/PWA.
+  if (isIOS) {
+    tryOpenIOSUniversalLink(waApi, waWeb);
+    return;
+  }
+
   // Mobile: abre o app escolhido e só cai para web se o app realmente não abrir.
-  if (isAndroid || isIOS) {
+  if (isAndroid) {
     tryOpenSchemeWithWebFallback(
       preferredScheme,
       waWeb,
-      isIOS ? 1100 : 900
+      1300
     );
     return;
   }
@@ -182,9 +295,10 @@ export const openWhatsAppWithBusinessPriority = (phoneDigits: string, message: s
   const cleanPhone = String(phoneDigits || '').replace(/\D/g, '');
   if (!cleanPhone) return;
 
-  const encodedMessage = encodeURIComponent(message || '');
+  const encodedMessage = encodeURIComponent(sanitizeWhatsAppMessage(message || ''));
   const waBusinessScheme = `whatsapp-business://send?phone=${cleanPhone}&text=${encodedMessage}`;
   const waRegularScheme = `whatsapp://send?phone=${cleanPhone}&text=${encodedMessage}`;
+  const waApi = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;
   const waWeb = `https://wa.me/${cleanPhone}?text=${encodedMessage}`;
 
   const userAgent = String(navigator?.userAgent || '');
@@ -196,6 +310,7 @@ export const openWhatsAppWithBusinessPriority = (phoneDigits: string, message: s
     effectivePreference,
     waBusinessScheme,
     waRegularScheme,
+    waApi,
     waWeb,
     isAndroid,
     isIOS

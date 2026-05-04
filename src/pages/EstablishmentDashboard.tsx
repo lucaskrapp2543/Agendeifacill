@@ -10001,20 +10001,20 @@ const EstablishmentDashboard = () => {
       // com customização exclusiva para o código 2092 (salão de beleza).
       const isYonneSalon = String(establishment?.code || '').trim() === '2092';
       let reminderMessage = isYonneSalon
-        ? `✨ Olá! Passando aqui pra relembrar do seu agendamento com ${establishmentName} 💖
+        ? `Olá! Passando aqui pra relembrar do seu agendamento com ${establishmentName}.
 
-📅 Data e horário: ${appointmentDate} às ${appointmentTime}
-💇‍♀️ Profissional: ${professionalName}
-⭐ Serviço: ${serviceName}
+Data e horário: ${appointmentDate} às ${appointmentTime}
+Profissional: ${professionalName}
+Serviço: ${serviceName}
 
-Estamos te aguardando! 💖✨`
-        : `💈 Olá! Passando aqui pra relembrar do seu agendamento com ${establishmentName} ✂️
+Estamos te aguardando!`
+        : `Olá! Passando aqui pra relembrar do seu agendamento com ${establishmentName}.
 
-📅 Data e horário: ${appointmentDate} às ${appointmentTime}
-💇‍♂️ Profissional: ${professionalName}
-💼 Serviço: ${serviceName}
+Data e horário: ${appointmentDate} às ${appointmentTime}
+Profissional: ${professionalName}
+Serviço: ${serviceName}
 
-Estamos te aguardando! 😎✂️`;
+Estamos te aguardando!`;
 
       // Adicionar endereço apenas para o estabelecimento com código 2851
       if (establishment?.code === '2851') {
@@ -10483,6 +10483,109 @@ Estamos te aguardando! 😎✂️`;
     }
   };
 
+  const parseAppointmentTimeToMinutes = (timeRaw: string): number | null => {
+    const value = String(timeRaw || '').trim();
+    if (!value) return null;
+    const [hRaw, mRaw] = value.split(':');
+    const hours = Number(hRaw);
+    const minutes = Number(mRaw);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+    return (hours * 60) + minutes;
+  };
+
+  const getAutoCompleteBaseDurationMinutes = (): number => (
+    use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15
+  );
+
+  const getAppointmentTotalDurationMinutesForAutoComplete = (apt: Appointment): number => {
+    const baseDurationRaw = Number((apt as any)?.duration || 0);
+    const baseDuration = Number.isFinite(baseDurationRaw) && baseDurationRaw > 0
+      ? baseDurationRaw
+      : getAutoCompleteBaseDurationMinutes();
+
+    const additionalDuration = Array.isArray((apt as any)?.additional_products)
+      ? (apt as any).additional_products.reduce((sum: number, item: any) => sum + Number(item?.duration || 0), 0)
+      : 0;
+
+    const safeAdditionalDuration = Number.isFinite(additionalDuration) && additionalDuration > 0
+      ? additionalDuration
+      : 0;
+
+    return Math.max(1, Math.round(baseDuration + safeAdditionalDuration));
+  };
+
+  const shouldAutoCompleteAppointment = (apt: Appointment, nowMs: number): boolean => {
+    const status = String((apt as any)?.status || '').trim().toLowerCase();
+    if (status !== 'pending' && status !== 'confirmed') return false;
+
+    const dateRaw = String((apt as any)?.appointment_date || '').trim();
+    const timeRaw = String((apt as any)?.appointment_time || '').trim();
+    if (!dateRaw) return false;
+
+    const startMinutes = parseAppointmentTimeToMinutes(timeRaw);
+    if (startMinutes === null) return false;
+
+    const normalizedTime = timeRaw.length === 5 ? `${timeRaw}:00` : timeRaw;
+    const startDt = new Date(`${dateRaw}T${normalizedTime}`);
+    if (Number.isNaN(startDt.getTime())) return false;
+
+    const totalDurationMinutes = getAppointmentTotalDurationMinutesForAutoComplete(apt);
+    const endMs = startDt.getTime() + totalDurationMinutes * 60_000;
+    return nowMs >= endMs;
+  };
+
+  const autoCompletePastAppointments = async (rows: Appointment[]): Promise<{
+    appointments: Appointment[];
+    updatedCount: number;
+  }> => {
+    if (!establishment || !Array.isArray(rows) || rows.length === 0) {
+      return { appointments: rows, updatedCount: 0 };
+    }
+
+    const nowMs = Date.now();
+    const idsToComplete = rows
+      .filter((apt) => shouldAutoCompleteAppointment(apt, nowMs))
+      .map((apt) => String((apt as any)?.id || '').trim())
+      .filter(Boolean);
+
+    if (idsToComplete.length === 0) {
+      return { appointments: rows, updatedCount: 0 };
+    }
+
+    const { data, error } = await supabase
+      .from('appointments')
+      .update({ status: 'completed' } as any)
+      .in('id', idsToComplete)
+      .in('status', ['pending', 'confirmed'])
+      .select('id');
+
+    if (error) {
+      console.error('Erro ao auto-concluir agendamentos encerrados:', error);
+      return { appointments: rows, updatedCount: 0 };
+    }
+
+    const updatedIds = new Set(
+      ((data || []) as Array<{ id: string }>)
+        .map((row) => String(row?.id || '').trim())
+        .filter(Boolean)
+    );
+    if (updatedIds.size === 0) {
+      return { appointments: rows, updatedCount: 0 };
+    }
+
+    const normalizedRows = rows.map((apt) => {
+      const id = String((apt as any)?.id || '').trim();
+      if (!updatedIds.has(id)) return apt;
+      return {
+        ...apt,
+        status: 'completed',
+      };
+    });
+
+    return { appointments: normalizedRows, updatedCount: updatedIds.size };
+  };
+
 
 
   const fetchAppointments = async () => {
@@ -10790,7 +10893,10 @@ Estamos te aguardando! 😎✂️`;
         }
       }
 
-      const appointmentsData = (appointmentsRaw as Appointment[]).filter((apt) => !isWaitlistAppointment(apt));
+      let appointmentsData = (appointmentsRaw as Appointment[]).filter((apt) => !isWaitlistAppointment(apt));
+      const autoCompletionResult = await autoCompletePastAppointments(appointmentsData);
+      appointmentsData = autoCompletionResult.appointments;
+      const autoCompletedCount = autoCompletionResult.updatedCount;
 
       const normalizeProfessionalTokenForMatch = (value: unknown): string =>
         String(value ?? '')
@@ -11075,6 +11181,10 @@ Estamos te aguardando! 😎✂️`;
           ...preservedSameDayAppointments,
         ]);
         setAppointments(safeMergedAppointments);
+      }
+
+      if (autoCompletedCount > 0) {
+        void fetchMonthlyAppointments(selectedMonth);
       }
 
       // Verificar quais clientes são novos (com cache local em memória para evitar rajadas).
@@ -12484,9 +12594,12 @@ Estamos te aguardando! 😎✂️`;
         if (isAppStandbyActive()) return;
 
         if (newAppointments) {
-          const normalizedIncomingAppointments = (newAppointments as any[]).filter(
+          let normalizedIncomingAppointments = (newAppointments as any[]).filter(
             (incomingApp: any) => !isWaitlistAppointment(incomingApp)
           );
+          const liveAutoCompletionResult = await autoCompletePastAppointments(normalizedIncomingAppointments as Appointment[]);
+          normalizedIncomingAppointments = liveAutoCompletionResult.appointments as any[];
+          const liveAutoCompletedCount = liveAutoCompletionResult.updatedCount;
 
           const hasUpdatesInExistingAppointments = normalizedIncomingAppointments.some((incomingApp: any) => {
             const previousApp: any = previousAppointments.find((prev: any) => prev.id === incomingApp.id);
@@ -12563,6 +12676,10 @@ Estamos te aguardando! 😎✂️`;
           if (hasUpdatesInExistingAppointments) {
             // Mantém o financeiro e os resumos sincronizados quando houver mudança
             // de status/forma de pagamento/valor em agendamentos já existentes.
+            if (isAppStandbyActive()) return;
+            void fetchMonthlyAppointments(selectedMonth);
+          }
+          if (liveAutoCompletedCount > 0) {
             if (isAppStandbyActive()) return;
             void fetchMonthlyAppointments(selectedMonth);
           }
