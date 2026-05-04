@@ -11,7 +11,7 @@ interface AdditionalProduct {
 interface AdditionalProductModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAdd: (product: AdditionalProduct) => void;
+  onAdd: (product: AdditionalProduct) => boolean | Promise<boolean>;
   intervalMinutes?: number; // intervalo configurado (15/20/30...)
   maxDurationMinutes?: number; // padrão: 120
 }
@@ -43,7 +43,7 @@ const AdditionalProductModal = ({
 
   const durationOptions = Array.from(durationOptionsSet).sort((a, b) => a - b);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     const price = parseFloat(productPrice.replace(',', '.'));
@@ -58,11 +58,13 @@ const AdditionalProductModal = ({
       return;
     }
 
-    onAdd({
+    const canClose = await onAdd({
       name: productName,
       price: price,
       duration
     });
+
+    if (!canClose) return;
 
     // Limpa os campos
     setProductName('');

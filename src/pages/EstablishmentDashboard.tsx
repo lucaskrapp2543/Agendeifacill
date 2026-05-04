@@ -50,7 +50,13 @@ import {
 import { fireMercadoPagoPendingReconcile } from '../utils/fireMercadoPagoPendingReconcile';
 import { isAppStandbyActive, subscribeToAppStandby } from '../utils/appStandby';
 import { LEGACY_LIMITE_CANCELAMENTO_MINUTOS } from '../utils/regrasCancelamento';
-import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
+import {
+  getWhatsAppAppPreference,
+  openWhatsAppWithBusinessPriority,
+  resetWhatsAppAppPreference,
+  setWhatsAppAppPreference as saveWhatsAppAppPreference,
+  type WhatsAppAppPreference,
+} from '../utils/whatsapp';
 
 interface BusinessHours {
   enabled: boolean;
@@ -1077,6 +1083,7 @@ const EstablishmentDashboard = () => {
   const [enderecoPontoReferencia, setEnderecoPontoReferencia] = useState('');
   const [enableWhatsAppNotifications, setEnableWhatsAppNotifications] = useState(false); // Ativar notificações WhatsApp após agendamentos
   const [skipClientWhatsappBookingNudge, setSkipClientWhatsappBookingNudge] = useState(false); // Não pedir WhatsApp ao profissional após agendar (cliente)
+  const [whatsAppAppPreference, setWhatsAppAppPreferenceState] = useState<WhatsAppAppPreference>(() => getWhatsAppAppPreference());
   const [requireCancelPassword, setRequireCancelPassword] = useState(false); // Exigir senha para cancelar agendamento
   const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
   const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
@@ -10061,6 +10068,18 @@ Estamos te aguardando! 😎✂️`;
   // Função para fechar modal informativo de lembrete
   const handleCloseReminderInfoModal = () => {
     setShowReminderInfoModal(false);
+  };
+
+  const handleChangeWhatsAppAppPreference = (nextPreference: WhatsAppAppPreference) => {
+    saveWhatsAppAppPreference(nextPreference);
+    setWhatsAppAppPreferenceState(nextPreference);
+    toast('Preferência de app de WhatsApp atualizada neste dispositivo.', 'success');
+  };
+
+  const handleResetWhatsAppAppPreference = () => {
+    resetWhatsAppAppPreference();
+    setWhatsAppAppPreferenceState('business');
+    toast('Preferência de WhatsApp resetada com segurança neste dispositivo.', 'success');
   };
 
   // Função para gerar Nota Fiscal (XML)
@@ -20801,10 +20820,84 @@ Estamos te aguardando! 😎✂️`;
   // Funções para gerenciar modal de observação (removido - já existe abaixo)
 
   // Função para adicionar produto adicional
-  const handleAddAdditionalProduct = async (appointmentId: string, product: AdditionalProduct) => {
+  const handleAddAdditionalProduct = async (appointmentId: string, product: AdditionalProduct): Promise<boolean> => {
     try {
       const appointment = appointments.find(a => a.id === appointmentId);
-      if (!appointment) return;
+      if (!appointment) return false;
+
+      const parseTimeToMinutes = (timeRaw: string): number | null => {
+        const [hRaw, mRaw] = String(timeRaw || '').split(':');
+        const hours = Number(hRaw);
+        const minutes = Number(mRaw);
+        if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+        return (hours * 60) + minutes;
+      };
+
+      const isBlockedStatus = (statusRaw: string | null | undefined): boolean => {
+        const normalized = String(statusRaw || '').trim().toLowerCase();
+        return normalized !== 'cancelled' && normalized !== 'cancelado' && normalized !== 'canceled';
+      };
+
+      const getAppointmentTotalDuration = (apt: any, extraDurationToAdd = 0): number => {
+        const baseDuration = Number(apt?.duration);
+        const safeBaseDuration = Number.isFinite(baseDuration) && baseDuration > 0
+          ? baseDuration
+          : (use60MinuteSchedule ? 60 : use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15);
+
+        const additionalDuration = Array.isArray(apt?.additional_products)
+          ? apt.additional_products.reduce((sum: number, item: any) => sum + Number(item?.duration || 0), 0)
+          : 0;
+
+        const safeAdditionalDuration = Number.isFinite(additionalDuration) ? additionalDuration : 0;
+        const safeExtraDurationToAdd = Number.isFinite(extraDurationToAdd) ? Math.max(0, extraDurationToAdd) : 0;
+
+        return safeBaseDuration + safeAdditionalDuration + safeExtraDurationToAdd;
+      };
+
+      const selectedStartMinutes = parseTimeToMinutes(String(appointment.appointment_time || ''));
+      if (selectedStartMinutes === null) {
+        toast('Horário do agendamento inválido. Atualize e tente novamente.', 'error');
+        return false;
+      }
+
+      const newExtraDuration = Number(product?.duration || 0);
+      const selectedEndCurrent = selectedStartMinutes + getAppointmentTotalDuration(appointment, 0);
+      const selectedEndWithNewExtra = selectedStartMinutes + getAppointmentTotalDuration(appointment, newExtraDuration);
+
+      const relevantAppointments = appointments.filter((apt) => {
+        if (!apt || apt.id === appointment.id) return false;
+        if (String(apt.appointment_date || '') !== String(appointment.appointment_date || '')) return false;
+        if (String(apt.professional || '') !== String(appointment.professional || '')) return false;
+        if (!isBlockedStatus(apt.status)) return false;
+        const otherStart = parseTimeToMinutes(String(apt.appointment_time || ''));
+        return otherStart !== null;
+      });
+
+      const hasOverlap = (newEnd: number): { conflictedAppointment: any | null } => {
+        for (const apt of relevantAppointments) {
+          const otherStart = parseTimeToMinutes(String(apt.appointment_time || ''));
+          if (otherStart === null) continue;
+          const otherEnd = otherStart + getAppointmentTotalDuration(apt, 0);
+          const overlap = selectedStartMinutes < otherEnd && newEnd > otherStart;
+          if (overlap) {
+            return { conflictedAppointment: apt };
+          }
+        }
+        return { conflictedAppointment: null };
+      };
+
+      const previousOverlap = hasOverlap(selectedEndCurrent);
+      const newOverlap = hasOverlap(selectedEndWithNewExtra);
+      const createsNewConflict = !previousOverlap.conflictedAppointment && !!newOverlap.conflictedAppointment;
+
+      if (createsNewConflict) {
+        const conflictedTime = String(newOverlap.conflictedAppointment?.appointment_time || '--:--');
+        toast(
+          `Conflito de horário: você já tem serviço às ${conflictedTime}. Não pode aumentar o tempo deste serviço. Dica: adicione este serviço extra com 0 min para continuar sem bloquear horário.`,
+          'error'
+        );
+        return false;
+      }
 
       const currentAdditionalProducts = appointment.additional_products || [];
       const updatedAdditionalProducts = [...currentAdditionalProducts, product];
@@ -20859,9 +20952,11 @@ Estamos te aguardando! 😎✂️`;
       );
 
       toast('Produto adicional incluído com sucesso!', 'success');
+      return true;
     } catch (error) {
       console.error('Erro ao adicionar produto:', error);
       toast('Erro ao adicionar produto adicional', 'error');
+      return false;
     }
   };
 
@@ -23748,10 +23843,11 @@ Estamos te aguardando! 😎✂️`;
           isAppointmentsTutorialRunning={showAppointmentsTutorial}
           pendingReviewsCount={pendingReviewsCount}
           pendingSubscribersCount={pendingSubscribersCount}
+          topMonthlyWinner={monthlyTopWinner}
         />
 
         {/* Conteúdo principal */}
-        <div className="flex-1 ml-16 md:ml-0 transition-all duration-300 min-w-0 pt-0">
+        <div className="flex-1 ml-0 transition-all duration-300 min-w-0 pt-0">
           {/* Imagem Melhor do Brasil - Topo Absoluto (Mobile) */}
           <div className="w-full mb-4 flex justify-center md:hidden">
             <img
@@ -28610,6 +28706,47 @@ Estamos te aguardando! 😎✂️`;
                             </button>
                           </div>
                         </label>
+
+                        <div className="mt-3 bg-[#2a2b2c] p-3 rounded-lg border border-gray-700">
+                          <div className="flex flex-col gap-2">
+                            <span className="text-white text-sm sm:text-base">
+                              App preferido para abrir WhatsApp neste dispositivo
+                            </span>
+                            <span className="text-xs text-gray-400">
+                              Isso não altera nenhum dado do estabelecimento. Só define como este aparelho vai abrir o WhatsApp.
+                            </span>
+                            <select
+                              value={whatsAppAppPreference}
+                              onChange={(e) =>
+                                handleChangeWhatsAppAppPreference(e.target.value as WhatsAppAppPreference)
+                              }
+                              className="px-3 py-2 rounded-lg bg-[#151515] border border-gray-600 text-gray-100 text-sm"
+                            >
+                              <option value="business">Priorizar WhatsApp Business</option>
+                              <option value="regular">Priorizar WhatsApp normal</option>
+                              <option value="ask">Sempre perguntar antes de enviar</option>
+                            </select>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={handleResetWhatsAppAppPreference}
+                                className="px-3 py-2 text-xs rounded-lg bg-black text-white border border-gray-500 hover:bg-[#111827] transition-colors"
+                              >
+                                Resetar preferência deste dispositivo
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => showInfoModalFunc(
+                                  'Preferência de WhatsApp (dispositivo)',
+                                  'Esse ajuste é local do aparelho. Não apaga agendamentos, pagamentos, serviços, profissionais ou qualquer dado do estabelecimento. O botão de reset só limpa o reconhecimento local de qual app abrir primeiro.'
+                                )}
+                                className="px-3 py-2 text-xs rounded-lg bg-[#0f172a] text-blue-200 border border-blue-700 hover:bg-[#1e293b] transition-colors"
+                              >
+                                Entender esse ajuste
+                              </button>
+                            </div>
+                          </div>
+                        </div>
 
                         <label className="flex items-center space-x-2 bg-[#2a2b2c] p-3 rounded-lg border border-gray-700">
                           <input
@@ -34035,12 +34172,15 @@ Estamos te aguardando! 😎✂️`;
             }}
             intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
             maxDurationMinutes={120}
-            onAdd={(product: AdditionalProduct) => {
-              if (selectedAppointmentForProduct) {
-                handleAddAdditionalProduct(selectedAppointmentForProduct, product);
-              }
+            onAdd={async (product: AdditionalProduct) => {
+              if (!selectedAppointmentForProduct) return false;
+
+              const added = await handleAddAdditionalProduct(selectedAppointmentForProduct, product);
+              if (!added) return false;
+
               setShowAdditionalProductModal(false);
               setSelectedAppointmentForProduct(null);
+              return true;
             }}
           />
 

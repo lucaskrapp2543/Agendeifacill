@@ -9,21 +9,26 @@ import {
   Crown,
   DollarSign,
   Gift,
+  Home,
   Layers,
   Link,
   ListOrdered,
   Lock,
   LogOut,
+  Menu,
   MessageCircle,
   MessageSquare,
+  MoreHorizontal,
   Package,
   Receipt,
   Rocket,
   Settings,
   UserCheck,
-  Users
+  Users,
+  type LucideIcon
 } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
+import { TopMonthlyWinnerCard, type TopMonthlyWinnerCardData } from './TopMonthlyWinnerCard';
 
 type TabType =
   | 'appointments'
@@ -72,6 +77,7 @@ interface SidebarProps {
   isAppointmentsTutorialRunning?: boolean; // controla destaques e evita auto-open no PWA durante tutorial
   pendingReviewsCount?: number; // quantidade de avaliações pendentes para badge em Avaliações
   pendingSubscribersCount?: number; // quantidade de assinantes não pagos para badge em Meus Assinantes
+  topMonthlyWinner?: TopMonthlyWinnerCardData | null;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -94,14 +100,20 @@ const Sidebar: React.FC<SidebarProps> = ({
   isReceberAdiantadoOpen = false,
   isAppointmentsTutorialRunning = false,
   pendingReviewsCount = 0,
-  pendingSubscribersCount = 0
+  pendingSubscribersCount = 0,
+  topMonthlyWinner = null
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showMenuScrollHint, setShowMenuScrollHint] = useState(false);
+  const [dismissTopWinnerCard, setDismissTopWinnerCard] = useState(false);
   const navRef = useRef<HTMLElement | null>(null);
   const isLight = useLightLayout;
+
+  useEffect(() => {
+    setDismissTopWinnerCard(false);
+  }, [topMonthlyWinner?.establishmentId]);
 
   const updateMenuScrollHint = () => {
     const navEl = navRef.current;
@@ -612,6 +624,406 @@ const Sidebar: React.FC<SidebarProps> = ({
 
     return variants[variant] || neutral;
   };
+
+  if (isMobile) {
+    const establishmentName = String(establishment?.name || 'Barbearia').trim() || 'Barbearia';
+    const establishmentCode = String(establishment?.code || '').trim();
+    const establishmentImage = String(establishment?.logo_url || establishment?.profile_image_url || '').trim();
+    const todayLabel = new Date().toLocaleDateString('pt-BR');
+
+    const executeMobileAction = (
+      itemId: string,
+      action: () => void,
+      options?: { respectPlanLock?: boolean }
+    ) => {
+      if (isItemLocked(itemId)) {
+        onBlockedItemClick?.();
+        return;
+      }
+      if (options?.respectPlanLock && isPlanLockedItem(itemId)) {
+        openUpgradeModalMobileSafe();
+        return;
+      }
+      action();
+      setIsExpanded(false);
+    };
+
+    const openFinancialDashboard = () => {
+      executeMobileAction('dashboard', () => {
+        if (establishment?.pin_password && establishment.pin_password.length > 0 && !isDashboardUnlocked) {
+          onDashboardPinModal?.();
+          return;
+        }
+        onTabChange('financial-dashboard');
+      });
+    };
+
+    const openSettings = () => {
+      executeMobileAction('config', () => {
+        if (establishment?.pin_password && establishment.pin_password.length > 0 && !isSettingsUnlocked) {
+          onSettingsPinModal?.();
+          return;
+        }
+        onTabChange('settings');
+      });
+    };
+
+    const primaryActions: Array<{
+      id: string;
+      label: string;
+      labelLines?: string[];
+      icon: LucideIcon;
+      onClick: () => void;
+      className: string;
+      badge?: number;
+    }> = [
+      {
+        id: 'appointments',
+        label: 'Meus Agendamentos',
+        labelLines: ['Meus', 'Agendamentos'],
+        icon: Calendar,
+        onClick: () => executeMobileAction('appointments', () => onTabChange('appointments')),
+        className: 'from-orange-500 to-amber-500',
+      },
+      {
+        id: 'client-page',
+        label: 'Pagina de Agendamentos',
+        icon: Link,
+        onClick: () => executeMobileAction('client-page', () => onTabChange('client-page')),
+        className: 'from-sky-500 to-blue-600',
+      },
+      {
+        id: 'subscribers',
+        label: 'Meus Assinantes',
+        icon: Crown,
+        onClick: () => executeMobileAction('subscribers', () => onTabChange('subscribers'), { respectPlanLock: true }),
+        className: 'from-fuchsia-500 to-violet-600',
+        badge: pendingSubscribersCount > 0 ? pendingSubscribersCount : undefined,
+      },
+      {
+        id: 'whatsapp-reminders',
+        label: 'Lembretes para Clientes',
+        icon: MessageCircle,
+        onClick: () => executeMobileAction('whatsapp-reminders', () => onTabChange('whatsapp-reminders')),
+        className: 'from-amber-400 to-yellow-500',
+      },
+      {
+        id: 'indication',
+        label: 'Quero 1 mes gratis',
+        icon: Gift,
+        onClick: () => executeMobileAction('indication', () => onTabChange('indication')),
+        className: 'from-emerald-500 to-green-600',
+      },
+      {
+        id: 'receber-adiantado',
+        label: 'Receber adiantado',
+        icon: CreditCard,
+        onClick: () => {
+          if (!onReceberAdiantadoClick) return;
+          onReceberAdiantadoClick();
+          setIsExpanded(false);
+        },
+        className: 'from-cyan-500 to-sky-600',
+      },
+      {
+        id: 'fila-espera',
+        label: 'Fila de Espera',
+        icon: ListOrdered,
+        onClick: () => executeMobileAction('fila-espera', () => onTabChange('fila-espera'), { respectPlanLock: true }),
+        className: 'from-pink-500 to-fuchsia-600',
+      },
+      {
+        id: 'placa-barbearia',
+        label: 'Placa Barbearia',
+        icon: CreditCard,
+        onClick: () => executeMobileAction('placa-barbearia', () => onTabChange('placa-barbearia')),
+        className: 'from-blue-500 to-indigo-600',
+      },
+    ];
+
+    const businessActions: Array<{ id: string; label: string; icon: LucideIcon; onClick: () => void; badge?: number }> = [
+      { id: 'reviews', label: 'Avaliações', icon: Bell, onClick: () => executeMobileAction('reviews', () => onTabChange('reviews')), badge: pendingReviewsCount > 0 ? pendingReviewsCount : undefined },
+      { id: 'clients', label: 'Meus Clientes', icon: Users, onClick: () => executeMobileAction('clients', () => onTabChange('clients')) },
+      { id: 'service-categories', label: 'Meus Serviços', icon: Layers, onClick: () => executeMobileAction('service-categories', () => onTabChange('service-categories')) },
+      { id: 'products', label: 'Meus Produtos', icon: Package, onClick: () => executeMobileAction('products', () => onTabChange('products'), { respectPlanLock: true }) },
+      { id: 'professionals', label: 'Profissionais', icon: UserCheck, onClick: () => executeMobileAction('professionals', () => onTabChange('professionals')) },
+      { id: 'dashboard', label: 'Financeiro', icon: BarChart3, onClick: openFinancialDashboard },
+      { id: 'expenses', label: 'Despesas', icon: DollarSign, onClick: () => executeMobileAction('expenses', () => onTabChange('expenses')) },
+      { id: 'taxes', label: 'Minhas Taxas', icon: Receipt, onClick: () => executeMobileAction('taxes', () => onTabChange('taxes')) },
+      { id: 'support', label: 'Falar com Suporte', icon: MessageSquare, onClick: () => executeMobileAction('support', () => onTabChange('support')) },
+      { id: 'config', label: 'Config', icon: Settings, onClick: openSettings },
+    ];
+
+    if (!isExpanded) {
+      return (
+        <div className="fixed inset-x-0 top-0 z-40 pointer-events-none">
+          <div className="p-3 flex items-center justify-between">
+            <div className="pointer-events-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsExpanded(true)}
+                className="h-11 w-11 rounded-xl border border-white/20 bg-black/70 text-white flex items-center justify-center"
+                title="Abrir menu"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsExpanded(true)}
+                className="h-11 px-3 rounded-xl border border-white/20 bg-black/70 text-white text-xs font-semibold tracking-wide flex items-center gap-2"
+                title="Abrir menu"
+              >
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Abrir menu
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={onNotificationsClick}
+              className="pointer-events-auto h-11 w-11 rounded-xl border border-white/20 bg-black/70 text-white flex items-center justify-center relative"
+              title="Notificacoes"
+            >
+              <Bell className="h-5 w-5" />
+              {unreadNotifications > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                  {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        {showPlanUpgradeModal && (
+          <div
+            className="fixed inset-0 z-[130] flex items-start sm:items-center justify-center bg-black/70 p-3 sm:p-4 pt-6 sm:pt-4"
+            onClick={closeUpgradeModal}
+          >
+            <div
+              className={`w-full max-w-md rounded-2xl shadow-2xl border ${isLight ? 'bg-white border-gray-200' : 'bg-[#0B0B0B] border-gray-800'} max-h-[85vh] overflow-y-auto overscroll-contain`}
+              style={{ WebkitOverflowScrolling: 'touch' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className={`flex items-center justify-between px-4 py-3 border-b ${isLight ? 'border-gray-200' : 'border-gray-800'}`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">✨</span>
+                  <div className={`text-sm font-extrabold ${isLight ? 'text-gray-900' : 'text-white'}`}>
+                    Recurso exclusivo
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeUpgradeModal}
+                  className={`p-2 rounded-lg ${isLight ? 'hover:bg-gray-100' : 'hover:bg-white/5'}`}
+                  aria-label="Fechar"
+                  title="Fechar"
+                >
+                  <span className={isLight ? 'text-gray-700' : 'text-gray-200'}>✕</span>
+                </button>
+              </div>
+              <div className="px-4 py-4 space-y-3">
+                <div className={`${isLight ? 'text-gray-900' : 'text-white'} font-semibold`}>
+                  ✨ Recurso exclusivo dos planos Ouro e Diamante
+                </div>
+                <div className={`${isLight ? 'text-gray-700' : 'text-gray-300'} text-sm leading-relaxed`}>
+                  Deseja fazer upgrade do seu plano?
+                </div>
+                <button
+                  type="button"
+                  onClick={redirectUpgradeToWhatsapp}
+                  className="w-full mt-2 px-4 py-3 rounded-xl font-extrabold text-black bg-gradient-to-r from-amber-300 to-yellow-400"
+                >
+                  🔼 Mudar para Plano Ouro
+                </button>
+                <button
+                  type="button"
+                  onClick={redirectUpgradeToDiamanteWhatsapp}
+                  className="w-full mt-2 px-4 py-3 rounded-xl font-extrabold text-white bg-gradient-to-r from-fuchsia-600 to-purple-700"
+                >
+                  💎 Ser Diamante
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="fixed inset-0 z-40 bg-[#05070d] text-white overflow-y-auto">
+          <div className="px-3 pb-24">
+            <div className="pt-3 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setIsExpanded(false)}
+                className="h-10 w-10 rounded-xl border border-white/15 bg-white/5 flex items-center justify-center"
+                title="Fechar menu"
+              >
+                <Menu className="h-4.5 w-4.5" />
+              </button>
+              <div className="text-center leading-tight">
+                <div className="text-xl">👑</div>
+                <div
+                  className="text-[28px] text-white leading-none"
+                  style={{
+                    fontFamily: '"Segoe Script", "Lucida Handwriting", "Brush Script MT", cursive',
+                    fontWeight: 700,
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  Agendei Fácil
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onNotificationsClick}
+                className="h-10 w-10 rounded-xl border border-white/15 bg-white/5 flex items-center justify-center relative"
+                title="Notificacoes"
+              >
+                <Bell className="h-4.5 w-4.5" />
+                {unreadNotifications > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            <div className="mt-3 rounded-2xl border border-white/10 bg-gradient-to-r from-[#111827] to-[#0f172a] p-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-12 w-12 rounded-full border border-amber-400/60 overflow-hidden bg-black flex items-center justify-center">
+                  {establishmentImage ? (
+                    <img src={establishmentImage} alt={establishmentName} className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="text-xl">🏪</span>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[15px] font-extrabold leading-[1.15] break-words">
+                    Olá, {establishmentName}!
+                  </p>
+                  <p className="text-white/80 text-sm font-semibold break-words">
+                    {establishmentCode ? `Código: ${establishmentCode}` : 'Bem-vindo ao sistema'}
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-black/30 px-2.5 py-2 text-right shrink-0">
+                <p className="text-xs text-white/70">Hoje é</p>
+                <p className="text-[14px] font-extrabold">{todayLabel}</p>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <p className="text-lg font-extrabold tracking-wide text-white/90">AÇÕES PRINCIPAIS</p>
+              <div className="mt-2 grid grid-cols-4 gap-2">
+                {primaryActions.map((action) => (
+                  <button
+                    key={action.id}
+                    type="button"
+                    onClick={action.onClick}
+                    className={`relative rounded-2xl bg-gradient-to-br ${action.className} px-2 py-2 text-center min-h-[76px] shadow-lg`}
+                  >
+                    {action.badge != null && action.badge > 0 && (
+                      <span className="absolute right-2 top-2 min-w-[22px] h-[22px] px-1 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">
+                        {action.badge > 99 ? '99+' : action.badge}
+                      </span>
+                    )}
+                    <action.icon className="h-4 w-4 text-white/95 mb-2 mx-auto" />
+                    <p className="text-[10px] font-extrabold leading-[1.05] whitespace-normal break-normal">
+                      {Array.isArray(action.labelLines) && action.labelLines.length > 0
+                        ? action.labelLines.map((line, lineIdx) => (
+                            <span key={`${action.id}-line-${lineIdx}`} className="block">
+                              {line}
+                            </span>
+                          ))
+                        : action.label}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-white/10 bg-[#0b1220] p-3">
+              <p className="text-lg font-extrabold tracking-wide text-white/90">GESTÃO DO NEGÓCIO</p>
+              <div className="mt-3 grid grid-cols-5 gap-2">
+                {businessActions.map((action) => (
+                  <button
+                    key={action.id}
+                    type="button"
+                    onClick={action.onClick}
+                    className="relative rounded-xl border border-white/10 bg-white/5 px-1.5 py-2 text-center hover:bg-white/10 transition-colors"
+                  >
+                    {action.badge != null && action.badge > 0 && (
+                      <span className="absolute -right-1 -top-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                        {action.badge > 99 ? '99+' : action.badge}
+                      </span>
+                    )}
+                    <action.icon className="h-3.5 w-3.5 mx-auto mb-1 text-white/90" />
+                    <p className="text-[8px] font-semibold leading-[1.05] whitespace-normal break-normal">{action.label}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {topMonthlyWinner && !dismissTopWinnerCard ? (
+              <button
+                type="button"
+                onClick={() => executeMobileAction('top10-clientes', () => onTabChange('top10-clientes'))}
+                className="mt-4 w-full text-left"
+              >
+                <TopMonthlyWinnerCard
+                  winner={topMonthlyWinner}
+                  className="!p-3"
+                  onDismiss={() => setDismissTopWinnerCard(true)}
+                />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => executeMobileAction('top10-clientes', () => onTabChange('top10-clientes'))}
+                className="mt-4 w-full rounded-2xl border border-amber-300/30 bg-gradient-to-r from-[#1f2937] via-[#374151] to-[#111827] px-3 py-3 text-left"
+              >
+                <p className="text-amber-300 text-xs font-bold">🏆 TOP 1 BARBEIRO</p>
+                <p className="text-white text-sm font-extrabold mt-1">Ver destaque do mês e ranking</p>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="mt-4 w-full rounded-2xl border border-red-500/40 bg-red-600/10 px-4 py-4 text-center text-red-300 font-extrabold"
+            >
+              Sair do Sistema
+            </button>
+          </div>
+
+          <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#05070d]/95 backdrop-blur px-3 py-2">
+            <div className="grid grid-cols-5 gap-2">
+              <button type="button" onClick={() => executeMobileAction('appointments', () => onTabChange('appointments'))} className="text-center text-xs py-2 rounded-lg hover:bg-white/10">
+                <Home className="h-4 w-4 mx-auto mb-1" />
+                Início
+              </button>
+              <button type="button" onClick={() => executeMobileAction('appointments', () => onTabChange('appointments'))} className="text-center text-xs py-2 rounded-lg hover:bg-white/10">
+                <Calendar className="h-4 w-4 mx-auto mb-1" />
+                Agenda
+              </button>
+              <button type="button" onClick={() => executeMobileAction('clients', () => onTabChange('clients'))} className="text-center text-xs py-2 rounded-lg hover:bg-white/10">
+                <Users className="h-4 w-4 mx-auto mb-1" />
+                Clientes
+              </button>
+              <button type="button" onClick={openFinancialDashboard} className="text-center text-xs py-2 rounded-lg hover:bg-white/10">
+                <DollarSign className="h-4 w-4 mx-auto mb-1" />
+                Financeiro
+              </button>
+              <button type="button" onClick={openSettings} className="text-center text-xs py-2 rounded-lg hover:bg-white/10">
+                <MoreHorizontal className="h-4 w-4 mx-auto mb-1" />
+                Mais
+              </button>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
