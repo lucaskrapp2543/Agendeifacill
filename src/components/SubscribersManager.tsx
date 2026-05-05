@@ -3941,7 +3941,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         {/* Vídeo (topo da página de assinantes) */}
         <div className="mb-4 sm:mb-6">
           <div className="rounded-xl overflow-hidden border border-gray-700 bg-black">
-            <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+            <div className="relative w-full max-w-[380px] sm:max-w-none mx-auto h-0 pb-[177.78%] sm:pb-[56.25%]">
               <iframe
                 className="absolute inset-0 w-full h-full"
                 src="https://www.youtube.com/embed/JZD4R2f0mLM"
@@ -3953,8 +3953,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               />
             </div>
           </div>
-          <div className="sm:hidden mt-2 text-center text-xs text-gray-300">
-            Para ver melhor no celular, abra em tela grande no YouTube.{' '}
+          <div className="mt-2 text-center text-xs text-gray-300">
+            Se preferir, abra no YouTube.{' '}
             <a
               href="https://www.youtube.com/watch?v=JZD4R2f0mLM"
               target="_blank"
@@ -4962,7 +4962,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         {/* Vídeo (Tipos de Assinatura Criados) */}
         <div className="mb-4 sm:mb-6">
           <div className="rounded-xl overflow-hidden border border-gray-700 bg-black">
-            <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+            <div className="relative w-full max-w-[380px] sm:max-w-none mx-auto h-0 pb-[177.78%] sm:pb-[56.25%]">
               <iframe
                 className="absolute inset-0 w-full h-full"
                 src="https://www.youtube.com/embed/JZD4R2f0mLM"
@@ -4974,8 +4974,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               />
             </div>
           </div>
-          <div className="sm:hidden mt-2 text-center text-xs text-gray-300">
-            Para ver melhor no celular, abra em tela grande no YouTube.{' '}
+          <div className="mt-2 text-center text-xs text-gray-300">
+            Se preferir, abra no YouTube.{' '}
             <a
               href="https://www.youtube.com/watch?v=JZD4R2f0mLM"
               target="_blank"

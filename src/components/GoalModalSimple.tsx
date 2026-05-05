@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Target, X } from 'lucide-react';
 
 interface Service {
@@ -77,11 +77,14 @@ export function GoalModalSimple({
 }: GoalModalSimpleProps) {
   const [goalAmount, setGoalAmount] = useState<string>(String(currentGoal || ''));
   const [bonusPercentage, setBonusPercentage] = useState<string>(
-    Number.isFinite(Number(currentBonusPercentage)) ? String(Number(currentBonusPercentage || 0)) : ''
+    Number.isFinite(Number(currentBonusPercentage)) && Number(currentBonusPercentage) > 0
+      ? String(Number(currentBonusPercentage))
+      : ''
   );
   const [selectedServices, setSelectedServices] = useState<string[]>(currentSelectedServices);
   const [serviceTargets, setServiceTargets] = useState<Record<string, number>>(currentServiceTargets || {});
   const [showServiceSelection, setShowServiceSelection] = useState(false);
+  const lastSyncedContextRef = useRef<string>('');
 
   const serviceOptions = useMemo(() => {
     const options: Array<{ key: string; label: string; meta: string }> = [];
@@ -117,14 +120,32 @@ export function GoalModalSimple({
   }, [services, serviceSubcategories, serviceCategories]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      lastSyncedContextRef.current = '';
+      return;
+    }
+
+    const syncContextKey = `${professionalName}::${currentMonth.getFullYear()}-${currentMonth.getMonth() + 1}`;
+    if (lastSyncedContextRef.current === syncContextKey) return;
+
     setGoalAmount(String(currentGoal || ''));
     setBonusPercentage(
-      Number.isFinite(Number(currentBonusPercentage)) ? String(Number(currentBonusPercentage || 0)) : ''
+      Number.isFinite(Number(currentBonusPercentage)) && Number(currentBonusPercentage) > 0
+        ? String(Number(currentBonusPercentage))
+        : ''
     );
     setSelectedServices(Array.isArray(currentSelectedServices) ? currentSelectedServices : []);
     setServiceTargets(currentServiceTargets || {});
-  }, [isOpen, currentGoal, currentSelectedServices, currentServiceTargets, currentBonusPercentage]);
+    lastSyncedContextRef.current = syncContextKey;
+  }, [
+    isOpen,
+    professionalName,
+    currentMonth,
+    currentGoal,
+    currentSelectedServices,
+    currentServiceTargets,
+    currentBonusPercentage,
+  ]);
 
   const handleToggleService = (serviceKey: string) => {
     setSelectedServices((prev) => {
@@ -171,18 +192,15 @@ export function GoalModalSimple({
       alert('Defina a meta global (soma das quantidades ou valor manual maior que 0).');
       return;
     }
-    if (selectedServices.length === 0) {
-      alert('Selecione pelo menos 1 serviço para a meta.');
-      return;
-    }
     const invalidTarget = selectedServices.some((serviceKey) => Number(serviceTargets[serviceKey] || 0) < 1);
     if (invalidTarget) {
       alert('Cada serviço selecionado precisa ter quantidade alvo de pelo menos 1.');
       return;
     }
-    const parsedBonus = Number(String(bonusPercentage || '').replace(',', '.'));
-    if (!Number.isFinite(parsedBonus) || parsedBonus <= 0) {
-      alert('Informe a % da meta (ex.: 45).');
+    const bonusInput = String(bonusPercentage || '').trim();
+    const parsedBonus = bonusInput.length === 0 ? 0 : Number(bonusInput.replace(',', '.'));
+    if (!Number.isFinite(parsedBonus) || parsedBonus < 0) {
+      alert('A % de ganho deve ser um número válido (ex.: 45).');
       return;
     }
     if (parsedBonus > 100) {
@@ -268,17 +286,17 @@ export function GoalModalSimple({
               <label className="block text-sm font-medium text-gray-700 mb-1">% de ganho ao bater meta</label>
               <input
                 type="number"
-                min="1"
+                min="0"
                 max="100"
                 step="0.01"
                 value={bonusPercentage}
                 onChange={(e) => setBonusPercentage(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded text-gray-900 bg-white"
-                placeholder="Ex: 45"
+                placeholder="Opcional (ex: 45)"
                 disabled={isLoading}
               />
               <p className="text-xs text-gray-500 mt-1">
-                Essa % vale só para os serviços da meta quando a meta global for atingida.
+                Campo opcional. Se deixar vazio, será 0%.
               </p>
             </div>
           </div>
@@ -296,7 +314,7 @@ export function GoalModalSimple({
               </button>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Selecione até 10 serviços e defina a quantidade alvo de cada um.
+              Se não selecionar serviços, a meta vale para todos os serviços atendidos.
             </p>
 
             {selectedServices.length > 0 && (

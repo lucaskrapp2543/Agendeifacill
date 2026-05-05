@@ -36440,10 +36440,10 @@ Estamos te aguardando!`;
                     </button>
                   </div>
 
-                  <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
+                  <div className="relative w-full max-w-[380px] sm:max-w-none mx-auto h-0 pb-[177.78%] sm:pb-[56.25%] rounded-lg overflow-hidden">
                     <iframe
                       className="absolute top-0 left-0 w-full h-full"
-                      src="https://www.youtube.com/embed/vNFGtcEmJ0I"
+                      src="https://www.youtube.com/embed/zE7x3HCXIXQ"
                       title="Tutorial: Como Gerenciar Produtos"
                       frameBorder="0"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -36453,7 +36453,7 @@ Estamos te aguardando!`;
 
                   <div className="mt-3 text-center">
                     <a
-                      href="https://youtu.be/vNFGtcEmJ0I"
+                      href="https://youtu.be/zE7x3HCXIXQ"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-800 text-sm font-medium transition-colors"
@@ -39855,10 +39855,10 @@ Estamos te aguardando!`;
                 Aqui você pode adicionar, editar e acompanhar seus produtos, veja o vídeo tutorial para aprender como funciona/usar.
               </p>
 
-              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
+              <div className="relative w-full max-w-[380px] sm:max-w-none mx-auto h-0 pb-[177.78%] sm:pb-[56.25%] rounded-lg overflow-hidden mb-4">
                 <iframe
                   className="absolute top-0 left-0 w-full h-full"
-                  src="https://www.youtube.com/embed/vNFGtcEmJ0I"
+                  src="https://www.youtube.com/embed/zE7x3HCXIXQ"
                   title="Tutorial: Como Gerenciar Produtos"
                   frameBorder="0"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
