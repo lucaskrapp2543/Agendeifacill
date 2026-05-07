@@ -357,6 +357,7 @@ interface Appointment {
   is_avulso?: boolean;
   is_waitlist?: boolean | null;
   waitlist_entry_id?: string | null;
+  manual_status_override?: boolean | null;
   sold_products?: {
     id: string;
     product_id: string;
@@ -1637,7 +1638,21 @@ const EstablishmentDashboard = () => {
     const n = Number(cleaned);
     return Number.isFinite(n) ? n : 0;
   };
-
+  const isMissingManualStatusOverrideError = (errorLike: any): boolean => {
+    const code = String(errorLike?.code || '').toUpperCase();
+    const message = String(errorLike?.message || '').toLowerCase();
+    const details = String(errorLike?.details || '').toLowerCase();
+    const hint = String(errorLike?.hint || '').toLowerCase();
+    const text = `${message} ${details} ${hint}`;
+    const mentionsColumn = text.includes('manual_status_override');
+    const looksMissingColumn =
+      code === '42703' ||
+      code === 'PGRST204' ||
+      text.includes('could not find') ||
+      text.includes('does not exist') ||
+      text.includes('column');
+    return mentionsColumn && looksMissingColumn;
+  };
   const getPercentualProfissionalFila = useCallback(
     (professionalIdOrName: string): number => {
       const profs = ((establishment as any)?.professionals || []) as any[];
@@ -2091,11 +2106,14 @@ const EstablishmentDashboard = () => {
         if (entry?.appointment_id) {
           try {
             // Atualizar status e (opcional) valor final do atendimento
-            const updatePayload: any = { status: 'completed' };
+            const updatePayload: any = { status: 'completed', manual_status_override: false };
             if (Number.isFinite(valorBrutoFinal as any)) {
               updatePayload.price = Math.max(0, Number(valorBrutoFinal));
             }
-            await supabase.from('appointments').update(updatePayload).eq('id', entry.appointment_id);
+            let result = await supabase.from('appointments').update(updatePayload).eq('id', entry.appointment_id);
+            if (result.error && isMissingManualStatusOverrideError(result.error)) {
+              result = await supabase.from('appointments').update({ status: 'completed' }).eq('id', entry.appointment_id);
+            }
           } catch {
             // ignore
           }
@@ -10360,10 +10378,25 @@ Estamos te aguardando!`;
 
   const handleUpdateAppointmentStatus = async (appointmentId: string, newStatus: 'pending' | 'confirmed' | 'cancelled' | 'completed') => {
     try {
-      const { error } = await supabase
+      const payload: any = { status: newStatus };
+      if (newStatus === 'pending' || newStatus === 'confirmed') {
+        payload.manual_status_override = true;
+      } else if (newStatus === 'completed' || newStatus === 'cancelled') {
+        payload.manual_status_override = false;
+      }
+
+      let { error } = await supabase
         .from('appointments')
-        .update({ status: newStatus })
+        .update(payload)
         .eq('id', appointmentId);
+
+      if (error && isMissingManualStatusOverrideError(error)) {
+        const fallback = await supabase
+          .from('appointments')
+          .update({ status: newStatus })
+          .eq('id', appointmentId);
+        error = fallback.error;
+      }
 
       if (error) {
         throw error;
@@ -10516,6 +10549,9 @@ Estamos te aguardando!`;
   };
 
   const shouldAutoCompleteAppointment = (apt: Appointment, nowMs: number): boolean => {
+    if ((apt as any)?.manual_status_override === true) {
+      return false;
+    }
     const status = String((apt as any)?.status || '').trim().toLowerCase();
     if (status !== 'pending' && status !== 'confirmed') return false;
 
@@ -10553,12 +10589,24 @@ Estamos te aguardando!`;
       return { appointments: rows, updatedCount: 0 };
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('appointments')
-      .update({ status: 'completed' } as any)
+      .update({ status: 'completed', manual_status_override: false } as any)
       .in('id', idsToComplete)
       .in('status', ['pending', 'confirmed'])
+      .eq('manual_status_override', false)
       .select('id');
+
+    if (error && isMissingManualStatusOverrideError(error)) {
+      const fallback = await supabase
+        .from('appointments')
+        .update({ status: 'completed' } as any)
+        .in('id', idsToComplete)
+        .in('status', ['pending', 'confirmed'])
+        .select('id');
+      data = fallback.data as any;
+      error = fallback.error as any;
+    }
 
     if (error) {
       console.error('Erro ao auto-concluir agendamentos encerrados:', error);
@@ -10753,6 +10801,7 @@ Estamos te aguardando!`;
         'waitlist_entry_id',
         'professional_tip_amount',
         'is_loyalty_reward',
+        'manual_status_override',
       ];
       const buildAppointmentSelect = (missingColumns: Set<string>) =>
         appointmentSelectColumns.filter((col) => !missingColumns.has(col)).join(', ');
@@ -13867,9 +13916,8 @@ Estamos te aguardando!`;
       }
       const { data, error } = await supabase
         .from('establishment_client_loyalty')
-        .select('client_whatsapp,cycle_goal,cycle_progress,created_at,updated_at')
-        .eq('establishment_id', establishment.id)
-        .in('client_whatsapp', variants);
+        .select('id,client_whatsapp,cycle_goal,cycle_progress,created_at,updated_at')
+        .eq('establishment_id', establishment.id);
       if (error) {
         const msg = String((error as any)?.message || '').toLowerCase();
         if (msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('relation')) {
@@ -13879,8 +13927,9 @@ Estamos te aguardando!`;
         }
         throw error;
       }
-      const rows = (data || []) as Array<
+      const rawRows = (data || []) as Array<
         {
+          id?: string;
           client_whatsapp?: string | null;
           cycle_goal: number | null;
           cycle_progress: number;
@@ -13888,6 +13937,13 @@ Estamos te aguardando!`;
           updated_at?: string | null;
         }
       >;
+      const variantSet = new Set(variants);
+      const rows = rawRows.filter((row) => {
+        const rowKeys = Array.from(
+          new Set(getWhatsappLookupKeys(String(row?.client_whatsapp || '')).map((k) => normalizeWhatsappForStorage(k)).filter(Boolean))
+        );
+        return rowKeys.some((k) => variantSet.has(k));
+      });
       const row = rows
         .slice()
         .sort((a, b) => {
@@ -13988,7 +14044,7 @@ Estamos te aguardando!`;
     if (!establishment?.id) return;
     const { data, error } = await supabase
       .from('establishment_client_loyalty')
-      .select('client_whatsapp,cycle_goal,cycle_progress')
+      .select('client_whatsapp,cycle_goal,cycle_progress,created_at,updated_at')
       .eq('establishment_id', establishment.id);
     if (error) {
       const msg = String((error as any)?.message || '').toLowerCase();
@@ -13999,13 +14055,27 @@ Estamos te aguardando!`;
       throw error;
     }
     const next: Record<string, { cycle_goal: number | null; cycle_progress: number }> = {};
+    const updatedByKey: Record<string, number> = {};
     (data || []).forEach((row: any) => {
-      const w = String(row.client_whatsapp || '');
-      if (!w) return;
-      next[w] = {
+      const rowWhatsapp = String(row?.client_whatsapp || '');
+      if (!rowWhatsapp) return;
+      const rowKeys = Array.from(
+        new Set(getWhatsappLookupKeys(rowWhatsapp).map((k) => normalizeWhatsappForStorage(k)).filter(Boolean))
+      );
+      if (rowKeys.length === 0) return;
+      const rowUpdatedAt = new Date(String(row?.updated_at || row?.created_at || '')).getTime();
+      const safeUpdatedAt = Number.isFinite(rowUpdatedAt) ? rowUpdatedAt : 0;
+      const payload = {
         cycle_goal: row.cycle_goal == null ? null : Number(row.cycle_goal),
         cycle_progress: Number(row.cycle_progress ?? 0),
       };
+      rowKeys.forEach((key) => {
+        if (!key) return;
+        if (updatedByKey[key] === undefined || safeUpdatedAt >= updatedByKey[key]) {
+          updatedByKey[key] = safeUpdatedAt;
+          next[key] = payload;
+        }
+      });
     });
     setLoyaltyBulkByKey(next);
   }, [establishment?.id]);
@@ -14115,8 +14185,8 @@ Estamos te aguardando!`;
   const handleLoyaltyBulkApplyAll = async () => {
     const raw = loyaltyBulkApplyAllInput.trim();
     const parsed = raw === '' ? NaN : parseInt(raw, 10);
-    if (!Number.isFinite(parsed) || parsed < 2) {
-      toast('Informe a meta de atendimentos (número inteiro maior ou igual a 2).', 'error');
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      toast('Informe a meta de atendimentos (número inteiro maior ou igual a 0).', 'error');
       return;
     }
     const targets = clients.filter((c) => !c.isSubscriber && normalizeWhatsappForStorage(c.whatsapp));
@@ -14127,6 +14197,7 @@ Estamos te aguardando!`;
     setLoyaltyBulkSavingAll(true);
     try {
       let okCount = 0;
+      let failCount = 0;
       const goal = Math.floor(parsed);
       const nowIso = new Date().toISOString();
       for (const c of targets) {
@@ -14135,27 +14206,70 @@ Estamos te aguardando!`;
         const variants = Array.from(
           new Set(getWhatsappLookupKeys(key).map((k) => normalizeWhatsappForStorage(k)).filter(Boolean))
         );
-        const rows = (variants.length > 0 ? variants : [key]).map((variant) => ({
-          establishment_id: establishment.id,
-          client_whatsapp: variant,
-          cycle_goal: goal,
-          cycle_progress: 0,
-          created_at: nowIso,
-          updated_at: nowIso,
-        })) as any[];
-        const { error } = await supabase.from('establishment_client_loyalty').upsert(rows as any, {
-          onConflict: 'establishment_id,client_whatsapp',
-        });
+        const targetVariants = variants.length > 0 ? variants : [key];
+        let error: any = null;
+        if (goal === 0) {
+          // Desativação em massa: manter linha com goal NULL para o modal e a lista
+          // refletirem imediatamente o estado "sem fidelidade".
+          const rows = targetVariants.map((variant) => ({
+            establishment_id: establishment.id,
+            client_whatsapp: variant,
+            cycle_goal: null,
+            cycle_progress: 0,
+            created_at: nowIso,
+            updated_at: nowIso,
+          })) as any[];
+          const result = await supabase.from('establishment_client_loyalty').upsert(rows as any, {
+            onConflict: 'establishment_id,client_whatsapp',
+          });
+          error = result.error;
+        } else {
+          const rows = targetVariants.map((variant) => ({
+            establishment_id: establishment.id,
+            client_whatsapp: variant,
+            cycle_goal: goal,
+            cycle_progress: 0,
+            created_at: nowIso,
+            updated_at: nowIso,
+          })) as any[];
+          const result = await supabase.from('establishment_client_loyalty').upsert(rows as any, {
+            onConflict: 'establishment_id,client_whatsapp',
+          });
+          error = result.error;
+        }
         if (!error) {
           okCount += 1;
-          setLoyaltyBulkByKey((prev) => ({
-            ...prev,
-            [key]: { cycle_goal: goal, cycle_progress: 0 },
-          }));
+          if (goal === 0) {
+            setLoyaltyBulkByKey((prev) => ({
+              ...prev,
+              [key]: { cycle_goal: null, cycle_progress: 0 },
+            }));
+          } else {
+            setLoyaltyBulkByKey((prev) => ({
+              ...prev,
+              [key]: { cycle_goal: goal, cycle_progress: 0 },
+            }));
+          }
+        } else {
+          failCount += 1;
         }
       }
       setLoyaltyBulkDraft({});
-      toast(`Meta de fidelidade aplicada (ciclo zerado) em ${okCount} cliente(s).`, 'success');
+      if (goal === 0) {
+        toast(
+          failCount > 0
+            ? `Programa de fidelidade desativado para ${okCount} cliente(s). Falha em ${failCount}.`
+            : `Programa de fidelidade desativado para ${okCount} cliente(s).`,
+          failCount > 0 ? 'error' : 'success'
+        );
+      } else {
+        toast(
+          failCount > 0
+            ? `Meta aplicada em ${okCount} cliente(s). Falha em ${failCount}.`
+            : `Meta de fidelidade aplicada (ciclo zerado) em ${okCount} cliente(s).`,
+          failCount > 0 ? 'error' : 'success'
+        );
+      }
     } finally {
       setLoyaltyBulkSavingAll(false);
     }
@@ -14321,11 +14435,19 @@ Estamos te aguardando!`;
     setPastAppointmentsActionById((prev) => ({ ...prev, [id]: action }));
     try {
       if (action === 'completed') {
-        const { error } = await supabase
+        let { error } = await supabase
           .from('appointments')
-          .update({ status: 'completed' })
+          .update({ status: 'completed', manual_status_override: false })
           .eq('id', id)
           .eq('establishment_id', establishment.id);
+        if (error && isMissingManualStatusOverrideError(error)) {
+          const fallback = await supabase
+            .from('appointments')
+            .update({ status: 'completed' })
+            .eq('id', id)
+            .eq('establishment_id', establishment.id);
+          error = fallback.error as any;
+        }
         if (error) throw error;
       } else {
         const { error } = await updateAppointmentCancelledWithSource(
@@ -35522,11 +35644,11 @@ Estamos te aguardando!`;
                   <div className="flex flex-wrap items-center gap-2">
                     <input
                       type="number"
-                      min={2}
+                      min={0}
                       step={1}
                       value={loyaltyBulkApplyAllInput}
                       onChange={(e) => setLoyaltyBulkApplyAllInput(e.target.value)}
-                      placeholder="Ex.: 18"
+                      placeholder="Ex.: 00"
                       className="w-28 px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
                     />
                     <button
@@ -35539,6 +35661,7 @@ Estamos te aguardando!`;
                     </button>
                   </div>
                   <span className="text-[11px] text-gray-600">Define a meta de atendimentos e zera o ciclo para todos os clientes não assinantes com WhatsApp válido.</span>
+                  <span className="text-[11px] text-amber-700">Se informar <strong>00</strong> e salvar, o programa de pontos de fidelidade fica desativado para todos os clientes.</span>
                 </div>
               </div>
 

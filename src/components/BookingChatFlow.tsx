@@ -84,6 +84,13 @@ const formatPhoneChat = (raw: string) => {
   if (digits.length <= 3) return `${digits.slice(0, 2)} ${digits.slice(2)}`;
   return `${digits.slice(0, 2)} ${digits.slice(2, 3)} ${digits.slice(3)}`;
 };
+const normalizeWhatsappForStorage = (raw: string): string => {
+  let digits = onlyDigits(raw);
+  if (digits.startsWith('55') && digits.length > 11) {
+    digits = digits.slice(2);
+  }
+  return digits;
+};
 const formatCpfChat = (raw: string) => {
   const digits = onlyDigits(raw).slice(0, 11);
   if (digits.length <= 3) return digits;
@@ -1236,7 +1243,7 @@ export function BookingChatFlow({
       const combinedAdditionalProducts = [...bookingProductsPayload, ...subscriberExtraPayload];
       const payload = {
         client_name: chatClientName,
-        client_whatsapp: chatClientPhone,
+        client_whatsapp: normalizeWhatsappForStorage(chatClientPhone),
         service: computedSelection.serviceName,
         professional: selectedProfessionalId,
         appointment_date: format(selectedDate, 'yyyy-MM-dd'),

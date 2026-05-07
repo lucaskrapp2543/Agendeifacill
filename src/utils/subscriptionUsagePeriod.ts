@@ -70,7 +70,7 @@ export function buildCarryoverMonthlyLimit(
   baseLimitRaw: unknown,
   currentMonthUsageRaw: unknown,
   previousMonthUsageRaw: unknown,
-  includePreviousCarryover: boolean = true
+  includePreviousCarryover: boolean = false
 ): {
   baseLimit: number | null;
   currentMonthUsage: number;

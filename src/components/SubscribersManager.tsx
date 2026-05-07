@@ -1465,7 +1465,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           sub?.monthly_limit,
           currentUsage,
           previousUsage,
-          previousRange !== null
+          false
         );
 
         counts[id] = allowance.currentMonthUsage;

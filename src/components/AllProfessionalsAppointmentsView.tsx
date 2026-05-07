@@ -87,6 +87,7 @@ interface Appointment {
   is_establishment_booking?: boolean;
   /** Gorjeta 100% para o profissional (fora da % do serviço) */
   professional_tip_amount?: number | null;
+  manual_status_override?: boolean | null;
 }
 
 interface ServiceSubcategoryLabel {
@@ -2686,6 +2687,21 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     const handleUpdateAppointmentStatus = async (appointmentId: string, newStatus: 'pending' | 'confirmed' | 'cancelled' | 'completed') => {
       try {
+        const isMissingManualStatusOverrideError = (errorLike: any): boolean => {
+          const code = String(errorLike?.code || '').toUpperCase();
+          const message = String(errorLike?.message || '').toLowerCase();
+          const details = String(errorLike?.details || '').toLowerCase();
+          const hint = String(errorLike?.hint || '').toLowerCase();
+          const text = `${message} ${details} ${hint}`;
+          const mentionsColumn = text.includes('manual_status_override');
+          const looksMissingColumn =
+            code === '42703' ||
+            code === 'PGRST204' ||
+            text.includes('could not find') ||
+            text.includes('does not exist') ||
+            text.includes('column');
+          return mentionsColumn && looksMissingColumn;
+        };
         const appointment = (appointments || []).find((apt) => String(apt.id) === String(appointmentId));
         const previousStatus = String(appointment?.status || '').trim().toLowerCase();
         const todayDateKey = format(new Date(), 'yyyy-MM-dd');
@@ -2700,15 +2716,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
           newStatus === 'cancelled'
             ? ({
               status: 'cancelled',
+              manual_status_override: false,
               cancellation_source: CANCELLATION_SOURCE.ESTABLISHMENT_STAFF,
               cancellation_detail: 'Cancelado pelo painel de agenda (ações rápidas).',
             } as Record<string, unknown>)
-            : { status: newStatus };
+            : ({
+              status: newStatus,
+              ...(newStatus === 'pending' || newStatus === 'confirmed'
+                ? { manual_status_override: true }
+                : { manual_status_override: false }),
+            } as Record<string, unknown>);
 
         let { error } = await supabase.from('appointments').update(cancelPayload as any).eq('id', appointmentId);
 
-        if (error && newStatus === 'cancelled' && String((error as any).code || '') === '42703') {
+        if (error && newStatus === 'cancelled' && isMissingManualStatusOverrideError(error)) {
           const fb = await supabase.from('appointments').update({ status: 'cancelled' }).eq('id', appointmentId);
+          error = fb.error;
+        }
+        if (error && isMissingManualStatusOverrideError(error)) {
+          const fb = await supabase.from('appointments').update({ status: newStatus }).eq('id', appointmentId);
           error = fb.error;
         }
 
