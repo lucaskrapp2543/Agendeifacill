@@ -1759,6 +1759,49 @@ export default function BookingPage() {
       // Lógica para agendamentos reais
       const isEstablishmentOwner = currentUser?.id === establishment.owner_id;
       const isSubscriberAppointment = appointmentData?.is_subscriber === true;
+      const parseDurationMinutesSafe = (rawDuration: any, fallback = 30): number => {
+        if (typeof rawDuration === 'number' && Number.isFinite(rawDuration) && rawDuration > 0) {
+          return Math.round(rawDuration);
+        }
+        const raw = String(rawDuration || '').trim().toLowerCase();
+        if (!raw) return fallback;
+        const hhmmMatch = raw.match(/^(\d{1,2}):(\d{2})$/);
+        if (hhmmMatch) {
+          const h = Number(hhmmMatch[1]);
+          const m = Number(hhmmMatch[2]);
+          const total = h * 60 + m;
+          return Number.isFinite(total) && total > 0 ? total : fallback;
+        }
+        const numeric = Number(raw);
+        if (Number.isFinite(numeric) && numeric > 0) return Math.round(numeric);
+        const match = raw.match(/(\d+)/);
+        if (match) {
+          const parsed = Number(match[1]);
+          if (Number.isFinite(parsed) && parsed > 0) return parsed;
+        }
+        return fallback;
+      };
+      const requestedDuration = parseDurationMinutesSafe(appointmentData?.duration, 30);
+      const planMinimumDuration = isSubscriberAppointment
+        ? parseDurationMinutesSafe(
+          selectedSubscriberService?.service_duration ?? selectedSubscriberService?.duration,
+          0
+        )
+        : 0;
+      const normalizedDuration =
+        planMinimumDuration > 0 ? Math.max(requestedDuration, planMinimumDuration) : requestedDuration;
+      if (normalizedDuration !== requestedDuration) {
+        console.warn('⚠️ [Booking] Ajustando duração para evitar subcontagem de assinante', {
+          requestedDuration,
+          planMinimumDuration,
+          normalizedDuration,
+          subscriptionId: selectedSubscriberService?.id || appointmentData?.subscription_id || null,
+        });
+      }
+      appointmentData = {
+        ...appointmentData,
+        duration: normalizedDuration,
+      };
       const bookingClientWhatsapp = String(
         appointmentData?.client_whatsapp || guestClientData?.phone || ''
       ).trim();

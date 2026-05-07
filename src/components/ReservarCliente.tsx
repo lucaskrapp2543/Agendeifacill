@@ -252,6 +252,20 @@ export default function ReservarCliente({
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
   };
 
+  const getAdditionalProductsDuration = (rawAdditionalProducts: any): number => {
+    if (!Array.isArray(rawAdditionalProducts)) return 0;
+    return rawAdditionalProducts.reduce((sum: number, item: any) => {
+      const duration = parseDurationMinutes(item?.duration);
+      return sum + (Number.isFinite(duration) ? duration : 0);
+    }, 0);
+  };
+
+  const getAppointmentDurationMinutes = (appointment: any): number => {
+    const base = parseDurationMinutes(appointment?.duration);
+    const extra = getAdditionalProductsDuration(appointment?.additional_products);
+    return Math.max(1, base + extra);
+  };
+
   const normalizePlanOfferedServices = (services: PlanOfferedService[]): PlanOfferedService[] => {
     return services
       .map((service) => ({
@@ -901,7 +915,7 @@ export default function ReservarCliente({
         // Buscar agendamentos existentes para a data - CORRIGIDO
         const { data: appointments, error } = await supabase
           .from('appointments')
-          .select('id, appointment_time, duration, is_avulso, professional, status')
+          .select('id, appointment_time, duration, additional_products, is_avulso, professional, status')
           .eq('establishment_id', establishmentId)
           .eq('appointment_date', selectedDate)
           .neq('status', 'cancelled'); // Incluir todos exceto cancelados
@@ -915,9 +929,15 @@ export default function ReservarCliente({
         }
 
         // Calcular duração total dos serviços selecionados
-        const totalDuration = selectedServices.length > 0
+        const totalDurationRaw = selectedServices.length > 0
           ? calculateTotalDuration(selectedServices)
           : selectedService?.duration || 30;
+        const selectedDuration = parseDurationMinutes(totalDurationRaw);
+        const minSubscriberDuration = selectedSubscription
+          ? parseDurationMinutes(selectedSubscription?.service_duration ?? selectedSubscription?.duration)
+          : 0;
+        const totalDuration =
+          minSubscriberDuration > 0 ? Math.max(selectedDuration, minSubscriberDuration) : selectedDuration;
 
         // Buscar horários do estabelecimento e do profissional
         const establishmentHours = await supabase
@@ -1047,7 +1067,7 @@ export default function ReservarCliente({
           if (!closedTimeEnabledProp) {
             professionalAppointments.forEach((apt) => {
               const aptStartTime = normalizeTimeHHmm(apt?.appointment_time);
-              const aptDurationMins = parseDurationMinutes(apt?.duration);
+              const aptDurationMins = getAppointmentDurationMinutes(apt);
               const aptEndMins = timeToMinutes(aptStartTime) + aptDurationMins;
               if (aptEndMins >= periodStart && aptEndMins < periodEnd) candidate.add(aptEndMins);
             });
@@ -1077,7 +1097,7 @@ export default function ReservarCliente({
             if (appointments) {
               for (const appointment of professionalAppointments) {
                 const normalizedAppointmentStartTime = normalizeTimeHHmm(appointment?.appointment_time);
-                const appointmentDuration = parseDurationMinutes(appointment?.duration);
+                const appointmentDuration = getAppointmentDurationMinutes(appointment);
                 const apptStart = new Date(`${selectedDate}T${normalizedAppointmentStartTime}:00`);
                 const apptEnd = new Date(apptStart.getTime() + appointmentDuration * 60000);
 
@@ -1135,7 +1155,7 @@ export default function ReservarCliente({
             if (appointments) {
               for (const appointment of professionalAppointments) {
                 const normalizedAppointmentStartTime = normalizeTimeHHmm(appointment?.appointment_time);
-                const appointmentDuration = parseDurationMinutes(appointment?.duration);
+                const appointmentDuration = getAppointmentDurationMinutes(appointment);
                 const apptStart = new Date(`${selectedDate}T${normalizedAppointmentStartTime}:00`);
                 const apptEnd = new Date(apptStart.getTime() + appointmentDuration * 60000);
 
@@ -1185,6 +1205,7 @@ export default function ReservarCliente({
     selectedServices,
     selectedDate,
     selectedProfessional,
+    selectedSubscription,
     use15MinuteInterval,
     use20MinuteScheduleProp,
     use60MinuteScheduleProp,
@@ -1573,7 +1594,12 @@ export default function ReservarCliente({
         selectedServices.length > 0
           ? calculateTotalDuration(selectedServices)
           : selectedService!.duration;
-      const totalDur = parseDurationMinutes(totalDurationRaw);
+        const selectedDuration = parseDurationMinutes(totalDurationRaw);
+        const minSubscriberDuration = selectedSubscription
+          ? parseDurationMinutes(selectedSubscription?.service_duration ?? selectedSubscription?.duration)
+          : 0;
+        const totalDur =
+          minSubscriberDuration > 0 ? Math.max(selectedDuration, minSubscriberDuration) : selectedDuration;
       if (!validateSlotDurationMinutes(totalDur)) return;
     }
 
@@ -1599,7 +1625,12 @@ export default function ReservarCliente({
         selectedServices.length > 0
           ? calculateTotalDuration(selectedServices)
           : selectedService!.duration;
-      const totalDuration = parseDurationMinutes(totalDurationRaw);
+      const selectedDuration = parseDurationMinutes(totalDurationRaw);
+      const minSubscriberDuration = selectedSubscription
+        ? parseDurationMinutes(selectedSubscription?.service_duration ?? selectedSubscription?.duration)
+        : 0;
+      const totalDuration =
+        minSubscriberDuration > 0 ? Math.max(selectedDuration, minSubscriberDuration) : selectedDuration;
 
       // Criar nome dos serviços
       const serviceNames = servicesToInsert.map(s => s.name).join(', ');
@@ -1755,7 +1786,7 @@ export default function ReservarCliente({
       // Verificar conflitos antes de criar (evita sobreposição e double-booking)
       const { data: existingAppointments, error: existingError } = await supabase
         .from('appointments')
-        .select('appointment_date, appointment_time, duration, status, professional')
+        .select('appointment_date, appointment_time, duration, additional_products, status, professional')
         .eq('establishment_id', establishmentId)
         .in('appointment_date', datasMensais)
         .neq('status', 'cancelled');
@@ -1778,7 +1809,7 @@ export default function ReservarCliente({
         });
         for (const a of doDia) {
           const inicio = parseTimeToMinutes(a.appointment_time);
-          const dur = parseDurationMinutes(a.duration);
+          const dur = getAppointmentDurationMinutes(a);
           if (hasOverlap(novoInicioMin, totalDuration, inicio, dur)) return false;
         }
         return true;
