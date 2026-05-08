@@ -5140,8 +5140,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 <div
                                   key={`${slot.time}-${slotIndex}`}
                                   className={`rounded-xl border-2 shadow-sm overflow-hidden ${useLightLayout
-                                      ? 'bg-gradient-to-br from-slate-400 to-slate-500 border-slate-600'
-                                      : 'bg-gradient-to-br from-gray-500 to-gray-600 border-gray-700'
+                                    ? 'bg-gradient-to-br from-slate-400 to-slate-500 border-slate-600'
+                                    : 'bg-gradient-to-br from-gray-500 to-gray-600 border-gray-700'
                                     }`}
                                 >
                                   <div className="flex items-stretch gap-0 min-h-[48px]">
@@ -5159,8 +5159,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         disabled={!!slotBlockBusyKey}
                                         onClick={() => runToggleSlotBlock(professional.id, slot.time, false)}
                                         className={`shrink-0 px-3 py-2 text-xs font-bold text-white border-l border-white/25 transition-colors disabled:opacity-50 ${useLightLayout
-                                            ? 'bg-emerald-700 hover:bg-emerald-800'
-                                            : 'bg-emerald-600 hover:bg-emerald-700'
+                                          ? 'bg-emerald-700 hover:bg-emerald-800'
+                                          : 'bg-emerald-600 hover:bg-emerald-700'
                                           }`}
                                       >
                                         {blockBusy ? '…' : 'Desbloquear'}
@@ -5201,12 +5201,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 <div key={`${slot.time}-${slotIndex}`}>
                                   <div
                                     className={`rounded-xl border-2 shadow-sm overflow-hidden flex items-stretch min-h-[52px] ${isAbsentSlot
-                                        ? 'bg-gradient-to-br from-amber-50 to-amber-100/90 border-amber-400'
-                                        : isPastSlot
-                                          ? 'bg-gradient-to-br from-gray-100 to-gray-200 border-gray-400'
-                                          : useLightLayout
-                                            ? 'bg-gradient-to-br from-white to-emerald-50/80 border-emerald-300'
-                                            : 'bg-gradient-to-br from-white to-emerald-50 border-emerald-400/90'
+                                      ? 'bg-gradient-to-br from-amber-50 to-amber-100/90 border-amber-400'
+                                      : isPastSlot
+                                        ? 'bg-gradient-to-br from-gray-100 to-gray-200 border-gray-400'
+                                        : useLightLayout
+                                          ? 'bg-gradient-to-br from-white to-emerald-50/80 border-emerald-300'
+                                          : 'bg-gradient-to-br from-white to-emerald-50 border-emerald-400/90'
                                       }`}
                                   >
                                     <div className="flex-1 flex flex-col justify-center px-3 py-2.5 min-w-0">
@@ -5241,8 +5241,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               })
                                             }
                                             className={`px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wide text-white transition-colors ${useLightLayout
-                                                ? 'bg-emerald-700 hover:bg-emerald-800'
-                                                : 'bg-emerald-600 hover:bg-emerald-700'
+                                              ? 'bg-emerald-700 hover:bg-emerald-800'
+                                              : 'bg-emerald-600 hover:bg-emerald-700'
                                               }`}
                                             title="Reservar cliente neste horário (mesmo fluxo de Agendar cliente), com limite até o próximo horário ocupado ou fim do expediente"
                                           >
@@ -5255,8 +5255,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               runToggleSlotBlock(professional.id, slot.time, true)
                                             }
                                             className={`px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wide text-white border-l border-white/25 transition-colors disabled:opacity-50 ${useLightLayout
-                                                ? 'bg-slate-800 hover:bg-slate-900'
-                                                : 'bg-slate-700 hover:bg-slate-800'
+                                              ? 'bg-slate-800 hover:bg-slate-900'
+                                              : 'bg-slate-700 hover:bg-slate-800'
                                               }`}
                                             title="Bloqueia só este horário neste dia (igual ao menu Bloquear horários)"
                                           >
@@ -5271,8 +5271,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             runToggleSlotBlock(professional.id, slot.time, true)
                                           }
                                           className={`shrink-0 px-3 py-2 text-xs font-bold text-white border-l border-white/20 transition-colors disabled:opacity-50 ${useLightLayout
-                                              ? 'bg-slate-800 hover:bg-slate-900'
-                                              : 'bg-slate-700 hover:bg-slate-800'
+                                            ? 'bg-slate-800 hover:bg-slate-900'
+                                            : 'bg-slate-700 hover:bg-slate-800'
                                             }`}
                                           title="Bloqueia só este horário neste dia (igual ao menu Bloquear horários)"
                                         >

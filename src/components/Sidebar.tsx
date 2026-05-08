@@ -255,6 +255,14 @@ const Sidebar: React.FC<SidebarProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Garante que, ao carregar no celular, o app abra na tela de menu.
+  // No desktop, mantém comportamento atual (sidebar normal).
+  useEffect(() => {
+    if (isMobile) {
+      setIsExpanded(true);
+    }
+  }, [isMobile]);
+
   // Recolher o sidebar quando clicar em um item
   const handleItemClick = (onClick: () => void) => {
     onClick();
@@ -965,17 +973,25 @@ const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </div>
             {topMonthlyWinner && !dismissTopWinnerCard ? (
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => executeMobileAction('top10-clientes', () => onTabChange('top10-clientes'))}
-                className="mt-4 w-full text-left"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    executeMobileAction('top10-clientes', () => onTabChange('top10-clientes'));
+                  }
+                }}
+                className="mt-4 w-full text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/70 rounded-2xl"
+                aria-label="Abrir ranking Top 1 do mês"
               >
                 <TopMonthlyWinnerCard
                   winner={topMonthlyWinner}
                   className="!p-3"
                   onDismiss={() => setDismissTopWinnerCard(true)}
                 />
-              </button>
+              </div>
             ) : (
               <button
                 type="button"

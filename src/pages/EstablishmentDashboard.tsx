@@ -186,6 +186,7 @@ interface Establishment {
   closed_time_enabled?: boolean;
   booking_chat_enabled?: boolean;
   booking_simple_page_enabled?: boolean;
+  auto_complete_services_enabled?: boolean;
   show_best_of_brazil_image?: boolean;
   payment_methods_enabled?: string[];
   plan_prata_active?: boolean; // ✅ ativado via botão PRATA no Admin (limites de recursos)
@@ -803,6 +804,7 @@ const EstablishmentDashboard = () => {
   const paidSubscribersInFlightRef = useRef<Promise<void> | null>(null);
   const lastExpensesFetchRef = useRef<{ key: string; atMs: number }>({ key: '', atMs: 0 });
   const expensesInFlightRef = useRef<Promise<void> | null>(null);
+  const expensesInFlightKeyRef = useRef<string>('');
   const lastProfessionalPaymentsFetchRef = useRef<{ key: string; atMs: number }>({ key: '', atMs: 0 });
   const professionalPaymentsInFlightRef = useRef<Promise<void> | null>(null);
   const paymentDropdownRef = useRef<HTMLDivElement>(null);
@@ -1235,6 +1237,16 @@ const EstablishmentDashboard = () => {
     });
     return Array.from(byId.values());
   }, []);
+
+  // Guarda de render: elimina qualquer duplicidade de id que possa entrar por
+  // corridas entre polling, fetch manual e atualizações locais.
+  useEffect(() => {
+    if (!Array.isArray(appointments) || appointments.length <= 1) return;
+    const deduped = dedupeAppointmentsById(appointments);
+    if (deduped.length !== appointments.length) {
+      setAppointments(deduped);
+    }
+  }, [appointments, dedupeAppointmentsById]);
 
   const carregarSaldoEmVendas = useCallback(async () => {
     if (!establishment?.id) return;
@@ -3359,6 +3371,7 @@ const EstablishmentDashboard = () => {
   // Prazo mínimo (em minutos) de antecedência para o cliente ainda poder cancelar (0 = sem limite)
   const [bookingMinCancelMinutes, setBookingMinCancelMinutes] = useState<number>(LEGACY_LIMITE_CANCELAMENTO_MINUTOS);
   const [limitClientPendingBooking, setLimitClientPendingBooking] = useState<boolean>(false);
+  const [autoCompleteServicesEnabled, setAutoCompleteServicesEnabled] = useState<boolean>(true);
   // Tempo fechado: mantém horários presos ao grid de exibição
   const [closedTimeEnabled, setClosedTimeEnabled] = useState<boolean>(false);
   const [bookingChatEnabled, setBookingChatEnabled] = useState<boolean>(true);
@@ -9759,6 +9772,7 @@ const EstablishmentDashboard = () => {
         use_15_minute_interval: use15MinuteInterval, // Configuração de intervalo de 15 minutos
         use_20_minute_schedule: use20MinuteSchedule, // Configuração de horários de 20 em 20 minutos
         show_best_of_brazil_image: showBestOfBrazilImage, // Configuração da imagem "Melhor do Brasil"
+        auto_complete_services_enabled: autoCompleteServicesEnabled, // Auto concluir atendimento ao final do horário
         carousel_position: carouselPosition, // Posição do carrossel
         payment_methods_enabled: paymentMethodsEnabled, // Formas de pagamento ativas
       };
@@ -10549,6 +10563,9 @@ Estamos te aguardando!`;
   };
 
   const shouldAutoCompleteAppointment = (apt: Appointment, nowMs: number): boolean => {
+    if (!autoCompleteServicesEnabled) {
+      return false;
+    }
     if ((apt as any)?.manual_status_override === true) {
       return false;
     }
@@ -10575,7 +10592,7 @@ Estamos te aguardando!`;
     appointments: Appointment[];
     updatedCount: number;
   }> => {
-    if (!establishment || !Array.isArray(rows) || rows.length === 0) {
+    if (!autoCompleteServicesEnabled || !establishment || !Array.isArray(rows) || rows.length === 0) {
       return { appointments: rows, updatedCount: 0 };
     }
 
@@ -11730,6 +11747,7 @@ Estamos te aguardando!`;
             : LEGACY_LIMITE_CANCELAMENTO_MINUTOS;
         setBookingMinCancelMinutes(nextCancelMinutes);
         setLimitClientPendingBooking(Boolean((establishmentData as any).limit_client_pending_booking ?? false));
+        setAutoCompleteServicesEnabled(Boolean((establishmentData as any).auto_complete_services_enabled ?? true));
         // Carrega configuração de tempo fechado (fallback: desativado)
         setClosedTimeEnabled(Boolean((establishmentData as any).closed_time_enabled ?? false));
         setBookingChatEnabled(Boolean((establishmentData as any).booking_chat_enabled ?? true));
@@ -12204,6 +12222,7 @@ Estamos te aguardando!`;
         use60MinuteSchedule: use60MinuteSchedule,
         bookingMinAdvanceMinutes: bookingMinAdvanceMinutes,
         bookingMinCancelMinutes: bookingMinCancelMinutes,
+        autoCompleteServicesEnabled: autoCompleteServicesEnabled,
         closedTimeEnabled: closedTimeEnabled,
         showBestOfBrazilImage: showBestOfBrazilImage
       });
@@ -12717,9 +12736,10 @@ Estamos te aguardando!`;
               (incomingItem: any) => !currentIds.has(incomingItem.id)
             );
 
-            return newAppointmentsToAdd.length > 0
+            const mergedList = newAppointmentsToAdd.length > 0
               ? [...mergedCurrent, ...newAppointmentsToAdd]
               : mergedCurrent;
+            return dedupeAppointmentsById(mergedList);
           });
 
           if (hasUpdatesInExistingAppointments) {
@@ -12872,7 +12892,8 @@ Estamos te aguardando!`;
   // Funções para gerenciar despesas
   const loadExpenses = useCallback(async () => {
     if (!establishment?.id) return;
-    const monthKey = format(selectedMonth, 'yyyy-MM');
+    const selectedMonthSnapshot = new Date(selectedMonth);
+    const monthKey = format(selectedMonthSnapshot, 'yyyy-MM');
     const requestKey = `${establishment.id}|${monthKey}`;
     const nowMs = Date.now();
     const lastFetch = lastExpensesFetchRef.current;
@@ -12882,30 +12903,67 @@ Estamos te aguardando!`;
     ) {
       return;
     }
-    if (expensesInFlightRef.current) return expensesInFlightRef.current;
+    if (expensesInFlightRef.current && expensesInFlightKeyRef.current === requestKey) {
+      return expensesInFlightRef.current;
+    }
 
     const task = (async () => {
       try {
-      // Calcular período do mês selecionado
-      const startDate = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1);
-      const endDate = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0, 23, 59, 59, 999);
+        // Calcular período do mês selecionado (snapshot da chamada)
+        const startDate = new Date(
+          selectedMonthSnapshot.getFullYear(),
+          selectedMonthSnapshot.getMonth(),
+          1
+        );
+        const endDate = new Date(
+          selectedMonthSnapshot.getFullYear(),
+          selectedMonthSnapshot.getMonth() + 1,
+          0,
+          23,
+          59,
+          59,
+          999
+        );
 
-      const expensesData = await getExpensesByMonth(establishment.id, startDate.toISOString(), endDate.toISOString());
+        const expensesData = await getExpensesByMonth(
+          establishment.id,
+          startDate.toISOString(),
+          endDate.toISOString()
+        );
 
-      setExpenses(expensesData);
+        // Guarda defensiva extra: mesmo se vier dado legado/esquisito,
+        // só mantém despesas do mês da requisição.
+        const filteredByMonth = (Array.isArray(expensesData) ? expensesData : []).filter((expense: any) => {
+          const rawDate = String(expense?.expense_date || expense?.created_at || '').trim();
+          const key = rawDate.slice(0, 7);
+          return key === monthKey;
+        });
 
-      // Calcular total das despesas do mês
-      const total = expensesData.reduce((sum, expense) => sum + expense.amount, 0);
-      setExpensesTotal(total);
-      lastExpensesFetchRef.current = { key: requestKey, atMs: Date.now() };
+        // Evita aplicar resposta atrasada quando o usuário já mudou de mês.
+        const currentMonthKey = format(new Date(selectedMonth), 'yyyy-MM');
+        const currentRequestKey = `${establishment.id}|${currentMonthKey}`;
+        if (currentRequestKey !== requestKey) {
+          return;
+        }
+
+        setExpenses(filteredByMonth);
+
+        // Calcular total das despesas do mês
+        const total = filteredByMonth.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+        setExpensesTotal(total);
+        lastExpensesFetchRef.current = { key: requestKey, atMs: Date.now() };
       } catch (error) {
         console.error('❌ Erro ao carregar despesas:', error);
       } finally {
-        expensesInFlightRef.current = null;
+        if (expensesInFlightKeyRef.current === requestKey) {
+          expensesInFlightRef.current = null;
+          expensesInFlightKeyRef.current = '';
+        }
       }
     })();
 
     expensesInFlightRef.current = task;
+    expensesInFlightKeyRef.current = requestKey;
     return task;
   }, [establishment?.id, selectedMonth]);
 
@@ -19881,7 +19939,7 @@ Estamos te aguardando!`;
   ]);
 
   // ✅ Auto-save para Configuração de Horários
-  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceMinutes?: number; bookingMinCancelMinutes?: number; limitClientPendingBooking?: boolean; closedTimeEnabled?: boolean; showBestOfBrazilImage?: boolean; bookingChatEnabled?: boolean; bookingSimplePageEnabled?: boolean }) => {
+  const autoSaveScheduleConfig = useCallback(async (config?: { use15MinuteInterval?: boolean; use20MinuteSchedule?: boolean; use60MinuteSchedule?: boolean; bookingMinAdvanceMinutes?: number; bookingMinCancelMinutes?: number; limitClientPendingBooking?: boolean; autoCompleteServicesEnabled?: boolean; closedTimeEnabled?: boolean; showBestOfBrazilImage?: boolean; bookingChatEnabled?: boolean; bookingSimplePageEnabled?: boolean }) => {
     if (!establishment?.id) return;
 
     const configToSave = {
@@ -19891,6 +19949,7 @@ Estamos te aguardando!`;
       bookingMinAdvanceMinutes: config?.bookingMinAdvanceMinutes ?? bookingMinAdvanceMinutes,
       bookingMinCancelMinutes: config?.bookingMinCancelMinutes ?? bookingMinCancelMinutes,
       limitClientPendingBooking: config?.limitClientPendingBooking ?? limitClientPendingBooking,
+      autoCompleteServicesEnabled: config?.autoCompleteServicesEnabled ?? autoCompleteServicesEnabled,
       closedTimeEnabled: config?.closedTimeEnabled ?? closedTimeEnabled,
       showBestOfBrazilImage: config?.showBestOfBrazilImage ?? showBestOfBrazilImage,
       bookingChatEnabled: config?.bookingChatEnabled ?? bookingChatEnabled,
@@ -19910,6 +19969,7 @@ Estamos te aguardando!`;
         booking_min_advance_minutes: configToSave.bookingMinAdvanceMinutes,
         booking_min_cancel_minutes: configToSave.bookingMinCancelMinutes,
         limit_client_pending_booking: configToSave.limitClientPendingBooking,
+        auto_complete_services_enabled: configToSave.autoCompleteServicesEnabled,
         closed_time_enabled: configToSave.closedTimeEnabled,
         show_best_of_brazil_image: configToSave.showBestOfBrazilImage,
         booking_chat_enabled: configToSave.bookingChatEnabled,
@@ -19933,6 +19993,7 @@ Estamos te aguardando!`;
           'booking_min_advance_hours',
           'booking_min_cancel_minutes',
           'limit_client_pending_booking',
+          'auto_complete_services_enabled',
           'closed_time_enabled',
           'booking_chat_enabled',
           'booking_simple_page_enabled',
@@ -19970,6 +20031,7 @@ Estamos te aguardando!`;
         booking_min_advance_minutes: configToSave.bookingMinAdvanceMinutes,
         booking_min_cancel_minutes: configToSave.bookingMinCancelMinutes,
         limit_client_pending_booking: configToSave.limitClientPendingBooking,
+        auto_complete_services_enabled: configToSave.autoCompleteServicesEnabled,
         closed_time_enabled: configToSave.closedTimeEnabled,
         show_best_of_brazil_image: configToSave.showBestOfBrazilImage,
         booking_chat_enabled: configToSave.bookingChatEnabled,
@@ -19978,7 +20040,7 @@ Estamos te aguardando!`;
     } catch (error) {
       console.error('❌ Erro ao salvar configuração de horários automaticamente:', error);
     }
-  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceMinutes, bookingMinCancelMinutes, limitClientPendingBooking, closedTimeEnabled, showBestOfBrazilImage, bookingChatEnabled, bookingSimplePageEnabled]);
+  }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceMinutes, bookingMinCancelMinutes, limitClientPendingBooking, autoCompleteServicesEnabled, closedTimeEnabled, showBestOfBrazilImage, bookingChatEnabled, bookingSimplePageEnabled]);
 
   const notifySettingsNeedManualSave = useCallback((showToastMessage = true) => {
     setShowSettingsSaveReminder(true);
@@ -24967,7 +25029,7 @@ Estamos te aguardando!`;
                             // Agendamento normal
                             const appointment = item;
                             return (
-                              <div key={appointment.id} className={`${appointment.status === 'cancelled' ? 'bg-red-800/90' :
+                              <div key={`timeslot-${index}-${appointment.id}`} className={`${appointment.status === 'cancelled' ? 'bg-red-800/90' :
                                 appointment.status === 'completed' ? 'bg-green-600' :
                                   appointment.status === 'pending' || appointment.status === 'confirmed' ? 'bg-yellow-600' :
                                     'bg-yellow-600'
@@ -29084,7 +29146,7 @@ Estamos te aguardando!`;
                   {(!isNewUser || quizStep === 5) && (
                     <div id="quiz-section-horarios" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
                       <h3 className="text-lg font-medium text-white mb-4">
-                        {isNewUser && quizStep === 5 ? '5. Configuração de Horários' : 'Configuração de Horários'}
+                        {isNewUser && quizStep === 5 ? '5. Preferências e Aplicações' : 'Preferências e Aplicações'}
                       </h3>
                       <div className="space-y-4">
                         <div className="flex items-start space-x-3">
@@ -29378,6 +29440,42 @@ Estamos te aguardando!`;
                             </p>
                             <p className="text-xs text-gray-500 mt-2">
                               Desativado: o cliente pode agendar normalmente, sem limite por pendencia.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
+                          <input
+                            type="checkbox"
+                            id="autoCompleteServicesEnabled"
+                            checked={autoCompleteServicesEnabled}
+                            onChange={(e) => {
+                              const newValue = e.target.checked;
+                              setAutoCompleteServicesEnabled(newValue);
+                              notifySettingsNeedManualSave(true);
+                              if (scheduleConfigAutoSaveTimeoutRef.current) {
+                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                              }
+                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
+                                autoSaveScheduleConfig({
+                                  autoCompleteServicesEnabled: newValue
+                                });
+                              }, 1000);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
+                          />
+                          <div className="flex-1">
+                            <label htmlFor="autoCompleteServicesEnabled" className="block text-white font-medium mb-2">
+                              Servicos ficam como concluidos apos termino do horario
+                            </label>
+                            <p className="text-sm text-gray-400 leading-relaxed">
+                              Com essa opcao ativa, voce nao precisa clicar em "Concluir". O sistema fecha a comanda automaticamente quando o horario do servico termina.
+                            </p>
+                            <p className="text-sm text-gray-400 leading-relaxed mt-2">
+                              Se o cliente faltar, e so marcar como faltou/cancelado manualmente.
+                            </p>
+                            <p className="text-xs text-gray-500 mt-2">
+                              Desativado: o barbeiro conclui manualmente quando terminar o atendimento.
                             </p>
                           </div>
                         </div>
@@ -31738,7 +31836,7 @@ Estamos te aguardando!`;
                                             <div className="text-sm text-gray-600">Nenhum horário pendente no mês selecionado.</div>
                                           ) : (
                                             <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
-                                              {monthlyPendingAppointments.map((apt) => {
+                                              {monthlyPendingAppointments.map((apt, idx) => {
                                                 const professionalName = professionals.find((p) => String(p.id) === String(apt.professional))?.name || apt.professional || 'Profissional';
                                                 const statusLabel = String(apt.status || '').toLowerCase() === 'pending_payment'
                                                   ? 'Pendente pagamento'
@@ -31746,7 +31844,7 @@ Estamos te aguardando!`;
                                                     ? 'Confirmado'
                                                     : 'Pendente';
                                                 return (
-                                                  <div key={apt.id} className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                                                  <div key={`monthly-pending-${apt.id}-${idx}`} className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
                                                     <div className="text-sm font-semibold text-gray-900">
                                                       {apt.appointment_date} às {apt.appointment_time}
                                                     </div>

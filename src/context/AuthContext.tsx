@@ -131,8 +131,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
                   }
                   return; // Sair aqui se renovação foi bem-sucedida
                 } else {
-                  console.error('❌ Erro ao renovar sessão:', error);
-                  console.error('📱 CELULAR: Detalhes do erro:', JSON.stringify(error, null, 2));
+                  if (error) {
+                    console.error('❌ Erro ao renovar sessão:', error);
+                    console.error('📱 CELULAR: Detalhes do erro:', JSON.stringify(error, null, 2));
+                  } else {
+                    // Alguns ambientes podem retornar sem erro e sem session; evita log "erro: null".
+                    console.warn('⚠️ Renovação de sessão não retornou sessão, seguindo com fallback local.');
+                  }
 
                   // Mesmo com erro, se a sessão ainda é válida, usar
                   if (expiresAt && expiresAt > now && isMounted) {
