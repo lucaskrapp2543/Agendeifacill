@@ -60,12 +60,10 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
   // O valor original (total do mês) é o currentLiquidValue passado como prop
   const totalLiquidValue = currentLiquidValue; // Valor total do mês
-  // Usa o maior valor entre validação do pai e leitura local recém-atualizada para
-  // evitar "pagar duas vezes" enquanto o pai ainda não sincronizou.
-  const totalPaidEffective = Math.max(
-    typeof validatedPaidAmount === 'number' ? Math.max(0, validatedPaidAmount) : 0,
-    Math.max(0, totalPaid)
-  );
+  // Regra oficial do financeiro:
+  // quando existe validação do pai, ela é a fonte de verdade (anti-adiantamento).
+  const totalPaidEffective =
+    typeof validatedPaidAmount === 'number' ? Math.max(0, validatedPaidAmount) : totalPaid;
   const overpaidAmount = Math.max(0, totalPaidEffective - totalLiquidValue);
   // Pendente = o que falta para fechar o mês (líquido - já pago), respeitando trava contra adiantamentos.
   const pendingByLiquid = Math.max(0, totalLiquidValue - totalPaidEffective);
