@@ -28,7 +28,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   newSalesValue,
   validatedPaidAmount,
   validatedPendingAmount,
-  ignoredPaymentIds = [],
+  ignoredPaymentIds: _ignoredPaymentIds = [],
   selectedMonth,
   onPaymentRecorded
 }) => {
@@ -60,8 +60,12 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
   // O valor original (total do mês) é o currentLiquidValue passado como prop
   const totalLiquidValue = currentLiquidValue; // Valor total do mês
-  const totalPaidEffective =
-    typeof validatedPaidAmount === 'number' ? Math.max(0, validatedPaidAmount) : totalPaid;
+  // Usa o maior valor entre validação do pai e leitura local recém-atualizada para
+  // evitar "pagar duas vezes" enquanto o pai ainda não sincronizou.
+  const totalPaidEffective = Math.max(
+    typeof validatedPaidAmount === 'number' ? Math.max(0, validatedPaidAmount) : 0,
+    Math.max(0, totalPaid)
+  );
   const overpaidAmount = Math.max(0, totalPaidEffective - totalLiquidValue);
   // Pendente = o que falta para fechar o mês (líquido - já pago), respeitando trava contra adiantamentos.
   const pendingByLiquid = Math.max(0, totalLiquidValue - totalPaidEffective);
@@ -69,14 +73,16 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     typeof validatedPendingAmount === 'number' ? Math.max(0, validatedPendingAmount) : pendingByLiquid;
   // Regra operacional: pagar apenas o que ficou pendente após o último pagamento válido.
   const pendingToPay = Math.max(0, Math.min(pendingByLiquid, pendingByValidatedRule));
+  const operationalNewSales =
+    typeof newSalesValue === 'number' ? Math.max(0, newSalesValue) : null;
   const reconciledLiquidValue =
     typeof validatedPendingAmount === 'number'
       ? Math.max(0, totalPaidEffective + pendingToPay)
       : totalLiquidValue;
 
-  const professionalPayments = getProfessionalPayments(professionalId).filter(
-    (payment) => !(payment.amount > 0 && ignoredPaymentIds.includes(payment.id))
-  );
+  // Histórico precisa ser transparente: mostra todos os pagamentos registrados,
+  // mesmo quando algum lançamento foi desconsiderado pela regra anti-adiantamento.
+  const professionalPayments = getProfessionalPayments(professionalId);
   const visiblePaymentCount = professionalPayments.length;
   const visibleLastPaymentDate = professionalPayments.length > 0
     ? professionalPayments
@@ -371,6 +377,11 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
               Pendente: {formatCurrency(pendingToPay)}
             </div>
           )}
+          {operationalNewSales !== null && (
+            <div className="text-[11px] text-purple-300">
+              Novas vendas no período: {formatCurrency(operationalNewSales)}
+            </div>
+          )}
           {typeof validatedPendingAmount === 'number' && (
             <div className="text-[11px] text-gray-400">
               Pendente do mês (sem adiantamento)
@@ -625,6 +636,13 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             </div>
 
             <div className="space-y-4">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                <p className="text-xs text-amber-900 leading-relaxed">
+                  Ao confirmar esta operação, o valor informado será retirado do saldo líquido deste colaborador e
+                  transferido para o caixa da barbearia.
+                </p>
+              </div>
+
               {/* Valor disponível */}
               <div className="bg-gray-50 rounded-lg p-3">
                 <div className="text-sm text-gray-600">Valor disponível:</div>

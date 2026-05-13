@@ -707,7 +707,7 @@ const EstablishmentDashboard = () => {
 
   const writeAppointmentChangeLog = async (params: {
     appointmentId: string;
-    eventType: 'service_changed' | 'finished_early' | 'additional_service_added' | 'additional_service_removed';
+    eventType: string;
     description: string;
     oldValues?: Record<string, any> | null;
     newValues?: Record<string, any> | null;
@@ -10392,6 +10392,8 @@ Estamos te aguardando!`;
 
   const handleUpdateAppointmentStatus = async (appointmentId: string, newStatus: 'pending' | 'confirmed' | 'cancelled' | 'completed') => {
     try {
+      const appointment = (appointments || []).find((apt) => String((apt as any)?.id || '') === String(appointmentId));
+      const previousStatus = String((appointment as any)?.status || '').trim().toLowerCase();
       const payload: any = { status: newStatus };
       if (newStatus === 'pending' || newStatus === 'confirmed') {
         payload.manual_status_override = true;
@@ -10414,6 +10416,10 @@ Estamos te aguardando!`;
 
       if (error) {
         throw error;
+      }
+
+      if (newStatus === 'completed' && appointment && previousStatus !== 'completed') {
+        await autoRegisterSubscriberAttendanceForAppointment(appointment);
       }
 
       await refreshAppointmentsData();
@@ -10562,6 +10568,285 @@ Estamos te aguardando!`;
     return Math.max(1, Math.round(baseDuration + safeAdditionalDuration));
   };
 
+  const normalizePhoneDigitsForSubscriberAuto = (value: unknown): string => {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) return digits.slice(2);
+    return digits;
+  };
+
+  const parseSubscriberBooleanForAuto = (value: unknown): boolean => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value === 1;
+    const raw = String(value ?? '').trim().toLowerCase();
+    return raw === 'true' || raw === '1' || raw === 't' || raw === 'yes' || raw === 'sim' || raw === 'on';
+  };
+
+  const shouldAutoRegisterSubscriberAttendanceForAppointment = (apt: Appointment): boolean => {
+    if ((apt as any)?.is_subscriber === true) return true;
+    const nameRaw = String((apt as any)?.client_name || '').trim().toLowerCase();
+    const hasSubscriberLabel = nameRaw.includes('assinante');
+    const basePrice = Number((apt as any)?.price || 0);
+    const totalPrice = Number((apt as any)?.total_price || 0);
+    return hasSubscriberLabel && (basePrice <= 0 || totalPrice <= 0);
+  };
+
+  const autoRegisterSubscriberAttendanceForAppointment = async (apt: Appointment): Promise<void> => {
+    const appointmentId = String((apt as any)?.id || '').trim();
+    const writeAutoSubscriberLog = async (
+      eventType: 'subscriber_attendance_marked' | 'subscriber_attendance_auto_failed' | 'subscriber_attendance_auto_skipped',
+      description: string,
+      metadata?: Record<string, any>
+    ) => {
+      if (!appointmentId) return;
+      await writeAppointmentChangeLog({
+        appointmentId,
+        eventType,
+        description,
+        oldValues: { status: String((apt as any)?.status || '').trim() || null },
+        newValues: { status: 'completed' },
+        metadata: {
+          action: 'Auto assinatura na conclusão',
+          source: 'auto_on_complete',
+          selected_date: String((apt as any)?.appointment_date || ''),
+          selected_time: String((apt as any)?.appointment_time || ''),
+          ...metadata,
+        },
+      });
+    };
+
+    try {
+      if (!establishment?.id) return;
+      if (!shouldAutoRegisterSubscriberAttendanceForAppointment(apt)) return;
+
+      if (!appointmentId) return;
+
+      try {
+        const existingLog = await (supabase as any)
+          .from('appointment_change_logs')
+          .select('id')
+          .eq('establishment_id', establishment.id)
+          .eq('appointment_id', appointmentId)
+          .eq('event_type', 'subscriber_attendance_marked')
+          .limit(1);
+        if (!existingLog.error && Array.isArray(existingLog.data) && existingLog.data.length > 0) return;
+      } catch {
+        // Sem bloqueio para bancos que não possuem histórico detalhado.
+      }
+
+      const appointmentPhone = normalizePhoneDigitsForSubscriberAuto((apt as any)?.client_whatsapp);
+      if (!appointmentPhone) return;
+
+      const { data: clientSubsRows, error: clientSubsError } = await (supabase as any)
+        .from('client_subscriptions')
+        .select(`
+          id,
+          monthly_limit,
+          payment_status,
+          end_date,
+          updated_at,
+          created_at,
+          subscriber_name,
+          subscriber_whatsapp,
+          client_name_override,
+          client_whatsapp,
+          subscriptions (
+            id,
+            name,
+            value,
+            fixed_commission_value,
+            divide_total_enabled,
+            divide_total_attendances
+          )
+        `)
+        .eq('establishment_id', establishment.id)
+        .order('created_at', { ascending: false });
+      if (clientSubsError) throw clientSubsError;
+
+      const matchedRows = (Array.isArray(clientSubsRows) ? clientSubsRows : []).filter((row: any) => {
+        const clientPhone = normalizePhoneDigitsForSubscriberAuto(row?.client_whatsapp);
+        const subscriberPhone = normalizePhoneDigitsForSubscriberAuto(row?.subscriber_whatsapp);
+        return clientPhone === appointmentPhone || subscriberPhone === appointmentPhone;
+      });
+      if (matchedRows.length === 0) {
+        await writeAutoSubscriberLog(
+          'subscriber_attendance_auto_failed',
+          'Não foi possível localizar a assinatura do cliente para auto-registro.',
+          { reason: 'subscription_not_found' }
+        );
+        return;
+      }
+
+      const toMs = (value: unknown): number => {
+        const dt = new Date(String(value || '').trim());
+        const ms = dt.getTime();
+        return Number.isFinite(ms) ? ms : 0;
+      };
+
+      matchedRows.sort((a: any, b: any) => {
+        const aPaid = String(a?.payment_status || '').trim().toLowerCase() === 'paid' ? 1 : 0;
+        const bPaid = String(b?.payment_status || '').trim().toLowerCase() === 'paid' ? 1 : 0;
+        if (aPaid !== bPaid) return bPaid - aPaid;
+        const aEnd = toMs(a?.end_date);
+        const bEnd = toMs(b?.end_date);
+        if (aEnd !== bEnd) return bEnd - aEnd;
+        const aUpd = toMs(a?.updated_at) || toMs(a?.created_at);
+        const bUpd = toMs(b?.updated_at) || toMs(b?.created_at);
+        return bUpd - aUpd;
+      });
+
+      const selectedClientSub = matchedRows[0];
+      const clientSubscriptionId = String(selectedClientSub?.id || '').trim();
+      if (!clientSubscriptionId) {
+        await writeAutoSubscriberLog(
+          'subscriber_attendance_auto_failed',
+          'Não foi possível localizar o ID da assinatura para auto-registro.',
+          { reason: 'subscription_id_missing' }
+        );
+        return;
+      }
+
+      const attendanceDate = String((apt as any)?.appointment_date || '').slice(0, 10) || format(selectedDate, 'yyyy-MM-dd');
+      if (!attendanceDate) return;
+      const monthStart = format(new Date(`${attendanceDate}T00:00:00`), 'yyyy-MM-01');
+      const monthEndDate = new Date(`${monthStart}T00:00:00`);
+      monthEndDate.setMonth(monthEndDate.getMonth() + 1);
+      monthEndDate.setDate(0);
+      const monthEnd = format(monthEndDate, 'yyyy-MM-dd');
+
+      const monthlyLimit = Number(selectedClientSub?.monthly_limit || 0);
+      if (Number.isFinite(monthlyLimit) && monthlyLimit > 0) {
+        const { data: countRows, error: countError } = await (supabase as any)
+          .from('subscriber_attendances')
+          .select('id')
+          .eq('establishment_id', establishment.id)
+          .eq('client_subscription_id', clientSubscriptionId)
+          .gte('attendance_date', monthStart)
+          .lte('attendance_date', monthEnd);
+        if (countError) throw countError;
+        const currentCount = Array.isArray(countRows) ? countRows.length : 0;
+        if (currentCount >= monthlyLimit) {
+          await writeAutoSubscriberLog(
+            'subscriber_attendance_auto_skipped',
+            'Auto-registro de assinatura ignorado porque o limite mensal já foi atingido.',
+            {
+              reason: 'monthly_limit_reached',
+              monthly_limit: monthlyLimit,
+              current_count: currentCount,
+              subscriber_id: clientSubscriptionId,
+            }
+          );
+          return;
+        }
+      }
+
+      const subCfg = selectedClientSub?.subscriptions || null;
+      const divideEnabled = parseSubscriberBooleanForAuto(subCfg?.divide_total_enabled);
+      const fixedCommission = Number(subCfg?.fixed_commission_value || 0);
+      const pointsModeSubscription = !divideEnabled && !(fixedCommission > 0);
+      const subscriptionValue = Number(subCfg?.value || 0);
+      const fallbackFromAppointmentPrice = Number((apt as any)?.price || 0);
+
+      let baseFixed = 0;
+      if (Number.isFinite(fixedCommission) && fixedCommission > 0) {
+        baseFixed = fixedCommission;
+      } else if (divideEnabled) {
+        baseFixed =
+          Number.isFinite(subscriptionValue) && subscriptionValue > 0
+            ? subscriptionValue
+            : Number.isFinite(fallbackFromAppointmentPrice) && fallbackFromAppointmentPrice > 0
+              ? fallbackFromAppointmentPrice
+              : 0;
+      }
+
+      let multiplier = 1;
+      try {
+        const { data: saleRow, error: saleError } = await (supabase as any)
+          .from('subscription_sale_commissions')
+          .select('commission_percent, commission_amount')
+          .eq('establishment_id', establishment.id)
+          .eq('client_subscription_id', clientSubscriptionId)
+          .maybeSingle();
+        if (!saleError) {
+          const salePercent = Number(String(saleRow?.commission_percent || '').replace(',', '.'));
+          if (Number.isFinite(salePercent) && salePercent > 0) {
+            multiplier = Math.max(0, 1 - salePercent / 100);
+          } else {
+            const saleAmount = Number(saleRow?.commission_amount || 0);
+            if (Number.isFinite(saleAmount) && saleAmount > 0 && Number.isFinite(subscriptionValue) && subscriptionValue > 0) {
+              const inferredPercent = Math.min(100, Math.max(0, (saleAmount / subscriptionValue) * 100));
+              multiplier = Math.max(0, 1 - inferredPercent / 100);
+            }
+          }
+        }
+      } catch {
+        // sem bloqueio
+      }
+
+      const divideFromSubscription = Number(subCfg?.divide_total_attendances || 0);
+      const divideFallbackFromClientLimit = Number(monthlyLimit || 0);
+      const divideCount =
+        Number.isFinite(divideFromSubscription) && divideFromSubscription > 0
+          ? divideFromSubscription
+          : Number.isFinite(divideFallbackFromClientLimit) && divideFallbackFromClientLimit > 0
+            ? divideFallbackFromClientLimit
+            : 0;
+      if (divideEnabled && (!Number.isFinite(divideCount) || divideCount <= 0)) {
+        await writeAutoSubscriberLog(
+          'subscriber_attendance_auto_failed',
+          'Auto-registro de assinatura falhou: assinatura com dividir valor total, mas sem quantidade de atendimentos.',
+          {
+            reason: 'divide_total_without_attendances',
+            subscriber_id: clientSubscriptionId,
+          }
+        );
+        return;
+      }
+
+      const round2 = (v: number) => Math.round(v * 100) / 100;
+      let repassValue = pointsModeSubscription ? 0 : round2(baseFixed * multiplier);
+      if (divideEnabled) repassValue = round2(repassValue / divideCount);
+
+      const professionalIdOrName = String((apt as any)?.professional || '').trim();
+      const professionalNameFromRow = String((apt as any)?.professional_name || '').trim();
+      const professionalName = professionalNameFromRow || getProfessionalNameById(professionalIdOrName) || 'Profissional';
+
+      const payload: Record<string, unknown> = {
+        establishment_id: establishment.id,
+        client_subscription_id: clientSubscriptionId,
+        professional_name: professionalName,
+        attendance_date: attendanceDate,
+        repass_value: repassValue,
+      };
+      if (user?.id) payload.created_by = user.id;
+
+      const { error: insertError } = await (supabase as any)
+        .from('subscriber_attendances')
+        .insert(payload);
+      if (insertError) throw insertError;
+
+      await writeAutoSubscriberLog(
+        'subscriber_attendance_marked',
+        'Atendimento assinatura registrado automaticamente ao concluir o agendamento.',
+        {
+          subscriber_id: clientSubscriptionId,
+          subscriber_name: String(selectedClientSub?.client_name_override || selectedClientSub?.subscriber_name || '').trim(),
+          subscriber_whatsapp: String(selectedClientSub?.client_whatsapp || selectedClientSub?.subscriber_whatsapp || '').trim(),
+          attendance_date: attendanceDate,
+        }
+      );
+    } catch (error) {
+      console.warn('⚠️ Falha no registro automático de assinatura ao concluir atendimento:', error);
+      await writeAutoSubscriberLog(
+        'subscriber_attendance_auto_failed',
+        'Erro inesperado no auto-registro de assinatura ao concluir o agendamento.',
+        {
+          reason: 'unexpected_error',
+          error_message: String((error as any)?.message || ''),
+        }
+      );
+    }
+  };
+
   const shouldAutoCompleteAppointment = (apt: Appointment, nowMs: number): boolean => {
     if (!autoCompleteServicesEnabled) {
       return false;
@@ -10647,6 +10932,12 @@ Estamos te aguardando!`;
         status: 'completed',
       };
     });
+
+    for (const apt of normalizedRows) {
+      const id = String((apt as any)?.id || '').trim();
+      if (!updatedIds.has(id)) continue;
+      await autoRegisterSubscriberAttendanceForAppointment(apt as Appointment);
+    }
 
     return { appointments: normalizedRows, updatedCount: updatedIds.size };
   };
@@ -12967,12 +13258,13 @@ Estamos te aguardando!`;
     return task;
   }, [establishment?.id, selectedMonth]);
 
-  const loadProfessionalPayments = useCallback(async () => {
+  const loadProfessionalPayments = useCallback(async (forceRefresh = false) => {
     if (!establishment?.id) return;
     const requestKey = String(establishment.id);
     const nowMs = Date.now();
     const lastFetch = lastProfessionalPaymentsFetchRef.current;
     if (
+      !forceRefresh &&
       lastFetch.key === requestKey &&
       nowMs - lastFetch.atMs < DASHBOARD_AUX_FETCH_DEDUPE_MS
     ) {
@@ -21642,10 +21934,29 @@ Estamos te aguardando!`;
   };
 
   // Função para obter nome do profissional por ID
-  const getProfessionalNameById = (professionalId: string) => {
-    if (professionalId === 'all') return 'all';
-    const professional = professionals.find(p => p.id === professionalId);
-    return professional?.name || 'unknown'; // Retorna 'unknown' se não encontrar
+  const getProfessionalNameById = (professionalIdOrName: string) => {
+    const raw = String(professionalIdOrName || '').trim();
+    if (!raw) return 'unknown';
+    if (raw === 'all') return 'all';
+
+    const byId = professionals.find((p) => String(p.id || '').trim() === raw);
+    if (byId?.name) return String(byId.name);
+
+    const normalize = (value: string) =>
+      String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+
+    const byName = professionals.find((p) => normalize(String(p.name || '')) === normalize(raw));
+    if (byName?.name) return String(byName.name);
+
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw);
+    if (!isUuid) return raw;
+
+    return 'unknown';
   };
 
   // Função para calcular valor líquido considerando taxa de cartão e percentual do profissional
@@ -21819,6 +22130,31 @@ Estamos te aguardando!`;
     return new Date(startDt.getFullYear(), startDt.getMonth(), 1);
   };
 
+  const resolveProfessionalRevenueRangeBounds = (): {
+    startMs: number;
+    endMs: number;
+    isExactSelectedMonthRange: boolean;
+  } | null => {
+    const startRaw = String(professionalRevenueRangeStart || '').trim();
+    const endRaw = String(professionalRevenueRangeEnd || '').trim();
+    if (!startRaw || !endRaw) return null;
+
+    const startDt = new Date(`${startRaw}T00:00:00`);
+    const endDt = new Date(`${endRaw}T23:59:59.999`);
+    if (Number.isNaN(startDt.getTime()) || Number.isNaN(endDt.getTime())) return null;
+
+    const selectedMonthStart = format(startOfMonth(selectedMonth), 'yyyy-MM-dd');
+    const selectedMonthEnd = format(endOfMonth(selectedMonth), 'yyyy-MM-dd');
+    const isExactSelectedMonthRange =
+      startRaw === selectedMonthStart && endRaw === selectedMonthEnd;
+
+    return {
+      startMs: startDt.getTime(),
+      endMs: endDt.getTime(),
+      isExactSelectedMonthRange,
+    };
+  };
+
   const paymentBelongsToSelectedMonth = (payment: any, monthReference: Date = selectedMonth): boolean => {
     const monthKey = `${monthReference.getFullYear()}-${String(monthReference.getMonth() + 1).padStart(2, '0')}`;
     if (payment?.for_month != null && String(payment.for_month).trim() !== '') {
@@ -21833,6 +22169,10 @@ Estamos te aguardando!`;
     appointmentsInRange: Appointment[],
     monthReference: Date = selectedMonth
   ) => {
+    const professionalRangeBounds = resolveProfessionalRevenueRangeBounds();
+    const useRangeBoundPayments =
+      professionalRangeBounds != null && !professionalRangeBounds.isExactSelectedMonthRange;
+
     const appointmentRows = appointmentsInRange
       .filter((apt) => appointmentBelongsToProfessional(apt, professional) && isCompletedAppointmentStatus(apt))
       .map((apt) => ({
@@ -21857,20 +22197,59 @@ Estamos te aguardando!`;
         return src !== 'subscription' && src !== 'assinatura';
       })
       .filter((p: any) => paymentBelongsToSelectedMonth(p, monthReference))
+      .filter((p: any) => {
+        if (!useRangeBoundPayments || !professionalRangeBounds) return true;
+        const paymentMs = new Date(p.payment_date).getTime();
+        if (!Number.isFinite(paymentMs)) return false;
+        return paymentMs >= professionalRangeBounds.startMs && paymentMs <= professionalRangeBounds.endMs;
+      })
       .sort((a: any, b: any) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
 
-    // Regra oficial (sem adiantamento):
-    // todo pagamento positivo do mês conta imediatamente como pago.
-    const validPaid = monthPayments.reduce((sum: number, payment: any) => {
-      const paymentAmount = Number(payment.amount || 0);
-      return sum + (Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : 0);
-    }, 0);
-    const ignoredAdvance = 0;
+    const getRealizedUntil = (paymentTimeMs: number) => {
+      let realized = 0;
+      for (const row of timeline) {
+        if (row.completedAt <= paymentTimeMs) {
+          realized = row.cumulative;
+        } else {
+          break;
+        }
+      }
+      return realized;
+    };
+
+    let validPaid = 0;
+    let ignoredAdvance = 0;
     const ignoredPaymentIds: string[] = [];
-    const referencePaymentDate =
-      monthPayments.length > 0
-        ? String(monthPayments[monthPayments.length - 1]?.payment_date || '')
-        : null;
+    let referencePaymentDate: string | null = null;
+    const PAYMENT_EPSILON = 0.009;
+
+    monthPayments.forEach((payment: any) => {
+      const paymentAmount = Number(payment.amount || 0);
+      if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) return;
+      const paymentTimeMs = new Date(payment.payment_date).getTime();
+      if (!Number.isFinite(paymentTimeMs)) return;
+
+      const realizedUntilPayment = getRealizedUntil(paymentTimeMs);
+      const allowedAtPayment = Math.max(0, realizedUntilPayment - validPaid);
+
+      if (paymentAmount <= allowedAtPayment + PAYMENT_EPSILON) {
+        validPaid += paymentAmount;
+        referencePaymentDate = String(payment?.payment_date || '') || referencePaymentDate;
+        return;
+      }
+
+      if (allowedAtPayment > PAYMENT_EPSILON) {
+        validPaid += allowedAtPayment;
+        ignoredAdvance += Math.max(0, paymentAmount - allowedAtPayment);
+        referencePaymentDate = String(payment?.payment_date || '') || referencePaymentDate;
+      } else {
+        ignoredAdvance += paymentAmount;
+      }
+
+      const paymentId = String(payment?.id || '').trim();
+      if (paymentId) ignoredPaymentIds.push(paymentId);
+    });
+
     const referencePaymentMs = referencePaymentDate ? new Date(referencePaymentDate).getTime() : Number.NaN;
     const newSalesSinceLastValid = Number.isNaN(referencePaymentMs)
       ? totalRealizedInMonth
@@ -21959,6 +22338,12 @@ Estamos te aguardando!`;
 
   useEffect(() => {
     const cleanupLegacyAdvancePayments = async () => {
+      // Proteção forte:
+      // nunca remover pagamentos automaticamente em produção para evitar regressão financeira.
+      // Se um dia precisar limpar legado, deve ser feito por ação manual e auditável.
+      const ALLOW_AUTOMATIC_LEGACY_ADVANCE_CLEANUP = false;
+      if (!ALLOW_AUTOMATIC_LEGACY_ADVANCE_CLEANUP) return;
+
       // Segurança: nunca remover automaticamente pagamentos sem opt-in explícito.
       // Esse cleanup legado pode apagar pagamentos válidos e causar "voltar pendente" após reload.
       if (typeof window !== 'undefined' && window.localStorage.getItem('enable_legacy_advance_cleanup') !== '1') {
@@ -32393,7 +32778,7 @@ Estamos te aguardando!`;
                                   ignoredPaymentIds={paymentValidation.ignoredPaymentIds}
                                   selectedMonth={professionalRevenuePaymentMonth}
                                   onPaymentRecorded={() => {
-                                    void loadProfessionalPayments();
+                                    void loadProfessionalPayments(true);
                                   }}
                                 />
                               )}

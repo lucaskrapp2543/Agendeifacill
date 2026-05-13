@@ -969,6 +969,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
       if (key === 'additional_service_removed') return 'Extra removido';
       if (key === 'status_changed') return 'Status alterado';
       if (key === 'subscriber_attendance_marked') return 'Atendimento assinatura registrado';
+      if (key === 'subscriber_attendance_auto_failed') return 'Falha no auto-registro de assinatura';
+      if (key === 'subscriber_attendance_auto_skipped') return 'Auto-registro de assinatura ignorado';
       return key || 'Evento';
     };
 
@@ -1307,6 +1309,303 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const getProfessionalNameById = (professionalId: string): string => {
       const p = professionals.find((x) => String(x.id) === String(professionalId));
       return String(p?.name || professionalId || 'Profissional');
+    };
+
+    const normalizePhoneDigitsForSubscriber = (value: unknown): string => {
+      const digits = String(value || '').replace(/\D/g, '');
+      if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) return digits.slice(2);
+      return digits;
+    };
+
+    const parseSubscriberBoolean = (value: unknown): boolean => {
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'number') return value === 1;
+      const raw = String(value ?? '').trim().toLowerCase();
+      return raw === 'true' || raw === '1' || raw === 't' || raw === 'yes' || raw === 'sim' || raw === 'on';
+    };
+
+    const shouldAutoRegisterSubscriberAttendance = (apt: Appointment): boolean => {
+      if ((apt as any)?.is_subscriber === true) return true;
+      const nameRaw = String(apt.client_name || '').trim().toLowerCase();
+      const hasSubscriberLabel = nameRaw.includes('assinante');
+      const basePrice = Number((apt as any)?.price || 0);
+      const totalPrice = Number((apt as any)?.total_price || 0);
+      const looksLikeSubscriberCard = hasSubscriberLabel && (basePrice <= 0 || totalPrice <= 0);
+      return looksLikeSubscriberCard;
+    };
+
+    const resolveAutoSubscriberAttendanceContext = async (apt: Appointment): Promise<{
+      clientSubscriptionId: string;
+      subscriberName: string;
+      subscriberWhatsapp: string;
+      monthlyLimit: number;
+      subscription: any;
+    } | null> => {
+      const establishmentId = String(establishment?.id || '').trim();
+      if (!establishmentId) return null;
+
+      const appointmentPhone = normalizePhoneDigitsForSubscriber((apt as any)?.client_whatsapp);
+      if (!appointmentPhone) return null;
+
+      const { data, error } = await (supabase as any)
+        .from('client_subscriptions')
+        .select(`
+          id,
+          monthly_limit,
+          payment_status,
+          end_date,
+          updated_at,
+          created_at,
+          subscriber_name,
+          subscriber_whatsapp,
+          client_name_override,
+          client_whatsapp,
+          subscriptions (
+            id,
+            name,
+            value,
+            fixed_commission_value,
+            divide_total_enabled,
+            divide_total_attendances
+          )
+        `)
+        .eq('establishment_id', establishmentId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const rows = (Array.isArray(data) ? data : []).filter((row: any) => {
+        const clientPhone = normalizePhoneDigitsForSubscriber(row?.client_whatsapp);
+        const subscriberPhone = normalizePhoneDigitsForSubscriber(row?.subscriber_whatsapp);
+        return clientPhone === appointmentPhone || subscriberPhone === appointmentPhone;
+      });
+      if (rows.length === 0) return null;
+
+      const toMs = (value: unknown): number => {
+        const dt = new Date(String(value || '').trim());
+        const ms = dt.getTime();
+        return Number.isFinite(ms) ? ms : 0;
+      };
+
+      rows.sort((a: any, b: any) => {
+        const aPaid = String(a?.payment_status || '').trim().toLowerCase() === 'paid' ? 1 : 0;
+        const bPaid = String(b?.payment_status || '').trim().toLowerCase() === 'paid' ? 1 : 0;
+        if (aPaid !== bPaid) return bPaid - aPaid;
+        const aEnd = toMs(a?.end_date);
+        const bEnd = toMs(b?.end_date);
+        if (aEnd !== bEnd) return bEnd - aEnd;
+        const aUpd = toMs(a?.updated_at) || toMs(a?.created_at);
+        const bUpd = toMs(b?.updated_at) || toMs(b?.created_at);
+        return bUpd - aUpd;
+      });
+
+      const selected = rows[0];
+      return {
+        clientSubscriptionId: String(selected?.id || ''),
+        subscriberName: String(selected?.client_name_override || selected?.subscriber_name || apt.client_name || '').trim(),
+        subscriberWhatsapp: String(selected?.client_whatsapp || selected?.subscriber_whatsapp || (apt as any)?.client_whatsapp || '').trim(),
+        monthlyLimit: Number(selected?.monthly_limit || 0),
+        subscription: selected?.subscriptions || null,
+      };
+    };
+
+    const registerSubscriberAttendanceAutomatically = async (apt: Appointment): Promise<void> => {
+      const appointmentId = String(apt?.id || '').trim();
+      const establishmentId = String(establishment?.id || '').trim();
+      const writeAutoSubscriberLog = async (
+        eventType: 'subscriber_attendance_marked' | 'subscriber_attendance_auto_failed' | 'subscriber_attendance_auto_skipped',
+        description: string,
+        metadata?: Record<string, any>
+      ) => {
+        if (!appointmentId) return;
+        await writeAppointmentChangeLog({
+          appointmentId,
+          eventType,
+          description,
+          oldValues: { status: String((apt as any)?.status || '').trim() || null },
+          newValues: { status: 'completed' },
+          metadata: {
+            action: 'Auto assinatura na conclusão',
+            source: 'auto_on_complete',
+            selected_date: format(selectedDate, 'dd/MM/yyyy'),
+            selected_time: String((apt as any)?.appointment_time || ''),
+            ...metadata,
+          },
+        });
+      };
+
+      try {
+        if (!shouldAutoRegisterSubscriberAttendance(apt)) return;
+        if (!appointmentId || !establishmentId) return;
+
+        try {
+          const alreadyMarked = await (supabase as any)
+            .from('appointment_change_logs')
+            .select('id')
+            .eq('establishment_id', establishmentId)
+            .eq('appointment_id', appointmentId)
+            .eq('event_type', 'subscriber_attendance_marked')
+            .limit(1);
+          if (!alreadyMarked.error && Array.isArray(alreadyMarked.data) && alreadyMarked.data.length > 0) {
+            return;
+          }
+        } catch {
+          // Compatibilidade: se histórico não existir, segue sem bloquear.
+        }
+
+        const context = await resolveAutoSubscriberAttendanceContext(apt);
+        if (!context || !context.clientSubscriptionId) {
+          await writeAutoSubscriberLog(
+            'subscriber_attendance_auto_failed',
+            'Não foi possível localizar a assinatura do cliente para auto-registro.',
+            { reason: 'subscription_not_found' }
+          );
+          return;
+        }
+
+        const attendanceDate = String((apt as any)?.appointment_date || '').slice(0, 10) || format(selectedDate, 'yyyy-MM-dd');
+        if (!attendanceDate) {
+          await writeAutoSubscriberLog(
+            'subscriber_attendance_auto_failed',
+            'Não foi possível determinar a data do atendimento para auto-registro de assinatura.',
+            { reason: 'attendance_date_missing' }
+          );
+          return;
+        }
+
+        const monthStart = format(new Date(`${attendanceDate}T00:00:00`), 'yyyy-MM-01');
+        const monthEndDate = new Date(`${monthStart}T00:00:00`);
+        monthEndDate.setMonth(monthEndDate.getMonth() + 1);
+        monthEndDate.setDate(0);
+        const monthEnd = format(monthEndDate, 'yyyy-MM-dd');
+
+        if (Number.isFinite(context.monthlyLimit) && context.monthlyLimit > 0) {
+          const { data: countRows, error: countError } = await (supabase as any)
+            .from('subscriber_attendances')
+            .select('id')
+            .eq('establishment_id', establishmentId)
+            .eq('client_subscription_id', context.clientSubscriptionId)
+            .gte('attendance_date', monthStart)
+            .lte('attendance_date', monthEnd);
+          if (countError) throw countError;
+          const currentCount = Array.isArray(countRows) ? countRows.length : 0;
+          if (currentCount >= context.monthlyLimit) {
+            await writeAutoSubscriberLog(
+              'subscriber_attendance_auto_skipped',
+              'Auto-registro de assinatura ignorado porque o limite mensal já foi atingido.',
+              {
+                reason: 'monthly_limit_reached',
+                monthly_limit: context.monthlyLimit,
+                current_count: currentCount,
+                subscriber_id: context.clientSubscriptionId,
+              }
+            );
+            return;
+          }
+        }
+
+        const divideEnabled = parseSubscriberBoolean(context.subscription?.divide_total_enabled);
+        const fixedCommission = Number(context.subscription?.fixed_commission_value || 0);
+        const pointsModeSubscription = !divideEnabled && !(fixedCommission > 0);
+        const subscriptionValue = Number(context.subscription?.value || 0);
+        const fallbackFromAppointmentPrice = Number((apt as any)?.price || 0);
+
+        let baseFixed = 0;
+        if (Number.isFinite(fixedCommission) && fixedCommission > 0) {
+          baseFixed = fixedCommission;
+        } else if (divideEnabled) {
+          baseFixed =
+            Number.isFinite(subscriptionValue) && subscriptionValue > 0
+              ? subscriptionValue
+              : Number.isFinite(fallbackFromAppointmentPrice) && fallbackFromAppointmentPrice > 0
+                ? fallbackFromAppointmentPrice
+                : 0;
+        }
+
+        let multiplier = 1;
+        try {
+          const { data: saleRow, error: saleError } = await (supabase as any)
+            .from('subscription_sale_commissions')
+            .select('commission_percent, commission_amount')
+            .eq('establishment_id', establishmentId)
+            .eq('client_subscription_id', context.clientSubscriptionId)
+            .maybeSingle();
+          if (!saleError) {
+            const salePercent = Number(String(saleRow?.commission_percent || '').replace(',', '.'));
+            if (Number.isFinite(salePercent) && salePercent > 0) {
+              multiplier = Math.max(0, 1 - salePercent / 100);
+            } else {
+              const saleAmount = Number(saleRow?.commission_amount || 0);
+              if (Number.isFinite(saleAmount) && saleAmount > 0 && Number.isFinite(subscriptionValue) && subscriptionValue > 0) {
+                const inferredPercent = Math.min(100, Math.max(0, (saleAmount / subscriptionValue) * 100));
+                multiplier = Math.max(0, 1 - inferredPercent / 100);
+              }
+            }
+          }
+        } catch {
+          // sem bloqueio
+        }
+
+        const divideFromSubscription = Number(context.subscription?.divide_total_attendances || 0);
+        const divideFallbackFromClientLimit = Number(context.monthlyLimit || 0);
+        const divideCount =
+          Number.isFinite(divideFromSubscription) && divideFromSubscription > 0
+            ? divideFromSubscription
+            : Number.isFinite(divideFallbackFromClientLimit) && divideFallbackFromClientLimit > 0
+              ? divideFallbackFromClientLimit
+              : 0;
+        if (divideEnabled && (!Number.isFinite(divideCount) || divideCount <= 0)) {
+          await writeAutoSubscriberLog(
+            'subscriber_attendance_auto_failed',
+            'Auto-registro de assinatura falhou: assinatura com dividir valor total, mas sem quantidade de atendimentos.',
+            {
+              reason: 'divide_total_without_attendances',
+              subscriber_id: context.clientSubscriptionId,
+            }
+          );
+          return;
+        }
+
+        const round2 = (v: number) => Math.round(v * 100) / 100;
+        let repassValue = pointsModeSubscription ? 0 : round2(baseFixed * multiplier);
+        if (divideEnabled) repassValue = round2(repassValue / divideCount);
+
+        const professionalName = getProfessionalNameById(String((apt as any)?.professional || ''));
+        const payload: Record<string, unknown> = {
+          establishment_id: establishmentId,
+          client_subscription_id: context.clientSubscriptionId,
+          professional_name: professionalName,
+          attendance_date: attendanceDate,
+          repass_value: repassValue,
+        };
+        if (user?.id) payload.created_by = user.id;
+
+        const { error: insertError } = await (supabase as any)
+          .from('subscriber_attendances')
+          .insert(payload);
+        if (insertError) throw insertError;
+
+        await writeAutoSubscriberLog(
+          'subscriber_attendance_marked',
+          'Atendimento assinatura registrado automaticamente ao concluir o agendamento.',
+          {
+            subscriber_id: context.clientSubscriptionId,
+            subscriber_name: context.subscriberName,
+            subscriber_whatsapp: context.subscriberWhatsapp,
+            attendance_date: attendanceDate,
+          }
+        );
+      } catch (error) {
+        console.warn('⚠️ Falha ao registrar assinatura automaticamente:', error);
+        await writeAutoSubscriberLog(
+          'subscriber_attendance_auto_failed',
+          'Erro inesperado no auto-registro de assinatura ao concluir o agendamento.',
+          {
+            reason: 'unexpected_error',
+            error_message: String((error as any)?.message || ''),
+          }
+        );
+      }
     };
 
     const loadSubscriberOptions = async () => {
@@ -2752,6 +3051,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
         if (appointment && newStatus === 'completed' && previousStatus !== 'completed') {
           await syncBookingProductsToStockOnCompletion(appointment);
+          await registerSubscriberAttendanceAutomatically(appointment);
         }
 
         const actionLabelByStatus: Record<string, string> = {
@@ -3266,6 +3566,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
         }
 
         if (error) throw error;
+
+        await registerSubscriberAttendanceAutomatically(apt);
 
         if (!showSplitPaymentModal) return;
         toast.success('Formas de pagamento salvas com sucesso!');
@@ -6041,18 +6343,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           </div>
 
                                           {/* Botões secundários */}
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              void logAppointmentCardActionClick(apt, 'atendimento_assinatura_click', 'Clique em Atendimento assinatura.');
-                                              handleOpenSubscriberAttendanceModal(apt);
-                                            }}
-                                            data-tutorial-id="appointments-detalhes-assinatura"
-                                            className="w-full px-2 py-1.5 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700 font-extrabold"
-                                            title="Selecionar um assinante e registrar 1 atendimento concluído"
-                                          >
-                                            ✅ Atendimento assinatura
-                                          </button>
+                                          {!shouldAutoRegisterSubscriberAttendance(apt) && (
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                void logAppointmentCardActionClick(apt, 'atendimento_assinatura_click', 'Clique em Atendimento assinatura.');
+                                                handleOpenSubscriberAttendanceModal(apt);
+                                              }}
+                                              data-tutorial-id="appointments-detalhes-assinatura"
+                                              className="w-full px-2 py-1.5 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700 font-extrabold"
+                                              title="Selecionar um assinante e registrar 1 atendimento concluído"
+                                            >
+                                              ✅ Atendimento assinatura
+                                            </button>
+                                          )}
 
                                           <button
                                             onClick={(e) => {
