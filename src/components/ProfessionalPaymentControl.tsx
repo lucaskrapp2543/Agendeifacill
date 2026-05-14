@@ -53,8 +53,8 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
   // Usar hook para calcular valor líquido correto
   const {
-    currentLiquidValue: currentLiquidDisplay,
     totalPaid,
+    totalWithdrawn,
     refreshLiquidValue
   } = useProfessionalLiquidValue(establishmentId, professionalId, currentLiquidValue, selectedMonth);
 
@@ -64,15 +64,21 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   // quando existe validação do pai, ela é a fonte de verdade (anti-adiantamento).
   const totalPaidEffective =
     typeof validatedPaidAmount === 'number' ? Math.max(0, validatedPaidAmount) : totalPaid;
-  const overpaidAmount = Math.max(0, totalPaidEffective - totalLiquidValue);
+  // Retirada ("pegar valor") também reduz o saldo do profissional.
+  const settledAgainstProfessional = Math.max(0, totalPaidEffective + Math.max(0, totalWithdrawn));
+  const currentLiquidDisplay = Math.max(0, totalLiquidValue - settledAgainstProfessional);
+  const overpaidAmount = Math.max(0, settledAgainstProfessional - totalLiquidValue);
   // Pendente = o que falta para fechar o mês (líquido - já pago), respeitando trava contra adiantamentos.
-  const pendingByLiquid = Math.max(0, totalLiquidValue - totalPaidEffective);
+  const pendingByLiquid = Math.max(0, totalLiquidValue - settledAgainstProfessional);
   const pendingByValidatedRule =
     typeof validatedPendingAmount === 'number' ? Math.max(0, validatedPendingAmount) : pendingByLiquid;
   // Regra operacional: pagar apenas o que ficou pendente após o último pagamento válido.
   const pendingToPay = Math.max(0, Math.min(pendingByLiquid, pendingByValidatedRule));
   const operationalNewSales =
     typeof newSalesValue === 'number' ? Math.max(0, newSalesValue) : null;
+  const pendingFromPriorServices = operationalNewSales === null
+    ? null
+    : Math.max(0, pendingToPay - operationalNewSales);
   const reconciledLiquidValue =
     typeof validatedPendingAmount === 'number'
       ? Math.max(0, totalPaidEffective + pendingToPay)
@@ -372,17 +378,22 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
           {pendingToPay > 0 && (
             <div className="text-sm text-cyan-300 font-medium">
-              Pendente: {formatCurrency(pendingToPay)}
+              Pendente do mês (total): {formatCurrency(pendingToPay)}
             </div>
           )}
           {operationalNewSales !== null && (
             <div className="text-[11px] text-purple-300">
-              Novas vendas no período: {formatCurrency(operationalNewSales)}
+              Novas vendas (após último pagamento): {formatCurrency(operationalNewSales)}
+            </div>
+          )}
+          {pendingFromPriorServices !== null && pendingFromPriorServices > 0.009 && (
+            <div className="text-[11px] text-amber-300">
+              Saldo anterior não quitado: {formatCurrency(pendingFromPriorServices)}
             </div>
           )}
           {typeof validatedPendingAmount === 'number' && (
             <div className="text-[11px] text-gray-400">
-              Pendente do mês (sem adiantamento)
+              Pago = total válido no mês • Total = líquido apurado dos serviços concluídos
             </div>
           )}
         </div>

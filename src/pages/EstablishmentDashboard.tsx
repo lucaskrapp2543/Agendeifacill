@@ -22068,7 +22068,6 @@ Estamos te aguardando!`;
 
   const getAppointmentCompletedAtMs = (apt: Appointment): number => {
     const dateRaw = String((apt as any)?.appointment_date || '').trim();
-    const timeRaw = String((apt as any)?.appointment_time || '').trim();
     const createdRaw = String((apt as any)?.created_at || '').trim();
     let createdMs = Number.NaN;
     if (createdRaw) {
@@ -22076,10 +22075,10 @@ Estamos te aguardando!`;
       if (!Number.isNaN(createdDt.getTime())) createdMs = createdDt.getTime();
     }
     if (dateRaw) {
-      const normalizedTime = /^\d{2}:\d{2}(:\d{2})?$/.test(timeRaw)
-        ? (timeRaw.length === 5 ? `${timeRaw}:00` : timeRaw)
-        : '00:00:00';
-      const dt = new Date(`${dateRaw}T${normalizedTime}`);
+      // Regra financeira por competência diária:
+      // para evitar falso "adiantamento" quando o atendimento foi concluído antes do horário agendado,
+      // considera o dia do atendimento (não o horário do slot).
+      const dt = new Date(`${dateRaw}T00:00:00`);
       if (!Number.isNaN(dt.getTime())) return dt.getTime();
       if (!Number.isNaN(createdMs)) return createdMs;
     }
@@ -22130,31 +22129,6 @@ Estamos te aguardando!`;
     return new Date(startDt.getFullYear(), startDt.getMonth(), 1);
   };
 
-  const resolveProfessionalRevenueRangeBounds = (): {
-    startMs: number;
-    endMs: number;
-    isExactSelectedMonthRange: boolean;
-  } | null => {
-    const startRaw = String(professionalRevenueRangeStart || '').trim();
-    const endRaw = String(professionalRevenueRangeEnd || '').trim();
-    if (!startRaw || !endRaw) return null;
-
-    const startDt = new Date(`${startRaw}T00:00:00`);
-    const endDt = new Date(`${endRaw}T23:59:59.999`);
-    if (Number.isNaN(startDt.getTime()) || Number.isNaN(endDt.getTime())) return null;
-
-    const selectedMonthStart = format(startOfMonth(selectedMonth), 'yyyy-MM-dd');
-    const selectedMonthEnd = format(endOfMonth(selectedMonth), 'yyyy-MM-dd');
-    const isExactSelectedMonthRange =
-      startRaw === selectedMonthStart && endRaw === selectedMonthEnd;
-
-    return {
-      startMs: startDt.getTime(),
-      endMs: endDt.getTime(),
-      isExactSelectedMonthRange,
-    };
-  };
-
   const paymentBelongsToSelectedMonth = (payment: any, monthReference: Date = selectedMonth): boolean => {
     const monthKey = `${monthReference.getFullYear()}-${String(monthReference.getMonth() + 1).padStart(2, '0')}`;
     if (payment?.for_month != null && String(payment.for_month).trim() !== '') {
@@ -22169,10 +22143,6 @@ Estamos te aguardando!`;
     appointmentsInRange: Appointment[],
     monthReference: Date = selectedMonth
   ) => {
-    const professionalRangeBounds = resolveProfessionalRevenueRangeBounds();
-    const useRangeBoundPayments =
-      professionalRangeBounds != null && !professionalRangeBounds.isExactSelectedMonthRange;
-
     const appointmentRows = appointmentsInRange
       .filter((apt) => appointmentBelongsToProfessional(apt, professional) && isCompletedAppointmentStatus(apt))
       .map((apt) => ({
@@ -22197,12 +22167,6 @@ Estamos te aguardando!`;
         return src !== 'subscription' && src !== 'assinatura';
       })
       .filter((p: any) => paymentBelongsToSelectedMonth(p, monthReference))
-      .filter((p: any) => {
-        if (!useRangeBoundPayments || !professionalRangeBounds) return true;
-        const paymentMs = new Date(p.payment_date).getTime();
-        if (!Number.isFinite(paymentMs)) return false;
-        return paymentMs >= professionalRangeBounds.startMs && paymentMs <= professionalRangeBounds.endMs;
-      })
       .sort((a: any, b: any) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
 
     const getRealizedUntil = (paymentTimeMs: number) => {
@@ -22226,7 +22190,12 @@ Estamos te aguardando!`;
     monthPayments.forEach((payment: any) => {
       const paymentAmount = Number(payment.amount || 0);
       if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) return;
-      const paymentTimeMs = new Date(payment.payment_date).getTime();
+      // Mesma competência diária aplicada aos pagamentos.
+      const paymentDate = new Date(payment.payment_date);
+      const paymentDateKey = Number.isNaN(paymentDate.getTime())
+        ? ''
+        : `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}-${String(paymentDate.getDate()).padStart(2, '0')}`;
+      const paymentTimeMs = paymentDateKey ? new Date(`${paymentDateKey}T00:00:00`).getTime() : Number.NaN;
       if (!Number.isFinite(paymentTimeMs)) return;
 
       const realizedUntilPayment = getRealizedUntil(paymentTimeMs);
@@ -22251,11 +22220,15 @@ Estamos te aguardando!`;
     });
 
     const referencePaymentMs = referencePaymentDate ? new Date(referencePaymentDate).getTime() : Number.NaN;
+    const realizedUntilLastValidPayment = Number.isNaN(referencePaymentMs)
+      ? 0
+      : getRealizedUntil(referencePaymentMs);
     const newSalesSinceLastValid = Number.isNaN(referencePaymentMs)
       ? totalRealizedInMonth
       : timeline
         .filter((row) => row.completedAt > referencePaymentMs)
         .reduce((sum, row) => sum + row.net, 0);
+    const pendingFromPriorServices = Math.max(0, realizedUntilLastValidPayment - validPaid);
 
     // Pendente operacional = saldo real do mês (total realizado - já pago).
     const pendingAllowed = Math.max(0, totalRealizedInMonth - validPaid);
@@ -22265,6 +22238,8 @@ Estamos te aguardando!`;
       ignoredAdvance,
       ignoredPaymentIds,
       newSalesSinceLastValid,
+      pendingFromPriorServices,
+      realizedUntilLastValidPayment,
       pendingAllowed,
       lastValidPaymentDate: referencePaymentDate,
       totalRealizedInMonth,
@@ -22322,7 +22297,11 @@ Estamos te aguardando!`;
 
     monthPayments.forEach((payment: any) => {
       const paymentAmount = Number(payment.amount || 0);
-      const paymentTimeMs = new Date(payment.payment_date).getTime();
+      const paymentDate = new Date(payment.payment_date);
+      const paymentDateKey = Number.isNaN(paymentDate.getTime())
+        ? ''
+        : `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}-${String(paymentDate.getDate()).padStart(2, '0')}`;
+      const paymentTimeMs = paymentDateKey ? new Date(`${paymentDateKey}T00:00:00`).getTime() : Number.NaN;
       const realizedUntilPayment = getRealizedUntil(paymentTimeMs);
       const allowedAtPayment = Math.max(0, realizedUntilPayment - validPaid);
 
@@ -32898,9 +32877,14 @@ Estamos te aguardando!`;
                                                 paymentFilter === 'credito' ? 'Crédito' :
                                                   paymentFilter === 'servicos_mais_feitos' ? 'Serviços mais feitos' : 'Todos';
 
-                                        // "Novas Vendas" no resumo segue regra anti-adiantamento.
                                         const displayNewSales = paymentFilter === 'todos'
-                                          ? paymentValidation.pendingAllowed
+                                          ? Math.max(0, Number(paymentValidation.newSalesSinceLastValid || 0))
+                                          : Math.max(0, netTotal - paymentValidation.validPaid);
+                                        const displayPendingFromPriorServices = paymentFilter === 'todos'
+                                          ? Math.max(0, Number(paymentValidation.pendingFromPriorServices || 0))
+                                          : 0;
+                                        const displayPendingMonth = paymentFilter === 'todos'
+                                          ? Math.max(0, Number(paymentValidation.pendingAllowed || 0))
                                           : Math.max(0, netTotal - paymentValidation.validPaid);
 
                                         return (
@@ -32922,12 +32906,28 @@ Estamos te aguardando!`;
                                                 </span>
                                               </div>
                                               {paymentFilter !== 'servicos_mais_feitos' ? (
-                                                <div className="flex justify-between items-center border-t border-gray-700 pt-2">
-                                                  <span className="text-gray-300 font-medium">Novas Vendas:</span>
-                                                  <span className="font-bold text-purple-300">
-                                                    {formatCurrency(displayNewSales)}
-                                                  </span>
-                                                </div>
+                                                <>
+                                                  <div className="flex justify-between items-center border-t border-gray-700 pt-2">
+                                                    <span className="text-gray-300 font-medium">Novas vendas (após último pagamento):</span>
+                                                    <span className="font-bold text-purple-300">
+                                                      {formatCurrency(displayNewSales)}
+                                                    </span>
+                                                  </div>
+                                                  {paymentFilter === 'todos' && displayPendingFromPriorServices > 0.009 && (
+                                                    <div className="flex justify-between items-center">
+                                                      <span className="text-gray-300">Saldo anterior não quitado:</span>
+                                                      <span className="font-semibold text-amber-300">
+                                                        {formatCurrency(displayPendingFromPriorServices)}
+                                                      </span>
+                                                    </div>
+                                                  )}
+                                                  <div className="flex justify-between items-center">
+                                                    <span className="text-gray-300 font-medium">Pendente do mês (total):</span>
+                                                    <span className="font-bold text-cyan-300">
+                                                      {formatCurrency(displayPendingMonth)}
+                                                    </span>
+                                                  </div>
+                                                </>
                                               ) : (
                                                 <div className="flex justify-between items-center border-t border-gray-700 pt-2">
                                                   <span className="text-gray-300 font-medium">Serviço mais feito:</span>
