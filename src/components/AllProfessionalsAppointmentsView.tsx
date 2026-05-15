@@ -1,4 +1,4 @@
-import { format, parse, parseISO } from 'date-fns';
+import { format, parse } from 'date-fns';
 import { Calendar, ChevronLeft, ChevronRight, Clock, Coins, Crown, Package, Phone, Plus, Trash2, User, X } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
@@ -2226,9 +2226,36 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const raw = String(createdAtRaw || '').trim();
       if (!raw) return 'Não disponível';
       try {
-        return format(parseISO(raw), 'dd/MM/yyyy HH:mm');
+        const parsed = new Date(raw);
+        if (Number.isNaN(parsed.getTime())) return raw;
+        return format(parsed, 'dd/MM/yyyy HH:mm');
       } catch {
         return raw;
+      }
+    };
+
+    // Compatibilidade com bases legadas: evita crash quando datas vêm nulas/invalidas.
+    const formatDateSafe = (rawValue: unknown, fallback = 'Data não informada') => {
+      const raw = String(rawValue || '').trim();
+      if (!raw) return fallback;
+      try {
+        const parsed = new Date(raw);
+        if (Number.isNaN(parsed.getTime())) return fallback;
+        return format(parsed, 'dd/MM/yyyy');
+      } catch {
+        return fallback;
+      }
+    };
+
+    const formatDateTimeSafe = (rawValue: unknown, fallback = 'Não disponível') => {
+      const raw = String(rawValue || '').trim();
+      if (!raw) return fallback;
+      try {
+        const parsed = new Date(raw);
+        if (Number.isNaN(parsed.getTime())) return fallback;
+        return format(parsed, 'dd/MM/yyyy HH:mm');
+      } catch {
+        return fallback;
       }
     };
 
@@ -2486,6 +2513,22 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
     };
 
+    const normalizeTimeText = (rawValue: unknown, fallback = '00:00'): string => {
+      const raw = String(rawValue || '').trim();
+      const normalizedFallback = /^\d{2}:\d{2}$/.test(fallback) ? fallback : '00:00';
+      const hhmm = raw.match(/^(\d{1,2}):(\d{2})$/);
+      if (!hhmm) return normalizedFallback;
+      const hour = Number(hhmm[1]);
+      const minute = Number(hhmm[2]);
+      if (!Number.isFinite(hour) || !Number.isFinite(minute)) return normalizedFallback;
+      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return normalizedFallback;
+      return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    };
+
+    const parseTimeSafe = (rawValue: unknown, baseDate: Date, fallback = '00:00'): Date => {
+      return parse(normalizeTimeText(rawValue, fallback), 'HH:mm', baseDate);
+    };
+
     // Duração base: assinantes usam util que alinha plano vs. valor salvo (evita 30min no DB com plano 60min).
     const getEffectiveBaseDuration = (apt: Appointment, interval: number): number => {
       return getEffectiveAppointmentBaseDurationMinutes(apt as any, interval, subscriptionDurations);
@@ -2569,16 +2612,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
 
       const allSlots: string[] = [];
-      const start = parse(startTime, 'HH:mm', selectedDate);
-      const end = parse(endTime, 'HH:mm', selectedDate);
+      const start = parseTimeSafe(startTime, selectedDate, '08:00');
+      const end = parseTimeSafe(endTime, selectedDate, '18:00');
 
       // ✅ Ocultar horários do intervalo (break) na visualização "Horários disponíveis"
       // O booking já trata intervalo; aqui é uma grade de visualização/print e não deve mostrar o intervalo.
       const breakStart = professionalWorkHours?.break_start
-        ? parse(professionalWorkHours.break_start, 'HH:mm', selectedDate)
+        ? parseTimeSafe(professionalWorkHours.break_start, selectedDate)
         : null;
       const breakEnd = professionalWorkHours?.break_end
-        ? parse(professionalWorkHours.break_end, 'HH:mm', selectedDate)
+        ? parseTimeSafe(professionalWorkHours.break_end, selectedDate)
         : null;
 
       // Determinar o intervalo baseado nas configurações do estabelecimento
@@ -2614,17 +2657,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
       const professionalAppointments = [...normalAppointments, ...squeezeAppointments].sort(
         (a, b) =>
-          parse(a.appointment_time, 'HH:mm', selectedDate).getTime() -
-          parse(b.appointment_time, 'HH:mm', selectedDate).getTime()
+          parseTimeSafe(a.appointment_time, selectedDate).getTime() -
+          parseTimeSafe(b.appointment_time, selectedDate).getTime()
       );
 
       // Incluir só horário de TÉRMINO fora do grid (ex: 14:50) — não adicionar 16:30, 16:50 etc. se já estão na grade ou não há agendamento terminando ali
-      const periodStartMins = parse(startTime, 'HH:mm', selectedDate).getTime();
-      const periodEndMins = parse(endTime, 'HH:mm', selectedDate).getTime();
+      const periodStartMins = parseTimeSafe(startTime, selectedDate, '08:00').getTime();
+      const periodEndMins = parseTimeSafe(endTime, selectedDate, '18:00').getTime();
 
       // ✅ Incluir INÍCIO de agendamento fora da grade (ex.: 12:05) para exibir card no horário real.
       professionalAppointments.forEach((apt) => {
-        const aptStart = parse(apt.appointment_time, 'HH:mm', selectedDate);
+        const aptStart = parseTimeSafe(apt.appointment_time, selectedDate);
         const startTimeStr = format(aptStart, 'HH:mm');
         const [sh, sm] = startTimeStr.split(':').map(Number);
         const aptStartMins = sh * 60 + sm;
@@ -2636,7 +2679,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
       });
 
       professionalAppointments.forEach((apt) => {
-        const aptStart = parse(apt.appointment_time, 'HH:mm', selectedDate);
+        const aptStart = parseTimeSafe(apt.appointment_time, selectedDate);
         const duration = getDuracaoTotalAgendamento(apt, interval);
         const aptEnd = new Date(aptStart.getTime() + duration * 60000);
         const endTimeStr = format(aptEnd, 'HH:mm');
@@ -2695,7 +2738,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
           occupiedSlots.set(startTime, { appointment: apt, isOccupied: false });
         }
 
-        const startDate = parse(startTime, 'HH:mm', selectedDate);
+        const startDate = parseTimeSafe(startTime, selectedDate);
         for (let i = interval; i < duration; i += interval) {
           const occupiedTime = format(new Date(startDate.getTime() + i * 60000), 'HH:mm');
           const prev = occupiedSlots.get(occupiedTime);
@@ -2758,7 +2801,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
         // Bloquear todos os horários dentro do intervalo do encaixe
         const squeezeDuration = getDuracaoTotalAgendamento(squeeze, interval);
-        const squeezeStartDate = parse(squeezeStartTime, 'HH:mm', selectedDate);
+        const squeezeStartDate = parseTimeSafe(squeezeStartTime, selectedDate);
 
         allSlots.forEach(slot => {
           if (slot === nearestSlot) return; // Não bloquear o slot principal onde o encaixe aparece
@@ -2831,7 +2874,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const occupied = occupiedSlots.get(slot);
         const isBlocked = blockedHours.includes(slot);
         const squeezesForSlot = squeezeSlotsMap.get(slot) || [];
-        const slotDateTime = parse(slot, 'HH:mm', selectedDate);
+        const slotDateTime = parseTimeSafe(slot, selectedDate);
         const isPast = isToday && slotDateTime <= now;
 
         if (occupied?.appointment) {
@@ -4645,7 +4688,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               }`}
                             title="Clique para reutilizar esse valor no campo"
                           >
-                            <span className="font-semibold">{format(parseISO(`${item.cash_date}T00:00:00`), 'dd/MM/yyyy')}</span>
+                            <span className="font-semibold">{formatDateSafe(`${item.cash_date || ''}T00:00:00`)}</span>
                             <span className="ml-2">{formatCurrency(Number(item.opening_amount || 0))}</span>
                           </button>
                         );
@@ -5108,8 +5151,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     !slotTimeSet.has(String(apt.appointment_time || '').trim())
                   )
                   .sort((a, b) =>
-                    parse(a.appointment_time, 'HH:mm', selectedDate).getTime() -
-                    parse(b.appointment_time, 'HH:mm', selectedDate).getTime()
+                    parseTimeSafe(a.appointment_time, selectedDate).getTime() -
+                    parseTimeSafe(b.appointment_time, selectedDate).getTime()
                   );
 
                 // Contar TODOS os agendamentos do dia (sem depender da grade)
@@ -5132,8 +5175,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     (apt.status === 'pending' || apt.status === 'confirmed')
                   )
                   .sort((a, b) =>
-                    parse(a.appointment_time, 'HH:mm', selectedDate).getTime() -
-                    parse(b.appointment_time, 'HH:mm', selectedDate).getTime()
+                    parseTimeSafe(a.appointment_time, selectedDate).getTime() -
+                    parseTimeSafe(b.appointment_time, selectedDate).getTime()
                   );
 
                 const completedCount = appointments.filter((apt) =>
@@ -5149,8 +5192,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     apt.status === 'completed'
                   )
                   .sort((a, b) =>
-                    parse(a.appointment_time, 'HH:mm', selectedDate).getTime() -
-                    parse(b.appointment_time, 'HH:mm', selectedDate).getTime()
+                    parseTimeSafe(a.appointment_time, selectedDate).getTime() -
+                    parseTimeSafe(b.appointment_time, selectedDate).getTime()
                   );
 
                 const cancelledAppointments = appointments
@@ -5160,8 +5203,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     apt.status === 'cancelled'
                   )
                   .sort((a, b) =>
-                    parse(a.appointment_time, 'HH:mm', selectedDate).getTime() -
-                    parse(b.appointment_time, 'HH:mm', selectedDate).getTime()
+                    parseTimeSafe(a.appointment_time, selectedDate).getTime() -
+                    parseTimeSafe(b.appointment_time, selectedDate).getTime()
                   );
 
                 const cancelledCount = cancelledAppointments.length;
@@ -5625,7 +5668,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <div className="mb-3 text-xs text-white/90 space-y-1">
                                               <div className="flex items-center gap-1">
                                                 <Calendar className="w-3 h-3" />
-                                                {format(parseISO(squeeze.appointment_date), 'dd/MM/yyyy')}
+                                                {formatDateSafe(squeeze.appointment_date)}
                                               </div>
                                               <div className="flex items-center gap-1">
                                                 <Clock className="w-3 h-3" />
@@ -5960,7 +6003,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                       <div className="mb-3 text-xs text-white/90 space-y-1">
                                         <div className="flex items-center gap-1">
                                           <Calendar className="w-3 h-3" />
-                                          {format(parseISO(apt.appointment_date), 'dd/MM/yyyy')}
+                                          {formatDateSafe(apt.appointment_date)}
                                         </div>
                                         <div className="flex items-center gap-1">
                                           <Clock className="w-3 h-3" />
@@ -6547,15 +6590,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             )}
                                             <div>
                                               <span className="font-bold">Criado em:</span>{' '}
-                                              {(() => {
-                                                const createdRaw = String((apt as any)?.created_at || '').trim();
-                                                if (!createdRaw) return 'Não disponível';
-                                                try {
-                                                  return format(parseISO(createdRaw), 'dd/MM/yyyy HH:mm');
-                                                } catch {
-                                                  return createdRaw;
-                                                }
-                                              })()}
+                                              {formatDateTimeSafe((apt as any)?.created_at)}
                                             </div>
                                           </div>
                                         </div>
@@ -6744,15 +6779,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     </div>
                     <div>
                       <span className="font-semibold">Criado em:</span>{' '}
-                      {(() => {
-                        const createdRaw = String((selectedAppointmentForHistory as any)?.created_at || '').trim();
-                        if (!createdRaw) return 'Não disponível';
-                        try {
-                          return format(parseISO(createdRaw), 'dd/MM/yyyy HH:mm');
-                        } catch {
-                          return createdRaw;
-                        }
-                      })()}
+                      {formatDateTimeSafe((selectedAppointmentForHistory as any)?.created_at)}
                     </div>
                     <div>
                       <span className="font-semibold">Origem:</span>{' '}
@@ -6783,13 +6810,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                       <div className="flex items-center justify-between gap-2">
                         <div className="text-sm font-extrabold text-gray-900">{getHistoryEventLabel(row.event_type)}</div>
                         <div className="text-xs text-gray-600">
-                          {(() => {
-                            try {
-                              return format(parseISO(String(row.created_at)), 'dd/MM/yyyy HH:mm');
-                            } catch {
-                              return String(row.created_at || '');
-                            }
-                          })()}
+                          {formatDateTimeSafe(row.created_at, 'N/A')}
                         </div>
                       </div>
                       {row.description && (

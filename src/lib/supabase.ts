@@ -2254,6 +2254,10 @@ export const addClientSubscription = async (clientId: string, subscriptionId: st
 };
 
 export const getClientSubscriptions = async (establishmentId: string, manualClients?: Record<string, any>) => {
+  const normalizeDigits = (value: unknown): string => String(value || '').replace(/\D/g, '');
+  const isUuid = (value: unknown): boolean =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+
   const { data: clientSubs, error } = await supabase
     .from('client_subscriptions')
     .select(
@@ -2273,13 +2277,17 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
   }
 
   // Coletar todos os client_ids únicos
-  const uniqueClientIds = [...new Set(clientSubs.map(cs => cs.client_id))];
+  const uniqueClientIds = [
+    ...new Set(
+      clientSubs
+        .map((cs: any) => String(cs?.client_id || '').trim())
+        .filter(Boolean)
+    ),
+  ];
   console.log('🔍 Client IDs para buscar nomes:', uniqueClientIds);
 
   // Filtrar apenas UUIDs válidos para a busca de agendamentos
-  const validUuids = uniqueClientIds.filter(id =>
-    id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
-  );
+  const validUuids = uniqueClientIds.filter((id) => isUuid(id));
 
   console.log('🔍 UUIDs válidos para buscar:', validUuids);
   console.log('🔍 IDs manuais ignorados:', uniqueClientIds.filter(id => !validUuids.includes(id)));
@@ -2328,16 +2336,21 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
 
   // Combinar os dados das assinaturas de clientes com os nomes
   const combinedData = await Promise.all(clientSubs.map(async (cs) => {
-    const clientData = clientNamesMap.get(cs.client_id);
+    const rawClientId = String((cs as any)?.client_id || '').trim();
+    const clientData = rawClientId ? clientNamesMap.get(rawClientId) : null;
+    const fallbackWhatsapp =
+      normalizeDigits((cs as any)?.client_whatsapp) ||
+      normalizeDigits((cs as any)?.subscriber_whatsapp) ||
+      'N/A';
 
     // Verificar se é um cliente manual
     let clientName = 'Cliente Desconhecido';
-    let clientWhatsapp = 'N/A';
+    let clientWhatsapp = fallbackWhatsapp;
     let clientEmail = null;
 
-    if (cs.client_id.startsWith('manual_')) {
+    if (rawClientId.startsWith('manual_')) {
       // É um cliente manual - buscar nos dados passados primeiro
-      const whatsapp = cs.client_id.replace('manual_', '');
+      const whatsapp = rawClientId.replace('manual_', '');
       const manualClient = manualClientsData[whatsapp];
 
       if (manualClient) {
@@ -2350,8 +2363,8 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
         console.log(`🔍 Cliente manual não encontrado no localStorage, buscando no banco: ${whatsapp}`);
         try {
           const { getClientNameFromDatabase, getClientWhatsappFromDatabase } = await import('../utils/databaseClientRecovery');
-          const dbName = await getClientNameFromDatabase(establishmentId, cs.client_id);
-          const dbWhatsapp = await getClientWhatsappFromDatabase(establishmentId, cs.client_id);
+          const dbName = await getClientNameFromDatabase(establishmentId, rawClientId);
+          const dbWhatsapp = await getClientWhatsappFromDatabase(establishmentId, rawClientId);
 
           if (dbName && dbName !== 'Cliente Desconhecido') {
             clientName = dbName;
@@ -2364,17 +2377,17 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
           console.error('Erro ao buscar cliente no banco:', error);
         }
       }
-    } else {
+    } else if (rawClientId) {
       // É um UUID - usar dados do agendamento
       clientName = clientData?.name || 'Cliente Desconhecido';
-      clientWhatsapp = clientData?.whatsapp || 'N/A';
+      clientWhatsapp = clientData?.whatsapp || fallbackWhatsapp;
 
       // Se não encontrou nome, tentar buscar no banco
       if (clientName === 'Cliente Desconhecido') {
         try {
           const { getClientNameFromDatabase, getClientWhatsappFromDatabase } = await import('../utils/databaseClientRecovery');
-          const dbName = await getClientNameFromDatabase(establishmentId, cs.client_id);
-          const dbWhatsapp = await getClientWhatsappFromDatabase(establishmentId, cs.client_id);
+          const dbName = await getClientNameFromDatabase(establishmentId, rawClientId);
+          const dbWhatsapp = await getClientWhatsappFromDatabase(establishmentId, rawClientId);
 
           if (dbName && dbName !== 'Cliente Desconhecido') {
             clientName = dbName;
@@ -2385,9 +2398,13 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
           console.error('Erro ao buscar cliente UUID no banco:', error);
         }
       }
+    } else {
+      // Compatibilidade com base legada: pode haver assinatura sem client_id.
+      clientName = String((cs as any)?.client_name || '').trim() || 'Cliente sem client_id';
+      clientWhatsapp = fallbackWhatsapp;
     }
 
-    console.log(`📋 Cliente ${cs.client_id}:`, {
+    console.log(`📋 Cliente ${rawClientId || '(sem client_id)'}:`, {
       clientData,
       clientName,
       clientWhatsapp,
