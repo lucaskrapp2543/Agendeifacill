@@ -282,16 +282,10 @@ router.get('/automation-settings', async (req, res) => {
       await sleep(attempt * 250);
     }
     if (error) {
-      if (isMissingAutomationSettingsTable(error)) {
+      if (isMissingAutomationSettingsTable(error) || isTransientSupabaseError(error)) {
         return res.status(200).json({
           ok: true,
           settings: normalizeAutomationSettings(null, userId),
-        });
-      }
-      if (isTransientSupabaseError(error)) {
-        return res.status(503).json({
-          ok: false,
-          error: 'Falha temporária de rede ao carregar automação. Tente novamente em alguns segundos.',
         });
       }
       throw error;
