@@ -80,6 +80,14 @@
   force = true
   methods = ["POST", "OPTIONS"]
 
+## Rotas de API (WhatsApp Baileys) - produção
+[[redirects]]
+  from = "/api/whatsapp/:path*"
+  to = "https://api.agendeifacil.com/api/whatsapp/:path*"
+  status = 200
+  force = true
+  methods = ["GET", "POST", "OPTIONS"]
+
 # API Routes - DEVEM VIR ANTES do catch-all
 [[redirects]]
   from = "/api/cancel-appointment"

@@ -111,6 +111,16 @@ async function buildAuthHeaders() {
 }
 
 export function BaileysWhatsAppSettings({ userId }: Props) {
+  const whatsappApiBase = String((import.meta as any)?.env?.VITE_WHATSAPP_API_BASE_URL || '')
+    .trim()
+    .replace(/\/$/, '');
+  const buildWhatsAppApiUrl = (suffix: string) => {
+    const normalized = String(suffix || '').replace(/^\/+/, '');
+    return whatsappApiBase
+      ? `${whatsappApiBase}/api/whatsapp/${normalized}`
+      : `/api/whatsapp/${normalized}`;
+  };
+
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
@@ -169,7 +179,7 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
     const headers = await buildAuthHeaders();
     if (!headers) return;
     try {
-      const response = await fetch(`/api/whatsapp/status?user_id=${encodeURIComponent(userId)}`, {
+      const response = await fetch(`${buildWhatsAppApiUrl('status')}?user_id=${encodeURIComponent(userId)}`, {
         method: 'GET',
         headers,
       });
@@ -192,7 +202,7 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
     const headers = await buildAuthHeaders();
     if (!headers) return;
     try {
-      const response = await fetch(`/api/whatsapp/automation-settings?user_id=${encodeURIComponent(userId)}`, {
+      const response = await fetch(`${buildWhatsAppApiUrl('automation-settings')}?user_id=${encodeURIComponent(userId)}`, {
         method: 'GET',
         headers,
       });
@@ -215,7 +225,7 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
     if (!headers) return;
     setLoadingLogs(true);
     try {
-      const response = await fetch(`/api/whatsapp/message-logs?user_id=${encodeURIComponent(userId)}&limit=80`, {
+      const response = await fetch(`${buildWhatsAppApiUrl('message-logs')}?user_id=${encodeURIComponent(userId)}&limit=80`, {
         method: 'GET',
         headers,
       });
@@ -253,7 +263,7 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
     try {
       const headers = await buildAuthHeaders();
       if (!headers) throw new Error('Sessão expirada. Faça login novamente.');
-      const response = await fetch('/api/whatsapp/connect', {
+      const response = await fetch(buildWhatsAppApiUrl('connect'), {
         method: 'POST',
         headers,
         body: JSON.stringify({ user_id: userId }),
@@ -281,7 +291,7 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
     try {
       const headers = await buildAuthHeaders();
       if (!headers) throw new Error('Sessão expirada. Faça login novamente.');
-      const response = await fetch('/api/whatsapp/disconnect', {
+      const response = await fetch(buildWhatsAppApiUrl('disconnect'), {
         method: 'POST',
         headers,
         // Forca logout completo para exigir novo QR na proxima conexao.
@@ -317,7 +327,7 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
     try {
       const headers = await buildAuthHeaders();
       if (!headers) throw new Error('Sessão expirada. Faça login novamente.');
-      const response = await fetch('/api/whatsapp/send', {
+      const response = await fetch(buildWhatsAppApiUrl('send'), {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -371,7 +381,7 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
 
       const headers = await buildAuthHeaders();
       if (!headers) throw new Error('Sessão expirada. Faça login novamente.');
-      const response = await fetch('/api/whatsapp/automation-settings', {
+      const response = await fetch(buildWhatsAppApiUrl('automation-settings'), {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -429,6 +439,11 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
       {apiUnavailable ? (
         <div className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
           API de WhatsApp indisponível neste deploy. {apiUnavailableMessage || 'As rotas /api/whatsapp não responderam JSON.'}
+          {!whatsappApiBase && typeof window !== 'undefined' && !/^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname) ? (
+            <span className="block mt-1 text-red-100/90">
+              Configure `VITE_WHATSAPP_API_BASE_URL` para apontar para o servidor Node que roda o Baileys.
+            </span>
+          ) : null}
         </div>
       ) : null}
       <div className="flex items-center justify-between gap-3">
