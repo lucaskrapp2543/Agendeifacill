@@ -63,7 +63,7 @@ import { initializeWhatsAppServices } from './services/whatsapp';
 import whatsappRoutes from './whatsapp/whatsapp.routes';
 
 const app = express();
-const PORT = process.env.API_PORT || 3001;
+const PORT = process.env.PORT || process.env.API_PORT || 3001;
 
 // Supabase Admin (bypass RLS) - usado para registrar assinaturas pagas no Booking público
 const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
