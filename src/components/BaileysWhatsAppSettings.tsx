@@ -178,6 +178,28 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
     setApiUnavailableMessage(msg || 'API de WhatsApp indisponível neste ambiente.');
   };
 
+  const isTransientNetworkError = (error: any) => {
+    const msg = String(error?.message || error || '').toLowerCase().trim();
+    if (!msg) return false;
+    return (
+      msg.includes('failed to fetch') ||
+      msg.includes('fetch failed') ||
+      msg.includes('network timeout') ||
+      msg.includes('networkerror') ||
+      msg.includes('load failed')
+    );
+  };
+
+  const handleBackgroundLoadError = (error: any, context: 'status' | 'automation-settings') => {
+    if (isTransientNetworkError(error)) {
+      // Falhas transitórias de rede no polling não devem derrubar a UI nem exibir erro falso.
+      console.warn(`[whatsapp/${context}] falha transitória de rede:`, String(error?.message || error));
+      return;
+    }
+    markApiUnavailable(error);
+    console.error(error);
+  };
+
   const loadStatus = async () => {
     if (!userId) return;
     const headers = await buildAuthHeaders();
@@ -196,8 +218,7 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
       setStatus(data);
       setQrDataUrl(String(data?.qr || '').trim() || null);
     } catch (error: any) {
-      markApiUnavailable(error);
-      console.error(error);
+      handleBackgroundLoadError(error, 'status');
     }
   };
 
@@ -218,8 +239,7 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
       setApiUnavailableMessage('');
       setSettings(data.settings);
     } catch (error: any) {
-      markApiUnavailable(error);
-      console.error(error);
+      handleBackgroundLoadError(error, 'automation-settings');
     }
   };
 
