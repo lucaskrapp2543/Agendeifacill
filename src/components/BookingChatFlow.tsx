@@ -6,6 +6,7 @@ import { checkWhatsAppSubscriber as checkLegacySubscriber, supabase } from '../l
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { validatePendingClientBookingLimit } from '../utils/pendingClientBookingValidation';
 import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
+import { PaymentMethodSelector } from './PaymentMethodSelector';
 import { TimeSlotSelector } from './TimeSlotSelector';
 
 type ChatStep =
@@ -202,6 +203,8 @@ export function BookingChatFlow({
   const [selectedSubscriberExtraIds, setSelectedSubscriberExtraIds] = useState<string[]>([]);
   const [selectedBookingProductIds, setSelectedBookingProductIds] = useState<string[]>([]);
   const [selectedBookingProductImagePreview, setSelectedBookingProductImagePreview] = useState<{ url: string; name: string } | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('');
+  const [showSubscriberSelectionHint, setShowSubscriberSelectionHint] = useState(false);
   const [chatClientCpf, setChatClientCpf] = useState('');
   const [invalidSubscriberDateMessage, setInvalidSubscriberDateMessage] = useState('');
   const [visibleSlotsCountForSelectedProfessional, setVisibleSlotsCountForSelectedProfessional] = useState<number | null>(null);
@@ -239,6 +242,31 @@ export function BookingChatFlow({
     () => professionals.find((professional: any) => String(professional?.id || '') === String(selectedProfessionalId || '')),
     [professionals, selectedProfessionalId]
   );
+
+  const enabledPaymentMethods = useMemo(() => {
+    const defaults = ['pix', 'credito', 'debito', 'dinheiro', 'pagar_local'];
+    const raw = Array.isArray((establishment as any)?.payment_methods_enabled)
+      ? ((establishment as any).payment_methods_enabled as any[])
+      : [];
+    const normalized = raw
+      .map((method) => String(method || '').trim().toLowerCase())
+      .filter(Boolean);
+    return normalized.length > 0 ? normalized : defaults;
+  }, [establishment]);
+
+  const shouldSkipPaymentMethodQuestion = useMemo(() => {
+    const hasMercadoPagoConnected = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+    const hasAdvancePixEnabled = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
+    return hasMercadoPagoConnected && hasAdvancePixEnabled;
+  }, [establishment]);
+
+  const shouldAskPaymentMethod = !isSubscriberFlow && !requireAdvancePayment && !shouldSkipPaymentMethodQuestion;
+
+  useEffect(() => {
+    if (!shouldAskPaymentMethod && selectedPaymentMethod) {
+      setSelectedPaymentMethod('');
+    }
+  }, [shouldAskPaymentMethod, selectedPaymentMethod]);
 
   const allServices = useMemo(() => {
     const legacyServices = Array.isArray((establishment as any)?.legacy_services_with_prices)
@@ -1022,6 +1050,10 @@ export function BookingChatFlow({
       if (step === 'service') {
         if (isSubscriberFlow) {
           toast.error('Selecione sua assinatura antes de prosseguir.');
+          setShowSubscriberSelectionHint(true);
+          if (serviceIntroRef.current) {
+            serviceIntroRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
         } else {
           toast.error('Selecione pelo menos um serviço antes de prosseguir.');
         }
@@ -1160,6 +1192,10 @@ export function BookingChatFlow({
   const handleConfirmBooking = async () => {
     if (!chatClientName || !chatClientPhone || !selectedProfessionalId || !selectedTime) return;
     if (!computedSelection.serviceName || computedSelection.duration <= 0) return;
+    if (shouldAskPaymentMethod && !selectedPaymentMethod) {
+      toast.error('Selecione a forma de pagamento para continuar.');
+      return;
+    }
     if (pendingClientBookingMessage) {
       toast.error(pendingClientBookingMessage);
       return;
@@ -1258,7 +1294,13 @@ export function BookingChatFlow({
             : combinedAdditionalProducts.length > 0
               ? combinedAdditionalProducts
               : null,
-        payment_method: isSubscriberFlow ? 'assinante' : (requireAdvancePayment ? 'pendente' : 'pagar_local'),
+        payment_method: isSubscriberFlow
+          ? 'assinante'
+          : (
+            requireAdvancePayment
+              ? 'pendente'
+              : (shouldAskPaymentMethod ? selectedPaymentMethod : 'pagar_local')
+          ),
         is_child_service: false,
         is_subscriber: isSubscriberFlow,
         is_loyalty_reward: loyaltyFree,
@@ -1509,6 +1551,19 @@ export function BookingChatFlow({
     }
   }, [chatMessages, step]);
 
+  useEffect(() => {
+    if (step !== 'service' || !isSubscriberFlow) {
+      setShowSubscriberSelectionHint(false);
+      return;
+    }
+    const hasSelection = isDividedSubscriberPlan
+      ? selectedSubscriberServiceIds.length > 0
+      : Boolean(String(selectedSubscriberServiceId || '').trim());
+    if (hasSelection) {
+      setShowSubscriberSelectionHint(false);
+    }
+  }, [step, isSubscriberFlow, isDividedSubscriberPlan, selectedSubscriberServiceId, selectedSubscriberServiceIds]);
+
   return (
     <div className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-[2px] flex items-center justify-center p-4">
       <div className="w-full max-w-4xl max-h-[92vh] overflow-hidden rounded-2xl border border-white/10 bg-[#111111] shadow-[0_25px_80px_rgba(0,0,0,0.65)] text-white">
@@ -1736,6 +1791,19 @@ export function BookingChatFlow({
 
             {step === 'service' && isSubscriberFlow && (
               <div className="space-y-3">
+                {showSubscriberSelectionHint && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (serviceIntroRef.current) {
+                        serviceIntroRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }
+                    }}
+                    className="inline-flex items-center gap-2 rounded-full border border-amber-400/70 bg-amber-500/15 px-3 py-2 text-xs sm:text-sm font-extrabold text-amber-200 animate-bounce"
+                  >
+                    👉 Clique aqui para selecionar sua assinatura
+                  </button>
+                )}
                 <div className="space-y-2">
                   {isDividedSubscriberPlan && (
                     <div className="text-xs text-white/70">
@@ -1763,13 +1831,17 @@ export function BookingChatFlow({
                           }
                           if (isDividedSubscriberPlan) {
                             toggleSubscriberService(serviceId);
+                            setShowSubscriberSelectionHint(false);
                             return;
                           }
                           setSelectedSubscriberServiceId(serviceId);
+                          setShowSubscriberSelectionHint(false);
                         }}
                         className={`w-full text-left px-3 py-2 rounded-lg border ${blockedByLimit
                             ? 'bg-red-500/10 border-red-500/40 opacity-80'
-                            : (selected ? 'bg-emerald-600 border-emerald-500' : 'bg-white/10 border-white/20')
+                            : (selected
+                              ? 'bg-emerald-600 border-emerald-500'
+                              : (showSubscriberSelectionHint ? 'bg-white/10 border-amber-400/70 shadow-[0_0_0_1px_rgba(251,191,36,0.35)]' : 'bg-white/10 border-white/20'))
                           }`}
                       >
                         <div className="font-semibold">{service.name}</div>
@@ -2080,6 +2152,27 @@ export function BookingChatFlow({
                   </div>
                 )}
                 <div><strong>Total final:</strong> {toMoney(confirmDisplayTotalPrice)}</div>
+                {!isSubscriberFlow && !requireAdvancePayment && shouldSkipPaymentMethodQuestion && (
+                  <div className="text-xs text-cyan-200/90">
+                    Pagamento via Mercado Pago ativo: a escolha de pagamento acontece no checkout, sem precisar selecionar aqui.
+                  </div>
+                )}
+                {shouldAskPaymentMethod && (
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold text-white/90">
+                      Forma de pagamento
+                    </label>
+                    <PaymentMethodSelector
+                      selectedMethod={selectedPaymentMethod || null}
+                      onMethodSelect={(method) => setSelectedPaymentMethod(String(method || '').trim().toLowerCase())}
+                      showPixOptions={Boolean((establishment as any)?.pix_key)}
+                      enabledMethods={enabledPaymentMethods}
+                    />
+                    <p className="text-xs text-white/70">
+                      Escolha como pretende pagar no estabelecimento.
+                    </p>
+                  </div>
+                )}
                 {shouldRequireCpf && (
                   <div className="space-y-1.5">
                     <label className="block text-xs font-semibold text-white/90">

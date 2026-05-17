@@ -1,5 +1,6 @@
 import { metaSendMessage, type MetaTemplatePayload } from './metaClient';
 import { wasenderSendMessage } from './wasenderClient';
+import { sendWhatsAppMessage } from '../../../server/services/whatsapp';
 
 export type ProviderSendResult = {
   ok: boolean;
@@ -29,13 +30,35 @@ export async function sendWhatsappByProvider(params: {
   const provider = normalizeProvider(params.provider);
 
   if (provider === 'meta' || provider === 'meta_cloud' || provider === 'meta_cloud_api' || provider === 'cloud_api') {
-    return metaSendMessage({
+    const metaResult = await metaSendMessage({
       accessToken: params.encryptedApiKeyDecrypted,
       phoneNumberId: String(params.metaPhoneNumberId || '').trim(),
       to: params.to,
       text: params.text,
       template: params.metaTemplate,
     });
+
+    // Fallback opcional para Baileys quando a Meta falhar.
+    // Mantém o fluxo atual intacto e só ativa se configurado por ambiente.
+    const fallbackUserId = String(process.env.WHATSAPP_BAILEYS_FALLBACK_USER_ID || '').trim();
+    if (!metaResult.ok && fallbackUserId) {
+      const fallback = await sendWhatsAppMessage(fallbackUserId, params.to, params.text);
+      if (fallback.ok) {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            fallback_provider: 'baileys',
+            fallback_user_id: fallbackUserId,
+            fallback_message_id: fallback.messageId || null,
+            meta_error: metaResult.errorText || null,
+            meta_status: metaResult.status,
+          },
+        };
+      }
+    }
+
+    return metaResult;
   }
 
   const baseUrl = String(params.wasenderBaseUrl || process.env.WASENDER_BASE_URL || '').trim();

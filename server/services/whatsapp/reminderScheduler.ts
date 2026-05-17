@@ -1,0 +1,556 @@
+import { createClient } from '@supabase/supabase-js';
+import IORedis from 'ioredis';
+import type { SendMessageInput, SendMessageResult } from './types';
+
+type SchedulerDeps = {
+  enqueueOrSend: (payload: SendMessageInput) => Promise<SendMessageResult>;
+};
+
+type AppointmentRow = {
+  id: string;
+  establishment_id: string;
+  professional_id?: string | null;
+  professional?: string | null;
+  client_name?: string | null;
+  client_whatsapp?: string | null;
+  appointment_date: string;
+  appointment_time: string;
+  status?: string | null;
+  created_at?: string | null;
+};
+const ACTIVE_APPOINTMENT_STATUSES = ['pending', 'confirmed', 'completed', 'waiting', 'pending_payment'];
+const SAFE_APPOINTMENT_STATUSES = ['pending', 'confirmed', 'completed'];
+
+type EstablishmentRow = {
+  id: string;
+  owner_id: string;
+  name?: string | null;
+};
+
+type AutomationSettings = {
+  reminderEnabled: boolean;
+  reminderOffsetMinutes: number;
+  reminderTemplate: string;
+  greetingEnabled: boolean;
+  greetingTemplate: string;
+};
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ALLOWED_REMINDER_MINUTES = new Set([10, 30, 60, 180, 300, 720]);
+const DEFAULT_REMINDER_TEMPLATE =
+  'Olá, {{cliente_nome}}! 👋✨\n' +
+  'Passando para lembrar seu horário na {{barbearia_nome}}.\n' +
+  '⏰ Falta {{tempo_lembrete}} para seu atendimento de hoje às {{horario}}.\n' +
+  '📅 Data: {{data}}\n' +
+  '💈 Profissional: {{profissional_nome}}\n\n' +
+  'Te aguardamos! 🤝';
+const DEFAULT_GREETING_TEMPLATE =
+  'Opa, {{cliente_nome}}! 👋\n' +
+  'Obrigado por agendar na {{barbearia_nome}}. Ficamos muito felizes! 🙏\n\n' +
+  '📅 Data: {{data}}\n' +
+  '⏰ Horário: {{horario}}\n' +
+  '💈 Profissional: {{profissional_nome}}\n\n' +
+  'Qualquer dúvida, estamos por aqui no WhatsApp 💬';
+
+const toDateTime = (dateStr: string, timeStr: string): Date | null => {
+  const date = String(dateStr || '').trim();
+  const timeRaw = String(timeStr || '').trim();
+  const hhmm = timeRaw.match(/^(\d{1,2}):(\d{2})/);
+  if (!date || !hhmm) return null;
+  const h = Number(hhmm[1]);
+  const m = Number(hhmm[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  const dt = new Date(`${date}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+};
+
+const normalizePhone = (raw: string): string => {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('55')) return digits;
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+  return digits;
+};
+
+const fmtDate = (raw: string): string => {
+  const dt = new Date(`${String(raw || '').slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(dt.getTime())) return String(raw || '');
+  return dt.toLocaleDateString('pt-BR');
+};
+
+const formatReminderOffset = (minutes: number): string => {
+  if (minutes === 60) return '1 hora';
+  if (minutes === 180) return '3 horas';
+  if (minutes === 300) return '5 horas';
+  if (minutes === 720) return '12 horas';
+  return `${minutes} minutos`;
+};
+
+const formatTemplate = (
+  templateRaw: string,
+  vars: Record<string, string>
+): string => {
+  const template = String(templateRaw || '').trim();
+  if (!template) return '';
+  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key: string) => {
+    const value = vars[key] ?? '';
+    return String(value);
+  });
+};
+
+const isMissingAutomationSettingsTable = (error: any) => {
+  const code = String(error?.code || '').trim().toUpperCase();
+  const msg = String(error?.message || '').toLowerCase();
+  return code === '42P01' || (msg.includes('whatsapp_automation_settings') && msg.includes('does not exist'));
+};
+
+const resolveLogStatus = (result: SendMessageResult): 'queued' | 'sent' | 'accepted' | 'failed' => {
+  if (!result?.ok) return 'failed';
+  if (result.ackConfirmed === false) return 'accepted';
+  return String(result.deliveryMode || '').toLowerCase() === 'queued' ? 'queued' : 'sent';
+};
+
+export class WhatsAppReminderScheduler {
+  private readonly supabase: any;
+  private readonly deps: SchedulerDeps;
+  private timer: NodeJS.Timeout | null = null;
+  private running = false;
+  private settingsCache = new Map<string, AutomationSettings>();
+  private dispatchGuard = new Map<string, number>();
+  private readonly workerId: number;
+  private readonly workerCount: number;
+  private readonly schedulerLockKey: string;
+  private readonly lockClient: IORedis | null = null;
+
+  constructor(deps: SchedulerDeps) {
+    const supabaseUrl = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+    const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+    if (!supabaseUrl || !serviceRoleKey) {
+      throw new Error('SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são obrigatórios para scheduler de WhatsApp.');
+    }
+    this.supabase = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    this.deps = deps;
+    this.workerId = Math.max(0, Number(process.env.WHATSAPP_WORKER_ID || 0) || 0);
+    this.workerCount = Math.max(1, Number(process.env.WHATSAPP_WORKER_COUNT || 1) || 1);
+    this.schedulerLockKey = String(process.env.WHATSAPP_SCHEDULER_LOCK_KEY || 'wa:scheduler:leader').trim();
+    const redisUrl = String(process.env.REDIS_URL || '').trim();
+    if (redisUrl) {
+      this.lockClient = new IORedis(redisUrl, { maxRetriesPerRequest: null, enableReadyCheck: false });
+    }
+  }
+
+  start() {
+    if (this.timer) return;
+    this.timer = setInterval(() => {
+      void this.runOnce();
+    }, 60_000);
+    void this.runOnce();
+    console.log('✅ Scheduler de WhatsApp (Baileys) iniciado (1 min).');
+  }
+
+  stop() {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    void this.lockClient?.quit();
+  }
+
+  private hashStable(value: string): number {
+    let hash = 0;
+    const text = String(value || '');
+    for (let i = 0; i < text.length; i++) {
+      hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+    }
+    return hash;
+  }
+
+  private belongsToThisWorker(establishmentId: string): boolean {
+    if (this.workerCount <= 1) return true;
+    const shard = this.hashStable(establishmentId) % this.workerCount;
+    return shard === this.workerId;
+  }
+
+  private async canRunThisTick(): Promise<boolean> {
+    if (!this.lockClient) return true;
+    try {
+      const token = `${process.pid}:${this.workerId}:${Date.now()}`;
+      const lock = await this.lockClient.set(this.schedulerLockKey, token, 'EX', 55, 'NX');
+      return lock === 'OK';
+    } catch {
+      // Se Redis indisponível, mantém operação para não parar automação.
+      return true;
+    }
+  }
+
+  private async findSenderUserId(
+    appointment: AppointmentRow,
+    establishmentById: Map<string, EstablishmentRow>
+  ): Promise<string | null> {
+    const candidates: string[] = [];
+    const professionalId =
+      String(appointment.professional_id || '').trim() ||
+      String(appointment.professional || '').trim();
+    if (professionalId && UUID_REGEX.test(professionalId)) candidates.push(professionalId);
+
+    const establishment = establishmentById.get(String(appointment.establishment_id || '').trim());
+    const ownerId = String(establishment?.owner_id || '').trim();
+    if (ownerId) candidates.push(ownerId);
+
+    if (candidates.length === 0) return null;
+
+    const { data } = await this.supabase
+      .from('whatsapp_sessions')
+      .select('user_id,status')
+      .in('user_id', candidates);
+
+    const active = new Set(
+      ((data || []) as any[])
+        .filter((row: any) => String(row?.status || '').toLowerCase() === 'connected')
+        .map((row: any) => String(row?.user_id || '').trim())
+        .filter(Boolean)
+    );
+
+    const firstActive = candidates.find((id) => active.has(id));
+    return firstActive || null;
+  }
+
+  private normalizeAutomationSettings(row: any): AutomationSettings {
+    const reminderOffset = Number(row?.reminder_offset_minutes || 60);
+    return {
+      reminderEnabled: row?.reminder_enabled !== false,
+      reminderOffsetMinutes: ALLOWED_REMINDER_MINUTES.has(reminderOffset) ? reminderOffset : 60,
+      reminderTemplate: String(row?.reminder_template || '').trim() || DEFAULT_REMINDER_TEMPLATE,
+      greetingEnabled: row?.greeting_enabled !== false,
+      greetingTemplate: String(row?.greeting_template || '').trim() || DEFAULT_GREETING_TEMPLATE,
+    };
+  }
+
+  private async getAutomationSettings(userId: string): Promise<AutomationSettings> {
+    const key = String(userId || '').trim();
+    if (!key) return this.normalizeAutomationSettings(null);
+    const cached = this.settingsCache.get(key);
+    if (cached) return cached;
+
+    let normalized: AutomationSettings;
+    try {
+      const { data, error } = await this.supabase
+        .from('whatsapp_automation_settings')
+        .select('reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template')
+        .eq('user_id', key)
+        .maybeSingle();
+      if (error) throw error;
+      normalized = this.normalizeAutomationSettings(data);
+    } catch (error) {
+      if (!isMissingAutomationSettingsTable(error)) {
+        console.warn('⚠️ Falha ao carregar whatsapp_automation_settings, usando padrão:', error);
+      }
+      normalized = this.normalizeAutomationSettings(null);
+    }
+    this.settingsCache.set(key, normalized);
+    return normalized;
+  }
+
+  private async fetchAppointmentsByWindow(params: {
+    dateFrom?: string;
+    dateTo?: string;
+    createdAfterIso?: string;
+  }): Promise<AppointmentRow[]> {
+    const selectWithProfessional =
+      'id,establishment_id,professional_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at';
+    const selectFallback =
+      'id,establishment_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at';
+
+    const buildQuery = (selectClause: string, statuses: string[]) => {
+      let query = this.supabase
+        .from('appointments')
+        .select(selectClause)
+        .in('status', statuses);
+      if (params.dateFrom) query = query.gte('appointment_date', params.dateFrom);
+      if (params.dateTo) query = query.lte('appointment_date', params.dateTo);
+      if (params.createdAfterIso) query = query.gte('created_at', params.createdAfterIso);
+      return query;
+    };
+
+    let query = buildQuery(selectWithProfessional, ACTIVE_APPOINTMENT_STATUSES);
+
+    let result = await query;
+    if (!result.error) return (result.data || []) as AppointmentRow[];
+
+    const invalidEnum =
+      String(result.error?.code || '').trim().toUpperCase() === '22P02' &&
+      String(result.error?.message || '').toLowerCase().includes('appointment_status');
+    if (invalidEnum) {
+      result = await buildQuery(selectWithProfessional, SAFE_APPOINTMENT_STATUSES);
+      if (!result.error) return (result.data || []) as AppointmentRow[];
+    }
+
+    const msg = String(result.error?.message || '').toLowerCase();
+    const missingProfessionalId = msg.includes('professional_id') && msg.includes('does not exist');
+    if (!missingProfessionalId) throw result.error;
+
+    let fallbackQuery = buildQuery(selectFallback, ACTIVE_APPOINTMENT_STATUSES);
+    result = await fallbackQuery;
+    const fallbackInvalidEnum =
+      String(result.error?.code || '').trim().toUpperCase() === '22P02' &&
+      String(result.error?.message || '').toLowerCase().includes('appointment_status');
+    if (fallbackInvalidEnum) {
+      fallbackQuery = buildQuery(selectFallback, SAFE_APPOINTMENT_STATUSES);
+      result = await fallbackQuery;
+    }
+    if (result.error) throw result.error;
+    return (result.data || []) as AppointmentRow[];
+  }
+
+  private buildTemplateVars(appointment: AppointmentRow, establishmentName: string, reminderOffsetMinutes: number) {
+    const clientName = String(appointment.client_name || 'Cliente').trim() || 'Cliente';
+    const professionalRaw = String(appointment.professional || '').trim();
+    const professionalName = UUID_REGEX.test(professionalRaw) || !professionalRaw ? 'seu barbeiro' : professionalRaw;
+    return {
+      cliente_nome: clientName,
+      barbearia_nome: establishmentName || 'nossa barbearia',
+      data: fmtDate(appointment.appointment_date),
+      horario: String(appointment.appointment_time || '').slice(0, 5),
+      profissional_nome: professionalName,
+      tempo_lembrete: formatReminderOffset(reminderOffsetMinutes),
+    };
+  }
+
+  private async insertMessageLog(payload: {
+    appointmentId: string;
+    establishmentId: string;
+    senderUserId: string | null;
+    recipientPhone: string;
+    messageType: string;
+    status: 'queued' | 'sent' | 'accepted' | 'failed';
+    error?: string | null;
+  }) {
+    await this.supabase.from('whatsapp_message_logs').insert({
+      appointment_id: payload.appointmentId,
+      establishment_id: payload.establishmentId,
+      sender_user_id: payload.senderUserId,
+      recipient_phone: payload.recipientPhone,
+      message_type: payload.messageType,
+      provider: 'baileys',
+      status: payload.status,
+      error: payload.error || null,
+      sent_at: payload.status === 'sent' ? new Date().toISOString() : null,
+    });
+  }
+
+  private isGuarded(messageKey: string, nowMs: number): boolean {
+    const lastTs = this.dispatchGuard.get(messageKey);
+    if (!lastTs) return false;
+    // Evita duplicidade em reinvocações próximas do scheduler.
+    return nowMs - lastTs < 30 * 60_000;
+  }
+
+  private markGuard(messageKey: string, nowMs: number) {
+    this.dispatchGuard.set(messageKey, nowMs);
+  }
+
+  private cleanupGuard(nowMs: number) {
+    for (const [key, ts] of this.dispatchGuard.entries()) {
+      if (nowMs - ts > 6 * 60 * 60_000) this.dispatchGuard.delete(key);
+    }
+  }
+
+  private async hasExistingMessageLog(appointmentId: string, messageType: string): Promise<boolean> {
+    const aptId = String(appointmentId || '').trim();
+    if (!aptId || !UUID_REGEX.test(aptId)) return false;
+    const { data, error } = await this.supabase
+      .from('whatsapp_message_logs')
+      .select('id')
+      .eq('provider', 'baileys')
+      .eq('appointment_id', aptId)
+      .eq('message_type', messageType)
+      .in('status', ['queued', 'sent', 'accepted'])
+      .limit(1);
+    if (error) {
+      console.warn('[whatsapp/scheduler] Falha ao consultar log existente:', {
+        appointmentId: aptId,
+        messageType,
+        error: String(error?.message || error),
+      });
+      return false;
+    }
+    return Array.isArray(data) && data.length > 0;
+  }
+
+  async runOnce() {
+    if (this.running) return;
+    if (!(await this.canRunThisTick())) return;
+    this.running = true;
+    try {
+      this.settingsCache.clear();
+      this.cleanupGuard(Date.now());
+      const now = new Date();
+      const today = new Date(now);
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const createdAfter = new Date(now.getTime() - 20 * 60_000).toISOString();
+      const reminderCandidates = await this.fetchAppointmentsByWindow({
+        dateFrom: today.toISOString().slice(0, 10),
+        dateTo: tomorrow.toISOString().slice(0, 10),
+      });
+      const recentCandidates = await this.fetchAppointmentsByWindow({
+        createdAfterIso: createdAfter,
+      });
+
+      const recentIdSet = new Set(recentCandidates.map((apt) => String(apt.id || '').trim()).filter(Boolean));
+      const mergedMap = new Map<string, AppointmentRow>();
+      [...reminderCandidates, ...recentCandidates].forEach((apt) => {
+        const id = String(apt.id || '').trim();
+        if (!id) return;
+        mergedMap.set(id, apt);
+      });
+      const appointments = Array.from(mergedMap.values()).filter((apt) => {
+        const phone = normalizePhone(String(apt.client_whatsapp || ''));
+        const establishmentId = String(apt.establishment_id || '').trim();
+        return Boolean(phone) && Boolean(establishmentId) && this.belongsToThisWorker(establishmentId);
+      });
+
+      if (appointments.length === 0) return;
+
+      const establishmentIds = Array.from(
+        new Set(appointments.map((apt) => String(apt.establishment_id || '').trim()).filter(Boolean))
+      );
+
+      const { data: establishmentsData } = await this.supabase
+        .from('establishments')
+        .select('id,owner_id,name')
+        .in('id', establishmentIds);
+
+      const establishmentById = new Map<string, EstablishmentRow>();
+      ((establishmentsData || []) as EstablishmentRow[]).forEach((row) => {
+        establishmentById.set(String(row.id), row);
+      });
+
+      const appointmentIds = appointments.map((apt) => apt.id);
+      const { data: existingLogsData } = await this.supabase
+        .from('whatsapp_message_logs')
+        .select('appointment_id,message_type,provider,status')
+        .eq('provider', 'baileys')
+        .in('appointment_id', appointmentIds);
+
+      const existingLogSet = new Set(
+        ((existingLogsData || []) as any[])
+          .filter((row: any) => {
+            const status = String(row?.status || '').toLowerCase();
+            return status === 'queued' || status === 'sent' || status === 'accepted';
+          })
+          .map((row: any) => `${row.appointment_id}::${row.message_type}`)
+      );
+
+      for (const appointment of appointments) {
+        const recipientPhone = normalizePhone(String(appointment.client_whatsapp || ''));
+        if (!recipientPhone) continue;
+
+        const senderUserId = await this.findSenderUserId(appointment, establishmentById);
+        if (!senderUserId) continue;
+        const settings = await this.getAutomationSettings(senderUserId);
+        const establishmentName =
+          String(establishmentById.get(String(appointment.establishment_id || '').trim())?.name || '').trim() ||
+          'nossa barbearia';
+
+        const createdAt = new Date(String(appointment.created_at || ''));
+        const appointmentAt = toDateTime(appointment.appointment_date, appointment.appointment_time);
+        if (!appointmentAt) continue;
+
+        // 1) confirmação de agendamento (até 15 min após criação)
+        const confirmationKey = `${appointment.id}::booking_confirmation`;
+        const guardedConfirmation = this.isGuarded(confirmationKey, now.getTime());
+        const alreadyLoggedConfirmation =
+          existingLogSet.has(confirmationKey) ||
+          (await this.hasExistingMessageLog(appointment.id, 'booking_confirmation'));
+        const shouldSendConfirmation =
+          settings.greetingEnabled &&
+          recentIdSet.has(String(appointment.id || '').trim()) &&
+          !guardedConfirmation &&
+          !alreadyLoggedConfirmation &&
+          Number.isFinite(createdAt.getTime()) &&
+          now.getTime() - createdAt.getTime() <= 15 * 60_000;
+
+        if (shouldSendConfirmation) {
+          const vars = this.buildTemplateVars(appointment, establishmentName, settings.reminderOffsetMinutes);
+          const res = await this.deps.enqueueOrSend({
+            userId: senderUserId,
+            phone: recipientPhone,
+            message: formatTemplate(settings.greetingTemplate, vars),
+            idempotencyKey: `booking_confirmation:${appointment.id}`,
+          });
+          await this.insertMessageLog({
+            appointmentId: appointment.id,
+            establishmentId: appointment.establishment_id,
+            senderUserId,
+            recipientPhone,
+            messageType: 'booking_confirmation',
+            status: resolveLogStatus(res),
+            error: res.error || null,
+          });
+          console.info('[whatsapp/scheduler] booking_confirmation', {
+            appointmentId: appointment.id,
+            userId: senderUserId,
+            phone: recipientPhone,
+            ok: res.ok,
+            deliveryMode: res.deliveryMode || 'direct',
+            error: res.error || null,
+          });
+          if (res.ok) {
+            existingLogSet.add(confirmationKey);
+          }
+          if (res.ok) this.markGuard(confirmationKey, now.getTime());
+        }
+
+        // 2) lembrete no tempo configurado
+        const reminderType = `reminder_${settings.reminderOffsetMinutes}m`;
+        const reminderKey = `${appointment.id}::${reminderType}`;
+        const guardedReminder = this.isGuarded(reminderKey, now.getTime());
+        const alreadyLoggedReminder =
+          existingLogSet.has(reminderKey) ||
+          (await this.hasExistingMessageLog(appointment.id, reminderType));
+        const diffMs = appointmentAt.getTime() - now.getTime();
+        const targetMs = settings.reminderOffsetMinutes * 60_000;
+        // Não perde o lembrete: após bater o tempo alvo, envia em qualquer ciclo até o início do agendamento.
+        const isDue = diffMs <= targetMs && diffMs >= 0;
+        if (settings.reminderEnabled && !guardedReminder && !alreadyLoggedReminder && isDue) {
+          const vars = this.buildTemplateVars(appointment, establishmentName, settings.reminderOffsetMinutes);
+          const res = await this.deps.enqueueOrSend({
+            userId: senderUserId,
+            phone: recipientPhone,
+            message: formatTemplate(settings.reminderTemplate, vars),
+            idempotencyKey: `${reminderType}:${appointment.id}`,
+          });
+          await this.insertMessageLog({
+            appointmentId: appointment.id,
+            establishmentId: appointment.establishment_id,
+            senderUserId,
+            recipientPhone,
+            messageType: reminderType,
+            status: resolveLogStatus(res),
+            error: res.error || null,
+          });
+          console.info('[whatsapp/scheduler] reminder', {
+            appointmentId: appointment.id,
+            reminderType,
+            userId: senderUserId,
+            phone: recipientPhone,
+            ok: res.ok,
+            deliveryMode: res.deliveryMode || 'direct',
+            error: res.error || null,
+          });
+          if (res.ok) {
+            existingLogSet.add(reminderKey);
+          }
+          if (res.ok) this.markGuard(reminderKey, now.getTime());
+        }
+      }
+    } catch (error) {
+      console.error('❌ Erro no scheduler de WhatsApp (Baileys):', error);
+    } finally {
+      this.running = false;
+    }
+  }
+}

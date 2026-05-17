@@ -21,6 +21,7 @@ import { NotificationPermission } from '../components/NotificationPermission';
 import { NotificationsPanel } from '../components/NotificationsPanel';
 import PinPasswordModal from '../components/PinPasswordModal';
 import { ProfessionalPaymentControl } from '../components/ProfessionalPaymentControl';
+import { BaileysWhatsAppSettings } from '../components/BaileysWhatsAppSettings';
 import ProfessionalPinModal from '../components/ProfessionalPinModal';
 import { ProfessionalSelector } from '../components/ProfessionalSelector';
 import { RescheduleAppointmentModal } from '../components/RescheduleAppointmentModal';
@@ -27331,6 +27332,8 @@ Estamos te aguardando!`;
                       </div>
                     </div>
                   )}
+
+                  <BaileysWhatsAppSettings userId={user?.id} />
 
                   {/* Quiz Passo-a-Passo para Novos Usuários (só aparece se não foi completado) */}
                   {isNewUser && !quizCompleted && (

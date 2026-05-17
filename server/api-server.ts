@@ -59,6 +59,8 @@ import {
   getRecipientStatus,
 } from '../src/lib/pagarme-server';
 import mercadopagoRoutes from './mercadopago/mp.routes';
+import { initializeWhatsAppServices } from './services/whatsapp';
+import whatsappRoutes from './whatsapp/whatsapp.routes';
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -83,6 +85,7 @@ app.use(express.json());
 
 // Rotas do Mercado Pago
 app.use('/api/mercadopago', mercadopagoRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 const onlyDigits = (v: string) => String(v || '').replace(/\D/g, '');
 const toISODate = (d: Date) => d.toISOString().slice(0, 10);
@@ -1243,6 +1246,7 @@ app.get('/api/pagarme/order-details', async (req, res) => {
 
 // Iniciar servidor
 app.listen(PORT, () => {
+  initializeWhatsAppServices();
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
   console.log('🚀 SERVIDOR DE API EXPRESS RODANDO!');
@@ -1262,6 +1266,11 @@ app.listen(PORT, () => {
   console.log(`   POST /api/mercadopago/create-payment`);
   console.log(`   GET  /api/mercadopago/check-status`);
   console.log(`   POST /api/mercadopago/reconcile-pending-appointments`);
+  console.log(`   POST /api/whatsapp/connect`);
+  console.log(`   GET  /api/whatsapp/status`);
+  console.log(`   GET  /api/whatsapp/qr`);
+  console.log(`   POST /api/whatsapp/disconnect`);
+  console.log(`   POST /api/whatsapp/send`);
   console.log('═══════════════════════════════════════════════════════════');
   console.log('');
   console.log('👀 ATENÇÃO: Os logs das requisições aparecerão AQUI neste terminal!');
