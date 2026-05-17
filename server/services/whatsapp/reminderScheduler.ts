@@ -390,7 +390,7 @@ export class WhatsAppReminderScheduler {
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
-      const createdAfter = new Date(now.getTime() - 20 * 60_000).toISOString();
+      const createdAfter = new Date(now.getTime() - 120 * 60_000).toISOString();
       const reminderCandidates = await this.fetchAppointmentsByWindow({
         dateFrom: today.toISOString().slice(0, 10),
         dateTo: tomorrow.toISOString().slice(0, 10),
@@ -459,7 +459,7 @@ export class WhatsAppReminderScheduler {
         const appointmentAt = toDateTime(appointment.appointment_date, appointment.appointment_time);
         if (!appointmentAt) continue;
 
-        // 1) confirmação de agendamento (até 15 min após criação)
+        // 1) confirmação de agendamento (até 2h após criação, com deduplicação por log/idempotência)
         const confirmationKey = `${appointment.id}::booking_confirmation`;
         const guardedConfirmation = this.isGuarded(confirmationKey, now.getTime());
         const alreadyLoggedConfirmation =
@@ -471,7 +471,7 @@ export class WhatsAppReminderScheduler {
           !guardedConfirmation &&
           !alreadyLoggedConfirmation &&
           Number.isFinite(createdAt.getTime()) &&
-          now.getTime() - createdAt.getTime() <= 15 * 60_000;
+          now.getTime() - createdAt.getTime() <= 120 * 60_000;
 
         if (shouldSendConfirmation) {
           const vars = this.buildTemplateVars(appointment, establishmentName, settings.reminderOffsetMinutes);

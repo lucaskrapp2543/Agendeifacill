@@ -392,12 +392,19 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
     }
   };
 
-  const handleSaveAutomationSettings = async () => {
+  const handleSaveAutomationSettings = async (
+    overrides?: Partial<AutomationSettings>,
+    options?: { silent?: boolean }
+  ) => {
     if (!ensureApiConfigured()) return;
     if (!userId) return;
     setSavingSettings(true);
     try {
-      const missingReminderTokens = findMissingTokens(settings.reminder_template, REQUIRED_REMINDER_TOKENS);
+      const payloadSettings: AutomationSettings = {
+        ...settings,
+        ...(overrides || {}),
+      };
+      const missingReminderTokens = findMissingTokens(payloadSettings.reminder_template, REQUIRED_REMINDER_TOKENS);
       if (missingReminderTokens.length > 0) {
         throw new Error(
           `A mensagem de lembrete precisa manter: ${missingReminderTokens
@@ -405,7 +412,7 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
             .join(', ')}`
         );
       }
-      const missingGreetingTokens = findMissingTokens(settings.greeting_template, REQUIRED_GREETING_TOKENS);
+      const missingGreetingTokens = findMissingTokens(payloadSettings.greeting_template, REQUIRED_GREETING_TOKENS);
       if (missingGreetingTokens.length > 0) {
         throw new Error(
           `A mensagem de saudação precisa manter: ${missingGreetingTokens
@@ -421,11 +428,11 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
         headers,
         body: JSON.stringify({
           user_id: userId,
-          reminder_enabled: settings.reminder_enabled,
-          reminder_offset_minutes: settings.reminder_offset_minutes,
-          reminder_template: settings.reminder_template,
-          greeting_enabled: settings.greeting_enabled,
-          greeting_template: settings.greeting_template,
+          reminder_enabled: payloadSettings.reminder_enabled,
+          reminder_offset_minutes: payloadSettings.reminder_offset_minutes,
+          reminder_template: payloadSettings.reminder_template,
+          greeting_enabled: payloadSettings.greeting_enabled,
+          greeting_template: payloadSettings.greeting_template,
         }),
       });
       const data = await parseApiResponse<AutomationSettingsResponse>(response);
@@ -435,13 +442,28 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
       setApiUnavailable(false);
       setApiUnavailableMessage('');
       setSettings(data.settings);
-      toast.success('Configurações automáticas de WhatsApp salvas com sucesso.');
+      if (!options?.silent) {
+        toast.success('Configurações automáticas de WhatsApp salvas com sucesso.');
+      }
     } catch (error: any) {
       markApiUnavailable(error);
-      toast.error(String(error?.message || 'Erro ao salvar configurações do WhatsApp.'));
+      if (!options?.silent) {
+        toast.error(String(error?.message || 'Erro ao salvar configurações do WhatsApp.'));
+      }
     } finally {
       setSavingSettings(false);
     }
+  };
+
+  const handleReminderOffsetChange = async (minutes: number) => {
+    const normalizedMinutes = Number(minutes || 60);
+    const nextSettings = {
+      ...settings,
+      reminder_offset_minutes: normalizedMinutes,
+    };
+    setSettings(nextSettings);
+    await handleSaveAutomationSettings({ reminder_offset_minutes: normalizedMinutes }, { silent: true });
+    toast.success(`Lembrete atualizado para ${REMINDER_OPTIONS.find((opt) => opt.value === normalizedMinutes)?.label || `${normalizedMinutes} min`}.`);
   };
 
   const toggleLogs = async () => {
@@ -621,12 +643,9 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
 
           <select
             value={settings.reminder_offset_minutes}
-            onChange={(e) =>
-              setSettings((prev) => ({
-                ...prev,
-                reminder_offset_minutes: Number(e.target.value),
-              }))
-            }
+            onChange={(e) => {
+              void handleReminderOffsetChange(Number(e.target.value));
+            }}
             className="rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
           >
             {REMINDER_OPTIONS.map((option) => (
