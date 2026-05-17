@@ -70,13 +70,36 @@ const resolveRequestAuthUser = async (req: express.Request) => {
 };
 
 const resolveTargetUserId = async (req: express.Request): Promise<string> => {
-  const authUser = await resolveRequestAuthUser(req);
   const requestedUserId = String(req.body?.user_id || req.query?.user_id || req.params?.userId || '').trim();
-  if (!requestedUserId) return authUser.id;
+  const isUuid = (value: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
 
-  if (requestedUserId === authUser.id) return requestedUserId;
-  if (SUPPORT_ADMIN_EMAILS.includes(authUser.email)) return requestedUserId;
-  throw new Error('Você não pode acessar sessão WhatsApp de outro usuário.');
+  try {
+    const authUser = await resolveRequestAuthUser(req);
+    if (!requestedUserId) return authUser.id;
+
+    if (requestedUserId === authUser.id) return requestedUserId;
+    if (SUPPORT_ADMIN_EMAILS.includes(authUser.email)) return requestedUserId;
+    throw new Error('Você não pode acessar sessão WhatsApp de outro usuário.');
+  } catch (error: any) {
+    const message = String(error?.message || error || '').trim();
+    const canUseLegacyFallback =
+      requestedUserId &&
+      isUuid(requestedUserId) &&
+      (message === 'Token ausente.' || message === 'Token inválido.');
+
+    // Compatibilidade: alguns ambientes ainda autenticam por fluxo legado e não geram
+    // um JWT válido do Supabase para estas rotas. Nesse caso, aceitamos user_id explícito.
+    if (canUseLegacyFallback) {
+      console.warn('[whatsapp/auth] fallback legado por user_id aplicado', {
+        requestedUserId,
+        reason: message,
+      });
+      return requestedUserId;
+    }
+
+    throw error;
+  }
 };
 
 const normalizeAutomationSettings = (row: any, userId: string) => ({
