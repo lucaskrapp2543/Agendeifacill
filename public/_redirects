@@ -24,6 +24,7 @@
 
 # Outras APIs
 /api/cancel-appointment             /.netlify/functions/cancel-appointment           200
+/api/whatsapp/*                     https://agendei-api-1w1w.onrender.com/api/whatsapp/:splat 200
 
 # Redirecionar todas as outras rotas para index.html para suportar client-side routing
 # Isso permite que o React Router gerencie as rotas no lado do cliente
