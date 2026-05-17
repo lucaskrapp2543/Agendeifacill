@@ -129,6 +129,8 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
   const [showLogs, setShowLogs] = useState(false);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [messageLogs, setMessageLogs] = useState<MessageLogRow[]>([]);
+  const [apiUnavailable, setApiUnavailable] = useState(false);
+  const [apiUnavailableMessage, setApiUnavailableMessage] = useState('');
 
   const statusLabel = useMemo(() => {
     const current = String(status?.status || '').toLowerCase();
@@ -144,6 +146,24 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
   const findMissingTokens = (template: string, requiredTokens: string[]) =>
     requiredTokens.filter((token) => !String(template || '').includes(`{{${token}}}`));
 
+  const parseApiResponse = async <T,>(response: Response): Promise<T> => {
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.includes('application/json')) {
+      const body = await response.text();
+      const bodyPreview = String(body || '').slice(0, 80).trim();
+      throw new Error(
+        `API de WhatsApp indisponível neste ambiente (resposta não-JSON). ${bodyPreview ? `Resposta: ${bodyPreview}` : ''}`
+      );
+    }
+    return (await response.json()) as T;
+  };
+
+  const markApiUnavailable = (error: any) => {
+    const msg = String(error?.message || error || '').trim();
+    setApiUnavailable(true);
+    setApiUnavailableMessage(msg || 'API de WhatsApp indisponível neste ambiente.');
+  };
+
   const loadStatus = async () => {
     if (!userId) return;
     const headers = await buildAuthHeaders();
@@ -153,13 +173,16 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
         method: 'GET',
         headers,
       });
-      const data = (await response.json()) as StatusResponse;
+      const data = await parseApiResponse<StatusResponse>(response);
       if (!response.ok || !data?.ok) {
         throw new Error((data as any)?.error || 'Falha ao carregar status do WhatsApp.');
       }
+      setApiUnavailable(false);
+      setApiUnavailableMessage('');
       setStatus(data);
       setQrDataUrl(String(data?.qr || '').trim() || null);
     } catch (error: any) {
+      markApiUnavailable(error);
       console.error(error);
     }
   };
@@ -173,12 +196,15 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
         method: 'GET',
         headers,
       });
-      const data = (await response.json()) as AutomationSettingsResponse;
+      const data = await parseApiResponse<AutomationSettingsResponse>(response);
       if (!response.ok || !data?.ok || !data?.settings) {
         throw new Error(String(data?.error || 'Falha ao carregar configurações do WhatsApp.'));
       }
+      setApiUnavailable(false);
+      setApiUnavailableMessage('');
       setSettings(data.settings);
-    } catch (error) {
+    } catch (error: any) {
+      markApiUnavailable(error);
       console.error(error);
     }
   };
@@ -193,12 +219,15 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
         method: 'GET',
         headers,
       });
-      const data = (await response.json()) as MessageLogsResponse;
+      const data = await parseApiResponse<MessageLogsResponse>(response);
       if (!response.ok || !data?.ok) {
         throw new Error(String(data?.error || 'Falha ao carregar envios de WhatsApp.'));
       }
+      setApiUnavailable(false);
+      setApiUnavailableMessage('');
       setMessageLogs(Array.isArray(data.logs) ? data.logs : []);
     } catch (error: any) {
+      markApiUnavailable(error);
       toast.error(String(error?.message || 'Erro ao buscar envios de WhatsApp.'));
     } finally {
       setLoadingLogs(false);
@@ -229,14 +258,17 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
         headers,
         body: JSON.stringify({ user_id: userId }),
       });
-      const data = await response.json();
+      const data = await parseApiResponse<any>(response);
       if (!response.ok || !data?.ok) {
         throw new Error(String(data?.error || 'Falha ao iniciar conexão WhatsApp.'));
       }
+      setApiUnavailable(false);
+      setApiUnavailableMessage('');
       setQrDataUrl(String(data?.qr || '').trim() || null);
       toast.success('Conexão iniciada. Escaneie o QR Code.');
       await loadStatus();
     } catch (error: any) {
+      markApiUnavailable(error);
       toast.error(String(error?.message || 'Erro ao conectar WhatsApp.'));
     } finally {
       setLoading(false);
@@ -255,14 +287,17 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
         // Forca logout completo para exigir novo QR na proxima conexao.
         body: JSON.stringify({ user_id: userId, clear_session: true }),
       });
-      const data = await response.json();
+      const data = await parseApiResponse<any>(response);
       if (!response.ok || !data?.ok) {
         throw new Error(String(data?.error || 'Falha ao desconectar WhatsApp.'));
       }
+      setApiUnavailable(false);
+      setApiUnavailableMessage('');
       toast.success('WhatsApp desconectado.');
       setQrDataUrl(null);
       await loadStatus();
     } catch (error: any) {
+      markApiUnavailable(error);
       toast.error(String(error?.message || 'Erro ao desconectar WhatsApp.'));
     } finally {
       setLoading(false);
@@ -291,10 +326,12 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
           message,
         }),
       });
-      const data = (await response.json()) as SendResponsePayload;
+      const data = await parseApiResponse<SendResponsePayload>(response);
       if (!response.ok || !data?.ok) {
         throw new Error(String(data?.error || data?.result?.error || 'Falha ao enviar mensagem de teste.'));
       }
+      setApiUnavailable(false);
+      setApiUnavailableMessage('');
       const mode = String(data?.result?.deliveryMode || '').toLowerCase();
       if (mode === 'queued') {
         toast.success('Mensagem entrou na fila do WhatsApp. O worker vai enviar em seguida.');
@@ -304,6 +341,7 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
         toast.success('Mensagem enviada agora pelo WhatsApp.');
       }
     } catch (error: any) {
+      markApiUnavailable(error);
       toast.error(String(error?.message || 'Erro ao enviar mensagem de teste.'));
     } finally {
       setSendingTest(false);
@@ -345,13 +383,16 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
           greeting_template: settings.greeting_template,
         }),
       });
-      const data = (await response.json()) as AutomationSettingsResponse;
+      const data = await parseApiResponse<AutomationSettingsResponse>(response);
       if (!response.ok || !data?.ok || !data?.settings) {
         throw new Error(String(data?.error || 'Falha ao salvar configurações de automação.'));
       }
+      setApiUnavailable(false);
+      setApiUnavailableMessage('');
       setSettings(data.settings);
       toast.success('Configurações automáticas de WhatsApp salvas com sucesso.');
     } catch (error: any) {
+      markApiUnavailable(error);
       toast.error(String(error?.message || 'Erro ao salvar configurações do WhatsApp.'));
     } finally {
       setSavingSettings(false);
@@ -385,6 +426,11 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
 
   return (
     <div className="rounded-xl border border-gray-700 bg-[#101112] p-4">
+      {apiUnavailable ? (
+        <div className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+          API de WhatsApp indisponível neste deploy. {apiUnavailableMessage || 'As rotas /api/whatsapp não responderam JSON.'}
+        </div>
+      ) : null}
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="text-lg font-bold text-white">WhatsApp (Baileys - QR)</h3>
