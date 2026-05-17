@@ -119,6 +119,21 @@ const isMissingAutomationSettingsTable = (error: any) => {
   return code === '42P01' || (msg.includes('whatsapp_automation_settings') && msg.includes('does not exist'));
 };
 
+const isTransientSupabaseError = (error: any) => {
+  const msg = String(error?.message || error || '').toLowerCase();
+  if (!msg) return false;
+  return (
+    msg.includes('fetch failed') ||
+    msg.includes('network') ||
+    msg.includes('timeout') ||
+    msg.includes('econnreset') ||
+    msg.includes('enotfound') ||
+    msg.includes('socket')
+  );
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const normalizeTemplateWithRequiredTokens = (
   template: string,
   tokens: string[],
@@ -252,13 +267,22 @@ router.get('/automation-settings', async (req, res) => {
     const supabaseAdmin = getSupabaseAdmin();
     if (!supabaseAdmin) throw new Error('Supabase admin não configurado.');
 
-    const { data, error } = await supabaseAdmin
-      .from('whatsapp_automation_settings')
-      .select('user_id,reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template')
-      .eq('user_id', userId)
-      .maybeSingle();
+    let data: any = null;
+    let error: any = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const response = await supabaseAdmin
+        .from('whatsapp_automation_settings')
+        .select('user_id,reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template')
+        .eq('user_id', userId)
+        .maybeSingle();
+      data = response.data;
+      error = response.error;
+      if (!error) break;
+      if (!isTransientSupabaseError(error) || attempt === 3) break;
+      await sleep(attempt * 250);
+    }
     if (error) {
-      if (isMissingAutomationSettingsTable(error)) {
+      if (isMissingAutomationSettingsTable(error) || isTransientSupabaseError(error)) {
         return res.status(200).json({
           ok: true,
           settings: normalizeAutomationSettings(null, userId),
@@ -313,16 +337,28 @@ router.post('/automation-settings', async (req, res) => {
       updated_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabaseAdmin
-      .from('whatsapp_automation_settings')
-      .upsert(payload, { onConflict: 'user_id' })
-      .select('user_id,reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template')
-      .maybeSingle();
+    let data: any = null;
+    let error: any = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const response = await supabaseAdmin
+        .from('whatsapp_automation_settings')
+        .upsert(payload, { onConflict: 'user_id' })
+        .select('user_id,reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template')
+        .maybeSingle();
+      data = response.data;
+      error = response.error;
+      if (!error) break;
+      if (!isTransientSupabaseError(error) || attempt === 3) break;
+      await sleep(attempt * 250);
+    }
     if (error) {
       if (isMissingAutomationSettingsTable(error)) {
         throw new Error(
           'Tabela whatsapp_automation_settings não encontrada. Aplique a migration de automação do WhatsApp no Supabase.'
         );
+      }
+      if (isTransientSupabaseError(error)) {
+        throw new Error('Falha temporária de rede ao salvar automação. Tente novamente em alguns segundos.');
       }
       throw error;
     }
