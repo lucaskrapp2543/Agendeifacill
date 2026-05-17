@@ -83,7 +83,7 @@
 ## Rotas de API (WhatsApp Baileys) - produção
 [[redirects]]
   from = "/api/whatsapp/:path*"
-  to = "https://api.agendeifacil.com/api/whatsapp/:path*"
+  to = "https://agendei-api-1w1w.onrender.com/api/whatsapp/:path*"
   status = 200
   force = true
   methods = ["GET", "POST", "OPTIONS"]
