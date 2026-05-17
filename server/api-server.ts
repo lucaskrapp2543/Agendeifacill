@@ -83,6 +83,14 @@ const SUPPORT_ADMIN_EMAILS = String(process.env.SUPPORT_ADMIN_EMAILS || 'suporte
 app.use(cors());
 app.use(express.json());
 
+// Health check - DEVE ser a primeira rota para garantir resposta mesmo em caso de erro nas outras
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+app.get('/', (_req, res) => {
+  res.json({ status: 'ok', service: 'agendei-api', timestamp: new Date().toISOString() });
+});
+
 // Rotas do Mercado Pago
 app.use('/api/mercadopago', mercadopagoRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
@@ -154,10 +162,7 @@ const findExistingSubscriberByPhone = async (
   return { data: null, error: lastError };
 };
 
-// Health check
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+// (rota /health movida para o topo, antes das rotas de API)
 
 app.post('/api/admin/reset-establishment-password', async (req, res) => {
   try {
@@ -1246,7 +1251,11 @@ app.get('/api/pagarme/order-details', async (req, res) => {
 
 // Iniciar servidor
 app.listen(PORT, () => {
-  initializeWhatsAppServices();
+  try {
+    initializeWhatsAppServices();
+  } catch (err) {
+    console.error('❌ Erro ao inicializar WhatsApp services (servidor continua rodando):', err);
+  }
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
   console.log('🚀 SERVIDOR DE API EXPRESS RODANDO!');
