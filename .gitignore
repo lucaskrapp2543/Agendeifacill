@@ -33,3 +33,7 @@ debug_*.sql
 
 # Local Netlify folder
 .netlify
+
+# WhatsApp Baileys sessions (não versionar)
+sessions/**
+!sessions/.gitkeep
