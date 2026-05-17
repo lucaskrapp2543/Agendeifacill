@@ -111,9 +111,13 @@ async function buildAuthHeaders() {
 }
 
 export function BaileysWhatsAppSettings({ userId }: Props) {
-  const whatsappApiBase = String((import.meta as any)?.env?.VITE_WHATSAPP_API_BASE_URL || '')
+  const configuredApiBase = String((import.meta as any)?.env?.VITE_WHATSAPP_API_BASE_URL || '')
     .trim()
     .replace(/\/$/, '');
+  const isLocalhostRuntime =
+    typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
+  // Fallback de produção para evitar proxy do Netlify removendo Authorization.
+  const whatsappApiBase = configuredApiBase || (!isLocalhostRuntime ? 'https://agendei-api-1w1w.onrender.com' : '');
   const buildWhatsAppApiUrl = (suffix: string) => {
     const normalized = String(suffix || '').replace(/^\/+/, '');
     return whatsappApiBase
