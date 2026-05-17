@@ -114,9 +114,6 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
   const whatsappApiBase = String((import.meta as any)?.env?.VITE_WHATSAPP_API_BASE_URL || '')
     .trim()
     .replace(/\/$/, '');
-  const isLocalhostRuntime =
-    typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
-  const missingProductionApiBase = !whatsappApiBase && !isLocalhostRuntime;
   const buildWhatsAppApiUrl = (suffix: string) => {
     const normalized = String(suffix || '').replace(/^\/+/, '');
     return whatsappApiBase
@@ -248,13 +245,6 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
   };
 
   useEffect(() => {
-    if (missingProductionApiBase) {
-      setApiUnavailable(true);
-      setApiUnavailableMessage(
-        'Baileys em produção exige servidor Node próprio. Configure VITE_WHATSAPP_API_BASE_URL.'
-      );
-      return;
-    }
     void loadStatus();
     void loadAutomationSettings();
     if (!userId) return;
@@ -262,16 +252,10 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
       void loadStatus();
     }, 5000);
     return () => clearInterval(timer);
-  }, [userId, missingProductionApiBase]);
+  }, [userId]);
 
   const ensureApiConfigured = () => {
-    if (!missingProductionApiBase) return true;
-    const message =
-      'WhatsApp Baileys em produção precisa de backend Node (VITE_WHATSAPP_API_BASE_URL).';
-    setApiUnavailable(true);
-    setApiUnavailableMessage(message);
-    toast.error(message);
-    return false;
+    return true;
   };
 
   const handleConnect = async () => {
@@ -463,11 +447,6 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
       {apiUnavailable ? (
         <div className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
           API de WhatsApp indisponível neste deploy. {apiUnavailableMessage || 'As rotas /api/whatsapp não responderam JSON.'}
-          {missingProductionApiBase ? (
-            <span className="block mt-1 text-red-100/90">
-              Configure `VITE_WHATSAPP_API_BASE_URL` para apontar para o servidor Node que roda o Baileys.
-            </span>
-          ) : null}
         </div>
       ) : null}
       <div className="flex items-center justify-between gap-3">
@@ -732,3 +711,5 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
     </div>
   );
 }
+
+
