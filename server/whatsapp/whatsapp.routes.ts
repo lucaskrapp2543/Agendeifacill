@@ -119,19 +119,22 @@ const isMissingAutomationSettingsTable = (error: any) => {
   return code === '42P01' || (msg.includes('whatsapp_automation_settings') && msg.includes('does not exist'));
 };
 
-const validateRequiredTokens = (
+const normalizeTemplateWithRequiredTokens = (
   template: string,
   tokens: string[],
-  contextLabel: 'lembrete' | 'saudação'
+  _contextLabel: 'lembrete' | 'saudação'
 ) => {
-  const text = String(template || '');
+  let text = String(template || '');
+  for (const token of tokens) {
+    const singleBraceRegex = new RegExp(`\\{\\s*${token}\\s*\\}`, 'gi');
+    text = text.replace(singleBraceRegex, `{{${token}}}`);
+  }
   const missing = tokens.filter((token) => !text.includes(`{{${token}}}`));
   if (missing.length > 0) {
-    const formatted = missing.map((token) => `{{${token}}}`).join(', ');
-    throw new Error(
-      `A mensagem de ${contextLabel} precisa conter os campos obrigatórios: ${formatted}`
-    );
+    const suffix = missing.map((token) => `{{${token}}}`).join(' ');
+    text = `${text}\n${suffix}`.trim();
   }
+  return text;
 };
 
 router.post('/connect', async (req, res) => {
@@ -289,12 +292,12 @@ router.post('/automation-settings', async (req, res) => {
       throw new Error('Tempo de lembrete inválido. Use 10, 30, 60, 180, 300 ou 720 minutos.');
     }
 
-    validateRequiredTokens(
+    const normalizedReminderTemplate = normalizeTemplateWithRequiredTokens(
       reminderTemplate || DEFAULT_REMINDER_TEMPLATE,
       REQUIRED_REMINDER_TOKENS,
       'lembrete'
     );
-    validateRequiredTokens(
+    const normalizedGreetingTemplate = normalizeTemplateWithRequiredTokens(
       greetingTemplate || DEFAULT_GREETING_TEMPLATE,
       REQUIRED_GREETING_TOKENS,
       'saudação'
@@ -304,9 +307,9 @@ router.post('/automation-settings', async (req, res) => {
       user_id: userId,
       reminder_enabled: Boolean(reminderEnabled),
       reminder_offset_minutes: reminderOffsetMinutes,
-      reminder_template: reminderTemplate || DEFAULT_REMINDER_TEMPLATE,
+      reminder_template: normalizedReminderTemplate,
       greeting_enabled: Boolean(greetingEnabled),
-      greeting_template: greetingTemplate || DEFAULT_GREETING_TEMPLATE,
+      greeting_template: normalizedGreetingTemplate,
       updated_at: new Date().toISOString(),
     };
 
