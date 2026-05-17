@@ -116,8 +116,11 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
     .replace(/\/$/, '');
   const isLocalhostRuntime =
     typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
-  // Fallback de produção para evitar proxy do Netlify removendo Authorization.
-  const whatsappApiBase = configuredApiBase || (!isLocalhostRuntime ? 'https://agendei-api-1w1w.onrender.com' : '');
+  const isAgendeiFacilHost =
+    typeof window !== 'undefined' && /(^|\.)agendeifacil\.com$/i.test(window.location.hostname);
+  // Em produção no domínio oficial, prioriza sempre same-origin (/api/whatsapp)
+  // para evitar problemas de CORS em chamadas diretas ao Render.
+  const whatsappApiBase = isAgendeiFacilHost ? '' : configuredApiBase;
   const buildWhatsAppApiUrl = (suffix: string) => {
     const normalized = String(suffix || '').replace(/^\/+/, '');
     return whatsappApiBase
