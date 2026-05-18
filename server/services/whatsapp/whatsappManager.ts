@@ -99,11 +99,18 @@ export class WhatsAppManager {
 
   private isTransientConnectionError(error: any): boolean {
     const msg = String(error?.message || error || '').toLowerCase();
+    const code = String(error?.code || error?.statusCode || error?.output?.statusCode || '').trim();
     return (
+      code === '1006' ||
+      msg === '1006' ||
+      msg.includes('1006') ||
       msg.includes('connection closed') ||
       msg.includes('timed out waiting for message') ||
       msg.includes('not connected') ||
       msg.includes('stream errored out') ||
+      msg.includes('connection lost') ||
+      msg.includes('socket closed') ||
+      msg.includes('restart required') ||
       msg.includes('websocket')
     );
   }
@@ -213,11 +220,20 @@ export class WhatsAppManager {
       try {
         return await this.sendWithSocket(socket, phone, message);
       } catch (error: any) {
+        const errorMessage =
+          String(
+            error?.message ||
+              error?.code ||
+              error?.statusCode ||
+              error?.output?.statusCode ||
+              error ||
+              'Falha ao enviar mensagem'
+          );
         return {
           ok: false,
           provider: 'baileys',
           deliveryMode: 'direct',
-          error: String(error?.message || error || 'Falha ao enviar mensagem'),
+          error: errorMessage,
         };
       }
     };
