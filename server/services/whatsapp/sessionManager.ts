@@ -18,6 +18,8 @@ export class WhatsAppSessionManager {
   private sockets = new Map<string, SocketMapValue>();
   private qrCache = new Map<string, string | null>();
   private reconnectTimers = new Map<string, NodeJS.Timeout>();
+  private reconnectAttempts = new Map<string, number>();
+  private manualDisconnect = new Set<string>();
   private readonly sessionsRootDir: string;
   private readonly onStatusChange?: (payload: SessionStatusPayload) => Promise<void> | void;
 
@@ -89,6 +91,9 @@ export class WhatsAppSessionManager {
       browser: ['Agendei Fácil', 'Chrome', '1.0.0'],
       markOnlineOnConnect: false,
       syncFullHistory: false,
+      connectTimeoutMs: 60_000,
+      keepAliveIntervalMs: 20_000,
+      defaultQueryTimeoutMs: 60_000,
     });
 
     this.sockets.set(userId, { socket, reconnecting: false });
@@ -111,6 +116,7 @@ export class WhatsAppSessionManager {
 
       if (connection === 'open') {
         this.qrCache.set(userId, null);
+        this.reconnectAttempts.set(userId, 0);
         const jid = String(socket?.user?.id || '').trim();
         const phone = jid.includes(':') ? jid.split(':')[0] : jid.split('@')[0] || null;
         const connectedAt = new Date().toISOString();
@@ -118,6 +124,10 @@ export class WhatsAppSessionManager {
       }
 
       if (connection === 'close') {
+        if (this.manualDisconnect.has(userId)) {
+          this.manualDisconnect.delete(userId);
+          return;
+        }
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
         const isLoggedOut = statusCode === DisconnectReason.loggedOut;
 
@@ -126,6 +136,7 @@ export class WhatsAppSessionManager {
         this.sockets.delete(userId);
         if (isLoggedOut) {
           this.clearReconnectTimer(userId);
+          this.reconnectAttempts.set(userId, 0);
           return;
         }
 
@@ -146,6 +157,9 @@ export class WhatsAppSessionManager {
 
   private scheduleReconnect(userId: string) {
     this.clearReconnectTimer(userId);
+    const attempts = Number(this.reconnectAttempts.get(userId) || 0) + 1;
+    this.reconnectAttempts.set(userId, attempts);
+    const delayMs = Math.min(30_000, 5_000 * attempts);
     const timer = setTimeout(async () => {
       try {
         await this.connect(userId);
@@ -153,7 +167,7 @@ export class WhatsAppSessionManager {
         await this.emitStatus(userId, 'error', { lastSeen: new Date().toISOString() });
         this.scheduleReconnect(userId);
       }
-    }, 5000);
+    }, delayMs);
     this.reconnectTimers.set(userId, timer);
   }
 
@@ -163,6 +177,7 @@ export class WhatsAppSessionManager {
 
     const existing = this.sockets.get(userId);
     if (existing?.socket?.end) {
+      this.manualDisconnect.add(userId);
       try {
         existing.socket.end(new Error('disconnect_by_user'));
       } catch {
@@ -172,6 +187,7 @@ export class WhatsAppSessionManager {
     this.sockets.delete(userId);
     this.qrCache.set(userId, null);
     this.clearReconnectTimer(userId);
+    this.reconnectAttempts.set(userId, 0);
 
     if (clearSession) {
       const sessionPath = this.getSessionPath(userId);

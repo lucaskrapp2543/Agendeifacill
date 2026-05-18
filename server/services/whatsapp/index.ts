@@ -51,6 +51,8 @@ export const initializeWhatsAppServices = () => {
     enqueueOrSend: (payload) => queue.enqueueOrSend(payload),
   });
   scheduler.start();
+  const sessionsDir = String(process.env.WHATSAPP_SESSIONS_DIR || '').trim() || 'sessions (default local)';
+  console.log(`📁 WhatsApp sessions dir: ${sessionsDir}`);
   const workerId = Number(process.env.WHATSAPP_WORKER_ID || 0) || 0;
   const workerCount = Number(process.env.WHATSAPP_WORKER_COUNT || 1) || 1;
   console.log(`📦 WhatsApp scale profile: worker ${workerId + 1}/${Math.max(1, workerCount)}`);

@@ -12,8 +12,11 @@ export class WhatsAppManager {
   private readonly sendChains = new Map<string, Promise<SendMessageResult>>();
 
   constructor(options?: WhatsAppManagerOptions) {
+    const configuredSessionsDir = String(process.env.WHATSAPP_SESSIONS_DIR || '').trim();
     const sessionsRootDir =
-      options?.sessionsRootDir || path.resolve(process.cwd(), 'sessions');
+      options?.sessionsRootDir ||
+      configuredSessionsDir ||
+      path.resolve(process.cwd(), 'sessions');
 
     this.sessionManager = new WhatsAppSessionManager({
       sessionsRootDir,
