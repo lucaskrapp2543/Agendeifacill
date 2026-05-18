@@ -207,18 +207,12 @@ export class WhatsAppReminderScheduler {
 
   private findSenderUserIdFromCandidates(
     candidates: string[],
-    ownerId: string,
+    _ownerId: string,
     activeUserIds: Set<string>
   ): string | null {
     if (candidates.length === 0) return null;
     const firstActive = candidates.find((id) => activeUserIds.has(id));
-    if (firstActive) return firstActive;
-
-    // Fallback de compatibilidade: quando o status em banco está stale/desatualizado,
-    // ainda tentamos enviar usando owner/profissional. A camada de envio faz a
-    // reconexão automática e evita perder lembretes/saudações por falso "offline".
-    if (ownerId) return ownerId;
-    return candidates[0] || null;
+    return firstActive || null;
   }
 
   private normalizeAutomationSettings(row: any): AutomationSettings {
@@ -601,6 +595,52 @@ export class WhatsAppReminderScheduler {
             deliveryMode: res.deliveryMode || 'direct',
             error: res.error || null,
           });
+
+          // Programa o lembrete no momento em que a saudação é reconhecida.
+          // O scheduler abaixo continua como fallback caso o job programado não exista.
+          const scheduledReminderType = `reminder_${settings.reminderOffsetMinutes}m`;
+          const scheduledReminderKey = `${appointment.id}::${scheduledReminderType}`;
+          const scheduledReminderAtMs = appointmentAt.getTime() - settings.reminderOffsetMinutes * 60_000;
+          const reminderDelayMs = scheduledReminderAtMs - now.getTime();
+          if (settings.reminderEnabled && reminderDelayMs > 0 && !existingLogSet.has(scheduledReminderKey)) {
+            const reminderReserved = await this.reserveMessageLog({
+              appointmentId: appointment.id,
+              establishmentId: appointment.establishment_id,
+              senderUserId,
+              recipientPhone,
+              messageType: scheduledReminderType,
+            });
+            if (reminderReserved) {
+              existingLogSet.add(scheduledReminderKey);
+              const reminderRes = await this.deps.enqueueOrSend({
+                userId: senderUserId,
+                phone: recipientPhone,
+                message: formatTemplate(settings.reminderTemplate, vars),
+                idempotencyKey: `${scheduledReminderType}:${appointment.id}`,
+                delayMs: reminderDelayMs,
+                automationLog: {
+                  appointmentId: appointment.id,
+                  messageType: scheduledReminderType,
+                },
+              });
+              await this.updateMessageLogStatus({
+                appointmentId: appointment.id,
+                messageType: scheduledReminderType,
+                status: resolveLogStatus(reminderRes),
+                error: reminderRes.error || null,
+              });
+              console.info('[whatsapp/scheduler] reminder_scheduled', {
+                appointmentId: appointment.id,
+                reminderType: scheduledReminderType,
+                userId: senderUserId,
+                phone: recipientPhone,
+                delayMs: reminderDelayMs,
+                ok: reminderRes.ok,
+                deliveryMode: reminderRes.deliveryMode || 'direct',
+                error: reminderRes.error || null,
+              });
+            }
+          }
         }
 
         // 2) lembrete no tempo configurado

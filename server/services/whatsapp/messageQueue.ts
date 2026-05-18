@@ -71,7 +71,16 @@ export class WhatsAppMessageQueue {
   }
 
   async enqueueOrSend(payload: SendMessageInput): Promise<SendMessageResult> {
+    const delayMs = Math.max(0, Number(payload.delayMs || 0) || 0);
     if (!this.queue) {
+      if (delayMs > 0) {
+        return {
+          ok: false,
+          provider: 'baileys',
+          deliveryMode: 'direct',
+          error: 'Redis/BullMQ indisponível para agendar mensagem com atraso.',
+        };
+      }
       const result = await this.processor(payload);
       return { ...result, deliveryMode: 'direct' };
     }
@@ -82,6 +91,7 @@ export class WhatsAppMessageQueue {
     const safeJobId = idempotencyKey ? idempotencyKey.replace(/:/g, '__') : undefined;
     await this.queue.add('send-whatsapp', payload, {
       jobId: safeJobId,
+      delay: delayMs,
     });
     return {
       ok: true,
