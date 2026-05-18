@@ -329,26 +329,60 @@ export class WhatsAppReminderScheduler {
     };
   }
 
-  private async insertMessageLog(payload: {
+  private async reserveMessageLog(payload: {
     appointmentId: string;
     establishmentId: string;
     senderUserId: string | null;
     recipientPhone: string;
     messageType: string;
-    status: 'queued' | 'sent' | 'accepted' | 'failed';
-    error?: string | null;
-  }) {
-    await this.supabase.from('whatsapp_message_logs').insert({
+  }): Promise<boolean> {
+    const { error } = await this.supabase.from('whatsapp_message_logs').insert({
       appointment_id: payload.appointmentId,
       establishment_id: payload.establishmentId,
       sender_user_id: payload.senderUserId,
       recipient_phone: payload.recipientPhone,
       message_type: payload.messageType,
       provider: 'baileys',
-      status: payload.status,
-      error: payload.error || null,
-      sent_at: payload.status === 'sent' ? new Date().toISOString() : null,
+      status: 'queued',
+      error: null,
+      sent_at: null,
     });
+    if (!error) return true;
+    const code = String(error?.code || '').trim();
+    if (code === '23505') return false;
+    console.warn('[whatsapp/scheduler] Falha ao reservar log de mensagem:', {
+      appointmentId: payload.appointmentId,
+      messageType: payload.messageType,
+      error: String(error?.message || error),
+      code,
+    });
+    return false;
+  }
+
+  private async updateMessageLogStatus(payload: {
+    appointmentId: string;
+    messageType: string;
+    status: 'queued' | 'sent' | 'accepted' | 'failed';
+    error?: string | null;
+  }) {
+    const { error } = await this.supabase
+      .from('whatsapp_message_logs')
+      .update({
+        status: payload.status,
+        error: payload.error || null,
+        sent_at: payload.status === 'sent' ? new Date().toISOString() : null,
+      })
+      .eq('provider', 'baileys')
+      .eq('appointment_id', payload.appointmentId)
+      .eq('message_type', payload.messageType);
+    if (error) {
+      console.warn('[whatsapp/scheduler] Falha ao atualizar log de mensagem:', {
+        appointmentId: payload.appointmentId,
+        messageType: payload.messageType,
+        status: payload.status,
+        error: String(error?.message || error),
+      });
+    }
   }
 
   private isGuarded(messageKey: string, nowMs: number): boolean {
@@ -530,17 +564,27 @@ export class WhatsAppReminderScheduler {
 
         if (shouldSendConfirmation) {
           const vars = this.buildTemplateVars(appointment, establishmentName, settings.reminderOffsetMinutes);
+          const reserved = await this.reserveMessageLog({
+            appointmentId: appointment.id,
+            establishmentId: appointment.establishment_id,
+            senderUserId,
+            recipientPhone,
+            messageType: 'booking_confirmation',
+          });
+          if (!reserved) {
+            existingLogSet.add(confirmationKey);
+            continue;
+          }
+          existingLogSet.add(confirmationKey);
+          this.markGuard(confirmationKey, now.getTime());
           const res = await this.deps.enqueueOrSend({
             userId: senderUserId,
             phone: recipientPhone,
             message: formatTemplate(settings.greetingTemplate, vars),
             idempotencyKey: `booking_confirmation:${appointment.id}`,
           });
-          await this.insertMessageLog({
+          await this.updateMessageLogStatus({
             appointmentId: appointment.id,
-            establishmentId: appointment.establishment_id,
-            senderUserId,
-            recipientPhone,
             messageType: 'booking_confirmation',
             status: resolveLogStatus(res),
             error: res.error || null,
@@ -553,10 +597,6 @@ export class WhatsAppReminderScheduler {
             deliveryMode: res.deliveryMode || 'direct',
             error: res.error || null,
           });
-          if (res.ok) {
-            existingLogSet.add(confirmationKey);
-          }
-          if (res.ok) this.markGuard(confirmationKey, now.getTime());
         }
 
         // 2) lembrete no tempo configurado
@@ -570,17 +610,27 @@ export class WhatsAppReminderScheduler {
         const isDue = diffMs <= targetMs && diffMs >= 0;
         if (settings.reminderEnabled && !guardedReminder && !alreadyLoggedReminder && isDue) {
           const vars = this.buildTemplateVars(appointment, establishmentName, settings.reminderOffsetMinutes);
+          const reserved = await this.reserveMessageLog({
+            appointmentId: appointment.id,
+            establishmentId: appointment.establishment_id,
+            senderUserId,
+            recipientPhone,
+            messageType: reminderType,
+          });
+          if (!reserved) {
+            existingLogSet.add(reminderKey);
+            continue;
+          }
+          existingLogSet.add(reminderKey);
+          this.markGuard(reminderKey, now.getTime());
           const res = await this.deps.enqueueOrSend({
             userId: senderUserId,
             phone: recipientPhone,
             message: formatTemplate(settings.reminderTemplate, vars),
             idempotencyKey: `${reminderType}:${appointment.id}`,
           });
-          await this.insertMessageLog({
+          await this.updateMessageLogStatus({
             appointmentId: appointment.id,
-            establishmentId: appointment.establishment_id,
-            senderUserId,
-            recipientPhone,
             messageType: reminderType,
             status: resolveLogStatus(res),
             error: res.error || null,
@@ -594,10 +644,6 @@ export class WhatsAppReminderScheduler {
             deliveryMode: res.deliveryMode || 'direct',
             error: res.error || null,
           });
-          if (res.ok) {
-            existingLogSet.add(reminderKey);
-          }
-          if (res.ok) this.markGuard(reminderKey, now.getTime());
         }
       }
     } catch (error) {
