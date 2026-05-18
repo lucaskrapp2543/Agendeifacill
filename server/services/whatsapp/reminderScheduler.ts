@@ -261,6 +261,7 @@ export class WhatsAppReminderScheduler {
     dateFrom?: string;
     dateTo?: string;
     createdAfterIso?: string;
+    includeNonCancelledAnyStatus?: boolean;
   }): Promise<AppointmentRow[]> {
     const selectWithProfessional =
       'id,establishment_id,professional_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at';
@@ -270,8 +271,12 @@ export class WhatsAppReminderScheduler {
     const buildQuery = (selectClause: string, statuses: string[]) => {
       let query = this.supabase
         .from('appointments')
-        .select(selectClause)
-        .in('status', statuses);
+        .select(selectClause);
+      if (params.includeNonCancelledAnyStatus) {
+        query = query.neq('status', 'cancelled');
+      } else {
+        query = query.in('status', statuses);
+      }
       if (params.dateFrom) query = query.gte('appointment_date', params.dateFrom);
       if (params.dateTo) query = query.lte('appointment_date', params.dateTo);
       if (params.createdAfterIso) query = query.gte('created_at', params.createdAfterIso);
@@ -284,6 +289,7 @@ export class WhatsAppReminderScheduler {
     if (!result.error) return (result.data || []) as AppointmentRow[];
 
     const invalidEnum =
+      !params.includeNonCancelledAnyStatus &&
       String(result.error?.code || '').trim().toUpperCase() === '22P02' &&
       String(result.error?.message || '').toLowerCase().includes('appointment_status');
     if (invalidEnum) {
@@ -298,6 +304,7 @@ export class WhatsAppReminderScheduler {
     let fallbackQuery = buildQuery(selectFallback, ACTIVE_APPOINTMENT_STATUSES);
     result = await fallbackQuery;
     const fallbackInvalidEnum =
+      !params.includeNonCancelledAnyStatus &&
       String(result.error?.code || '').trim().toUpperCase() === '22P02' &&
       String(result.error?.message || '').toLowerCase().includes('appointment_status');
     if (fallbackInvalidEnum) {
@@ -402,6 +409,7 @@ export class WhatsAppReminderScheduler {
       });
       const recentCandidates = await this.fetchAppointmentsByWindow({
         createdAfterIso: createdAfter,
+        includeNonCancelledAnyStatus: true,
       });
 
       const recentIdSet = new Set(recentCandidates.map((apt) => String(apt.id || '').trim()).filter(Boolean));
