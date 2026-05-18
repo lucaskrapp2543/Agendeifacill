@@ -77,8 +77,11 @@ export class WhatsAppMessageQueue {
     }
 
     const idempotencyKey = String(payload.idempotencyKey || '').trim();
+    // BullMQ/Redis não aceita ":" em jobId customizado. Mantém idempotência,
+    // mas troca separadores usados pelos nossos tipos (ex.: reminder_10m:uuid).
+    const safeJobId = idempotencyKey ? idempotencyKey.replace(/:/g, '__') : undefined;
     await this.queue.add('send-whatsapp', payload, {
-      jobId: idempotencyKey || undefined,
+      jobId: safeJobId,
     });
     return {
       ok: true,
