@@ -582,6 +582,10 @@ export class WhatsAppReminderScheduler {
             phone: recipientPhone,
             message: formatTemplate(settings.greetingTemplate, vars),
             idempotencyKey: `booking_confirmation:${appointment.id}`,
+            automationLog: {
+              appointmentId: appointment.id,
+              messageType: 'booking_confirmation',
+            },
           });
           await this.updateMessageLogStatus({
             appointmentId: appointment.id,
@@ -628,6 +632,10 @@ export class WhatsAppReminderScheduler {
             phone: recipientPhone,
             message: formatTemplate(settings.reminderTemplate, vars),
             idempotencyKey: `${reminderType}:${appointment.id}`,
+            automationLog: {
+              appointmentId: appointment.id,
+              messageType: reminderType,
+            },
           });
           await this.updateMessageLogStatus({
             appointmentId: appointment.id,

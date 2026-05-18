@@ -20,6 +20,10 @@ export type SendMessageInput = {
   phone: string;
   message: string;
   idempotencyKey?: string;
+  automationLog?: {
+    appointmentId: string;
+    messageType: string;
+  };
 };
 
 export type SendMessageResult = {

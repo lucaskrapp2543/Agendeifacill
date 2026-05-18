@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { WhatsAppMessageQueue } from './messageQueue';
 import { WhatsAppReminderScheduler } from './reminderScheduler';
-import type { SessionStatusPayload } from './types';
+import type { SendMessageResult, SessionStatusPayload } from './types';
 import { WhatsAppManager } from './whatsappManager';
 
 let supabaseAdminCache: any = null;
@@ -35,11 +35,49 @@ const persistSessionStatus = async (payload: SessionStatusPayload) => {
   );
 };
 
+const resolveLogStatus = (result: SendMessageResult): 'queued' | 'sent' | 'accepted' | 'failed' => {
+  if (!result?.ok) return 'failed';
+  if (result.ackConfirmed === false) return 'accepted';
+  return String(result.deliveryMode || '').toLowerCase() === 'queued' ? 'queued' : 'sent';
+};
+
+const persistAutomationMessageResult = async (
+  log: { appointmentId: string; messageType: string } | undefined,
+  result: SendMessageResult
+) => {
+  if (!log?.appointmentId || !log?.messageType) return;
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) return;
+  const status = resolveLogStatus(result);
+  const { error } = await supabaseAdmin
+    .from('whatsapp_message_logs')
+    .update({
+      status,
+      error: result.error || null,
+      sent_at: status === 'sent' ? new Date().toISOString() : null,
+    })
+    .eq('provider', 'baileys')
+    .eq('appointment_id', log.appointmentId)
+    .eq('message_type', log.messageType);
+  if (error) {
+    console.warn('[whatsapp/queue] Falha ao atualizar log de automação:', {
+      appointmentId: log.appointmentId,
+      messageType: log.messageType,
+      status,
+      error: String(error?.message || error),
+    });
+  }
+};
+
 const manager = new WhatsAppManager({
   onStatusChange: persistSessionStatus,
 });
 
-const queue = new WhatsAppMessageQueue((job) => manager.sendMessage(job));
+const queue = new WhatsAppMessageQueue(async (job) => {
+  const result = await manager.sendMessage(job);
+  await persistAutomationMessageResult(job.automationLog, result);
+  return result;
+});
 let scheduler: WhatsAppReminderScheduler | null = null;
 let initialized = false;
 
