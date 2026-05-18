@@ -141,8 +141,10 @@ const normalizeTemplateWithRequiredTokens = (
 ) => {
   let text = String(template || '');
   for (const token of tokens) {
-    const singleBraceRegex = new RegExp(`\\{\\s*${token}\\s*\\}`, 'gi');
-    text = text.replace(singleBraceRegex, `{{${token}}}`);
+    // Canonicaliza qualquer variação (ex.: {token}, {{token}}, {{{token}}})
+    // para o formato único {{token}}, evitando acúmulo progressivo de chaves.
+    const anyBraceRegex = new RegExp(`\\{+\\s*${token}\\s*\\}+`, 'gi');
+    text = text.replace(anyBraceRegex, `{{${token}}}`);
   }
   const missing = tokens.filter((token) => !text.includes(`{{${token}}}`));
   if (missing.length > 0) {
