@@ -462,8 +462,37 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
       reminder_offset_minutes: normalizedMinutes,
     };
     setSettings(nextSettings);
-    await handleSaveAutomationSettings({ reminder_offset_minutes: normalizedMinutes }, { silent: true });
-    toast.success(`Lembrete atualizado para ${REMINDER_OPTIONS.find((opt) => opt.value === normalizedMinutes)?.label || `${normalizedMinutes} min`}.`);
+    if (!ensureApiConfigured() || !userId) return;
+    setSavingSettings(true);
+    try {
+      const headers = await buildAuthHeaders();
+      if (!headers) throw new Error('Sessão expirada. Faça login novamente.');
+      const response = await fetch(buildWhatsAppApiUrl('automation-settings'), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          user_id: userId,
+          reminder_enabled: nextSettings.reminder_enabled,
+          reminder_offset_minutes: normalizedMinutes,
+          reminder_template: nextSettings.reminder_template,
+          greeting_enabled: nextSettings.greeting_enabled,
+          greeting_template: nextSettings.greeting_template,
+        }),
+      });
+      const data = await parseApiResponse<AutomationSettingsResponse>(response);
+      if (!response.ok || !data?.ok) {
+        throw new Error(String(data?.error || 'Falha ao salvar configurações.'));
+      }
+      setApiUnavailable(false);
+      setApiUnavailableMessage('');
+      if (data.settings) setSettings(data.settings);
+      toast.success(`Lembrete atualizado para ${REMINDER_OPTIONS.find((opt) => opt.value === normalizedMinutes)?.label || `${normalizedMinutes} min`}.`);
+    } catch (error: any) {
+      markApiUnavailable(error);
+      toast.error(String(error?.message || 'Erro ao salvar lembrete.'));
+    } finally {
+      setSavingSettings(false);
+    }
   };
 
   const toggleLogs = async () => {

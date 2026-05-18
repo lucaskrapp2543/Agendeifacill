@@ -352,15 +352,22 @@ router.post('/automation-settings', async (req, res) => {
       await sleep(attempt * 250);
     }
     if (error) {
+      console.error('[whatsapp/automation-settings/POST] supabase upsert error', {
+        code: error?.code,
+        message: error?.message,
+        details: error?.details,
+        hint: error?.hint,
+        userId,
+      });
       if (isMissingAutomationSettingsTable(error)) {
         throw new Error(
           'Tabela whatsapp_automation_settings não encontrada. Aplique a migration de automação do WhatsApp no Supabase.'
         );
       }
       if (isTransientSupabaseError(error)) {
-        throw new Error('Falha temporária de rede ao salvar automação. Tente novamente em alguns segundos.');
+        throw new Error(`Falha de rede ao salvar automação: ${String(error?.message || error)}`);
       }
-      throw error;
+      throw new Error(String(error?.message || error?.code || JSON.stringify(error)));
     }
 
     return res.status(200).json({
