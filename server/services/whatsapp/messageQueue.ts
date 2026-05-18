@@ -3,6 +3,7 @@ import IORedis from 'ioredis';
 import type { SendMessageInput, SendMessageResult } from './types';
 
 type QueueProcessor = (job: SendMessageInput) => Promise<SendMessageResult>;
+type QueueMode = 'all' | 'producer' | 'consumer' | 'direct';
 
 export class WhatsAppMessageQueue {
   private queue: Queue<SendMessageInput> | null = null;
@@ -14,9 +15,16 @@ export class WhatsAppMessageQueue {
     this.processor = processor;
   }
 
-  initialize() {
+  initialize(mode: QueueMode = 'all') {
+    const normalizedMode: QueueMode =
+      mode === 'producer' || mode === 'consumer' || mode === 'direct' ? mode : 'all';
     const redisUrl = String(process.env.REDIS_URL || '').trim();
     const requireRedis = String(process.env.WHATSAPP_REQUIRE_REDIS || '').trim().toLowerCase() === 'true';
+    if (normalizedMode === 'direct') {
+      console.warn('⚠️ WhatsApp queue em modo direct (sem BullMQ).');
+      return;
+    }
+
     if (!redisUrl) {
       if (requireRedis) {
         throw new Error('WHATSAPP_REQUIRE_REDIS=true, porém REDIS_URL não foi configurado.');
@@ -36,20 +44,30 @@ export class WhatsAppMessageQueue {
       },
     });
 
-    this.worker = new Worker<SendMessageInput>(
-      'whatsapp-outbound',
-      async (job) => this.processor(job.data),
-      { connection: this.redis, concurrency: 4 }
-    );
+    if (normalizedMode === 'all' || normalizedMode === 'consumer') {
+      this.worker = new Worker<SendMessageInput>(
+        'whatsapp-outbound',
+        async (job) => this.processor(job.data),
+        { connection: this.redis, concurrency: 4 }
+      );
 
-    this.worker.on('failed', (job, err) => {
-      console.error('❌ Falha no worker whatsapp-outbound:', {
-        jobId: job?.id,
-        error: err?.message,
+      this.worker.on('failed', (job, err) => {
+        console.error('❌ Falha no worker whatsapp-outbound:', {
+          jobId: job?.id,
+          error: err?.message,
+        });
       });
-    });
+    }
 
-    console.log('✅ BullMQ inicializado para WhatsApp (queue: whatsapp-outbound).');
+    if (normalizedMode === 'producer') {
+      console.log('✅ BullMQ inicializado para WhatsApp (modo producer).');
+      return;
+    }
+    if (normalizedMode === 'consumer') {
+      console.log('✅ BullMQ inicializado para WhatsApp (modo consumer).');
+      return;
+    }
+    console.log('✅ BullMQ inicializado para WhatsApp (modo all).');
   }
 
   async enqueueOrSend(payload: SendMessageInput): Promise<SendMessageResult> {

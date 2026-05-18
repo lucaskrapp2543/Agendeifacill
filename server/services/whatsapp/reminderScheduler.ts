@@ -122,6 +122,7 @@ export class WhatsAppReminderScheduler {
   private readonly workerCount: number;
   private readonly schedulerLockKey: string;
   private readonly lockClient: IORedis | null = null;
+  private readonly intervalMs: number;
 
   constructor(deps: SchedulerDeps) {
     const supabaseUrl = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
@@ -136,6 +137,10 @@ export class WhatsAppReminderScheduler {
     this.workerId = Math.max(0, Number(process.env.WHATSAPP_WORKER_ID || 0) || 0);
     this.workerCount = Math.max(1, Number(process.env.WHATSAPP_WORKER_COUNT || 1) || 1);
     this.schedulerLockKey = String(process.env.WHATSAPP_SCHEDULER_LOCK_KEY || 'wa:scheduler:leader').trim();
+    const configuredIntervalMs = Number(process.env.WHATSAPP_SCHEDULER_INTERVAL_MS || 20_000);
+    this.intervalMs = Number.isFinite(configuredIntervalMs)
+      ? Math.min(Math.max(configuredIntervalMs, 10_000), 120_000)
+      : 20_000;
     const redisUrl = String(process.env.REDIS_URL || '').trim();
     if (redisUrl) {
       this.lockClient = new IORedis(redisUrl, { maxRetriesPerRequest: null, enableReadyCheck: false });
@@ -146,9 +151,9 @@ export class WhatsAppReminderScheduler {
     if (this.timer) return;
     this.timer = setInterval(() => {
       void this.runOnce();
-    }, 60_000);
+    }, this.intervalMs);
     void this.runOnce();
-    console.log('✅ Scheduler de WhatsApp (Baileys) iniciado (1 min).');
+    console.log(`✅ Scheduler de WhatsApp (Baileys) iniciado (${this.intervalMs}ms).`);
   }
 
   stop() {
@@ -184,10 +189,10 @@ export class WhatsAppReminderScheduler {
     }
   }
 
-  private async findSenderUserId(
+  private resolveSenderCandidates(
     appointment: AppointmentRow,
     establishmentById: Map<string, EstablishmentRow>
-  ): Promise<string | null> {
+  ): { candidates: string[]; ownerId: string } {
     const candidates: string[] = [];
     const professionalId =
       String(appointment.professional_id || '').trim() ||
@@ -197,22 +202,16 @@ export class WhatsAppReminderScheduler {
     const establishment = establishmentById.get(String(appointment.establishment_id || '').trim());
     const ownerId = String(establishment?.owner_id || '').trim();
     if (ownerId) candidates.push(ownerId);
+    return { candidates, ownerId };
+  }
 
+  private findSenderUserIdFromCandidates(
+    candidates: string[],
+    ownerId: string,
+    activeUserIds: Set<string>
+  ): string | null {
     if (candidates.length === 0) return null;
-
-    const { data } = await this.supabase
-      .from('whatsapp_sessions')
-      .select('user_id,status')
-      .in('user_id', candidates);
-
-    const active = new Set(
-      ((data || []) as any[])
-        .filter((row: any) => String(row?.status || '').toLowerCase() === 'connected')
-        .map((row: any) => String(row?.user_id || '').trim())
-        .filter(Boolean)
-    );
-
-    const firstActive = candidates.find((id) => active.has(id));
+    const firstActive = candidates.find((id) => activeUserIds.has(id));
     if (firstActive) return firstActive;
 
     // Fallback de compatibilidade: quando o status em banco está stale/desatualizado,
@@ -450,11 +449,55 @@ export class WhatsAppReminderScheduler {
           .map((row: any) => `${row.appointment_id}::${row.message_type}`)
       );
 
-      for (const appointment of appointments) {
+      // Evita processar massa histórica desnecessária: mantém apenas itens com
+      // confirmação recente ou lembrete potencial para as próximas 12h.
+      const maxReminderMs = 12 * 60 * 60_000;
+      const nowMs = now.getTime();
+      const scopedAppointments = appointments.filter((appointment) => {
+        const appointmentId = String(appointment.id || '').trim();
+        if (!appointmentId) return false;
+        if (recentIdSet.has(appointmentId)) return true;
+        const appointmentAt = toDateTime(appointment.appointment_date, appointment.appointment_time);
+        if (!appointmentAt) return false;
+        const diffMs = appointmentAt.getTime() - nowMs;
+        return diffMs >= 0 && diffMs <= maxReminderMs;
+      });
+
+      if (scopedAppointments.length === 0) return;
+
+      // Busca status de sessão em lote para evitar N+1 e reduzir latência.
+      const senderCandidateSet = new Set<string>();
+      const senderCandidatesByAppointmentId = new Map<string, { candidates: string[]; ownerId: string }>();
+      for (const appointment of scopedAppointments) {
+        const resolved = this.resolveSenderCandidates(appointment, establishmentById);
+        senderCandidatesByAppointmentId.set(String(appointment.id || '').trim(), resolved);
+        resolved.candidates.forEach((id) => senderCandidateSet.add(id));
+      }
+      let activeUserIds = new Set<string>();
+      const senderCandidates = Array.from(senderCandidateSet).filter(Boolean);
+      if (senderCandidates.length > 0) {
+        const { data: sessionsData } = await this.supabase
+          .from('whatsapp_sessions')
+          .select('user_id,status')
+          .in('user_id', senderCandidates);
+        activeUserIds = new Set(
+          ((sessionsData || []) as any[])
+            .filter((row: any) => String(row?.status || '').toLowerCase() === 'connected')
+            .map((row: any) => String(row?.user_id || '').trim())
+            .filter(Boolean)
+        );
+      }
+
+      for (const appointment of scopedAppointments) {
         const recipientPhone = normalizePhone(String(appointment.client_whatsapp || ''));
         if (!recipientPhone) continue;
 
-        const senderUserId = await this.findSenderUserId(appointment, establishmentById);
+        const senderResolution = senderCandidatesByAppointmentId.get(String(appointment.id || '').trim());
+        const senderUserId = this.findSenderUserIdFromCandidates(
+          senderResolution?.candidates || [],
+          senderResolution?.ownerId || '',
+          activeUserIds
+        );
         if (!senderUserId) continue;
         const settings = await this.getAutomationSettings(senderUserId);
         const establishmentName =
@@ -468,9 +511,7 @@ export class WhatsAppReminderScheduler {
         // 1) confirmação de agendamento (até 2h após criação, com deduplicação por log/idempotência)
         const confirmationKey = `${appointment.id}::booking_confirmation`;
         const guardedConfirmation = this.isGuarded(confirmationKey, now.getTime());
-        const alreadyLoggedConfirmation =
-          existingLogSet.has(confirmationKey) ||
-          (await this.hasExistingMessageLog(appointment.id, 'booking_confirmation'));
+        const alreadyLoggedConfirmation = existingLogSet.has(confirmationKey);
         const shouldSendConfirmation =
           settings.greetingEnabled &&
           recentIdSet.has(String(appointment.id || '').trim()) &&
@@ -514,9 +555,7 @@ export class WhatsAppReminderScheduler {
         const reminderType = `reminder_${settings.reminderOffsetMinutes}m`;
         const reminderKey = `${appointment.id}::${reminderType}`;
         const guardedReminder = this.isGuarded(reminderKey, now.getTime());
-        const alreadyLoggedReminder =
-          existingLogSet.has(reminderKey) ||
-          (await this.hasExistingMessageLog(appointment.id, reminderType));
+        const alreadyLoggedReminder = existingLogSet.has(reminderKey);
         const diffMs = appointmentAt.getTime() - now.getTime();
         const targetMs = settings.reminderOffsetMinutes * 60_000;
         // Não perde o lembrete: após bater o tempo alvo, envia em qualquer ciclo até o início do agendamento.

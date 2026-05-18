@@ -7,6 +7,7 @@
     "dev": "concurrently \"npm run dev:api\" \"npm run dev:vite\"",
     "dev:vite": "vite --host",
     "dev:api": "tsx watch server/api-server.ts",
+    "dev:wa-worker": "tsx watch server/whatsapp-worker.ts",
     "dev-nocache": "vite --host --config vite.config.dev.ts",
     "dev-fresh": "npm run kill-port && npm run dev-nocache",
     "kill-port": "powershell -Command \"Get-Process -Id (Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue).OwningProcess -ErrorAction SilentlyContinue | Stop-Process -Force\"",
@@ -18,6 +19,7 @@
     "typecheck:full": "tsc -b",
     "quality": "npm run lint && npm run typecheck && npm run build",
     "preview": "vite preview",
+    "start:wa-worker": "tsx server/whatsapp-worker.ts",
     "ponto-x": "scripts\\restore-point.bat"
   },
   "dependencies": {
