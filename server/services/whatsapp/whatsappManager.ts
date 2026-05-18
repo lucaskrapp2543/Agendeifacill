@@ -209,26 +209,34 @@ export class WhatsAppManager {
       };
     }
 
-    try {
-      const firstAttempt = await this.sendWithSocket(socket, phone, message);
-      if (firstAttempt.ok) return firstAttempt;
-      if (!this.isTransientConnectionError(firstAttempt.error)) return firstAttempt;
+    const attemptSend = async (): Promise<SendMessageResult> => {
+      try {
+        return await this.sendWithSocket(socket, phone, message);
+      } catch (error: any) {
+        return {
+          ok: false,
+          provider: 'baileys',
+          deliveryMode: 'direct',
+          error: String(error?.message || error || 'Falha ao enviar mensagem'),
+        };
+      }
+    };
 
+    const firstAttempt = await attemptSend();
+    if (firstAttempt.ok) return firstAttempt;
+    if (!this.isTransientConnectionError(firstAttempt.error)) return firstAttempt;
+
+    try {
       // Retry único para reduzir falhas intermitentes de reconexão do WhatsApp Web.
       await this.disconnect(userId, false);
       await this.connect(userId);
       socket = await this.getConnectedSocket(userId);
       if (!socket || !socket?.user) return firstAttempt;
 
-      const secondAttempt = await this.sendWithSocket(socket, phone, message);
+      const secondAttempt = await attemptSend();
       return secondAttempt.ok ? secondAttempt : firstAttempt;
-    } catch (error: any) {
-      return {
-        ok: false,
-        provider: 'baileys',
-        deliveryMode: 'direct',
-        error: String(error?.message || error || 'Falha ao enviar mensagem'),
-      };
+    } catch {
+      return firstAttempt;
     }
   }
 }

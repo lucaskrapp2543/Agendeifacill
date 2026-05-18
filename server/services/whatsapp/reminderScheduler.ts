@@ -213,7 +213,13 @@ export class WhatsAppReminderScheduler {
     );
 
     const firstActive = candidates.find((id) => active.has(id));
-    return firstActive || null;
+    if (firstActive) return firstActive;
+
+    // Fallback de compatibilidade: quando o status em banco está stale/desatualizado,
+    // ainda tentamos enviar usando owner/profissional. A camada de envio faz a
+    // reconexão automática e evita perder lembretes/saudações por falso "offline".
+    if (ownerId) return ownerId;
+    return candidates[0] || null;
   }
 
   private normalizeAutomationSettings(row: any): AutomationSettings {
