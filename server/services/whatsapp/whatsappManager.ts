@@ -115,6 +115,10 @@ export class WhatsAppManager {
     );
   }
 
+  private async sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   private async getConnectedSocket(userId: string): Promise<any | null> {
     let socket = this.sessionManager.getSocket(userId);
     if (!socket || !socket?.user) {
@@ -207,15 +211,6 @@ export class WhatsAppManager {
 
     let socket = await this.getConnectedSocket(userId);
 
-    if (!socket || !socket?.user) {
-      return {
-        ok: false,
-        provider: 'baileys',
-        deliveryMode: 'direct',
-        error: 'Sessão não conectada. Escaneie o QR Code.',
-      };
-    }
-
     const attemptSend = async (): Promise<SendMessageResult> => {
       try {
         return await this.sendWithSocket(socket, phone, message);
@@ -238,21 +233,51 @@ export class WhatsAppManager {
       }
     };
 
-    const firstAttempt = await attemptSend();
-    if (firstAttempt.ok) return firstAttempt;
-    if (!this.isTransientConnectionError(firstAttempt.error)) return firstAttempt;
+    const configuredAttempts = Number(process.env.WHATSAPP_SEND_RETRY_ATTEMPTS || 4);
+    const maxAttempts = Number.isFinite(configuredAttempts)
+      ? Math.min(Math.max(configuredAttempts, 1), 8)
+      : 4;
+    let lastAttempt: SendMessageResult = {
+      ok: false,
+      provider: 'baileys',
+      deliveryMode: 'direct',
+      error: 'Sessão não conectada. Escaneie o QR Code.',
+    };
 
-    try {
-      // Retry único para reduzir falhas intermitentes de reconexão do WhatsApp Web.
-      await this.disconnect(userId, false);
-      await this.connect(userId);
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       socket = await this.getConnectedSocket(userId);
-      if (!socket || !socket?.user) return firstAttempt;
+      if (!socket || !socket?.user) {
+        lastAttempt = {
+          ok: false,
+          provider: 'baileys',
+          deliveryMode: 'direct',
+          error: 'Sessão não conectada. Escaneie o QR Code.',
+        };
+      } else {
+        lastAttempt = await attemptSend();
+      }
 
-      const secondAttempt = await attemptSend();
-      return secondAttempt.ok ? secondAttempt : firstAttempt;
-    } catch {
-      return firstAttempt;
+      if (lastAttempt.ok) return lastAttempt;
+      if (!this.isTransientConnectionError(lastAttempt.error)) return lastAttempt;
+      if (attempt === maxAttempts) return lastAttempt;
+
+      console.warn('[whatsapp/send] erro transitório, tentando reconectar e reenviar', {
+        userId,
+        phone,
+        attempt,
+        maxAttempts,
+        error: lastAttempt.error || null,
+      });
+
+      try {
+        await this.disconnect(userId, false);
+        await this.sleep(Math.min(10_000, 1_500 * attempt));
+        await this.connect(userId);
+      } catch {
+        // A próxima iteração tentará obter/conectar o socket novamente.
+      }
     }
+
+    return lastAttempt;
   }
 }
