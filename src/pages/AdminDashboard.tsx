@@ -176,6 +176,7 @@ const AdminDashboard = () => {
   const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'unpaid' | 'expired'>('all');
   const [filterPlan, setFilterPlan] = useState<'all' | 'prata' | 'ouro' | 'diamante' | 'outros'>('all');
   const [filterActivity, setFilterActivity] = useState<'all' | 'active' | 'inactive'>('all');
+  const [filterWhatsapp, setFilterWhatsapp] = useState<'all' | 'connected'>('all');
   const [showDeleted, setShowDeleted] = useState(false);
   const [deletedContainmentIds, setDeletedContainmentIds] = useState<string[]>([]);
   const [showNewRegistrations, setShowNewRegistrations] = useState(false);
@@ -187,6 +188,7 @@ const AdminDashboard = () => {
   const [isLoadingEstablishmentInfo, setIsLoadingEstablishmentInfo] = useState(false);
   const [resetOwnerPasswordValue, setResetOwnerPasswordValue] = useState('');
   const [isResettingOwnerPassword, setIsResettingOwnerPassword] = useState(false);
+  const [whatsappConnectedOwnerIds, setWhatsappConnectedOwnerIds] = useState<Set<string>>(new Set());
 
   // Estados para contagem de agendamentos
   const [selectedDateForAppointments, setSelectedDateForAppointments] = useState<Record<string, Date>>({});
@@ -1325,6 +1327,7 @@ const AdminDashboard = () => {
 
         // Se chegou até aqui, pode carregar dados
         fetchEstablishments();
+        fetchWhatsappConnectedSessions();
         fetchPendingRegistrationsCount();
         loadAdminBillingLinks();
       } catch (error) {
@@ -1335,6 +1338,13 @@ const AdminDashboard = () => {
 
     checkAuth();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchWhatsappConnectedSessions();
+    const interval = setInterval(fetchWhatsappConnectedSessions, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   // Auto-refresh das inscrições a cada 5 segundos
   useEffect(() => {
@@ -1741,6 +1751,36 @@ const AdminDashboard = () => {
       toast.error('Erro ao carregar estabelecimentos');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchWhatsappConnectedSessions = async () => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = String(sessionData?.session?.access_token || '').trim();
+      if (!accessToken) return;
+
+      const response = await fetch('/api/whatsapp/admin/connected-sessions', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.ok) {
+        console.warn('Não foi possível carregar sessões WhatsApp conectadas:', payload?.error || response.status);
+        return;
+      }
+
+      const connectedIds = new Set(
+        ((payload?.sessions || []) as any[])
+          .filter((session) => String(session?.status || '').toLowerCase() === 'connected')
+          .map((session) => String(session?.user_id || '').trim())
+          .filter(Boolean)
+      );
+      setWhatsappConnectedOwnerIds(connectedIds);
+    } catch (error) {
+      console.warn('Falha ao consultar sessões WhatsApp conectadas:', error);
     }
   };
 
@@ -3203,6 +3243,7 @@ const AdminDashboard = () => {
       establishment.code,
       establishment.owner_email || '',
       String((establishment as any)?.whatsapp || ''),
+      whatsappConnectedOwnerIds.has(String(establishment.owner_id || '').trim()) ? 'wpp conectado whatsapp conectado' : '',
       establishment.plan_type || '',
       statusLabel,
       planLabel,
@@ -3291,6 +3332,12 @@ const AdminDashboard = () => {
 
   const activeCount = baseFilteredEstablishments.reduce((acc, est) => acc + (isActiveEstablishment(est) ? 1 : 0), 0);
   const inactiveCount = Math.max(0, baseFilteredEstablishments.length - activeCount);
+  const isWhatsappConnectedEstablishment = (establishment: Establishment) =>
+    whatsappConnectedOwnerIds.has(String(establishment.owner_id || '').trim());
+  const whatsappConnectedCount = baseFilteredEstablishments.reduce(
+    (acc, est) => acc + (isWhatsappConnectedEstablishment(est) ? 1 : 0),
+    0
+  );
 
   const sortEstablishmentsForAdminGrid = (a: Establishment, b: Establishment): number => {
     // 1) Estabelecimentos vencidos sempre no topo
@@ -3319,6 +3366,10 @@ const AdminDashboard = () => {
     .filter(est => {
       if (filterActivity === 'active') return isActiveEstablishment(est);
       if (filterActivity === 'inactive') return !isActiveEstablishment(est);
+      return true;
+    })
+    .filter(est => {
+      if (filterWhatsapp === 'connected') return isWhatsappConnectedEstablishment(est);
       return true;
     });
 
@@ -4604,7 +4655,10 @@ const AdminDashboard = () => {
             </select>
 
             <button
-              onClick={fetchEstablishments}
+              onClick={() => {
+                fetchEstablishments();
+                fetchWhatsappConnectedSessions();
+              }}
               className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-1 text-sm"
             >
               <RefreshCw className="h-4 w-4" />
@@ -4640,6 +4694,19 @@ const AdminDashboard = () => {
             <span className="text-rose-800">
               <strong>Bloqueados:</strong> {blockedCountInFilter}
             </span>
+            <button
+              type="button"
+              onClick={() => setFilterWhatsapp((prev) => (prev === 'connected' ? 'all' : 'connected'))}
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors ${filterWhatsapp === 'connected'
+                ? 'bg-emerald-700 border-emerald-800 text-white'
+                : 'bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                }`}
+              title="Mostrar apenas estabelecimentos com WhatsApp conectado"
+            >
+              <CheckCircle className="h-3 w-3" />
+              <strong>WPP CONECTADO:</strong> {whatsappConnectedCount}
+              {filterWhatsapp === 'connected' ? <span className="text-[10px] font-semibold opacity-80">(filtrando)</span> : null}
+            </button>
             <span title="Lucro do app no mês atual (PIX R$0,50 por venda e Crédito R$1,00 por venda)">
               <strong>Lucro mês atual (PIX + Crédito):</strong> {isLoadingSaldos ? '...' : fmtBRL(lucroPixFiltrado)}
             </span>
@@ -4871,6 +4938,15 @@ const AdminDashboard = () => {
                         <td className="px-3 py-4">
                           <div className="flex items-center gap-2 flex-wrap">
                             <div className="text-sm font-medium text-gray-900 truncate">{establishment.name}</div>
+                            {whatsappConnectedOwnerIds.has(String(establishment.owner_id || '').trim()) && (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-extrabold rounded-full bg-emerald-700 text-white border border-emerald-900 shadow-sm whitespace-nowrap"
+                                title="Este estabelecimento conectou o WhatsApp Baileys"
+                              >
+                                <CheckCircle className="h-3 w-3" />
+                                WPP CONECTADO
+                              </span>
+                            )}
                             <button
                               onClick={() => handleOpenEstablishmentInfo(establishment)}
                               className="px-2 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors whitespace-nowrap"

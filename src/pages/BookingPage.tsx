@@ -15,6 +15,7 @@ import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
 import { validatePendingClientBookingLimit } from '../utils/pendingClientBookingValidation';
 import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
+import { validateSubscriberBooking } from '../utils/subscriberBookingValidation';
 import {
   buildStalePaymentDetail,
   CANCELLATION_SOURCE,
@@ -1831,6 +1832,19 @@ export default function BookingPage() {
 
       // Trava de segurança: assinante só agenda com o plano ativo detectado.
       if (isSubscriberAppointment) {
+        const subscriberDateValidation = await validateSubscriberBooking(
+          String(appointmentData?.client_whatsapp || guestClientData?.phone || ''),
+          establishment.id,
+          targetDate
+        );
+        if (!subscriberDateValidation.canBook) {
+          toast.error(
+            subscriberDateValidation.message ||
+            'Sua assinatura não permite agendamento nesta data. Renove a assinatura ou agende como cliente normal.'
+          );
+          return;
+        }
+
         const selectedPlanId = String(selectedSubscriberService?.id || appointmentData?.subscription_id || '').trim();
         if (activeSubscriberPlanId && selectedPlanId && activeSubscriberPlanId !== selectedPlanId) {
           toast.error('Você só pode agendar usando o seu plano mensal ativo.');

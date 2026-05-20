@@ -66,7 +66,7 @@ interface Appointment {
   duration: number;
   price: number;
   total_price?: number;
-  payment_method?: 'dinheiro' | 'pix' | 'credito' | 'debito' | 'transferencia' | 'pagar_local' | 'multi';
+  payment_method?: 'dinheiro' | 'pix' | 'credito' | 'debito' | 'transferencia' | 'pagar_local' | 'multi' | 'assinante';
   card_brand?: string;
   payment_split_details?: PaymentSplitDetail[] | null;
   pix_payment_status?: string;
@@ -1311,6 +1311,21 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return String(p?.name || professionalId || 'Profissional');
     };
 
+    const resolveAppointmentProfessionalName = (apt: Appointment): string => {
+      const fromRow = String((apt as any)?.professional_name || '').trim();
+      const isInvalid = (value: string) => {
+        const normalized = value.trim().toLowerCase();
+        return !normalized || normalized === 'unknown' || normalized === 'desconhecido';
+      };
+      if (!isInvalid(fromRow)) return fromRow;
+
+      const professionalIdOrName = String((apt as any)?.professional_id || (apt as any)?.professional || '').trim();
+      const byIdOrName = getProfessionalNameById(professionalIdOrName);
+      if (!isInvalid(byIdOrName)) return byIdOrName;
+
+      return 'Profissional';
+    };
+
     const normalizePhoneDigitsForSubscriber = (value: unknown): string => {
       const digits = String(value || '').replace(/\D/g, '');
       if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) return digits.slice(2);
@@ -1438,21 +1453,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
         if (!shouldAutoRegisterSubscriberAttendance(apt)) return;
         if (!appointmentId || !establishmentId) return;
 
-        try {
-          const alreadyMarked = await (supabase as any)
-            .from('appointment_change_logs')
-            .select('id')
-            .eq('establishment_id', establishmentId)
-            .eq('appointment_id', appointmentId)
-            .eq('event_type', 'subscriber_attendance_marked')
-            .limit(1);
-          if (!alreadyMarked.error && Array.isArray(alreadyMarked.data) && alreadyMarked.data.length > 0) {
-            return;
-          }
-        } catch {
-          // Compatibilidade: se histórico não existir, segue sem bloquear.
-        }
-
         const context = await resolveAutoSubscriberAttendanceContext(apt);
         if (!context || !context.clientSubscriptionId) {
           await writeAutoSubscriberLog(
@@ -1471,6 +1471,30 @@ export const AllProfessionalsAppointmentsView: React.FC<
             { reason: 'attendance_date_missing' }
           );
           return;
+        }
+
+        try {
+          const alreadyMarked = await (supabase as any)
+            .from('appointment_change_logs')
+            .select('id')
+            .eq('establishment_id', establishmentId)
+            .eq('appointment_id', appointmentId)
+            .eq('event_type', 'subscriber_attendance_marked')
+            .limit(1);
+          if (!alreadyMarked.error && Array.isArray(alreadyMarked.data) && alreadyMarked.data.length > 0) {
+            const existingAttendance = await (supabase as any)
+              .from('subscriber_attendances')
+              .select('id')
+              .eq('establishment_id', establishmentId)
+              .eq('client_subscription_id', context.clientSubscriptionId)
+              .eq('attendance_date', attendanceDate)
+              .limit(1);
+            if (!existingAttendance.error && Array.isArray(existingAttendance.data) && existingAttendance.data.length > 0) {
+              return;
+            }
+          }
+        } catch {
+          // Compatibilidade: se histórico não existir, segue sem bloquear.
         }
 
         const monthStart = format(new Date(`${attendanceDate}T00:00:00`), 'yyyy-MM-01');
@@ -1570,7 +1594,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         let repassValue = pointsModeSubscription ? 0 : round2(baseFixed * multiplier);
         if (divideEnabled) repassValue = round2(repassValue / divideCount);
 
-        const professionalName = getProfessionalNameById(String((apt as any)?.professional || ''));
+        const professionalName = resolveAppointmentProfessionalName(apt);
         const payload: Record<string, unknown> = {
           establishment_id: establishmentId,
           client_subscription_id: context.clientSubscriptionId,
@@ -1739,7 +1763,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         if (updErr) throw updErr;
 
         // 2) Registrar atendimento no assinante
-        const professionalName = getProfessionalNameById(String(apt.professional || ''));
+        const professionalName = resolveAppointmentProfessionalName(apt);
         // ✅ Calcular repasse automaticamente (usando configurações da assinatura)
         const round2 = (v: number) => Math.round(v * 100) / 100;
 

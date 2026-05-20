@@ -102,6 +102,14 @@ const resolveTargetUserId = async (req: express.Request): Promise<string> => {
   }
 };
 
+const ensureSupportAdmin = async (req: express.Request) => {
+  const authUser = await resolveRequestAuthUser(req);
+  if (!SUPPORT_ADMIN_EMAILS.includes(authUser.email)) {
+    throw new Error('Acesso admin não autorizado.');
+  }
+  return authUser;
+};
+
 const normalizeAutomationSettings = (row: any, userId: string) => ({
   user_id: userId,
   reminder_enabled: row?.reminder_enabled !== false,
@@ -401,6 +409,33 @@ router.get('/message-logs', async (req, res) => {
     return res.status(200).json({
       ok: true,
       logs: data || [],
+    });
+  } catch (error: any) {
+    return res.status(400).json({ ok: false, error: String(error?.message || error) });
+  }
+});
+
+router.get('/admin/connected-sessions', async (req, res) => {
+  try {
+    await ensureSupportAdmin(req);
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) throw new Error('Supabase admin não configurado.');
+
+    const { data, error } = await supabaseAdmin
+      .from('whatsapp_sessions')
+      .select('user_id,status,phone,connected_at,last_seen')
+      .eq('status', 'connected');
+    if (error) throw error;
+
+    return res.status(200).json({
+      ok: true,
+      sessions: (data || []).map((row: any) => ({
+        user_id: String(row?.user_id || '').trim(),
+        status: String(row?.status || '').trim(),
+        phone: row?.phone || null,
+        connected_at: row?.connected_at || null,
+        last_seen: row?.last_seen || null,
+      })),
     });
   } catch (error: any) {
     return res.status(400).json({ ok: false, error: String(error?.message || error) });

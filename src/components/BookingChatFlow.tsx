@@ -45,6 +45,11 @@ interface BookingChatFlowProps {
 }
 
 const toMoney = (value: number): string => `R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`;
+const toBRDateFromDateOnly = (value: string): string => {
+  const [year, month, day] = String(value || '').slice(0, 10).split('-');
+  if (!year || !month || !day) return value;
+  return `${day}/${month}/${year}`;
+};
 const formatDuration = (minutes: number): string => `${Math.max(0, Number(minutes || 0))} min`;
 const onlyDigits = (raw: string) => String(raw || '').replace(/\D/g, '');
 const timeToMinutes = (time: string): number => {
@@ -614,6 +619,18 @@ export function BookingChatFlow({
 
   const businessHoursForDate = useMemo(() => buildBusinessHoursForDate(establishment, selectedDate), [establishment, selectedDate]);
   const selectedDateKey = format(selectedDate, 'yyyy-MM-dd');
+  const subscriberDateLimitMessage = useMemo(() => {
+    if (!isSubscriberFlow) return '';
+    const endDateStr = String((detectedSubscriber as any)?.end_date || '').slice(0, 10);
+    const paymentStatus = String((detectedSubscriber as any)?.payment_status || '').toLowerCase().trim();
+    if (paymentStatus === 'unpaid') {
+      return 'Sua assinatura está com pagamento pendente. Renove a assinatura ou agende como cliente normal.';
+    }
+    if (endDateStr && endDateStr < selectedDateKey) {
+      return `Sua assinatura vence em ${toBRDateFromDateOnly(endDateStr)}. Para agendar em ${toBRDateFromDateOnly(selectedDateKey)}, renove a assinatura ou agende como cliente normal.`;
+    }
+    return '';
+  }, [detectedSubscriber, isSubscriberFlow, selectedDateKey]);
   const filteredExistingAppointments = useMemo(() => {
     const norm = (value: unknown) => String(value ?? '').trim().toLowerCase();
     const selectedProfessionalIdNorm = norm(selectedProfessionalId);
@@ -1205,6 +1222,10 @@ export function BookingChatFlow({
       toast.error(`Esse plano permite agendamento somente em: ${allowedDays}.`);
       return;
     }
+    if (isSubscriberFlow && subscriberDateLimitMessage) {
+      toast.error(subscriberDateLimitMessage);
+      return;
+    }
     if (isSubscriberFlow) {
       const blockedSelected = (isDividedSubscriberPlan ? selectedSubscriberServices : [selectedPrimarySubscriberService])
         .filter(Boolean)
@@ -1426,8 +1447,8 @@ export function BookingChatFlow({
       messages.push({ id: 'user-service', role: 'user', text: computedSelection.serviceName });
       messages.push({ id: 'bot-datetime', role: 'bot', text: 'Qual data você deseja para o agendamento? Abaixo já estão os horários disponíveis.' });
     }
-    if (invalidSubscriberDateMessage) {
-      messages.push({ id: 'bot-invalid-subscriber-weekday', role: 'bot', text: invalidSubscriberDateMessage });
+    if (invalidSubscriberDateMessage || subscriberDateLimitMessage) {
+      messages.push({ id: 'bot-invalid-subscriber-date', role: 'bot', text: invalidSubscriberDateMessage || subscriberDateLimitMessage });
     }
     if (selectedTime) {
       messages.push({ id: 'user-date-time', role: 'user', text: `${format(selectedDate, 'dd/MM/yyyy')} • ${selectedTime}` });
@@ -1446,7 +1467,7 @@ export function BookingChatFlow({
       }
     }
     return messages;
-  }, [chatClientName, chatClientPhone, computedSelection.serviceName, detectedSubscriber, establishment?.name, expiredSubscriberAction, expiredSubscriberRecord, hasBookingHighlightedProducts, invalidSubscriberDateMessage, isSubscriberFlow, selectedBookingProducts, selectedDate, selectedProfessional?.name, selectedTime, step, subscriberLimitStatus]);
+  }, [chatClientName, chatClientPhone, computedSelection.serviceName, detectedSubscriber, establishment?.name, expiredSubscriberAction, expiredSubscriberRecord, hasBookingHighlightedProducts, invalidSubscriberDateMessage, isSubscriberFlow, selectedBookingProducts, selectedDate, selectedProfessional?.name, selectedTime, step, subscriberDateLimitMessage, subscriberLimitStatus]);
 
   useEffect(() => {
     if (step !== 'confirm') return;
@@ -1919,9 +1940,9 @@ export function BookingChatFlow({
                   }}
                   className="w-full px-3 py-2 rounded-lg bg-[#151515] border border-white/20"
                 />
-                {isSubscriberFlow && !isSelectedDateAllowedForSubscriber ? (
+                {isSubscriberFlow && (!isSelectedDateAllowedForSubscriber || subscriberDateLimitMessage) ? (
                   <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
-                    {invalidSubscriberDateMessage || 'Esse dia não está disponível para sua assinatura. Escolha um dia permitido.'}
+                    {subscriberDateLimitMessage || invalidSubscriberDateMessage || 'Esse dia não está disponível para sua assinatura. Escolha um dia permitido.'}
                   </div>
                 ) : (
                   <>

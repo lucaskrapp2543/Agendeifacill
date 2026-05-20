@@ -341,7 +341,7 @@ interface Appointment {
   is_premium: boolean;
   duration: number;
   price: number;
-  payment_method?: 'dinheiro' | 'pix' | 'credito' | 'debito' | 'transferencia' | 'pagar_local' | 'multi';
+  payment_method?: 'dinheiro' | 'pix' | 'credito' | 'debito' | 'transferencia' | 'pagar_local' | 'multi' | 'assinante';
   card_brand?: string;
   payment_split_details?: Array<{ method: string; amount: number; card_brand?: string | null }> | null;
   pix_payment_status?: string;
@@ -351,6 +351,10 @@ interface Appointment {
   observation?: string;
   establishment_observation?: string;
   is_subscriber?: boolean;
+  subscription_id?: string | null;
+  subscriber_service_id?: string | null;
+  subscriber_service_name?: string | null;
+  subscriber_service_limit?: number | null;
   /** Resgate do programa de fidelidade (serviço gratuito no ciclo). */
   is_loyalty_reward?: boolean;
   /** Pontos de fidelidade a somar ao concluir (por serviço(s) escolhido(s)). */
@@ -10621,19 +10625,6 @@ Estamos te aguardando!`;
 
       if (!appointmentId) return;
 
-      try {
-        const existingLog = await (supabase as any)
-          .from('appointment_change_logs')
-          .select('id')
-          .eq('establishment_id', establishment.id)
-          .eq('appointment_id', appointmentId)
-          .eq('event_type', 'subscriber_attendance_marked')
-          .limit(1);
-        if (!existingLog.error && Array.isArray(existingLog.data) && existingLog.data.length > 0) return;
-      } catch {
-        // Sem bloqueio para bancos que não possuem histórico detalhado.
-      }
-
       const appointmentPhone = normalizePhoneDigitsForSubscriberAuto((apt as any)?.client_whatsapp);
       if (!appointmentPhone) return;
 
@@ -10708,6 +10699,31 @@ Estamos te aguardando!`;
 
       const attendanceDate = String((apt as any)?.appointment_date || '').slice(0, 10) || format(selectedDate, 'yyyy-MM-dd');
       if (!attendanceDate) return;
+
+      try {
+        const existingLog = await (supabase as any)
+          .from('appointment_change_logs')
+          .select('id')
+          .eq('establishment_id', establishment.id)
+          .eq('appointment_id', appointmentId)
+          .eq('event_type', 'subscriber_attendance_marked')
+          .limit(1);
+        if (!existingLog.error && Array.isArray(existingLog.data) && existingLog.data.length > 0) {
+          const existingAttendance = await (supabase as any)
+            .from('subscriber_attendances')
+            .select('id')
+            .eq('establishment_id', establishment.id)
+            .eq('client_subscription_id', clientSubscriptionId)
+            .eq('attendance_date', attendanceDate)
+            .limit(1);
+          if (!existingAttendance.error && Array.isArray(existingAttendance.data) && existingAttendance.data.length > 0) {
+            return;
+          }
+        }
+      } catch {
+        // Sem bloqueio para bancos que não possuem histórico detalhado.
+      }
+
       const monthStart = format(new Date(`${attendanceDate}T00:00:00`), 'yyyy-MM-01');
       const monthEndDate = new Date(`${monthStart}T00:00:00`);
       monthEndDate.setMonth(monthEndDate.getMonth() + 1);
@@ -10807,9 +10823,18 @@ Estamos te aguardando!`;
       let repassValue = pointsModeSubscription ? 0 : round2(baseFixed * multiplier);
       if (divideEnabled) repassValue = round2(repassValue / divideCount);
 
-      const professionalIdOrName = String((apt as any)?.professional || '').trim();
+      const professionalIdOrName = String((apt as any)?.professional_id || (apt as any)?.professional || '').trim();
       const professionalNameFromRow = String((apt as any)?.professional_name || '').trim();
-      const professionalName = professionalNameFromRow || getProfessionalNameById(professionalIdOrName) || 'Profissional';
+      const isInvalidProfessionalName = (value: string) => {
+        const normalized = value.trim().toLowerCase();
+        return !normalized || normalized === 'unknown' || normalized === 'desconhecido';
+      };
+      const resolvedProfessionalName = getProfessionalNameById(professionalIdOrName);
+      const professionalName = !isInvalidProfessionalName(professionalNameFromRow)
+        ? professionalNameFromRow
+        : !isInvalidProfessionalName(resolvedProfessionalName)
+          ? resolvedProfessionalName
+          : 'Profissional';
 
       const payload: Record<string, unknown> = {
         establishment_id: establishment.id,
@@ -11102,6 +11127,10 @@ Estamos te aguardando!`;
         'is_child_service',
         'is_squeeze',
         'is_subscriber',
+        'subscription_id',
+        'subscriber_service_id',
+        'subscriber_service_name',
+        'subscriber_service_limit',
         'is_avulso',
         'additional_products',
         'total_price',
@@ -11234,6 +11263,10 @@ Estamos te aguardando!`;
               is_child_service,
               is_squeeze,
               is_subscriber,
+              subscription_id,
+              subscriber_service_id,
+              subscriber_service_name,
+              subscriber_service_limit,
               is_avulso,
               additional_products,
               total_price,
@@ -11252,6 +11285,69 @@ Estamos te aguardando!`;
       }
 
       let appointmentsData = (appointmentsRaw as Appointment[]).filter((apt) => !isWaitlistAppointment(apt));
+
+      // Normaliza profissional ANTES de qualquer auto-conclusão/auto-registro.
+      // Sem isso, alguns atendimentos de assinatura podiam ser gravados como "unknown"
+      // mesmo quando o card depois conseguia exibir o nome correto.
+      const preNormalizeProfessionalTokenForMatch = (value: unknown): string =>
+        String(value ?? '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toLowerCase();
+      const preNormalizeIsUuidValue = (value: string): boolean =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+      const preNormalizeProfessionalsById = new Map(
+        professionals
+          .map((prof) => {
+            const id = String(prof?.id || '').trim();
+            return [id, prof] as const;
+          })
+          .filter(([id]) => Boolean(id))
+      );
+      const preNormalizeProfessionalIdByNameToken = new Map<string, string>();
+      professionals.forEach((prof) => {
+        const id = String(prof?.id || '').trim();
+        const nameToken = preNormalizeProfessionalTokenForMatch(prof?.name || '');
+        if (id && nameToken && !preNormalizeProfessionalIdByNameToken.has(nameToken)) {
+          preNormalizeProfessionalIdByNameToken.set(nameToken, id);
+        }
+      });
+      appointmentsData.forEach((appointment) => {
+        const aptAny = appointment as any;
+        const rawProfessional = String(aptAny?.professional || '').trim();
+        const rawProfessionalId = String(aptAny?.professional_id || '').trim();
+        const rawProfessionalName = String(aptAny?.professional_name || '').trim();
+
+        let resolvedProfessionalId = '';
+        if (rawProfessionalId) {
+          resolvedProfessionalId = rawProfessionalId;
+        } else if (rawProfessional && preNormalizeProfessionalsById.has(rawProfessional)) {
+          resolvedProfessionalId = rawProfessional;
+        } else if (rawProfessional && preNormalizeIsUuidValue(rawProfessional)) {
+          resolvedProfessionalId = rawProfessional;
+        } else {
+          const token = preNormalizeProfessionalTokenForMatch(rawProfessionalName || rawProfessional);
+          resolvedProfessionalId = token ? String(preNormalizeProfessionalIdByNameToken.get(token) || '') : '';
+        }
+
+        const resolvedProfessionalName =
+          rawProfessionalName ||
+          String(preNormalizeProfessionalsById.get(resolvedProfessionalId)?.name || '') ||
+          (preNormalizeIsUuidValue(rawProfessional) ? '' : rawProfessional);
+
+        if (resolvedProfessionalId) {
+          aptAny.professional_id = resolvedProfessionalId;
+          aptAny.professional = resolvedProfessionalId;
+        } else if (!rawProfessional && resolvedProfessionalName) {
+          aptAny.professional = resolvedProfessionalName;
+        }
+
+        if (resolvedProfessionalName) {
+          aptAny.professional_name = resolvedProfessionalName;
+        }
+      });
+
       const autoCompletionResult = await autoCompletePastAppointments(appointmentsData);
       appointmentsData = autoCompletionResult.appointments;
       const autoCompletedCount = autoCompletionResult.updatedCount;
@@ -11400,6 +11496,91 @@ Estamos te aguardando!`;
         }
       } catch (contactError) {
         console.warn('⚠️ Falha ao enriquecer CPF/endereço dos agendamentos:', contactError);
+      }
+
+      // Enriquecer marcação visual de assinante sem alterar o banco.
+      // Alguns agendamentos antigos chegam sem is_subscriber, mas têm telefone de assinante
+      // e valor zerado. A regra abaixo só marca quando há assinatura paga válida na data.
+      try {
+        const appointmentWhatsappKeys = Array.from(
+          new Set(
+            appointmentsData
+              .flatMap((apt) => getWhatsappLookupKeys(String(apt.client_whatsapp || '')))
+              .map((x) => normalizePhoneDigits(x))
+              .filter(Boolean)
+          )
+        );
+
+        if (appointmentWhatsappKeys.length > 0) {
+          const { data: subscriptionRows, error: subscriptionRowsError } = await supabase
+            .from('client_subscriptions')
+            .select('id, subscription_id, payment_status, start_date, end_date, subscriber_whatsapp, client_whatsapp')
+            .eq('establishment_id', establishment.id)
+            .limit(10000);
+
+          if (subscriptionRowsError) throw subscriptionRowsError;
+
+          const subscriptionsByPhone = new Map<string, any[]>();
+          ((subscriptionRows || []) as any[]).forEach((row) => {
+            const phoneKeys = [
+              ...getWhatsappLookupKeys(String(row?.subscriber_whatsapp || '')),
+              ...getWhatsappLookupKeys(String(row?.client_whatsapp || '')),
+            ]
+              .map((key) => normalizePhoneDigits(key))
+              .filter(Boolean);
+            phoneKeys.forEach((key) => {
+              const list = subscriptionsByPhone.get(key) || [];
+              list.push(row);
+              subscriptionsByPhone.set(key, list);
+            });
+          });
+
+          const isDateInsideSubscription = (aptDateRaw: unknown, sub: any): boolean => {
+            const aptDate = String(aptDateRaw || '').slice(0, 10);
+            const startDate = String(sub?.start_date || '').slice(0, 10);
+            const endDate = String(sub?.end_date || '').slice(0, 10);
+            if (!aptDate) return false;
+            if (startDate && startDate > aptDate) return false;
+            if (endDate && endDate < aptDate) return false;
+            return String(sub?.payment_status || '').toLowerCase().trim() === 'paid';
+          };
+
+          appointmentsData.forEach((apt: any) => {
+            if (apt?.is_subscriber === true) return;
+
+            const paymentMethod = String(apt?.payment_method || '').toLowerCase().trim();
+            const hasExplicitSubscriptionLink =
+              paymentMethod === 'assinante' || Boolean(String(apt?.subscription_id || '').trim());
+            const basePrice = Number(apt?.price || 0);
+            const totalPrice = Number(apt?.total_price ?? apt?.price ?? 0);
+            const isZeroValueAppointment =
+              Number.isFinite(basePrice) &&
+              Number.isFinite(totalPrice) &&
+              basePrice <= 0 &&
+              totalPrice <= 0 &&
+              apt?.is_loyalty_reward !== true;
+
+            if (!hasExplicitSubscriptionLink && !isZeroValueAppointment) return;
+
+            const aptKeys = getWhatsappLookupKeys(String(apt?.client_whatsapp || ''))
+              .map((key) => normalizePhoneDigits(key))
+              .filter(Boolean);
+            const matchedSubscription = aptKeys
+              .flatMap((key) => subscriptionsByPhone.get(key) || [])
+              .find((sub) => isDateInsideSubscription(apt?.appointment_date, sub));
+
+            if (!matchedSubscription && !hasExplicitSubscriptionLink) return;
+
+            apt.is_subscriber = true;
+            apt.payment_method = paymentMethod === 'assinante' ? apt.payment_method : 'assinante';
+            apt.subscription_id =
+              String(apt?.subscription_id || '').trim() ||
+              String(matchedSubscription?.subscription_id || matchedSubscription?.id || '').trim() ||
+              null;
+          });
+        }
+      } catch (subscriberVisualError) {
+        console.warn('⚠️ Falha ao enriquecer agendamentos de assinante:', subscriberVisualError);
       }
 
       // Buscar produtos vendidos para cada agendamento
