@@ -21309,6 +21309,14 @@ Estamos te aguardando!`;
         if (block) {
           daySet.add(time);
         } else {
+          const slotStartMinutes = timeStringToMinutesSafe(time);
+          const slotEndMinutes = slotStartMinutes + getCurrentScheduleIntervalMinutes();
+          Array.from(daySet).forEach((blockedTime) => {
+            const blockedMinutes = timeStringToMinutesSafe(blockedTime);
+            if (blockedMinutes >= slotStartMinutes && blockedMinutes < slotEndMinutes) {
+              daySet.delete(blockedTime);
+            }
+          });
           daySet.delete(time);
         }
         const nextDayList = Array.from(daySet).sort();
@@ -21395,6 +21403,14 @@ Estamos te aguardando!`;
           if (block) {
             dset.add(time);
           } else {
+            const slotStartMinutes = timeStringToMinutesSafe(time);
+            const slotEndMinutes = slotStartMinutes + getCurrentScheduleIntervalMinutes();
+            Array.from(dset).forEach((blockedTime) => {
+              const blockedMinutes = timeStringToMinutesSafe(blockedTime);
+              if (blockedMinutes >= slotStartMinutes && blockedMinutes < slotEndMinutes) {
+                dset.delete(blockedTime);
+              }
+            });
             dset.delete(time);
           }
           const nl = Array.from(dset).sort();
@@ -21414,6 +21430,19 @@ Estamos te aguardando!`;
       }
     });
   };
+
+  function getCurrentScheduleIntervalMinutes(): number {
+    if (use60MinuteSchedule) return 60;
+    if (use20MinuteSchedule) return 20;
+    if (use15MinuteInterval) return 30;
+    return 15;
+  }
+
+  function timeStringToMinutesSafe(time: string): number {
+    const [hours, minutes] = String(time || '00:00').split(':').map(Number);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return 0;
+    return hours * 60 + minutes;
+  }
 
   const handleResetBlockedHours = async () => {
     if (!selectedProfessionalForBlock || !establishment) return;
@@ -21502,7 +21531,8 @@ Estamos te aguardando!`;
     const professional = professionals.find(p => p.id === professionalId);
     if (!professional || !(professional as any).blocked_hours) return false;
     const blockedHoursForDate = (professional as any).blocked_hours[date];
-    return blockedHoursForDate && blockedHoursForDate.includes(hour);
+    if (!Array.isArray(blockedHoursForDate) || blockedHoursForDate.length === 0) return false;
+    return blockedHoursForDate.includes(hour);
   };
 
   // Funções para gerenciar horários de trabalho dos profissionais

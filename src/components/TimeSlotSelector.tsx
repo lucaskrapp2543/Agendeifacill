@@ -1,6 +1,7 @@
 import { format } from 'date-fns';
 import { useEffect } from 'react';
 import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
+import { filterTimesAlignedToScheduleGrid } from '../utils/scheduleGrid';
 
 interface Service {
   id: string;
@@ -245,6 +246,13 @@ export function TimeSlotSelector({
       }
       const raw = String(rawDuration || '').trim();
       if (!raw) return 30;
+      const hhmmMatch = raw.match(/^(\d{1,2}):(\d{2})$/);
+      if (hhmmMatch) {
+        const hours = Number(hhmmMatch[1]);
+        const minutes = Number(hhmmMatch[2]);
+        const total = hours * 60 + minutes;
+        return Number.isFinite(total) && total > 0 ? total : 30;
+      }
       const numeric = Number(raw);
       if (Number.isFinite(numeric) && numeric > 0) return numeric;
       const match = raw.match(/(\d+)/);
@@ -277,22 +285,8 @@ export function TimeSlotSelector({
     // Histórico do sistema: por muito tempo o modal de bloqueio gerava horários de 15min fixos,
     // mesmo quando o estabelecimento usava grade de 20/30min. Para não "quebrar" bloqueios antigos,
     // detectamos se os horários bloqueados estão alinhados com a grade atual. Se não estiverem, assumimos 15min.
-    const blockedSlotDuration = (() => {
-      const blocked = professionalBlockedHours || [];
-      if (blocked.length === 0) return interval;
-
-      const isAligned = (step: number) =>
-        blocked.every((t) => {
-          const parts = String(t).split(':');
-          const mins = Number(parts[1] ?? NaN);
-          return Number.isFinite(mins) && mins % step === 0;
-        });
-
-      if (use60MinuteSchedule) return isAligned(60) ? 60 : 15;
-      if (use20MinuteSchedule) return isAligned(20) ? 20 : 15;
-      if (use15MinuteInterval) return isAligned(30) ? 30 : 15;
-      return 15;
-    })();
+    const activeProfessionalBlockedHours = filterTimesAlignedToScheduleGrid(professionalBlockedHours || [], interval);
+    const blockedSlotDuration = interval;
 
     // Quando "tempo fechado" está DESMARCADO, libera próximo slot no horário exato de término
     // mesmo fora do grid (ex: 09:40 com grade de 1h).
@@ -366,14 +360,14 @@ export function TimeSlotSelector({
         //    - Serviço que começa durante horário bloqueado
         //    - Serviço que engloba completamente horário bloqueado
         // ============================================================
-        if (professionalBlockedHours.length > 0) {
+        if (activeProfessionalBlockedHours.length > 0) {
           // Verificar se o INÍCIO do serviço está em um horário bloqueado
-          if (professionalBlockedHours.includes(timeString)) {
+          if (activeProfessionalBlockedHours.includes(timeString)) {
             isAvailable = false;
             conflictReason = 'Horário Fechado';
           } else {
             // Verificar se o serviço (considerando sua duração) ultrapassa ou conflita com algum horário bloqueado
-            for (const blockedTime of professionalBlockedHours) {
+            for (const blockedTime of activeProfessionalBlockedHours) {
               const blockedStartMinutes = timeToMinutes(blockedTime);
               // Duração do bloco: compatível com a grade atual (20/30) e com bloqueios legados (15)
               const blockedEndMinutes = blockedStartMinutes + blockedSlotDuration;
@@ -534,14 +528,14 @@ export function TimeSlotSelector({
         //    - Serviço que começa durante horário bloqueado
         //    - Serviço que engloba completamente horário bloqueado
         // ============================================================
-        if (professionalBlockedHours.length > 0) {
+        if (activeProfessionalBlockedHours.length > 0) {
           // Verificar se o INÍCIO do serviço está em um horário bloqueado
-          if (professionalBlockedHours.includes(timeString)) {
+          if (activeProfessionalBlockedHours.includes(timeString)) {
             isAvailable = false;
             conflictReason = 'Horário Fechado';
           } else {
             // Verificar se o serviço (considerando sua duração) ultrapassa ou conflita com algum horário bloqueado
-            for (const blockedTime of professionalBlockedHours) {
+            for (const blockedTime of activeProfessionalBlockedHours) {
               const blockedStartMinutes = timeToMinutes(blockedTime);
               // Duração do bloco: compatível com a grade atual (20/30) e com bloqueios legados (15)
               const blockedEndMinutes = blockedStartMinutes + blockedSlotDuration;

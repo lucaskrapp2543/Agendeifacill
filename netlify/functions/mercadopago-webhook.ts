@@ -397,18 +397,17 @@ export const handler: Handler = async (event) => {
           const siteRegistrationPrefix = 'site_registration_checkout:';
           if (externalReference.startsWith(siteRegistrationPrefix)) {
             const checkoutId = externalReference.slice(siteRegistrationPrefix.length).trim();
-            await supabaseAdmin
-              .from('site_registration_checkouts')
-              .update({
-                preapproval_id: preapprovalId,
-                updated_at: new Date().toISOString(),
-              } as any)
-              .eq('id', checkoutId)
-              .is('preapproval_id', null);
+            const result = await createSiteRegistrationAccountIfNeeded(checkoutId, {
+              status: preapproval?.status,
+              preapprovalId,
+              paymentMethod: 'recurring_card',
+              raw: preapproval,
+            });
             return json(200, {
-              message: 'Webhook de assinatura do cadastro site recebido; conversão depende do pagamento real da primeira mensalidade',
+              message: 'Webhook de assinatura do cadastro site processado',
               preapprovalId,
               checkoutId,
+              result,
             });
           }
         } catch (siteRegistrationError: any) {

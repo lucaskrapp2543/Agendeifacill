@@ -51,10 +51,6 @@ export async function convertSiteRegistrationCheckoutIfPaid(
     paymentMethod?: 'pix' | 'recurring_card';
   }
 ) {
-  if (paymentContext.paymentMethod === 'recurring_card' && !paymentContext.paymentId) {
-    return { handled: true, created: false, reason: 'card_payment_required_before_conversion' };
-  }
-
   if (!isApprovedStatus(paymentContext.status)) {
     return { handled: true, created: false, reason: 'payment_not_approved' };
   }

@@ -171,6 +171,12 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
         } as any)
         .eq('id', checkoutId);
 
+      const conversion = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
+        status: String(preapproval?.status || ''),
+        preapprovalId,
+        paymentMethod: 'recurring_card',
+      });
+
       return res.json({
         ok: true,
         checkout_id: checkoutId,
@@ -260,6 +266,7 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
         preapproval_id: preapprovalId,
         status: String(preapproval?.status || 'pending'),
         recurrence_created: true,
+        conversion,
         expires_at: expiresAt,
       });
     }
@@ -351,12 +358,25 @@ router.get('/site-registration-checkout-status', async (req: Request, res: Respo
     const accessToken = String(process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim();
     const status = String((data as any).status || '').toLowerCase();
     const paymentId = String((data as any).payment_id || '').trim();
+    const preapprovalId = String((data as any).preapproval_id || '').trim();
     if (status !== 'converted' && paymentId && accessToken) {
       const payment = await checkMPPaymentStatus(Number(paymentId), accessToken);
       conversionResult = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
         status: (payment as any)?.status,
         paymentId,
         paymentMethod: String((data as any).payment_method || '') === 'recurring_card' ? 'recurring_card' : 'pix',
+      });
+    } else if (status !== 'converted' && preapprovalId && accessToken) {
+      const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+      const preapprovalResp = await axios.get(
+        `${MP_API_BASE_URL}/preapproval/${encodeURIComponent(preapprovalId)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      const preapproval = preapprovalResp.data || {};
+      conversionResult = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
+        status: preapproval?.status,
+        preapprovalId,
+        paymentMethod: 'recurring_card',
       });
     }
 

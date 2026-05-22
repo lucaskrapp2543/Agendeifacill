@@ -24,6 +24,7 @@ import {
   updateAppointmentCancelledWithSource,
 } from '../utils/appointmentCancellationMeta';
 import { fireMercadoPagoPendingReconcile } from '../utils/fireMercadoPagoPendingReconcile';
+import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
 
 type PublicBookingReview = {
@@ -2094,35 +2095,22 @@ export default function BookingPage() {
           const blockedMap = ((selectedProfessional as any)?.blocked_hours && typeof (selectedProfessional as any).blocked_hours === 'object')
             ? (selectedProfessional as any).blocked_hours
             : {};
-          const blockedTimes = Array.isArray(blockedMap[targetDate])
-            ? blockedMap[targetDate]
-              .map((rawTime: any) => normalizeTimeHHmm(rawTime))
-              .filter(Boolean)
-            : [];
+          const currentGridInterval = getScheduleIntervalMinutes({
+            use60MinuteSchedule: Boolean((establishment as any)?.use_60_minute_schedule),
+            use20MinuteSchedule: Boolean((establishment as any)?.use_20_minute_schedule),
+            use15MinuteInterval: Boolean((establishment as any)?.use_15_minute_interval),
+          });
+          const blockedTimes = filterTimesAlignedToScheduleGrid(
+            Array.isArray(blockedMap[targetDate])
+              ? blockedMap[targetDate]
+                .map((rawTime: any) => normalizeTimeHHmm(rawTime))
+                .filter(Boolean)
+              : [],
+            currentGridInterval
+          );
 
           if (blockedTimes.length > 0) {
-            const use60MinuteSchedule = Boolean((establishment as any)?.use_60_minute_schedule);
-            const use20MinuteSchedule = Boolean((establishment as any)?.use_20_minute_schedule);
-            const use15MinuteInterval = Boolean((establishment as any)?.use_15_minute_interval);
-            const currentGridInterval = use60MinuteSchedule
-              ? 60
-              : use20MinuteSchedule
-                ? 20
-                : use15MinuteInterval
-                  ? 30
-                  : 15;
-            const blockedSlotDuration = (() => {
-              const isAligned = (step: number) =>
-                blockedTimes.every((time: string) => {
-                  const [, minutesStr = ''] = String(time).split(':');
-                  const minutes = Number(minutesStr);
-                  return Number.isFinite(minutes) && minutes % step === 0;
-                });
-              if (use60MinuteSchedule) return isAligned(60) ? 60 : 15;
-              if (use20MinuteSchedule) return isAligned(20) ? 20 : 15;
-              if (use15MinuteInterval) return isAligned(30) ? 30 : 15;
-              return currentGridInterval;
-            })();
+            const blockedSlotDuration = currentGridInterval;
 
             const hasBlockedConflict = blockedTimes.some((blockedTime: string) => {
               const blockedStart = toMinutes(blockedTime);

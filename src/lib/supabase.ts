@@ -2,6 +2,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { addMonths } from 'date-fns';
 import type { Database } from '../types/supabase';
 import { dlog } from '../utils/debugConsole';
+import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
 import { getSubscriptionUsageDateRange } from '../utils/subscriptionUsagePeriod';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
@@ -945,35 +946,22 @@ export const createAppointment = async (appointmentData: any) => {
         !Array.isArray(selectedProfessional.blocked_hours)
           ? selectedProfessional.blocked_hours
           : {};
-      const blockedTimes = Array.isArray(blockedMap[appointmentDateKey])
-        ? blockedMap[appointmentDateKey]
-          .map((rawTime: any) => normalizeTimeHHmm(rawTime))
-          .filter(Boolean)
-        : [];
+      const currentGridInterval = getScheduleIntervalMinutes({
+        use60MinuteSchedule: Boolean((establishmentData as any)?.use_60_minute_schedule),
+        use20MinuteSchedule: Boolean((establishmentData as any)?.use_20_minute_schedule),
+        use15MinuteInterval: Boolean((establishmentData as any)?.use_15_minute_interval),
+      });
+      const blockedTimes = filterTimesAlignedToScheduleGrid(
+        Array.isArray(blockedMap[appointmentDateKey])
+          ? blockedMap[appointmentDateKey]
+            .map((rawTime: any) => normalizeTimeHHmm(rawTime))
+            .filter(Boolean)
+          : [],
+        currentGridInterval
+      );
 
       if (blockedTimes.length > 0) {
-        const use60MinuteSchedule = Boolean((establishmentData as any)?.use_60_minute_schedule);
-        const use20MinuteSchedule = Boolean((establishmentData as any)?.use_20_minute_schedule);
-        const use15MinuteInterval = Boolean((establishmentData as any)?.use_15_minute_interval);
-        const currentGridInterval = use60MinuteSchedule
-          ? 60
-          : use20MinuteSchedule
-            ? 20
-            : use15MinuteInterval
-              ? 30
-              : 15;
-        const isAligned = (step: number) =>
-          blockedTimes.every((time: string) => {
-            const [, minutesStr = ''] = String(time).split(':');
-            const minutes = Number(minutesStr);
-            return Number.isFinite(minutes) && minutes % step === 0;
-          });
-        const blockedSlotDuration = (() => {
-          if (use60MinuteSchedule) return isAligned(60) ? 60 : 15;
-          if (use20MinuteSchedule) return isAligned(20) ? 20 : 15;
-          if (use15MinuteInterval) return isAligned(30) ? 30 : 15;
-          return currentGridInterval;
-        })();
+        const blockedSlotDuration = currentGridInterval;
         const blockedConflict = blockedTimes.some((blockedTime: string) => {
           const blockedStart = timeToMinutes(blockedTime);
           return overlapsInterval(newStartMinutes, appointmentTotalDurationMinutes, blockedStart, blockedStart + blockedSlotDuration);

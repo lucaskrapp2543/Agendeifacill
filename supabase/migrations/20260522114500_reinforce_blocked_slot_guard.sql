@@ -214,14 +214,34 @@ DECLARE
   v_block_time_text text;
   v_block_start time;
   v_block_end time;
+  v_block_minute int;
+  v_use_60_minute_schedule boolean := false;
+  v_use_20_minute_schedule boolean := false;
+  v_use_15_minute_interval boolean := false;
+  v_grid_interval int := 15;
   v_appointment_start time := p_appointment_time;
   v_appointment_end time := p_appointment_time + make_interval(mins => GREATEST(COALESCE(p_duration_minutes, 30), 1));
 BEGIN
-  SELECT to_jsonb(e.professionals)
-    INTO v_professionals
+  SELECT
+    to_jsonb(e.professionals),
+    COALESCE(e.use_60_minute_schedule, false),
+    COALESCE(e.use_20_minute_schedule, false),
+    COALESCE(e.use_15_minute_interval, false)
+    INTO
+      v_professionals,
+      v_use_60_minute_schedule,
+      v_use_20_minute_schedule,
+      v_use_15_minute_interval
   FROM public.establishments e
   WHERE e.id = p_establishment_id
   LIMIT 1;
+
+  v_grid_interval := CASE
+    WHEN v_use_60_minute_schedule THEN 60
+    WHEN v_use_20_minute_schedule THEN 20
+    WHEN v_use_15_minute_interval THEN 30
+    ELSE 15
+  END;
 
   IF v_professionals IS NULL OR jsonb_typeof(v_professionals) <> 'array' THEN
     RETURN false;
@@ -257,7 +277,12 @@ BEGIN
         CONTINUE;
     END;
 
-    v_block_end := v_block_start + interval '15 minutes';
+    v_block_minute := EXTRACT(MINUTE FROM v_block_start)::int;
+    IF (v_block_minute % v_grid_interval) <> 0 THEN
+      CONTINUE;
+    END IF;
+
+    v_block_end := v_block_start + make_interval(mins => v_grid_interval);
 
     IF v_appointment_start < v_block_end AND v_appointment_end > v_block_start THEN
       RETURN true;

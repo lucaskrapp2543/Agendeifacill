@@ -8,6 +8,7 @@ import { validatePendingClientBookingLimit } from '../utils/pendingClientBooking
 import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
 import { PaymentMethodSelector } from './PaymentMethodSelector';
 import { TimeSlotSelector } from './TimeSlotSelector';
+import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
 
 type ChatStep =
   | 'name'
@@ -64,6 +65,13 @@ const parseDurationMinutes = (value: unknown, fallback = 30): number => {
   }
   const raw = String(value ?? '').trim();
   if (!raw) return fallback;
+  const hhmmMatch = raw.match(/^(\d{1,2}):(\d{2})$/);
+  if (hhmmMatch) {
+    const hours = Number(hhmmMatch[1]);
+    const minutes = Number(hhmmMatch[2]);
+    const total = hours * 60 + minutes;
+    return Number.isFinite(total) && total > 0 ? total : fallback;
+  }
   const normalized = raw.replace(',', '.');
   const direct = Number(normalized);
   if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
@@ -664,9 +672,17 @@ export function BookingChatFlow({
       return matchesById || matchesByName;
     });
   }, [existingAppointments, selectedDateKey, selectedProfessional?.name, selectedProfessionalId]);
+  const scheduleIntervalMinutes = useMemo(
+    () => getScheduleIntervalMinutes({
+      use60MinuteSchedule: Boolean(establishment?.use_60_minute_schedule),
+      use20MinuteSchedule: Boolean(establishment?.use_20_minute_schedule),
+      use15MinuteInterval: Boolean(establishment?.use_15_minute_interval),
+    }),
+    [establishment?.use_15_minute_interval, establishment?.use_20_minute_schedule, establishment?.use_60_minute_schedule]
+  );
   const professionalBlockedHours = useMemo(
-    () => ((selectedProfessional as any)?.blocked_hours?.[selectedDateKey] || []),
-    [selectedProfessional, selectedDateKey]
+    () => filterTimesAlignedToScheduleGrid((selectedProfessional as any)?.blocked_hours?.[selectedDateKey] || [], scheduleIntervalMinutes),
+    [scheduleIntervalMinutes, selectedProfessional, selectedDateKey]
   );
   const professionalAbsences = useMemo(
     () => (((selectedProfessional as any)?.absences || []) as string[]),
@@ -683,13 +699,7 @@ export function BookingChatFlow({
     if (!professional) return 0;
     if (!businessHoursForDate?.enabled) return 0;
 
-    const interval = Boolean(establishment?.use_60_minute_schedule)
-      ? 60
-      : Boolean(establishment?.use_20_minute_schedule)
-        ? 20
-        : Boolean(establishment?.use_15_minute_interval)
-          ? 30
-          : 15;
+    const interval = scheduleIntervalMinutes;
 
     const selectedDateString = selectedDateKey;
     const dayOfWeek = getWeekdayKey(selectedDate);
@@ -735,19 +745,11 @@ export function BookingChatFlow({
     const absences = Array.isArray((professional as any)?.absences) ? (professional as any).absences : [];
     if (absences.includes(selectedDateString)) return 0;
 
-    const blockedHours = ((professional as any)?.blocked_hours?.[selectedDateString] || []) as string[];
-    const isAligned = (step: number) =>
-      blockedHours.every((time) => {
-        const minute = Number(String(time).split(':')[1] ?? NaN);
-        return Number.isFinite(minute) && minute % step === 0;
-      });
-    const blockedSlotDuration = (() => {
-      if (blockedHours.length === 0) return interval;
-      if (Boolean(establishment?.use_60_minute_schedule)) return isAligned(60) ? 60 : 15;
-      if (Boolean(establishment?.use_20_minute_schedule)) return isAligned(20) ? 20 : 15;
-      if (Boolean(establishment?.use_15_minute_interval)) return isAligned(30) ? 30 : 15;
-      return 15;
-    })();
+    const blockedHours = filterTimesAlignedToScheduleGrid(
+      ((professional as any)?.blocked_hours?.[selectedDateString] || []) as string[],
+      interval
+    );
+    const blockedSlotDuration = interval;
 
     const relevantAppointments = (Array.isArray(existingAppointments) ? existingAppointments : []).filter((appointment: any) => {
       const appointmentDateStr = appointment?.appointment_date == null ? '' : String(appointment.appointment_date).slice(0, 10);
