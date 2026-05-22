@@ -397,17 +397,18 @@ export const handler: Handler = async (event) => {
           const siteRegistrationPrefix = 'site_registration_checkout:';
           if (externalReference.startsWith(siteRegistrationPrefix)) {
             const checkoutId = externalReference.slice(siteRegistrationPrefix.length).trim();
-            const result = await createSiteRegistrationAccountIfNeeded(checkoutId, {
-              status: preapproval?.status,
-              preapprovalId,
-              paymentMethod: 'recurring_card',
-              raw: preapproval,
-            });
+            await supabaseAdmin
+              .from('site_registration_checkouts')
+              .update({
+                preapproval_id: preapprovalId,
+                updated_at: new Date().toISOString(),
+              } as any)
+              .eq('id', checkoutId)
+              .is('preapproval_id', null);
             return json(200, {
-              message: 'Webhook de assinatura do cadastro site processado',
+              message: 'Webhook de assinatura do cadastro site recebido; conversão depende do pagamento real da primeira mensalidade',
               preapprovalId,
               checkoutId,
-              result,
             });
           }
         } catch (siteRegistrationError: any) {
@@ -565,10 +566,14 @@ export const handler: Handler = async (event) => {
             const siteRegistrationPrefix = 'site_registration_checkout:';
             if (externalReference.startsWith(siteRegistrationPrefix)) {
               const checkoutId = externalReference.slice(siteRegistrationPrefix.length).trim();
+              const sitePaymentMethod =
+                String((payment as any)?.metadata?.payment_method || '').toLowerCase().trim() === 'recurring_card'
+                  ? 'recurring_card'
+                  : 'pix';
               const result = await createSiteRegistrationAccountIfNeeded(checkoutId, {
                 status: (payment as any)?.status,
                 paymentId: String(paymentId),
-                paymentMethod: 'pix',
+                paymentMethod: sitePaymentMethod,
                 raw: payment,
               });
               return json(200, {

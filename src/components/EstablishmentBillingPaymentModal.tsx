@@ -1,6 +1,7 @@
-import { Copy, CreditCard, ExternalLink, Loader2, QrCode, X } from 'lucide-react';
+import { Copy, CreditCard, Loader2, QrCode, X } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { CardPaymentBrick } from './CardPaymentBrick';
 
 type BillingMethod = 'pix' | 'credit_card' | null;
 
@@ -36,8 +37,30 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
   const [statusMessage, setStatusMessage] = useState('');
   const [configError, setConfigError] = useState('');
   const [payerEmail, setPayerEmail] = useState('');
+  const [payerDocument, setPayerDocument] = useState('');
+  const [billingCep, setBillingCep] = useState('');
+  const [billingStreet, setBillingStreet] = useState('');
+  const [billingNumber, setBillingNumber] = useState('');
+  const [billingNeighborhood, setBillingNeighborhood] = useState('');
+  const [billingCity, setBillingCity] = useState('');
+  const [billingState, setBillingState] = useState('');
+  const mercadoPagoPublicKey = String(import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY || '').trim();
 
   const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+  const formatCpfCnpj = (value: string) => {
+    const digits = onlyDigits(value).slice(0, 14);
+    if (digits.length <= 11) {
+      return digits
+        .replace(/^(\d{3})(\d)/, '$1.$2')
+        .replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3')
+        .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3-$4');
+    }
+    return digits
+      .replace(/^(\d{2})(\d)/, '$1.$2')
+      .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+      .replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3/$4')
+      .replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, '$1.$2.$3/$4-$5');
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -243,6 +266,92 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
     }
   };
 
+  const handleCreditCardSubmit = async (cardData: {
+    token: string;
+    payment_method_id: string;
+    issuer_id: string;
+    installments: number;
+  }) => {
+    const documentDigits = onlyDigits(payerDocument);
+    if (!isValidEmail(payerEmail)) {
+      setConfigError('Preencha um e-mail válido para pagar no cartão.');
+      return;
+    }
+    if (documentDigits.length !== 11 && documentDigits.length !== 14) {
+      setConfigError('Preencha CPF ou CNPJ válido do titular.');
+      return;
+    }
+    if (!onlyDigits(billingCep) || !billingStreet.trim() || !billingNumber.trim() || !billingCity.trim() || billingState.trim().length < 2) {
+      setConfigError('Preencha o endereço de cobrança para reduzir recusa do cartão.');
+      return;
+    }
+
+    setIsCreatingSubscription(true);
+    setStatusMessage('');
+    setConfigError('');
+    try {
+      const endpoint = import.meta.env.PROD
+        ? '/.netlify/functions/mercadopago-create-establishment-billing'
+        : '/api/mercadopago/create-establishment-billing';
+      const nameParts = String(establishmentName || 'Cliente Agendei').split(/\s+/).filter(Boolean);
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          establishmentId,
+          description: `Regularizacao Agendei Facil - ${establishmentName}`,
+          token: cardData.token,
+          payment_method_id: cardData.payment_method_id,
+          issuer_id: cardData.issuer_id,
+          installments: cardData.installments,
+          create_recurring_subscription: true,
+          backUrl: typeof window !== 'undefined' && /^https:\/\//i.test(window.location.href) ? window.location.href : undefined,
+          payer: {
+            email: payerEmail,
+            first_name: nameParts[0] || 'Cliente',
+            last_name: nameParts.slice(1).join(' ') || 'Agendei Facil',
+            identification: {
+              type: documentDigits.length === 14 ? 'CNPJ' : 'CPF',
+              number: documentDigits,
+            },
+            address: {
+              zip_code: onlyDigits(billingCep),
+              street_name: billingStreet.trim(),
+              street_number: Number(onlyDigits(billingNumber)) || 0,
+              neighborhood: billingNeighborhood.trim() || 'Centro',
+              city: billingCity.trim(),
+              federal_unit: billingState.trim().slice(0, 2).toUpperCase(),
+            },
+          },
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = String((payload as any)?.userMessage || (payload as any)?.error || `Erro ${response.status}`);
+        setConfigError(message);
+        throw new Error(message);
+      }
+
+      const status = String((payload as any)?.status || '').toLowerCase();
+      setPaymentId(String((payload as any)?.id || ''));
+      if (status === 'approved' || status === 'authorized') {
+        setStatusMessage(
+          (payload as any)?.recurrence_created
+            ? 'Mensalidade paga e recorrência criada para os próximos meses.'
+            : 'Mensalidade paga. Não foi possível criar a recorrência automática; você poderá tentar novamente depois.'
+        );
+        if (onPaid) await onPaid();
+      } else {
+        setStatusMessage('Pagamento enviado. Estamos aguardando confirmação do Mercado Pago.');
+      }
+    } catch (error: any) {
+      setStatusMessage(String(error?.message || 'Erro ao pagar no cartão.'));
+    } finally {
+      setIsCreatingSubscription(false);
+    }
+  };
+
   const handleCopyPix = async () => {
     try {
       if (!pixCode) return;
@@ -366,14 +475,14 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
                 <div className="inline-flex items-start gap-2">
                   <CreditCard className="h-4 w-4 mt-0.5 shrink-0" />
                   <span>
-                    O cartão abre uma <strong>assinatura mensal automática</strong> no Mercado Pago. Todo mês o Mercado
-                    Pago tenta cobrar o cartão. Quando aprovar, o Agendei Fácil deixa o sistema em dia sozinho.
+                    O cartão cobra a <strong>mensalidade atual agora</strong>. Depois da aprovação, o sistema tenta criar
+                    a recorrência automática para os próximos meses.
                   </span>
                 </div>
               </div>
 
               <div className="rounded-lg border border-gray-700 bg-[#1c1d20] p-2 space-y-2 text-xs text-gray-200">
-                <label className="block text-[11px] text-gray-400 mb-1">E-mail para abrir a assinatura</label>
+                <label className="block text-[11px] text-gray-400 mb-1">E-mail do titular</label>
                 <input
                   type="email"
                   value={payerEmail}
@@ -381,27 +490,99 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
                   placeholder="email@exemplo.com"
                   className="w-full rounded border border-gray-600 bg-[#0f1012] px-2 py-1.5 text-xs text-white outline-none focus:border-blue-400"
                 />
+                <label className="block text-[11px] text-gray-400 mb-1">CPF ou CNPJ do titular</label>
+                <input
+                  value={payerDocument}
+                  onChange={(e) => setPayerDocument(formatCpfCnpj(e.target.value))}
+                  placeholder="CPF ou CNPJ"
+                  inputMode="numeric"
+                  className="w-full rounded border border-gray-600 bg-[#0f1012] px-2 py-1.5 text-xs text-white outline-none focus:border-blue-400"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    value={billingCep}
+                    onChange={(e) => setBillingCep(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                    placeholder="CEP"
+                    inputMode="numeric"
+                    className="rounded border border-gray-600 bg-[#0f1012] px-2 py-1.5 text-xs text-white outline-none focus:border-blue-400"
+                  />
+                  <input
+                    value={billingState}
+                    onChange={(e) => setBillingState(e.target.value.toUpperCase().slice(0, 2))}
+                    placeholder="UF"
+                    maxLength={2}
+                    className="rounded border border-gray-600 bg-[#0f1012] px-2 py-1.5 text-xs text-white outline-none focus:border-blue-400"
+                  />
+                </div>
+                <input
+                  value={billingStreet}
+                  onChange={(e) => setBillingStreet(e.target.value)}
+                  placeholder="Rua"
+                  className="w-full rounded border border-gray-600 bg-[#0f1012] px-2 py-1.5 text-xs text-white outline-none focus:border-blue-400"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    value={billingNumber}
+                    onChange={(e) => setBillingNumber(e.target.value)}
+                    placeholder="Número"
+                    inputMode="numeric"
+                    className="rounded border border-gray-600 bg-[#0f1012] px-2 py-1.5 text-xs text-white outline-none focus:border-blue-400"
+                  />
+                  <input
+                    value={billingNeighborhood}
+                    onChange={(e) => setBillingNeighborhood(e.target.value)}
+                    placeholder="Bairro"
+                    className="rounded border border-gray-600 bg-[#0f1012] px-2 py-1.5 text-xs text-white outline-none focus:border-blue-400"
+                  />
+                </div>
+                <input
+                  value={billingCity}
+                  onChange={(e) => setBillingCity(e.target.value)}
+                  placeholder="Cidade"
+                  className="w-full rounded border border-gray-600 bg-[#0f1012] px-2 py-1.5 text-xs text-white outline-none focus:border-blue-400"
+                />
               </div>
 
               {!isValidEmail(payerEmail) ? (
                 <p className="text-xs text-amber-200/90 rounded border border-amber-500/30 bg-amber-500/10 p-2">
-                  Preencha um e-mail válido para abrir a assinatura no Mercado Pago.
+                  Preencha um e-mail válido para pagar no cartão.
                 </p>
+              ) : mercadoPagoPublicKey ? (
+                <div className="rounded-lg border border-gray-700 bg-[#111213] p-2">
+                  {isCreatingSubscription ? (
+                    <div className="flex items-center justify-center gap-2 py-4 text-blue-100">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Processando cartão...
+                    </div>
+                  ) : (
+                    <CardPaymentBrick
+                      publicKey={mercadoPagoPublicKey}
+                      amount={billingAmount || 1}
+                      creditOnly
+                      payerData={{
+                        email: payerEmail,
+                        identificationType: onlyDigits(payerDocument).length === 14 ? 'CNPJ' : 'CPF',
+                        identificationNumber: onlyDigits(payerDocument),
+                        firstName: String(establishmentName || 'Cliente').trim().split(/\s+/)[0] || 'Cliente',
+                        lastName: String(establishmentName || '').trim().split(/\s+/).slice(1).join(' ') || 'Agendei Facil',
+                      }}
+                      onSubmit={handleCreditCardSubmit}
+                      onError={(error: any) => {
+                        const msg = String(error?.message || '').trim();
+                        if (msg) setStatusMessage(msg);
+                      }}
+                    />
+                  )}
+                </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={handleCreateRecurringSubscription}
-                  disabled={isCreatingSubscription || isLoadingAmount}
-                  className="w-full bg-blue-500 hover:bg-blue-400 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-lg transition-colors inline-flex items-center justify-center gap-2"
-                >
-                  {isCreatingSubscription ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
-                  {isCreatingSubscription ? 'Criando assinatura...' : 'Ativar assinatura mensal no Mercado Pago'}
-                </button>
+                <p className="text-xs text-red-200 rounded border border-red-500/30 bg-red-500/10 p-2">
+                  Configure VITE_MERCADOPAGO_PUBLIC_KEY para pagar cartão no dashboard.
+                </p>
               )}
 
               <p className="text-[11px] text-gray-400 leading-relaxed">
-                Se o cartão for recusado em algum mês, o sistema não renova sozinho. Ele só marca como em dia quando
-                o Mercado Pago confirmar pagamento aprovado no webhook.
+                Se o cartão for recusado, o sistema não regulariza. Ele só marca como em dia quando o Mercado Pago
+                confirmar pagamento aprovado.
               </p>
             </div>
           )}

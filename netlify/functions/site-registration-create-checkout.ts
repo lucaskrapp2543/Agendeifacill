@@ -195,39 +195,111 @@ export const handler: Handler = async (event) => {
       returnUrl.searchParams.set('site_checkout_id', checkoutId);
       returnUrl.searchParams.set('site_payment', 'return');
 
-      const preapprovalPayload = {
-        reason: description,
-        payer_email: email,
-        card_token_id: cardTokenId,
+      const nameParts = clientName.split(/\s+/).filter(Boolean);
+      const firstName = nameParts[0] || 'Cliente';
+      const lastName = nameParts.slice(1).join(' ') || 'Agendei Facil';
+      const payment = await createMPPayment({
+        amount: config.amountCents,
+        description,
+        access_token: PLATFORM_MP_ACCESS_TOKEN,
+        payment_method_id: paymentMethodId,
+        token: cardTokenId,
+        installments,
+        issuer_id: issuerId || undefined,
+        payer: {
+          email,
+          first_name: firstName,
+          last_name: lastName,
+          identification: {
+            type: documentType,
+            number: documentNumber,
+          },
+        },
         external_reference: externalReference,
-        auto_recurring: {
-          frequency: 1,
-          frequency_type: 'months',
-          transaction_amount: config.amountCents / 100,
-          currency_id: 'BRL',
+        metadata: {
+          type: 'site_registration_checkout',
+          checkout_id: checkoutId,
+          selected_plan: plan,
+          payment_method: 'recurring_card',
+          charge_kind: 'first_month_card',
         },
-        back_url: returnUrl.toString(),
-        status: 'authorized',
-      };
-
-      const response = await axios.post(`${MP_API_BASE_URL}/preapproval`, preapprovalPayload, {
-        headers: {
-          Authorization: `Bearer ${PLATFORM_MP_ACCESS_TOKEN}`,
-          'Content-Type': 'application/json',
-          'X-Idempotency-Key': `site_reg_card_${checkoutId}`,
-        },
+        statement_descriptor: 'AGENDEI FACIL',
       });
 
-      const preapproval = response.data || {};
-      const preapprovalId = String(preapproval?.id || '').trim();
-      if (!preapprovalId) {
-        return json(500, { error: 'Mercado Pago nao retornou ID da assinatura.' });
+      const paymentId = String((payment as any)?.id || '').trim();
+      const paymentStatus = String((payment as any)?.status || '').toLowerCase().trim();
+      const paymentApproved = paymentStatus === 'approved' || paymentStatus === 'authorized';
+      if (!paymentId || !paymentApproved) {
+        await supabaseAdmin
+          .from('site_registration_checkouts')
+          .update({
+            status: 'failed',
+            payment_id: paymentId || null,
+            metadata: {
+              ...(checkout as any).metadata,
+              external_reference: externalReference,
+              document_type: documentType,
+              document_last4: documentNumber.slice(-4),
+              payment_status: paymentStatus || null,
+              payment_status_detail: String((payment as any)?.status_detail || '') || null,
+              checkout_mode: 'transparent_card_first_charge',
+            },
+            updated_at: new Date().toISOString(),
+          } as any)
+          .eq('id', checkoutId);
+
+        return json(402, {
+          ok: false,
+          error: 'Cartão não aprovado. A conta não foi criada.',
+          status: paymentStatus || 'rejected',
+          status_detail: String((payment as any)?.status_detail || ''),
+          checkout_id: checkoutId,
+        });
+      }
+
+      const cardId = String((payment as any)?.card?.id || (payment as any)?.card_id || '').trim();
+      let preapproval: any = null;
+      let preapprovalId = '';
+      const nextMonth = new Date();
+      nextMonth.setMonth(nextMonth.getMonth() + 1);
+
+      if (cardId) {
+        try {
+          const preapprovalPayload: any = {
+            reason: description,
+            payer_email: email,
+            card_id: Number(cardId),
+            external_reference: externalReference,
+            auto_recurring: {
+              frequency: 1,
+              frequency_type: 'months',
+              start_date: nextMonth.toISOString(),
+              transaction_amount: config.amountCents / 100,
+              currency_id: 'BRL',
+            },
+            back_url: returnUrl.toString(),
+            status: 'authorized',
+          };
+
+          const response = await axios.post(`${MP_API_BASE_URL}/preapproval`, preapprovalPayload, {
+            headers: {
+              Authorization: `Bearer ${PLATFORM_MP_ACCESS_TOKEN}`,
+              'Content-Type': 'application/json',
+              'X-Idempotency-Key': `site_reg_recur_${checkoutId}`,
+            },
+          });
+          preapproval = response.data || {};
+          preapprovalId = String(preapproval?.id || '').trim();
+        } catch (preapprovalError: any) {
+          console.warn('⚠️ [Site Registration] Primeira mensalidade aprovada, mas recorrência não foi criada:', preapprovalError?.response?.data || preapprovalError?.message);
+        }
       }
 
       await supabaseAdmin
         .from('site_registration_checkouts')
         .update({
-          preapproval_id: preapprovalId,
+          payment_id: paymentId,
+          preapproval_id: preapprovalId || null,
           checkout_url: null,
           metadata: {
             ...(checkout as any).metadata,
@@ -239,15 +311,20 @@ export const handler: Handler = async (event) => {
             installments,
             card_bin: cardBin || null,
             card_last_four_digits: cardLastFourDigits || null,
-            checkout_mode: 'transparent_card_subscription',
+            checkout_mode: 'transparent_card_first_charge_then_subscription',
+            first_payment_status: paymentStatus,
+            first_payment_status_detail: String((payment as any)?.status_detail || '') || null,
+            recurrence_created: Boolean(preapprovalId),
+            recurrence_starts_at: nextMonth.toISOString(),
           },
           updated_at: new Date().toISOString(),
         } as any)
         .eq('id', checkoutId);
 
       const conversion = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
-        status: String(preapproval?.status || ''),
-        preapprovalId,
+        status: paymentStatus,
+        paymentId,
+        preapprovalId: preapprovalId || null,
         paymentMethod: 'recurring_card',
       });
 
@@ -258,11 +335,17 @@ export const handler: Handler = async (event) => {
         method,
         amount_cents: config.amountCents,
         amount_brl: config.amountCents / 100,
-        preapproval_id: preapprovalId,
-        status: String(preapproval?.status || 'pending'),
+        payment_id: paymentId,
+        preapproval_id: preapprovalId || null,
+        status: paymentStatus,
+        recurrence_created: Boolean(preapprovalId),
         conversion,
         expires_at: expiresAt,
       });
+    }
+
+    if (method === 'recurring_card') {
+      return json(400, { error: 'Token do cartão obrigatório para cobrar a primeira mensalidade.' });
     }
 
     const backUrlCandidate = requiredString(body?.backUrl) || SUBSCRIPTION_BACK_URL;
