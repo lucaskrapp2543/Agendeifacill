@@ -95,9 +95,15 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
     const email = String(registration.email || '').trim().toLowerCase();
     const password = String(registration.password || '');
     const clientWhatsapp = String(registration.client_whatsapp || '').trim();
+    const documentType = String(registration.document_type || '').toUpperCase().trim() === 'CNPJ' ? 'CNPJ' : 'CPF';
+    const documentNumber = String(registration.document_number || '').replace(/\D/g, '');
 
     if (!clientName || !establishmentName || !email || !password || !clientWhatsapp) {
       return res.status(400).json({ error: 'Preencha todos os dados do cadastro antes de pagar.' });
+    }
+
+    if (method === 'recurring_card' && documentNumber.length !== 11 && documentNumber.length !== 14) {
+      return res.status(400).json({ error: 'Para cartão, informe CPF ou CNPJ válido do titular.' });
     }
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -117,7 +123,12 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
         ip_address: req.ip || null,
         user_agent: String(req.headers['user-agent'] || registration.user_agent || ''),
         expires_at: expiresAt,
-        metadata: { source: 'site_registration', created_from: 'cadastroag_local_api' },
+        metadata: {
+          source: 'site_registration',
+          created_from: 'cadastroag_local_api',
+          document_type: documentType,
+          document_last4: documentNumber ? documentNumber.slice(-4) : null,
+        },
         updated_at: new Date().toISOString(),
       } as any)
       .select('*')
@@ -171,6 +182,89 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
         status: String((payment as any)?.status || 'pending'),
         qr_code: String(pixData?.qr_code || ''),
         qr_code_base64: String(pixData?.qr_code_base64 || ''),
+        expires_at: expiresAt,
+      });
+    }
+
+    const cardTokenId = String(req.body?.card_token_id || req.body?.token || '').trim();
+    const paymentMethodId = String(req.body?.payment_method_id || '').trim();
+    const issuerId = String(req.body?.issuer_id || '').trim();
+    const installments = Math.max(1, Number(req.body?.installments || 1));
+    const cardBin = String(req.body?.card_bin || '').trim().slice(0, 6);
+    const cardLastFourDigits = String(req.body?.card_last_four_digits || '').trim().slice(-4);
+
+    if (cardTokenId) {
+      const backUrlCandidate = String(req.body?.backUrl || process.env.MERCADOPAGO_SUBSCRIPTION_BACK_URL || 'https://agendeifacil.com.br/cadastroag').trim();
+      const baseBackUrl = /^https:\/\//i.test(backUrlCandidate) ? backUrlCandidate : 'https://agendeifacil.com.br/cadastroag';
+      const returnUrl = new URL(baseBackUrl);
+      returnUrl.searchParams.set('site_checkout_id', checkoutId);
+      returnUrl.searchParams.set('site_payment', 'return');
+
+      const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+      const response = await axios.post(`${MP_API_BASE_URL}/preapproval`, {
+        reason: description,
+        payer_email: email,
+        card_token_id: cardTokenId,
+        external_reference: externalReference,
+        auto_recurring: {
+          frequency: 1,
+          frequency_type: 'months',
+          transaction_amount: plan.amountCents / 100,
+          currency_id: 'BRL',
+        },
+        back_url: returnUrl.toString(),
+        status: 'authorized',
+      }, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'X-Idempotency-Key': `site_reg_card_${checkoutId}`,
+        },
+      });
+
+      const preapproval = response.data || {};
+      const preapprovalId = String(preapproval?.id || '').trim();
+      if (!preapprovalId) {
+        return res.status(500).json({ error: 'Mercado Pago nao retornou ID da assinatura.' });
+      }
+
+      await supabaseAdmin
+        .from('site_registration_checkouts')
+        .update({
+          preapproval_id: preapprovalId,
+          checkout_url: null,
+          metadata: {
+            ...(checkout as any).metadata,
+            external_reference: externalReference,
+            document_type: documentType,
+            document_last4: documentNumber.slice(-4),
+            payment_method_id: paymentMethodId || null,
+            issuer_id: issuerId || null,
+            installments,
+            card_bin: cardBin || null,
+            card_last_four_digits: cardLastFourDigits || null,
+            checkout_mode: 'transparent_card_subscription',
+          },
+          updated_at: new Date().toISOString(),
+        } as any)
+        .eq('id', checkoutId);
+
+      const conversion = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
+        status: String(preapproval?.status || ''),
+        preapprovalId,
+        paymentMethod: 'recurring_card',
+      });
+
+      return res.json({
+        ok: true,
+        checkout_id: checkoutId,
+        plan: planKey,
+        method,
+        amount_cents: plan.amountCents,
+        amount_brl: plan.amountCents / 100,
+        preapproval_id: preapprovalId,
+        status: String(preapproval?.status || 'pending'),
+        conversion,
         expires_at: expiresAt,
       });
     }
@@ -258,12 +352,25 @@ router.get('/site-registration-checkout-status', async (req: Request, res: Respo
     const accessToken = String(process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim();
     const status = String((data as any).status || '').toLowerCase();
     const paymentId = String((data as any).payment_id || '').trim();
+    const preapprovalId = String((data as any).preapproval_id || '').trim();
     if (status !== 'converted' && paymentId && accessToken) {
       const payment = await checkMPPaymentStatus(Number(paymentId), accessToken);
       conversionResult = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
         status: (payment as any)?.status,
         paymentId,
         paymentMethod: 'pix',
+      });
+    } else if (status !== 'converted' && preapprovalId && accessToken) {
+      const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+      const preapprovalResp = await axios.get(
+        `${MP_API_BASE_URL}/preapproval/${encodeURIComponent(preapprovalId)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      const preapproval = preapprovalResp.data || {};
+      conversionResult = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
+        status: preapproval?.status,
+        preapprovalId,
+        paymentMethod: 'recurring_card',
       });
     }
 

@@ -2,6 +2,7 @@ import { ArrowLeft, Building, CheckCircle, Copy, CreditCard, Eye, EyeOff, Globe,
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { CardPaymentBrick } from '../components/CardPaymentBrick';
 
 interface RegistrationData {
   clientName: string;
@@ -9,6 +10,7 @@ interface RegistrationData {
   email: string;
   password: string;
   whatsapp: string;
+  documentNumber: string;
 }
 
 type SitePlan = 'prata' | 'diamante';
@@ -130,7 +132,8 @@ const CadastroAg = () => {
     establishmentName: '',
     email: '',
     password: '',
-    whatsapp: ''
+    whatsapp: '',
+    documentNumber: ''
   });
 
   const [showPassword, setShowPassword] = useState(false);
@@ -143,7 +146,9 @@ const CadastroAg = () => {
   const [isCreatingCheckout, setIsCreatingCheckout] = useState<PaymentMethod | null>(null);
   const [paymentStatusMessage, setPaymentStatusMessage] = useState('');
   const [showAccountCreatedModal, setShowAccountCreatedModal] = useState(false);
+  const [showCardForm, setShowCardForm] = useState(false);
   const paymentOptionsRef = useRef<HTMLDivElement | null>(null);
+  const mercadoPagoPublicKey = String(import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY || '').trim();
 
   const createCheckoutUrl = import.meta.env.PROD
     ? '/.netlify/functions/site-registration-create-checkout'
@@ -151,6 +156,31 @@ const CadastroAg = () => {
   const checkoutStatusUrl = import.meta.env.PROD
     ? '/.netlify/functions/site-registration-checkout-status'
     : '/api/mercadopago/site-registration-checkout-status';
+
+  const onlyDigits = (value: unknown) => String(value || '').replace(/\D/g, '');
+
+  const splitFullName = (name: string) => {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    return {
+      firstName: parts[0] || 'Cliente',
+      lastName: parts.slice(1).join(' ') || 'Agendei Facil',
+    };
+  };
+
+  const formatCpfCnpj = (value: string) => {
+    const digits = onlyDigits(value).slice(0, 14);
+    if (digits.length <= 11) {
+      return digits
+        .replace(/^(\d{3})(\d)/, '$1.$2')
+        .replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3')
+        .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3-$4');
+    }
+    return digits
+      .replace(/^(\d{2})(\d)/, '$1.$2')
+      .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+      .replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3/$4')
+      .replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, '$1.$2.$3/$4-$5');
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -219,6 +249,13 @@ const CadastroAg = () => {
       }
     }
 
+    const documentDigits = onlyDigits(formData.documentNumber);
+    if (!documentDigits) {
+      newErrors.documentNumber = 'CPF ou CNPJ é obrigatório para aprovar o cartão';
+    } else if (documentDigits.length !== 11 && documentDigits.length !== 14) {
+      newErrors.documentNumber = 'Informe um CPF com 11 dígitos ou CNPJ com 14 dígitos';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -257,6 +294,8 @@ const CadastroAg = () => {
         email: formData.email.trim().toLowerCase(),
         password: formData.password, // SENHA EM TEXTO CLARO (sem hash)
         client_whatsapp: cleanWhatsapp,
+        document_type: onlyDigits(formData.documentNumber).length === 14 ? 'CNPJ' : 'CPF',
+        document_number: onlyDigits(formData.documentNumber),
         ip_address: '127.0.0.1', // Em produção, pegar IP real
         user_agent: navigator.userAgent
       };
@@ -298,6 +337,7 @@ const CadastroAg = () => {
     }
 
     setShowPaymentOptions(true);
+    setShowCardForm(false);
     setPaymentStatusMessage('');
     toast.success('Cadastro preenchido. Agora escolha como pagar para criar a conta.');
     setTimeout(() => {
@@ -305,7 +345,17 @@ const CadastroAg = () => {
     }, 100);
   };
 
-  const handleCreateCheckout = async (method: PaymentMethod) => {
+  const handleCreateCheckout = async (
+    method: PaymentMethod,
+    cardData?: {
+      token: string;
+      payment_method_id: string;
+      issuer_id: string;
+      installments: number;
+      bin?: string;
+      lastFourDigits?: string;
+    }
+  ) => {
     if (!validateForm() || isCreatingCheckout) return;
 
     setIsCreatingCheckout(method);
@@ -320,6 +370,16 @@ const CadastroAg = () => {
           plan: selectedPlan,
           method,
           registration: buildRegistrationData(),
+          ...(cardData
+            ? {
+                card_token_id: cardData.token,
+                payment_method_id: cardData.payment_method_id,
+                issuer_id: cardData.issuer_id,
+                installments: cardData.installments,
+                card_bin: cardData.bin,
+                card_last_four_digits: cardData.lastFourDigits,
+              }
+            : {}),
           backUrl: `${window.location.origin}/cadastroag?plan=${selectedPlan}`
         })
       });
@@ -334,8 +394,8 @@ const CadastroAg = () => {
       setCheckoutId(String(data.checkout_id || ''));
 
       if (method === 'recurring_card') {
-        toast.success('Redirecionando para a assinatura no Mercado Pago...');
-        window.location.href = String(data.init_point || data.checkout_url || '');
+        setPaymentStatusMessage('Cartão enviado com segurança. Estamos confirmando a assinatura mensal...');
+        pollCheckoutStatus(String(data.checkout_id || ''));
         return;
       }
 
@@ -624,6 +684,31 @@ const CadastroAg = () => {
                 )}
               </div>
 
+              {/* CPF/CNPJ para pagamento */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  CPF ou CNPJ do titular
+                </label>
+                <div className="relative">
+                  <CreditCard className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={formData.documentNumber}
+                    onChange={(e) => handleInputChange('documentNumber', formatCpfCnpj(e.target.value))}
+                    className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black bg-white ${errors.documentNumber ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                    placeholder="CPF ou CNPJ usado no cartão"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Usado pelo Mercado Pago para validar o pagamento e reduzir recusa do cartão.
+                </p>
+                {errors.documentNumber && (
+                  <p className="text-red-500 text-sm mt-1">{errors.documentNumber}</p>
+                )}
+              </div>
+
               {/* Botão de envio */}
               <div>
                 <button
@@ -671,7 +756,16 @@ const CadastroAg = () => {
 
                     <button
                       type="button"
-                      onClick={() => handleCreateCheckout('recurring_card')}
+                      onClick={() => {
+                        if (!validateForm()) {
+                          toast.error('Preencha os dados obrigatórios antes do cartão.');
+                          return;
+                        }
+                        setCheckoutData(null);
+                        setCheckoutId('');
+                        setPaymentStatusMessage('');
+                        setShowCardForm(true);
+                      }}
                       disabled={!!isCreatingCheckout}
                       className="rounded-xl border border-blue-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-400 hover:bg-blue-50 disabled:opacity-60"
                     >
@@ -680,6 +774,43 @@ const CadastroAg = () => {
                       <div className="text-xs text-gray-600">Assinatura mensal automática.</div>
                     </button>
                   </div>
+
+                  {showCardForm && (
+                    <div className="rounded-xl border border-blue-200 bg-white p-3 shadow-sm">
+                      <div className="mb-3 rounded-lg bg-blue-50 p-3">
+                        <p className="text-sm font-extrabold text-blue-900">
+                          Cartão de crédito no site
+                        </p>
+                        <p className="mt-1 text-xs text-blue-800">
+                          Digite o cartão abaixo. O número do cartão fica nos campos seguros do Mercado Pago;
+                          nosso sistema recebe apenas um token para criar a mensalidade recorrente.
+                        </p>
+                      </div>
+
+                      {mercadoPagoPublicKey ? (
+                        <CardPaymentBrick
+                          publicKey={mercadoPagoPublicKey}
+                          amount={selectedPlanConfig.amount}
+                          creditOnly
+                          payerData={{
+                            email: formData.email.trim().toLowerCase(),
+                            identificationType: onlyDigits(formData.documentNumber).length === 14 ? 'CNPJ' : 'CPF',
+                            identificationNumber: onlyDigits(formData.documentNumber),
+                            ...splitFullName(formData.clientName),
+                          }}
+                          onSubmit={(cardData) => handleCreateCheckout('recurring_card', cardData)}
+                          onError={(error: any) => {
+                            const msg = String(error?.message || '').trim();
+                            toast.error(msg || 'Não foi possível abrir o cartão. Tente novamente.');
+                          }}
+                        />
+                      ) : (
+                        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                          Configure <strong>VITE_MERCADOPAGO_PUBLIC_KEY</strong> para habilitar cartão no site.
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {isCreatingCheckout && (
                     <p className="text-sm font-semibold text-blue-700">Gerando pagamento...</p>

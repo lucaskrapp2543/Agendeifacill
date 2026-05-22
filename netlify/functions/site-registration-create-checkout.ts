@@ -2,6 +2,7 @@ import axios from 'axios';
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { createMPPayment } from '../../src/lib/mercadopago/mp-service';
+import { convertSiteRegistrationCheckoutIfPaid } from '../../src/lib/siteRegistrationCheckoutConversion';
 import { json, parseJsonBody } from './_utils';
 
 const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
@@ -62,6 +63,8 @@ export const handler: Handler = async (event) => {
     const email = requiredString(registration?.email).toLowerCase();
     const password = String(registration?.password || '');
     const clientWhatsapp = requiredString(registration?.client_whatsapp || registration?.whatsapp);
+    const documentType = String(registration?.document_type || '').toUpperCase().trim() === 'CNPJ' ? 'CNPJ' : 'CPF';
+    const documentNumber = requiredString(registration?.document_number).replace(/\D/g, '');
     const userAgent = requiredString(registration?.user_agent || event.headers['user-agent']);
     const ipAddress = requiredString(
       event.headers['x-forwarded-for']?.split(',')?.[0] ||
@@ -79,6 +82,10 @@ export const handler: Handler = async (event) => {
 
     if (password.length < 6) {
       return json(400, { error: 'Senha deve ter pelo menos 6 caracteres.' });
+    }
+
+    if (method === 'recurring_card' && documentNumber.length !== 11 && documentNumber.length !== 14) {
+      return json(400, { error: 'Para cartão, informe CPF ou CNPJ válido do titular.' });
     }
 
     const config = PLAN_CONFIG[plan];
@@ -104,6 +111,8 @@ export const handler: Handler = async (event) => {
         metadata: {
           source: 'site_registration',
           created_from: 'cadastroag',
+          document_type: documentType,
+          document_last4: documentNumber ? documentNumber.slice(-4) : null,
         },
         updated_at: nowIso,
       } as any)
@@ -168,6 +177,90 @@ export const handler: Handler = async (event) => {
         status: String((payment as any)?.status || 'pending'),
         qr_code: String(pixData?.qr_code || ''),
         qr_code_base64: String(pixData?.qr_code_base64 || ''),
+        expires_at: expiresAt,
+      });
+    }
+
+    const cardTokenId = requiredString(body?.card_token_id || body?.token);
+    const paymentMethodId = requiredString(body?.payment_method_id);
+    const issuerId = requiredString(body?.issuer_id);
+    const installments = Math.max(1, Number(body?.installments || 1));
+    const cardBin = requiredString(body?.card_bin).slice(0, 6);
+    const cardLastFourDigits = requiredString(body?.card_last_four_digits).slice(-4);
+
+    if (cardTokenId) {
+      const backUrlCandidate = requiredString(body?.backUrl) || SUBSCRIPTION_BACK_URL || 'https://agendeifacil.com.br/cadastroag';
+      const baseBackUrl = /^https:\/\//i.test(backUrlCandidate) ? backUrlCandidate : 'https://agendeifacil.com.br/cadastroag';
+      const returnUrl = new URL(baseBackUrl);
+      returnUrl.searchParams.set('site_checkout_id', checkoutId);
+      returnUrl.searchParams.set('site_payment', 'return');
+
+      const preapprovalPayload = {
+        reason: description,
+        payer_email: email,
+        card_token_id: cardTokenId,
+        external_reference: externalReference,
+        auto_recurring: {
+          frequency: 1,
+          frequency_type: 'months',
+          transaction_amount: config.amountCents / 100,
+          currency_id: 'BRL',
+        },
+        back_url: returnUrl.toString(),
+        status: 'authorized',
+      };
+
+      const response = await axios.post(`${MP_API_BASE_URL}/preapproval`, preapprovalPayload, {
+        headers: {
+          Authorization: `Bearer ${PLATFORM_MP_ACCESS_TOKEN}`,
+          'Content-Type': 'application/json',
+          'X-Idempotency-Key': `site_reg_card_${checkoutId}`,
+        },
+      });
+
+      const preapproval = response.data || {};
+      const preapprovalId = String(preapproval?.id || '').trim();
+      if (!preapprovalId) {
+        return json(500, { error: 'Mercado Pago nao retornou ID da assinatura.' });
+      }
+
+      await supabaseAdmin
+        .from('site_registration_checkouts')
+        .update({
+          preapproval_id: preapprovalId,
+          checkout_url: null,
+          metadata: {
+            ...(checkout as any).metadata,
+            external_reference: externalReference,
+            document_type: documentType,
+            document_last4: documentNumber.slice(-4),
+            payment_method_id: paymentMethodId || null,
+            issuer_id: issuerId || null,
+            installments,
+            card_bin: cardBin || null,
+            card_last_four_digits: cardLastFourDigits || null,
+            checkout_mode: 'transparent_card_subscription',
+          },
+          updated_at: new Date().toISOString(),
+        } as any)
+        .eq('id', checkoutId);
+
+      const conversion = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
+        status: String(preapproval?.status || ''),
+        preapprovalId,
+        paymentMethod: 'recurring_card',
+      });
+
+      return json(200, {
+        ok: true,
+        checkout_id: checkoutId,
+        plan,
+        method,
+        amount_cents: config.amountCents,
+        amount_brl: config.amountCents / 100,
+        preapproval_id: preapprovalId,
+        status: String(preapproval?.status || 'pending'),
+        conversion,
         expires_at: expiresAt,
       });
     }

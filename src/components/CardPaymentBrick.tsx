@@ -29,6 +29,7 @@ interface CardPaymentBrickProps {
   }) => void | Promise<void>;
   onReady?: () => void;
   onError?: (error: any) => void;
+  creditOnly?: boolean;
   payerData?: {
     email: string;
     identificationType: 'CPF' | 'CNPJ';
@@ -44,6 +45,7 @@ export const CardPaymentBrick = ({
   onSubmit,
   onReady,
   onError,
+  creditOnly = false,
   payerData,
 }: CardPaymentBrickProps) => {
   const [isInitialized, setIsInitialized] = useState(false);
@@ -263,7 +265,7 @@ export const CardPaymentBrick = ({
     () => ({
       paymentMethods: {
         creditCard: 'all',
-        debitCard: 'all',
+        ...(creditOnly ? {} : { debitCard: 'all' }),
       },
       visual: {
         style: {
@@ -271,7 +273,7 @@ export const CardPaymentBrick = ({
         },
       },
     }),
-    []
+    [creditOnly]
   );
 
   // ✅ Não renderizar até o SDK estar inicializado

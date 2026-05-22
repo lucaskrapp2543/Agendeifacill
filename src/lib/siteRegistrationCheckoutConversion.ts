@@ -220,6 +220,30 @@ export async function convertSiteRegistrationCheckoutIfPaid(
         );
     }
 
+    if (paymentContext.preapprovalId) {
+      await supabaseAdmin
+        .from('establishment_billing_subscriptions')
+        .upsert(
+          {
+            establishment_id: establishmentId,
+            preapproval_id: String(paymentContext.preapprovalId),
+            status: 'authorized',
+            payer_email: String(checkoutAny.email || '').toLowerCase().trim(),
+            external_reference: `site_registration_checkout:${checkoutId}`,
+            amount_cents: Number(checkoutAny.amount_cents || plan.amountCents),
+            payment_provider: 'mercadopago',
+            metadata: {
+              type: 'site_registration_checkout',
+              checkout_id: checkoutId,
+              selected_plan: planKey,
+              payment_method: method,
+            },
+            updated_at: nowIso,
+          } as any,
+          { onConflict: 'preapproval_id' }
+        );
+    }
+
     return { handled: true, created: true, establishmentId, userId: authData.user.id };
   } catch (conversionError: any) {
     const message = String(conversionError?.message || 'Falha ao converter checkout em conta');
