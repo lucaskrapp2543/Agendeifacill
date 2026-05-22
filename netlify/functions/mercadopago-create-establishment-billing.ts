@@ -269,6 +269,16 @@ export const handler: Handler = async (event) => {
       }
     }
 
+    if (isCard && normalized === 'paid' && shouldCreateRecurringSubscription && !recurrenceCreated) {
+      return json(409, {
+        ok: false,
+        error: 'Mensalidade atual foi paga, mas a recorrência não foi criada no Mercado Pago. Não feche: chame o suporte para vincular a assinatura antes do próximo mês.',
+        payment_id: paymentId,
+        status: normalized,
+        recurrence_created: false,
+      });
+    }
+
     return json(200, {
       ...payment,
       billing_type: 'establishment_billing',

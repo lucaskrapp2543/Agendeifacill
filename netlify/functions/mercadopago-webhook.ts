@@ -567,7 +567,7 @@ export const handler: Handler = async (event) => {
             if (externalReference.startsWith(siteRegistrationPrefix)) {
               const checkoutId = externalReference.slice(siteRegistrationPrefix.length).trim();
               const sitePaymentMethod =
-                String((payment as any)?.metadata?.payment_method || '').toLowerCase().trim() === 'recurring_card'
+                String((payment as any)?.payment_method_id || '').toLowerCase().trim() !== 'pix'
                   ? 'recurring_card'
                   : 'pix';
               const result = await createSiteRegistrationAccountIfNeeded(checkoutId, {
