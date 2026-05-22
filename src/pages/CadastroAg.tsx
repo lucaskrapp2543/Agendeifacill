@@ -16,6 +16,18 @@ interface RegistrationData {
 type SitePlan = 'prata' | 'diamante';
 type PaymentMethod = 'pix' | 'recurring_card';
 
+const CADASTRO_AG_DRAFT_KEY = 'cadastroag_payment_draft_v2';
+const DRAFT_TTL_MS = 2 * 60 * 60 * 1000;
+
+const DEFAULT_REGISTRATION_DATA: RegistrationData = {
+  clientName: '',
+  establishmentName: '',
+  email: '',
+  password: '',
+  whatsapp: '',
+  documentNumber: ''
+};
+
 const PLAN_CONFIG: Record<SitePlan, { label: string; amount: number; description: string }> = {
   prata: {
     label: 'Prata',
@@ -121,32 +133,70 @@ const countries: Country[] = [
   }
 ];
 
+const readCadastroAgDraft = (selectedPlan: SitePlan): any | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(CADASTRO_AG_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (String(parsed?.plan || '') !== selectedPlan) return null;
+    if (Date.now() - Number(parsed?.savedAt || 0) > DRAFT_TTL_MS) {
+      window.sessionStorage.removeItem(CADASTRO_AG_DRAFT_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const clearCadastroAgDraft = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(CADASTRO_AG_DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+};
+
 const CadastroAg = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const planParam = new URLSearchParams(location.search).get('plan')?.toLowerCase();
   const selectedPlan: SitePlan = planParam === 'prata' ? 'prata' : 'diamante';
   const selectedPlanConfig = PLAN_CONFIG[selectedPlan];
-  const [formData, setFormData] = useState<RegistrationData>({
-    clientName: '',
-    establishmentName: '',
-    email: '',
-    password: '',
-    whatsapp: '',
-    documentNumber: ''
+  const initialDraftRef = useRef<any | null>(null);
+  if (initialDraftRef.current === null) {
+    initialDraftRef.current = readCadastroAgDraft(selectedPlan);
+  }
+  const [formData, setFormData] = useState<RegistrationData>(() => {
+    const draftForm = initialDraftRef.current?.formData || {};
+    return {
+      ...DEFAULT_REGISTRATION_DATA,
+      clientName: String(draftForm.clientName || ''),
+      establishmentName: String(draftForm.establishmentName || ''),
+      email: String(draftForm.email || ''),
+      password: String(draftForm.password || ''),
+      whatsapp: String(draftForm.whatsapp || ''),
+      documentNumber: String(draftForm.documentNumber || '')
+    };
   });
 
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Partial<RegistrationData>>({});
-  const [selectedCountry, setSelectedCountry] = useState<Country | null>(countries[0]); // Brasil como padrão
-  const [showPaymentOptions, setShowPaymentOptions] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState<Country | null>(() => {
+    const draftCountryCode = String(initialDraftRef.current?.selectedCountryCode || '');
+    return countries.find((country) => country.code === draftCountryCode) || countries[0];
+  }); // Brasil como padrão
+  const [showPaymentOptions, setShowPaymentOptions] = useState(() => Boolean(initialDraftRef.current?.showPaymentOptions));
   const [checkoutData, setCheckoutData] = useState<any | null>(null);
-  const [checkoutId, setCheckoutId] = useState('');
+  const [checkoutId, setCheckoutId] = useState(() => String(initialDraftRef.current?.checkoutId || ''));
   const [isCreatingCheckout, setIsCreatingCheckout] = useState<PaymentMethod | null>(null);
-  const [paymentStatusMessage, setPaymentStatusMessage] = useState('');
+  const [paymentStatusMessage, setPaymentStatusMessage] = useState(() => String(initialDraftRef.current?.paymentStatusMessage || ''));
   const [showAccountCreatedModal, setShowAccountCreatedModal] = useState(false);
-  const [showCardForm, setShowCardForm] = useState(false);
+  const [showCardForm, setShowCardForm] = useState(() => Boolean(initialDraftRef.current?.showCardForm));
+  const [cardPayerData, setCardPayerData] = useState<any | null>(() => initialDraftRef.current?.cardPayerData || null);
   const paymentOptionsRef = useRef<HTMLDivElement | null>(null);
   const mercadoPagoPublicKey = String(import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY || '').trim();
 
@@ -181,6 +231,57 @@ const CadastroAg = () => {
       .replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3/$4')
       .replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, '$1.$2.$3/$4-$5');
   };
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(
+        CADASTRO_AG_DRAFT_KEY,
+        JSON.stringify({
+          plan: selectedPlan,
+          formData,
+          selectedCountryCode: selectedCountry?.code || 'BR',
+          showPaymentOptions,
+          showCardForm,
+          cardPayerData,
+          checkoutId,
+          paymentStatusMessage,
+          savedAt: Date.now(),
+        })
+      );
+    } catch {
+      // Se o navegador bloquear storage, o fluxo segue normalmente sem rascunho.
+    }
+  }, [
+    checkoutId,
+    cardPayerData,
+    formData,
+    paymentStatusMessage,
+    selectedCountry?.code,
+    selectedPlan,
+    showCardForm,
+    showPaymentOptions,
+  ]);
+
+  useEffect(() => {
+    const shouldWarnBeforeLeaving = showCardForm && !isCreatingCheckout && !showAccountCreatedModal;
+    if (!shouldWarnBeforeLeaving) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+      return '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isCreatingCheckout, showAccountCreatedModal, showCardForm]);
+
+  useEffect(() => {
+    if (checkoutId && showPaymentOptions && paymentStatusMessage) {
+      pollCheckoutStatus(checkoutId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -311,6 +412,7 @@ const CadastroAg = () => {
 
       if (status === 'converted') {
         setPaymentStatusMessage('');
+        clearCadastroAgDraft();
         setShowAccountCreatedModal(true);
         return;
       }
@@ -444,7 +546,10 @@ const CadastroAg = () => {
             </p>
             <button
               type="button"
-              onClick={() => navigate('/login?registered=success', { replace: true })}
+              onClick={() => {
+                clearCadastroAgDraft();
+                navigate('/login?registered=success', { replace: true });
+              }}
               className="mt-6 w-full rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 px-5 py-3 text-base font-extrabold text-white shadow-lg hover:from-emerald-600 hover:to-green-700 transition-colors"
             >
               Fazer login
@@ -764,6 +869,12 @@ const CadastroAg = () => {
                         setCheckoutData(null);
                         setCheckoutId('');
                         setPaymentStatusMessage('');
+                        setCardPayerData({
+                          email: formData.email.trim().toLowerCase(),
+                          identificationType: onlyDigits(formData.documentNumber).length === 14 ? 'CNPJ' : 'CPF',
+                          identificationNumber: onlyDigits(formData.documentNumber),
+                          ...splitFullName(formData.clientName),
+                        });
                         setShowCardForm(true);
                       }}
                       disabled={!!isCreatingCheckout}
@@ -785,6 +896,10 @@ const CadastroAg = () => {
                           Digite o cartão abaixo. O número do cartão fica nos campos seguros do Mercado Pago;
                           nosso sistema recebe apenas um token para criar a mensalidade recorrente.
                         </p>
+                        <p className="mt-2 text-xs font-semibold text-blue-900">
+                          Se precisar sair para conferir CVV ou validade, seus dados do cadastro ficam salvos nesta aba.
+                          Por segurança, número do cartão, validade e CVV não são gravados.
+                        </p>
                       </div>
 
                       {mercadoPagoPublicKey ? (
@@ -792,7 +907,7 @@ const CadastroAg = () => {
                           publicKey={mercadoPagoPublicKey}
                           amount={selectedPlanConfig.amount}
                           creditOnly
-                          payerData={{
+                          payerData={cardPayerData || {
                             email: formData.email.trim().toLowerCase(),
                             identificationType: onlyDigits(formData.documentNumber).length === 14 ? 'CNPJ' : 'CPF',
                             identificationNumber: onlyDigits(formData.documentNumber),
