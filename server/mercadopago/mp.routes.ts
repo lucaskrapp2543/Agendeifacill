@@ -171,12 +171,6 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
         } as any)
         .eq('id', checkoutId);
 
-      const conversion = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
-        status: String(preapproval?.status || ''),
-        preapprovalId,
-        paymentMethod: 'recurring_card',
-      });
-
       return res.json({
         ok: true,
         checkout_id: checkoutId,
@@ -255,6 +249,12 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
           updated_at: new Date().toISOString(),
         } as any)
         .eq('id', checkoutId);
+
+      const conversion = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
+        status: String(preapproval?.status || ''),
+        preapprovalId,
+        paymentMethod: 'recurring_card',
+      });
 
       return res.json({
         ok: true,

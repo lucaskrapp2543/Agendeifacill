@@ -166,12 +166,6 @@ export const handler: Handler = async (event) => {
         } as any)
         .eq('id', checkoutId);
 
-      const conversion = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
-        status: String(preapproval?.status || ''),
-        preapprovalId,
-        paymentMethod: 'recurring_card',
-      });
-
       return json(200, {
         ok: true,
         checkout_id: checkoutId,
@@ -251,6 +245,12 @@ export const handler: Handler = async (event) => {
           updated_at: new Date().toISOString(),
         } as any)
         .eq('id', checkoutId);
+
+      const conversion = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
+        status: String(preapproval?.status || ''),
+        preapprovalId,
+        paymentMethod: 'recurring_card',
+      });
 
       return json(200, {
         ok: true,
