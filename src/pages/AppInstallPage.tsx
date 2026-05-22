@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Maximize2 } from 'lucide-react';
+import { MessageCircle, X, Maximize2 } from 'lucide-react';
 
 export default function AppInstallPage() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -82,6 +82,8 @@ export default function AppInstallPage() {
       alert('Para instalar o app no PC:\n\n1. Clique nos 3 pontos (⋮) no canto superior\n2. Clique em "Instalar Agendei Fácil"\n3. Clique em "Instalar"');
     }
   };
+
+  const supportWhatsappUrl = `https://wa.me/5548991265320?text=${encodeURIComponent('ola nao consigo baixar app, quero ajuda')}`;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white flex items-center justify-center p-4">
@@ -220,6 +222,16 @@ export default function AppInstallPage() {
                 : 'Clique nos 3 pontos (⋮) → "Instalar Agendei Fácil"'}
             </p>
           </div>
+
+          <a
+            href={supportWhatsappUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex w-full items-center justify-center gap-3 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-500 to-green-600 px-5 py-4 text-center text-base font-black text-white shadow-lg shadow-emerald-500/25 transition-all hover:scale-[1.02] hover:from-emerald-400 hover:to-green-500"
+          >
+            <MessageCircle className="h-5 w-5" />
+            nao consigo baixar app, falar com suporte
+          </a>
         </div>
       </div>
     </div>

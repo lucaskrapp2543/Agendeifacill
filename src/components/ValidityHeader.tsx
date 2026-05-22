@@ -190,11 +190,25 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
     );
   }
 
+  const shouldShowPaymentButton = normalizedHeaderStatus === 'expired' || daysRemaining <= 2;
+
   return (
     <>
-      <div className={`flex items-center gap-1 text-xs font-medium ${getStatusColor()} bg-white/80 px-2 py-1 rounded-full border`}>
-        {getStatusIcon()}
-        <span>{getStatusText()}</span>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className={`flex items-center gap-1 text-xs font-medium ${getStatusColor()} bg-white/80 px-2 py-1 rounded-full border`}>
+          {getStatusIcon()}
+          <span>{getStatusText()}</span>
+        </div>
+
+        {shouldShowPaymentButton ? (
+          <button
+            type="button"
+            onClick={() => setShowBillingPaymentModal(true)}
+            className="inline-flex w-fit items-center justify-center rounded-full bg-red-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-colors hover:bg-red-700"
+          >
+            💳 PAGAR AGORA
+          </button>
+        ) : null}
       </div>
 
       <EstablishmentBillingPaymentModal

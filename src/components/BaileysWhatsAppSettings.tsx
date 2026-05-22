@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 
 type Props = {
   userId: string | null | undefined;
+  isPlanPrataActive?: boolean;
 };
 
 type StatusResponse = {
@@ -62,6 +63,14 @@ type MessageLogsResponse = {
   error?: string;
 };
 
+type PairingCodeResponse = {
+  ok: boolean;
+  status?: string;
+  phone?: string | null;
+  pairing_code?: string | null;
+  error?: string;
+};
+
 const REMINDER_OPTIONS = [
   { label: '10 minutos', value: 10 },
   { label: '30 minutos', value: 30 },
@@ -110,7 +119,7 @@ async function buildAuthHeaders() {
   };
 }
 
-export function BaileysWhatsAppSettings({ userId }: Props) {
+export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: Props) {
   const configuredApiBase = String((import.meta as any)?.env?.VITE_WHATSAPP_API_BASE_URL || '')
     .trim()
     .replace(/\/$/, '');
@@ -133,6 +142,9 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [manualPhone, setManualPhone] = useState('');
   const [manualMessage, setManualMessage] = useState('');
+  const [pairingPhone, setPairingPhone] = useState('');
+  const [pairingCode, setPairingCode] = useState('');
+  const [generatingPairingCode, setGeneratingPairingCode] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settings, setSettings] = useState<AutomationSettings>({
@@ -285,7 +297,15 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
     return true;
   };
 
+  const showDiamanteRequiredMessage = () => {
+    toast.error('WhatsApp conectado ao sistema é exclusivo do Plano Diamante. Suba para o Diamante para conectar por QR ou código.');
+  };
+
   const handleConnect = async () => {
+    if (isPlanPrataActive) {
+      showDiamanteRequiredMessage();
+      return;
+    }
     if (!ensureApiConfigured()) return;
     if (!userId) {
       toast.error('Usuário não identificado para conectar WhatsApp.');
@@ -317,6 +337,49 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
     }
   };
 
+  const handleRequestPairingCode = async () => {
+    if (isPlanPrataActive) {
+      showDiamanteRequiredMessage();
+      return;
+    }
+    if (!ensureApiConfigured()) return;
+    if (!userId) {
+      toast.error('Usuário não identificado para conectar WhatsApp.');
+      return;
+    }
+    const phone = String(pairingPhone || '').trim();
+    if (!phone) {
+      toast.error('Informe o número do WhatsApp com DDD.');
+      return;
+    }
+
+    setGeneratingPairingCode(true);
+    setPairingCode('');
+    try {
+      const headers = await buildAuthHeaders();
+      if (!headers) throw new Error('Sessão expirada. Faça login novamente.');
+      const response = await fetch(buildWhatsAppApiUrl('pairing-code'), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ user_id: userId, phone }),
+      });
+      const data = await parseApiResponse<PairingCodeResponse>(response);
+      if (!response.ok || !data?.ok || !data?.pairing_code) {
+        throw new Error(String(data?.error || 'Falha ao gerar código do WhatsApp.'));
+      }
+      setApiUnavailable(false);
+      setApiUnavailableMessage('');
+      setPairingCode(String(data.pairing_code || '').trim());
+      toast.success('Código gerado. Digite no WhatsApp em Aparelhos conectados.');
+      await loadStatus();
+    } catch (error: any) {
+      markApiUnavailable(error);
+      toast.error(String(error?.message || 'Erro ao gerar código do WhatsApp.'));
+    } finally {
+      setGeneratingPairingCode(false);
+    }
+  };
+
   const handleDisconnect = async () => {
     if (!ensureApiConfigured()) return;
     if (!userId) return;
@@ -338,6 +401,7 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
       setApiUnavailableMessage('');
       toast.success('WhatsApp desconectado.');
       setQrDataUrl(null);
+      setPairingCode('');
       await loadStatus();
     } catch (error: any) {
       markApiUnavailable(error);
@@ -520,8 +584,19 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
     return status || '-';
   };
 
+  const formatPairingCode = (value: string) => {
+    const raw = String(value || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    if (raw.length <= 4) return raw;
+    return `${raw.slice(0, 4)}-${raw.slice(4)}`;
+  };
+
   return (
     <div className="rounded-xl border border-gray-700 bg-[#101112] p-4">
+      {isPlanPrataActive ? (
+        <div className="mb-3 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+          WhatsApp conectado ao sistema é exclusivo do <strong>Plano Diamante</strong>. Você pode ver esta área, mas para conectar por QR ou código precisa subir de plano.
+        </div>
+      ) : null}
       {apiUnavailable ? (
         <div className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
           API de WhatsApp indisponível neste deploy. {apiUnavailableMessage || 'As rotas /api/whatsapp não responderam JSON.'}
@@ -529,7 +604,7 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
       ) : null}
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-bold text-white">WhatsApp (Baileys - QR)</h3>
+          <h3 className="text-lg font-bold text-white">WhatsApp (Baileys - QR ou código)</h3>
           <p className="text-sm text-gray-300">
             Status: <span className="font-semibold text-white">{statusLabel}</span>
           </p>
@@ -542,9 +617,9 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
             type="button"
             onClick={handleConnect}
             disabled={loading}
-            className="px-3 py-2 rounded-md bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500 disabled:opacity-60"
+            className={`px-3 py-2 rounded-md text-white text-sm font-semibold disabled:opacity-60 ${isPlanPrataActive ? 'bg-gray-700 hover:bg-gray-600' : 'bg-emerald-600 hover:bg-emerald-500'}`}
           >
-            Conectar WhatsApp
+            Conectar por QR
           </button>
           <button
             type="button"
@@ -564,6 +639,38 @@ export function BaileysWhatsAppSettings({ userId }: Props) {
             WhatsApp {'>'} Aparelhos conectados {'>'} Conectar dispositivo
           </p>
           <img src={qrDataUrl} alt="QR Code WhatsApp Baileys" className="w-64 h-64 bg-white rounded-md p-2" />
+        </div>
+      ) : null}
+
+      {!status?.connected ? (
+        <div className="mt-4 rounded-lg border border-cyan-500/30 bg-black/20 p-3">
+          <p className="text-sm font-semibold text-cyan-200">Conectar com número (código)</p>
+          <p className="mt-1 text-xs text-gray-300">
+            No WhatsApp: Aparelhos conectados {'>'} Conectar aparelho {'>'} Conectar com número de telefone.
+          </p>
+          <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[240px_auto]">
+            <input
+              type="text"
+              value={pairingPhone}
+              onChange={(e) => setPairingPhone(e.target.value)}
+              placeholder="Número com DDD (ex: 11999999999)"
+              className="rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
+            />
+            <button
+              type="button"
+              onClick={handleRequestPairingCode}
+              disabled={generatingPairingCode || loading}
+              className={`px-3 py-2 rounded-md text-white text-sm font-semibold disabled:opacity-60 ${isPlanPrataActive ? 'bg-gray-700 hover:bg-gray-600' : 'bg-cyan-700 hover:bg-cyan-600'}`}
+            >
+              {generatingPairingCode ? 'Gerando...' : 'Gerar código'}
+            </button>
+          </div>
+          {pairingCode ? (
+            <div className="mt-3 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2">
+              <p className="text-xs text-emerald-200">Digite este código no WhatsApp:</p>
+              <p className="mt-1 text-2xl font-extrabold tracking-[0.18em] text-white">{formatPairingCode(pairingCode)}</p>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

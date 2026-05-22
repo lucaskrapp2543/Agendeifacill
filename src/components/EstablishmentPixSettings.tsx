@@ -44,7 +44,7 @@ export const EstablishmentPixSettings = ({
       <div className="flex items-start gap-2 p-4 bg-[#242628] rounded-lg mb-6 border border-blue-600/50">
         <AlertTriangle className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
         <p className="text-sm text-gray-300">
-          Configure sua chave PIX para receber pagamentos dos clientes. Se não quiser usar PIX, deixe em branco ou digite <span className="text-blue-500 font-medium">naotenhopix</span>.
+          Configure sua chave PIX se quiser receber pagamentos dos clientes por PIX. Se não quiser usar PIX agora, deixe em branco e siga para o próximo passo.
         </p>
       </div>
 
@@ -78,13 +78,13 @@ export const EstablishmentPixSettings = ({
             placeholder="Digite sua chave PIX (opcional)"
           />
           <p className="text-sm text-gray-400">
-            Esta chave será usada para receber pagamentos via PIX dos seus clientes. Se não quiser usar PIX, deixe em branco ou digite "naotenhopix".
+            Esta chave será usada para receber pagamentos via PIX dos seus clientes. É opcional: você pode deixar em branco e configurar depois.
           </p>
         </div>
 
         <div className="flex items-center justify-center p-3 bg-blue-600/20 border border-blue-500 rounded-lg mb-4">
           <p className="text-sm font-semibold text-blue-400 text-center">
-            Para ir para próximo passo salve o pix
+            PIX é opcional. Se quiser cadastrar depois, pode ir para o próximo passo sem salvar.
           </p>
         </div>
 

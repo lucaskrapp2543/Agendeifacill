@@ -1,8 +1,7 @@
-import { ArrowLeft, Building, CheckCircle, Eye, EyeOff, Globe, Lock, Mail, Phone, User } from 'lucide-react';
-import React, { useState } from 'react';
+import { ArrowLeft, Building, CheckCircle, Copy, CreditCard, Eye, EyeOff, Globe, Lock, Mail, Phone, QrCode, User } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 interface RegistrationData {
   clientName: string;
@@ -11,6 +10,22 @@ interface RegistrationData {
   password: string;
   whatsapp: string;
 }
+
+type SitePlan = 'prata' | 'diamante';
+type PaymentMethod = 'pix' | 'recurring_card';
+
+const PLAN_CONFIG: Record<SitePlan, { label: string; amount: number; description: string }> = {
+  prata: {
+    label: 'Prata',
+    amount: 37.9,
+    description: 'Sem WhatsApp de envios, sem assinantes e sem estoque.'
+  },
+  diamante: {
+    label: 'Diamante',
+    amount: 57.9,
+    description: 'Plano completo com WhatsApp, assinantes, estoque e recorrências.'
+  }
+};
 
 // Estrutura de países e códigos de país/DDDs
 interface Country {
@@ -106,6 +121,10 @@ const countries: Country[] = [
 
 const CadastroAg = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const planParam = new URLSearchParams(location.search).get('plan')?.toLowerCase();
+  const selectedPlan: SitePlan = planParam === 'prata' ? 'prata' : 'diamante';
+  const selectedPlanConfig = PLAN_CONFIG[selectedPlan];
   const [formData, setFormData] = useState<RegistrationData>({
     clientName: '',
     establishmentName: '',
@@ -118,6 +137,32 @@ const CadastroAg = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Partial<RegistrationData>>({});
   const [selectedCountry, setSelectedCountry] = useState<Country | null>(countries[0]); // Brasil como padrão
+  const [showPaymentOptions, setShowPaymentOptions] = useState(false);
+  const [checkoutData, setCheckoutData] = useState<any | null>(null);
+  const [checkoutId, setCheckoutId] = useState('');
+  const [isCreatingCheckout, setIsCreatingCheckout] = useState<PaymentMethod | null>(null);
+  const [paymentStatusMessage, setPaymentStatusMessage] = useState('');
+
+  const createCheckoutUrl = import.meta.env.PROD
+    ? '/.netlify/functions/site-registration-create-checkout'
+    : '/api/mercadopago/site-registration-create-checkout';
+  const checkoutStatusUrl = import.meta.env.PROD
+    ? '/.netlify/functions/site-registration-checkout-status'
+    : '/api/mercadopago/site-registration-checkout-status';
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const returnedCheckoutId = params.get('site_checkout_id');
+    const returnedFromPayment = params.get('site_payment') === 'return';
+
+    if (returnedCheckoutId && returnedFromPayment) {
+      setCheckoutId(returnedCheckoutId);
+      setShowPaymentOptions(true);
+      setPaymentStatusMessage('Pagamento recebido pelo Mercado Pago. Estamos confirmando sua conta automaticamente...');
+      pollCheckoutStatus(returnedCheckoutId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
 
   const validateForm = (): boolean => {
     const newErrors: Partial<RegistrationData> = {};
@@ -176,17 +221,7 @@ const CadastroAg = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!validateForm()) {
-      toast.error('Por favor, corrija os erros no formulário');
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    try {
+  const buildRegistrationData = () => {
       // Limpar WhatsApp e garantir que tenha o código do país correto
       let cleanWhatsapp = formData.whatsapp.replace(/\D/g, '');
 
@@ -214,7 +249,7 @@ const CadastroAg = () => {
         cleanWhatsapp = selectedCountry.dialCode + cleanWhatsapp;
       }
 
-      const registrationData = {
+      return {
         client_name: formData.clientName.trim(),
         establishment_name: formData.establishmentName.trim(),
         email: formData.email.trim().toLowerCase(),
@@ -223,26 +258,90 @@ const CadastroAg = () => {
         ip_address: '127.0.0.1', // Em produção, pegar IP real
         user_agent: navigator.userAgent
       };
+  };
 
-      // Enviar para o Supabase (usar cliente singleton para evitar múltiplas instâncias do GoTrueClient)
-      const { error } = await supabase
-        .from('registration_forms')
-        .insert([registrationData]);
+  const pollCheckoutStatus = async (id: string) => {
+    if (!id) return;
 
-      if (error) {
-        console.error('Erro ao enviar formulário:', error);
-        throw new Error('Erro ao enviar formulário. Tente novamente.');
+    try {
+      const response = await fetch(`${checkoutStatusUrl}?checkout_id=${encodeURIComponent(id)}`);
+      const data = await response.json();
+      const status = String(data?.checkout?.status || '').toLowerCase();
+
+      if (status === 'converted') {
+        toast.success('Conta criada com sucesso! Faça login para acessar.');
+        navigate('/login?registered=success', { replace: true });
+        return;
       }
 
-      // Sucesso
-      toast.success('Formulário enviado com sucesso!');
-      navigate('/registration-success');
+      if (status === 'conversion_failed') {
+        setPaymentStatusMessage('Pagamento aprovado, mas houve erro ao criar a conta. Chame o suporte para liberar manualmente.');
+        return;
+      }
 
+      setPaymentStatusMessage('Aguardando confirmação do pagamento para criar sua conta...');
+      setTimeout(() => pollCheckoutStatus(id), 5000);
+    } catch (error) {
+      console.error('Erro ao consultar pagamento:', error);
+      setPaymentStatusMessage('Não consegui consultar agora. Se o pagamento já foi aprovado, a conta será criada pelo webhook.');
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!validateForm()) {
+      toast.error('Por favor, corrija os erros no formulário');
+      return;
+    }
+
+    setShowPaymentOptions(true);
+    setPaymentStatusMessage('');
+    toast.success('Cadastro preenchido. Agora escolha como pagar para criar a conta.');
+  };
+
+  const handleCreateCheckout = async (method: PaymentMethod) => {
+    if (!validateForm() || isCreatingCheckout) return;
+
+    setIsCreatingCheckout(method);
+    setIsSubmitting(true);
+    setPaymentStatusMessage('');
+
+    try {
+      const response = await fetch(createCheckoutUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plan: selectedPlan,
+          method,
+          registration: buildRegistrationData(),
+          backUrl: `${window.location.origin}/cadastroag?plan=${selectedPlan}`
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data?.ok) {
+        const details = [data?.error, data?.userMessage, data?.details, data?.hint].filter(Boolean).join(' | ');
+        throw new Error(details || 'Erro ao criar pagamento.');
+      }
+
+      setCheckoutData(data);
+      setCheckoutId(String(data.checkout_id || ''));
+
+      if (method === 'recurring_card') {
+        toast.success('Redirecionando para a assinatura no Mercado Pago...');
+        window.location.href = String(data.init_point || data.checkout_url || '');
+        return;
+      }
+
+      setPaymentStatusMessage('PIX gerado. A conta só será criada depois que o pagamento for aprovado.');
+      pollCheckoutStatus(String(data.checkout_id || ''));
     } catch (error: any) {
-      console.error('Erro:', error);
-      toast.error(error.message || 'Erro ao enviar formulário');
+      console.error('Erro ao criar checkout:', error);
+      toast.error(error?.message || 'Erro ao iniciar pagamento.');
     } finally {
       setIsSubmitting(false);
+      setIsCreatingCheckout(null);
     }
   };
 
@@ -295,6 +394,22 @@ const CadastroAg = () => {
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Plano escolhido</p>
+                    <p className="text-xl font-extrabold text-gray-900">{selectedPlanConfig.label}</p>
+                    <p className="text-sm text-gray-700">{selectedPlanConfig.description}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-gray-600">mensalidade</p>
+                    <p className="text-2xl font-black text-blue-700">
+                      R$ {selectedPlanConfig.amount.toFixed(2).replace('.', ',')}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* Nome do Cliente */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -494,7 +609,7 @@ const CadastroAg = () => {
                   {isSubmitting ? (
                     <>
                       <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
-                      Enviando...
+                      Processando...
                     </>
                   ) : (
                     <>
@@ -505,10 +620,79 @@ const CadastroAg = () => {
                 </button>
               </div>
 
+              {showPaymentOptions && (
+                <div className="space-y-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900">Escolha como pagar</h3>
+                    <p className="text-sm text-gray-600">
+                      A conta só será criada automaticamente depois que o Mercado Pago confirmar o pagamento.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCreateCheckout('pix')}
+                      disabled={!!isCreatingCheckout}
+                      className="rounded-xl border border-emerald-200 bg-white p-4 text-left shadow-sm transition hover:border-emerald-400 hover:bg-emerald-50 disabled:opacity-60"
+                    >
+                      <QrCode className="mb-2 h-6 w-6 text-emerald-600" />
+                      <div className="font-extrabold text-gray-900">PIX</div>
+                      <div className="text-xs text-gray-600">Válido por 30 dias após aprovação.</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCreateCheckout('recurring_card')}
+                      disabled={!!isCreatingCheckout}
+                      className="rounded-xl border border-blue-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-400 hover:bg-blue-50 disabled:opacity-60"
+                    >
+                      <CreditCard className="mb-2 h-6 w-6 text-blue-600" />
+                      <div className="font-extrabold text-gray-900">Cartão de crédito</div>
+                      <div className="text-xs text-gray-600">Assinatura mensal automática.</div>
+                    </button>
+                  </div>
+
+                  {isCreatingCheckout && (
+                    <p className="text-sm font-semibold text-blue-700">Gerando pagamento...</p>
+                  )}
+
+                  {checkoutData?.qr_code_base64 && (
+                    <div className="rounded-xl border border-emerald-200 bg-white p-4 text-center">
+                      <p className="mb-3 text-sm font-bold text-gray-900">PIX gerado</p>
+                      <img
+                        src={`data:image/png;base64,${checkoutData.qr_code_base64}`}
+                        alt="QR Code PIX"
+                        className="mx-auto h-48 w-48 rounded-lg border border-gray-200"
+                      />
+                      {checkoutData?.qr_code && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(String(checkoutData.qr_code || ''));
+                            toast.success('Código PIX copiado!');
+                          }}
+                          className="mt-3 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700"
+                        >
+                          <Copy className="h-4 w-4" />
+                          Copiar PIX copia e cola
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {(paymentStatusMessage || checkoutId) && (
+                    <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-900">
+                      {paymentStatusMessage || 'Aguardando confirmação do pagamento...'}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Info */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <p className="text-sm text-blue-800">
-                  Experimente o Agendei Fácil por 7 dias e conheça o sistema mais completo do Brasil.
+                  Cadastro automático: se o pagamento não for aprovado, a conta não é criada.
                 </p>
               </div>
             </form>

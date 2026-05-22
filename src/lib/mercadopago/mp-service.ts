@@ -40,6 +40,7 @@ export interface CreateMPPaymentRequest {
   application_fee?: number; // Taxa da plataforma em centavos (ex: 100 = R$ 1,00). Opcional para cobrança direta da plataforma.
   access_token: string; // Access token do vendedor
   metadata?: Record<string, any>;
+  external_reference?: string;
   payment_method_id?: string; // 'pix', 'credit_card', 'visa', 'master', etc. (vem do token)
   installments?: number; // Para cartão de crédito (vem do frontend/API)
   token?: string; // Token do cartão (obrigatório para credit_card, sempre recriado)
@@ -139,9 +140,9 @@ export async function createMPPayment(
     
     // ✅ CRÍTICO: external_reference é usado pelo webhook para identificar o pagamento
     // Deve ser uma string única que identifica o agendamento
-    const externalReference = paymentData.metadata?.appointment_id 
+    const externalReference = paymentData.external_reference || (paymentData.metadata?.appointment_id 
       ? `appointment_${paymentData.metadata.appointment_id}`
-      : undefined;
+      : undefined);
 
     const payload: any = {
       transaction_amount: transactionAmount,

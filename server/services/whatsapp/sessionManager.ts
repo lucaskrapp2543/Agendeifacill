@@ -1,4 +1,4 @@
-import makeWASocket, { DisconnectReason, useMultiFileAuthState } from '@whiskeysockets/baileys';
+import makeWASocket, { Browsers, DisconnectReason, useMultiFileAuthState } from '@whiskeysockets/baileys';
 import fs from 'fs/promises';
 import path from 'path';
 import QRCode from 'qrcode';
@@ -17,6 +17,7 @@ type SessionManagerOptions = {
 export class WhatsAppSessionManager {
   private sockets = new Map<string, SocketMapValue>();
   private qrCache = new Map<string, string | null>();
+  private qrResolvers = new Map<string, () => void>();
   private reconnectTimers = new Map<string, NodeJS.Timeout>();
   private reconnectAttempts = new Map<string, number>();
   private manualDisconnect = new Set<string>();
@@ -73,7 +74,7 @@ export class WhatsAppSessionManager {
     await this.onStatusChange(payload);
   }
 
-  async connect(userIdRaw: string): Promise<{ qr: string | null; sessionPath: string }> {
+  async connect(userIdRaw: string, options?: { suppressQr?: boolean }): Promise<{ qr: string | null; sessionPath: string }> {
     const userId = String(userIdRaw || '').trim();
     if (!userId) throw new Error('userId é obrigatório para conectar WhatsApp.');
 
@@ -88,7 +89,7 @@ export class WhatsAppSessionManager {
     const socket = makeWASocket({
       auth: state,
       printQRInTerminal: false,
-      browser: ['Agendei Fácil', 'Chrome', '1.0.0'],
+      browser: Browsers.windows('Chrome'),
       markOnlineOnConnect: false,
       syncFullHistory: false,
       connectTimeoutMs: 60_000,
@@ -105,6 +106,14 @@ export class WhatsAppSessionManager {
       const { connection, lastDisconnect, qr } = update || {};
 
       if (qr) {
+        const qrResolver = this.qrResolvers.get(userId);
+        if (qrResolver) {
+          this.qrResolvers.delete(userId);
+          qrResolver();
+        }
+      }
+
+      if (qr && !options?.suppressQr) {
         try {
           const qrDataUrl = await QRCode.toDataURL(qr, { width: 320, margin: 1 });
           this.qrCache.set(userId, qrDataUrl);
@@ -145,6 +154,85 @@ export class WhatsAppSessionManager {
     });
 
     return { qr: this.getQr(userId), sessionPath };
+  }
+
+  private normalizePairingPhone(phoneRaw: string): string {
+    const digits = String(phoneRaw || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('55')) return digits;
+    if (digits.length >= 10 && digits.length <= 11) return `55${digits}`;
+    return digits;
+  }
+
+  private waitForQrSignal(userId: string, timeoutMs = 15_000): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.qrResolvers.delete(userId);
+        reject(new Error('O WhatsApp demorou para liberar o código. Tente gerar novamente em alguns segundos.'));
+      }, timeoutMs);
+
+      this.qrResolvers.set(userId, () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+
+  async requestPairingCode(userIdRaw: string, phoneRaw: string): Promise<{ code: string; phone: string; sessionPath: string }> {
+    const userId = String(userIdRaw || '').trim();
+    if (!userId) throw new Error('userId é obrigatório para gerar código do WhatsApp.');
+
+    const phone = this.normalizePairingPhone(phoneRaw);
+    if (!phone || phone.length < 12) {
+      throw new Error('Informe o número com DDD. Exemplo: 11999999999.');
+    }
+
+    const existing = this.sockets.get(userId);
+    if (existing?.socket?.user) {
+      throw new Error('WhatsApp já está conectado. Desconecte antes de parear outro número.');
+    }
+    if (existing?.socket) {
+      try {
+        this.manualDisconnect.add(userId);
+        existing.socket.end?.(new Error('restart_for_pairing_code'));
+      } catch {
+        // ignore
+      }
+      this.sockets.delete(userId);
+      this.qrCache.set(userId, null);
+      this.clearReconnectTimer(userId);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+
+    // Se estava em tentativa de QR/código anterior, limpa a sessão ainda não registrada.
+    // Sessão conectada já foi bloqueada acima e também pelas rotas.
+    try {
+      await fs.rm(this.getSessionPath(userId), { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+
+    const qrReady = this.waitForQrSignal(userId);
+    await this.connect(userId, { suppressQr: true });
+    const socket = this.getSocket(userId);
+    if (!socket) {
+      throw new Error('Não foi possível iniciar a conexão do WhatsApp para gerar o código.');
+    }
+    if (socket?.user) {
+      throw new Error('WhatsApp já está conectado. Desconecte antes de parear outro número.');
+    }
+    if (socket?.authState?.creds?.registered) {
+      throw new Error('Já existe uma sessão registrada. Desconecte limpando a sessão antes de gerar outro código.');
+    }
+    if (typeof socket.requestPairingCode !== 'function') {
+      throw new Error('Esta versão do Baileys não suporta conexão por código.');
+    }
+
+    await qrReady;
+    const code = String(await socket.requestPairingCode(phone)).trim();
+    if (!code) throw new Error('WhatsApp não retornou código de pareamento.');
+    await this.emitStatus(userId, 'connecting');
+    return { code, phone, sessionPath: this.getSessionPath(userId) };
   }
 
   private clearReconnectTimer(userId: string) {

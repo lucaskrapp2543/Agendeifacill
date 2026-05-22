@@ -12,6 +12,7 @@ import { exchangeCodeForToken, getAuthorizationUrl } from '../../src/lib/mercado
 import { confirmPendingAppointmentFromMpPaymentMetadata } from '../../src/lib/mercadopago/confirmAppointmentFromMpPayment';
 import { reconcilePendingMercadoPagoAppointments } from '../../src/lib/mercadopago/reconcilePendingAppointmentsMp';
 import { checkMPPaymentStatus, createMPPayment, CreateMPPaymentRequest } from '../../src/lib/mercadopago/mp-service';
+import { convertSiteRegistrationCheckoutIfPaid } from '../../src/lib/siteRegistrationCheckoutConversion';
 
 const router = Router();
 
@@ -41,6 +42,15 @@ const normalizeSubscriptionPaymentStatus = (raw: unknown): 'paid' | 'pending' | 
   return 'pending';
 };
 
+const normalizeBillingStatus = (raw: unknown): 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded' => {
+  const status = String(raw || '').toLowerCase().trim();
+  if (status === 'approved' || status === 'authorized') return 'paid';
+  if (status === 'cancelled' || status === 'canceled') return 'cancelled';
+  if (status === 'refunded') return 'refunded';
+  if (status === 'rejected' || status === 'refused' || status === 'failed') return 'failed';
+  return 'pending';
+};
+
 const toISODate = (d: Date): string => d.toISOString().slice(0, 10);
 const addMonths = (date: Date, months: number): Date => {
   const d = new Date(date);
@@ -49,6 +59,225 @@ const addMonths = (date: Date, months: number): Date => {
   if (d.getDate() < day) d.setDate(0);
   return d;
 };
+
+const getNextDueDate = (planTypeRaw: unknown): string => {
+  const planType = String(planTypeRaw || 'monthly').toLowerCase().trim();
+  const today = new Date();
+  if (planType === 'annual') return toISODate(addMonths(today, 12));
+  if (planType === 'trial') return toISODate(new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000));
+  return toISODate(addMonths(today, 1));
+};
+
+const SITE_PLAN_CONFIG = {
+  prata: { label: 'PRATA', amountCents: 3790 },
+  diamante: { label: 'DIAMANTE', amountCents: 5790 },
+} as const;
+
+router.post('/site-registration-create-checkout', async (req: Request, res: Response) => {
+  try {
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) return res.status(500).json({ error: 'Supabase admin nao configurado' });
+
+    const accessToken = String(process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim();
+    if (!accessToken) return res.status(500).json({ error: 'MERCADOPAGO_ACCESS_TOKEN nao configurado' });
+
+    const planKey = String(req.body?.plan || '').toLowerCase().trim() as keyof typeof SITE_PLAN_CONFIG;
+    const method = String(req.body?.method || '').toLowerCase().trim();
+    const registration = req.body?.registration || {};
+    const plan = SITE_PLAN_CONFIG[planKey];
+
+    if (!plan || !['pix', 'recurring_card'].includes(method)) {
+      return res.status(400).json({ error: 'Plano ou forma de pagamento invalida.' });
+    }
+
+    const clientName = String(registration.client_name || '').trim();
+    const establishmentName = String(registration.establishment_name || '').trim();
+    const email = String(registration.email || '').trim().toLowerCase();
+    const password = String(registration.password || '');
+    const clientWhatsapp = String(registration.client_whatsapp || '').trim();
+
+    if (!clientName || !establishmentName || !email || !password || !clientWhatsapp) {
+      return res.status(400).json({ error: 'Preencha todos os dados do cadastro antes de pagar.' });
+    }
+
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const { data: checkout, error: checkoutError } = await supabaseAdmin
+      .from('site_registration_checkouts')
+      .insert({
+        client_name: clientName,
+        establishment_name: establishmentName,
+        email,
+        password,
+        client_whatsapp: clientWhatsapp,
+        selected_plan: planKey,
+        amount_cents: plan.amountCents,
+        payment_method: method,
+        payment_provider: 'mercadopago',
+        status: 'pending',
+        ip_address: req.ip || null,
+        user_agent: String(req.headers['user-agent'] || registration.user_agent || ''),
+        expires_at: expiresAt,
+        metadata: { source: 'site_registration', created_from: 'cadastroag_local_api' },
+        updated_at: new Date().toISOString(),
+      } as any)
+      .select('*')
+      .single();
+
+    if (checkoutError || !checkout) {
+      return res.status(500).json({ error: 'Erro ao iniciar checkout do cadastro.', details: checkoutError?.message });
+    }
+
+    const checkoutId = String((checkout as any).id);
+    const externalReference = `site_registration_checkout:${checkoutId}`;
+    const description = `Plano ${plan.label} Agendei Facil - ${establishmentName}`;
+
+    if (method === 'pix') {
+      const payment = await createMPPayment({
+        amount: plan.amountCents,
+        description,
+        access_token: accessToken,
+        payment_method_id: 'pix',
+        payer: { email },
+        external_reference: externalReference,
+        metadata: {
+          type: 'site_registration_checkout',
+          checkout_id: checkoutId,
+          selected_plan: planKey,
+          payment_method: 'pix',
+        },
+      } as any);
+
+      const paymentId = String((payment as any)?.id || '');
+      const pixData = (payment as any)?.point_of_interaction?.transaction_data || {};
+      await supabaseAdmin
+        .from('site_registration_checkouts')
+        .update({
+          payment_id: paymentId,
+          qr_code: String(pixData?.qr_code || '') || null,
+          qr_code_base64: String(pixData?.qr_code_base64 || '') || null,
+          metadata: { ...(checkout as any).metadata, external_reference: externalReference },
+          updated_at: new Date().toISOString(),
+        } as any)
+        .eq('id', checkoutId);
+
+      return res.json({
+        ok: true,
+        checkout_id: checkoutId,
+        plan: planKey,
+        method,
+        amount_cents: plan.amountCents,
+        amount_brl: plan.amountCents / 100,
+        payment_id: paymentId,
+        status: String((payment as any)?.status || 'pending'),
+        qr_code: String(pixData?.qr_code || ''),
+        qr_code_base64: String(pixData?.qr_code_base64 || ''),
+        expires_at: expiresAt,
+      });
+    }
+
+    const backUrlCandidate = String(req.body?.backUrl || process.env.MERCADOPAGO_SUBSCRIPTION_BACK_URL || '').trim();
+    const baseBackUrl = /^https:\/\//i.test(backUrlCandidate) ? backUrlCandidate : '';
+    if (!baseBackUrl) {
+      return res.status(400).json({
+        error: 'back_url is required',
+        userMessage: 'Em localhost, assinatura recorrente precisa de URL HTTPS publica. Use PIX localmente ou teste em producao.',
+      });
+    }
+
+    const returnUrl = new URL(baseBackUrl);
+    returnUrl.searchParams.set('site_checkout_id', checkoutId);
+    returnUrl.searchParams.set('site_payment', 'return');
+
+    const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+    const response = await axios.post(`${MP_API_BASE_URL}/preapproval`, {
+      reason: description,
+      payer_email: email,
+      external_reference: externalReference,
+      auto_recurring: {
+        frequency: 1,
+        frequency_type: 'months',
+        transaction_amount: plan.amountCents / 100,
+        currency_id: 'BRL',
+      },
+      back_url: returnUrl.toString(),
+      status: 'pending',
+    }, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'X-Idempotency-Key': `site_reg_${checkoutId}`,
+      },
+    });
+
+    const preapproval = response.data || {};
+    await supabaseAdmin
+      .from('site_registration_checkouts')
+      .update({
+        preapproval_id: String(preapproval?.id || ''),
+        checkout_url: String(preapproval?.init_point || preapproval?.sandbox_init_point || ''),
+        metadata: { ...(checkout as any).metadata, external_reference: externalReference },
+        updated_at: new Date().toISOString(),
+      } as any)
+      .eq('id', checkoutId);
+
+    return res.json({
+      ok: true,
+      checkout_id: checkoutId,
+      plan: planKey,
+      method,
+      amount_cents: plan.amountCents,
+      amount_brl: plan.amountCents / 100,
+      preapproval_id: String(preapproval?.id || ''),
+      init_point: String(preapproval?.init_point || preapproval?.sandbox_init_point || ''),
+      status: String(preapproval?.status || 'pending'),
+      expires_at: expiresAt,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: String(error?.response?.data?.message || error?.message || 'Erro ao criar checkout do cadastro') });
+  }
+});
+
+router.get('/site-registration-checkout-status', async (req: Request, res: Response) => {
+  try {
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) return res.status(500).json({ error: 'Supabase admin nao configurado' });
+
+    const checkoutId = String(req.query.checkout_id || '').trim();
+    if (!checkoutId) return res.status(400).json({ error: 'checkout_id obrigatorio' });
+
+    const { data, error } = await supabaseAdmin
+      .from('site_registration_checkouts')
+      .select('id,status,selected_plan,amount_cents,payment_method,payment_id,preapproval_id,created_establishment_id,converted_at,expires_at')
+      .eq('id', checkoutId)
+      .maybeSingle();
+
+    if (error) return res.status(500).json({ error: 'Erro ao consultar checkout', details: error.message });
+    if (!data) return res.status(404).json({ error: 'Checkout nao encontrado' });
+
+    let conversionResult: any = null;
+    const accessToken = String(process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim();
+    const status = String((data as any).status || '').toLowerCase();
+    const paymentId = String((data as any).payment_id || '').trim();
+    if (status !== 'converted' && paymentId && accessToken) {
+      const payment = await checkMPPaymentStatus(Number(paymentId), accessToken);
+      conversionResult = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
+        status: (payment as any)?.status,
+        paymentId,
+        paymentMethod: 'pix',
+      });
+    }
+
+    const { data: refreshed } = await supabaseAdmin
+      .from('site_registration_checkouts')
+      .select('id,status,selected_plan,amount_cents,payment_method,payment_id,preapproval_id,created_establishment_id,converted_at,expires_at')
+      .eq('id', checkoutId)
+      .maybeSingle();
+
+    return res.json({ ok: true, checkout: refreshed || data, conversion: conversionResult });
+  } catch (error: any) {
+    return res.status(500).json({ error: String(error?.message || 'Erro ao consultar checkout') });
+  }
+});
 
 /**
  * GET /api/mercadopago/oauth/authorize
@@ -1246,6 +1475,89 @@ router.post('/webhook', async (req: Request, res: Response) => {
           try {
             const payment = await checkMPPaymentStatus(Number(paymentId), platformAccessToken);
             const externalReference = String((payment as any)?.external_reference || '').trim();
+            const recurringPrefix = 'establishment_billing_subscription:';
+            if (externalReference.startsWith(recurringPrefix)) {
+              const establishmentId = externalReference.slice(recurringPrefix.length).trim();
+              const billingStatus = normalizeBillingStatus((payment as any)?.status);
+              const nowIso = new Date().toISOString();
+              const amountCents = Math.round(Number((payment as any)?.transaction_amount || 0) * 100);
+
+              if (establishmentId) {
+                const { error: upsertBillingError } = await supabaseAdmin
+                  .from('establishment_billing_payments')
+                  .upsert(
+                    {
+                      establishment_id: establishmentId,
+                      amount_cents: Number.isFinite(amountCents) && amountCents > 0 ? amountCents : 0,
+                      payment_provider: 'mercadopago_subscription',
+                      payment_id: String(paymentId),
+                      status: billingStatus,
+                      description: 'Cobranca recorrente mensal via cartao',
+                      metadata: {
+                        type: 'establishment_billing_subscription_payment',
+                        external_reference: externalReference,
+                      },
+                      paid_at: billingStatus === 'paid' ? nowIso : null,
+                      updated_at: nowIso,
+                    } as any,
+                    { onConflict: 'payment_id' }
+                  );
+
+                if (upsertBillingError) {
+                  console.error('❌ [MP Webhook] Erro ao salvar pagamento recorrente em billing_payments:', upsertBillingError);
+                }
+
+                const { data: estData } = await supabaseAdmin
+                  .from('establishments')
+                  .select('id, plan_type')
+                  .eq('id', establishmentId)
+                  .single();
+
+                if (billingStatus === 'paid' && estData?.id) {
+                  const { error: estUpdateError } = await supabaseAdmin
+                    .from('establishments')
+                    .update({
+                      payment_status: 'paid',
+                      is_blocked: false,
+                      is_deleted: false,
+                      payment_alert_enabled: false,
+                      payment_paid_at: nowIso,
+                      payment_due_date: getNextDueDate((estData as any)?.plan_type),
+                    } as any)
+                    .eq('id', String((estData as any).id));
+
+                  if (estUpdateError) {
+                    console.error('❌ [MP Webhook] Erro ao regularizar estabelecimento por recorrência:', estUpdateError);
+                  }
+                }
+
+                const { error: subscriptionUpdateError } = await supabaseAdmin
+                  .from('establishment_billing_subscriptions')
+                  .update({
+                    status: billingStatus === 'paid' ? 'authorized' : billingStatus,
+                    last_charged_payment_id: String(paymentId),
+                    last_charged_at: billingStatus === 'paid' ? nowIso : null,
+                    updated_at: nowIso,
+                  } as any)
+                  .eq('establishment_id', establishmentId);
+
+                if (subscriptionUpdateError) {
+                  const msg = String((subscriptionUpdateError as any)?.message || '').toLowerCase();
+                  const missingTable = msg.includes('establishment_billing_subscriptions') || msg.includes('relation') || msg.includes('does not exist');
+                  if (!missingTable) {
+                    console.error('❌ [MP Webhook] Erro ao atualizar assinatura recorrente:', subscriptionUpdateError);
+                  }
+                }
+
+                return res.status(200).json({
+                  message: 'Webhook de cobrança recorrente processado',
+                  establishmentId,
+                  paymentStatus: String((payment as any)?.status || ''),
+                  billingStatus,
+                });
+              }
+            }
+
             const subscriptionCheckoutPrefix = 'subscription_checkout:';
 
             if (externalReference.startsWith(subscriptionCheckoutPrefix)) {

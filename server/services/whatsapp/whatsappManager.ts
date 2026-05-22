@@ -28,6 +28,10 @@ export class WhatsAppManager {
     return this.sessionManager.connect(userId);
   }
 
+  async requestPairingCode(userId: string, phone: string) {
+    return this.sessionManager.requestPairingCode(userId, phone);
+  }
+
   async disconnect(userId: string, clearSession = false) {
     return this.sessionManager.disconnect(userId, clearSession);
   }

@@ -162,9 +162,38 @@ const normalizeTemplateWithRequiredTokens = (
   return text;
 };
 
+const ensureNoConnectedWhatsAppSession = async (userId: string) => {
+  const manager = getWhatsAppManager();
+  if (manager.isConnected(userId)) {
+    throw new Error('Já existe um WhatsApp conectado. Desconecte o atual antes de conectar outro número.');
+  }
+
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) return;
+  const { data, error } = await supabaseAdmin
+    .from('whatsapp_sessions')
+    .select('status,phone')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) {
+    console.warn('[whatsapp/session-check] falha ao verificar sessão conectada', {
+      userId,
+      code: error?.code,
+      message: error?.message,
+    });
+    return;
+  }
+  if (String(data?.status || '').toLowerCase() === 'connected') {
+    throw new Error(
+      `Já existe um WhatsApp conectado${data?.phone ? ` (${data.phone})` : ''}. Desconecte antes de conectar outro número.`
+    );
+  }
+};
+
 router.post('/connect', async (req, res) => {
   try {
     const userId = await resolveTargetUserId(req);
+    await ensureNoConnectedWhatsAppSession(userId);
     const manager = getWhatsAppManager();
     const result = await manager.connect(userId);
     return res.status(200).json({
@@ -175,6 +204,39 @@ router.post('/connect', async (req, res) => {
       session_path: result.sessionPath,
     });
   } catch (error: any) {
+    console.warn('[whatsapp/pairing-code] falha ao gerar código', {
+      message: error?.message,
+      code: error?.code,
+      stack: error?.stack,
+    });
+    return res.status(400).json({ ok: false, error: String(error?.message || error) });
+  }
+});
+
+router.post('/pairing-code', async (req, res) => {
+  try {
+    const userId = await resolveTargetUserId(req);
+    const phone = String(req.body?.phone || '').trim();
+    if (!phone) {
+      return res.status(400).json({ ok: false, error: 'Informe o número do WhatsApp com DDD.' });
+    }
+    await ensureNoConnectedWhatsAppSession(userId);
+    const manager = getWhatsAppManager();
+    const result = await manager.requestPairingCode(userId, phone);
+    return res.status(200).json({
+      ok: true,
+      user_id: userId,
+      status: manager.isConnected(userId) ? 'connected' : 'connecting',
+      phone: result.phone,
+      pairing_code: result.code,
+      session_path: result.sessionPath,
+    });
+  } catch (error: any) {
+    console.warn('[whatsapp/status] falha ao consultar status', {
+      message: error?.message,
+      code: error?.code,
+      stack: error?.stack,
+    });
     return res.status(400).json({ ok: false, error: String(error?.message || error) });
   }
 });

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Award, Gem, CheckCircle2, XCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 function formatarPrecoBRL(valor: number) {
   return valor.toFixed(2).replace('.', ',');
@@ -32,26 +33,13 @@ function LinhaRecurso({
 }
 
 export default function PlanosCards({
-  whatsappNumber = '5548991484275',
   hidePrata = false
 }: {
   whatsappNumber?: string;
   hidePrata?: boolean;
 }) {
-  const precoPrata = 27.9;
-  const precoOuro = 47.9;
-  const precoDiamante = 77.9;
-
-  const waLink = (plano: 'PRATA' | 'OURO' | 'DIAMANTE') => {
-    const message =
-      plano === 'PRATA'
-        ? 'Olá, quero o PLANO PRATA (R$ 27,90/mês).'
-        : plano === 'OURO'
-          ? 'Olá, quero subir meu plano para o OURO (R$ 47,90).'
-          : `Olá, quero subir meu plano para o DIAMANTE (R$ ${formatarPrecoBRL(precoDiamante)}/mês).`;
-
-    return `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
-  };
+  const precoPrata = 37.9;
+  const precoDiamante = 57.9;
 
   const prataOk = [
     '1 profissional',
@@ -75,13 +63,11 @@ export default function PlanosCards({
     'Mensagem de parabéns automática para clientes'
   ];
 
-  const ouroOk = [
-    'Profissionais ilimitados',
+  const prataPrincipalOk = [
+    '1 profissional',
     'Agendamentos ilimitados',
     'Página de agendamentos exclusiva\u00A0sua',
     'Sistema de fila de espera',
-    'Sistema de estoque',
-    'Sistema completo de assinantes',
     'Relatórios detalhados financeiro',
     'Controle de % cada profissional',
     'Gestão completa de clientes',
@@ -93,7 +79,9 @@ export default function PlanosCards({
     'Suporte exclusivo seu | todo\u00A0dia',
     'sistema de avaliaçoes'
   ];
-  const ouroX = [
+  const prataPrincipalX = [
+    'Sistema de estoque',
+    'Sistema completo de assinantes',
     'Lembretes automáticos para clientes 1h antes no WhatsApp',
     'Lembretes automatico para clientes assinantes 1h antes no WhatsApp'
   ];
@@ -114,7 +102,9 @@ export default function PlanosCards({
     'Ranking de clientes',
     'Pagamentos adiantados (Opcional)',
     'Suporte exclusivo seu | todo\u00A0dia',
-    'sistema de avaliaçoes'
+    'sistema de avaliaçoes',
+    'WhatsApp seu conectado ao sistema',
+    'Cobranças recorrentes'
   ];
   const diamanteExtra = [
     'Suporte priorizado',
@@ -163,41 +153,39 @@ export default function PlanosCards({
               Pode trocar de plano depois — simples, rápido e sem burocracia.
             </div>
 
-            <a
-              href={waLink('PRATA')}
-              target="_blank"
-              rel="noopener noreferrer"
+            <Link
+              to="/cadastroag?plan=prata"
               className="block w-full mt-4 px-4 py-3 rounded-xl font-extrabold text-black bg-white hover:bg-gray-100 transition-colors text-center"
             >
               Quero esse plano
-            </a>
+            </Link>
           </div>
         </div>
       </div>
       )}
 
-      {/* PLANO OURO */}
-      <div className="w-full max-w-[520px] md:max-w-none mx-auto rounded-3xl bg-gradient-to-b from-amber-100 via-amber-200 to-yellow-400 p-1 shadow-lg">
+      {/* PLANO PRATA */}
+      <div className="w-full max-w-[520px] md:max-w-none mx-auto rounded-3xl bg-gradient-to-b from-slate-100 via-zinc-300 to-slate-500 p-1 shadow-lg">
         <div className="rounded-[22px] overflow-hidden">
-          <div className="relative px-5 py-5 sm:px-6 sm:py-6 bg-gradient-to-r from-amber-300 to-yellow-400">
+          <div className="relative px-5 py-5 sm:px-6 sm:py-6 bg-gradient-to-r from-zinc-200 via-slate-300 to-zinc-500">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-4xl font-extrabold tracking-tight text-white drop-shadow">PLANO</div>
-                <div className="text-4xl font-extrabold tracking-tight text-white drop-shadow">OURO</div>
+                <div className="text-4xl font-extrabold tracking-tight text-slate-800 drop-shadow-sm">PLANO</div>
+                <div className="text-4xl font-extrabold tracking-tight text-slate-900 drop-shadow-sm">PRATA</div>
               </div>
-              <div className="bg-black/25 rounded-2xl p-3 border border-white/20">
-                <Award className="h-10 w-10 text-amber-100" />
+              <div className="bg-black/25 rounded-2xl p-3 border border-white/30">
+                <Award className="h-10 w-10 text-slate-100" />
               </div>
             </div>
           </div>
 
           <div className="bg-[#0b0b0c] px-4 py-5 sm:px-6 sm:py-6">
             <ul className="space-y-2">
-              {ouroOk.map((t) => (
+              {prataPrincipalOk.map((t) => (
                 <LinhaRecurso key={t} texto={t} incluso />
               ))}
               <div className="my-4 h-px bg-white/15" />
-              {ouroX.map((t) => (
+              {prataPrincipalX.map((t) => (
                 <LinhaRecurso key={t} texto={t} incluso={false} />
               ))}
             </ul>
@@ -205,7 +193,7 @@ export default function PlanosCards({
             <div className="mt-6 rounded-2xl bg-black/70 border border-white/10 px-5 py-4">
               <div className="flex items-end justify-center gap-2">
                 <span className="text-white text-2xl font-bold">R$</span>
-                <span className="text-white text-5xl font-extrabold tracking-tight">{formatarPrecoBRL(precoOuro)}</span>
+                <span className="text-white text-5xl font-extrabold tracking-tight">{formatarPrecoBRL(precoPrata)}</span>
                 <span className="text-white/80 text-lg font-semibold mb-1">mês</span>
               </div>
             </div>
@@ -217,14 +205,12 @@ export default function PlanosCards({
               <span className="block mt-2">Pode trocar de plano depois — simples, rápido e sem burocracia.</span>
             </div>
 
-            <a
-              href={waLink('OURO')}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block w-full mt-4 px-4 py-3 rounded-xl font-extrabold text-amber-50 bg-amber-700 hover:bg-amber-600 transition-colors text-center"
+            <Link
+              to="/cadastroag?plan=prata"
+              className="block w-full mt-4 px-4 py-3 rounded-xl font-extrabold text-white bg-slate-600 hover:bg-slate-500 transition-colors text-center"
             >
               Quero esse plano
-            </a>
+            </Link>
           </div>
         </div>
       </div>
@@ -277,7 +263,7 @@ export default function PlanosCards({
                 <span className="text-white/80 text-lg font-semibold mb-1">mês</span>
               </div>
               <div className="mt-2 text-center text-[12px] leading-snug text-white/85 font-semibold">
-                APENAS R$ {diferencaBRL(precoDiamante, precoOuro)} DE DIFERENÇA DO PLANO OURO PRO DIAMANTE
+                APENAS R$ {diferencaBRL(precoDiamante, precoPrata)} DE DIFERENÇA DO PLANO PRATA PRO DIAMANTE
               </div>
             </div>
 
@@ -288,14 +274,12 @@ export default function PlanosCards({
               <span className="block mt-2">Pode trocar de plano depois — simples, rápido e sem burocracia.</span>
             </div>
 
-            <a
-              href={waLink('DIAMANTE')}
-              target="_blank"
-              rel="noopener noreferrer"
+            <Link
+              to="/cadastroag?plan=diamante"
               className="block w-full mt-4 px-4 py-3 rounded-xl font-extrabold text-white bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 transition-colors text-center shadow-lg"
             >
               Quero esse plano
-            </a>
+            </Link>
           </div>
         </div>
       </div>

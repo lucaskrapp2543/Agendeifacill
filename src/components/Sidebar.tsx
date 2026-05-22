@@ -78,6 +78,7 @@ interface SidebarProps {
   pendingReviewsCount?: number; // quantidade de avaliações pendentes para badge em Avaliações
   pendingSubscribersCount?: number; // quantidade de assinantes não pagos para badge em Meus Assinantes
   topMonthlyWinner?: TopMonthlyWinnerCardData | null;
+  closeSignal?: number; // força fechar menu mobile quando o pai precisar
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -101,7 +102,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   isAppointmentsTutorialRunning = false,
   pendingReviewsCount = 0,
   pendingSubscribersCount = 0,
-  topMonthlyWinner = null
+  topMonthlyWinner = null,
+  closeSignal = 0
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false);
@@ -161,31 +163,18 @@ const Sidebar: React.FC<SidebarProps> = ({
     setShowPlanUpgradeModal(true);
   };
 
-  const redirectUpgradeToWhatsapp = () => {
-    const phone = '5548991265320';
-    const message =
-      'Olá, quero subir meu plano para o OURO (R$ 47,90).\n' +
-      'Desejo liberar o sistema de assinantes e o controle de estoque\n' +
-      'para vendas de produtos no meu estabelecimento.';
-    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank');
-  };
-
   const redirectUpgradeToDiamanteWhatsapp = () => {
     const phone = '5548991265320';
-    const message =
-      'Olá, quero subir meu plano para o DIAMANTE.\n' +
-      'Desejo liberar tudo sem limites, incluindo:\n' +
-      '- Lembretes automáticos no WhatsApp (1h antes)\n' +
-      '- Mensagens ilimitadas para clientes que sumiram\n' +
-      '- Mensagens ilimitadas para clientes aniversariantes\n\n' +
-      'Quero adicionar +R$ 49,99 na minha fatura mensal.';
+    const message = 'quero subir meu plano para diamante';
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
   };
 
   // Função para verificar se um item deve estar bloqueado
   const isItemLocked = (itemId: string): boolean => {
+    // Suporte precisa ficar disponível mesmo no primeiro acesso.
+    if (itemId === 'support') return false;
+
     // Se onboarding completo (step >= 4), nada está bloqueado
     if (onboardingStep >= 4) return false;
 
@@ -210,6 +199,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   // Bloqueio APENAS do onboarding (primeiro acesso). Não mistura com Plano Prata.
   // Usado para mostrar a mensagem de "Função bloqueada por configuração".
   const isItemLockedByOnboarding = (itemId: string): boolean => {
+    // Suporte precisa ficar disponível mesmo no primeiro acesso.
+    if (itemId === 'support') return false;
+
     // Se onboarding completo (step >= 4), nada está bloqueado
     if (onboardingStep >= 4) return false;
 
@@ -255,13 +247,28 @@ const Sidebar: React.FC<SidebarProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Garante que, ao carregar no celular, o app abra na tela de menu.
-  // No desktop, mantém comportamento atual (sidebar normal).
+  // No celular, só abre o menu automaticamente na home inicial.
+  // Em telas de conteúdo (ex.: Meus Serviços), nunca força abrir de novo.
   useEffect(() => {
-    if (isMobile) {
+    if (!isMobile) return;
+    if (activeTab === 'appointments' && closeSignal === 0) {
       setIsExpanded(true);
+      return;
     }
-  }, [isMobile]);
+    setIsExpanded(false);
+  }, [isMobile, activeTab, closeSignal]);
+
+  useEffect(() => {
+    const handleCloseSidebar = () => setIsExpanded(false);
+    window.addEventListener('agendei:close-sidebar', handleCloseSidebar);
+    return () => window.removeEventListener('agendei:close-sidebar', handleCloseSidebar);
+  }, []);
+
+  useEffect(() => {
+    if (closeSignal > 0) {
+      setIsExpanded(false);
+    }
+  }, [closeSignal]);
 
   // Recolher o sidebar quando clicar em um item
   const handleItemClick = (onClick: () => void) => {
@@ -762,6 +769,19 @@ const Sidebar: React.FC<SidebarProps> = ({
       { id: 'config', label: 'Config', icon: Settings, onClick: openSettings },
     ];
 
+    const isMobileActionVisuallyLocked = (itemId: string) =>
+      isItemLockedByOnboarding(itemId) || isPlanLockedItem(itemId);
+
+    const getMobileLockedLabel = (itemId: string) =>
+      isPlanLockedItem(itemId) ? 'Plano' : isItemLockedByOnboarding(itemId) ? 'Bloqueado' : '';
+
+    const mobileBottomButtonClass = (itemId: string) =>
+      `relative text-center text-xs py-2 rounded-lg transition-colors ${
+        isMobileActionVisuallyLocked(itemId)
+          ? 'text-white/35 grayscale'
+          : 'text-white hover:bg-white/10'
+      }`;
+
     if (!isExpanded) {
       return (
         <div className="fixed inset-x-0 top-0 z-40 pointer-events-none">
@@ -834,18 +854,11 @@ const Sidebar: React.FC<SidebarProps> = ({
               </div>
               <div className="px-4 py-4 space-y-3">
                 <div className={`${isLight ? 'text-gray-900' : 'text-white'} font-semibold`}>
-                  ✨ Recurso exclusivo dos planos Ouro e Diamante
+                  ✨ Recurso exclusivo do Plano Diamante
                 </div>
                 <div className={`${isLight ? 'text-gray-700' : 'text-gray-300'} text-sm leading-relaxed`}>
-                  Deseja fazer upgrade do seu plano?
+                  Seu plano Prata não inclui esse recurso. Para liberar, suba para o Diamante.
                 </div>
-                <button
-                  type="button"
-                  onClick={redirectUpgradeToWhatsapp}
-                  className="w-full mt-2 px-4 py-3 rounded-xl font-extrabold text-black bg-gradient-to-r from-amber-300 to-yellow-400"
-                >
-                  🔼 Mudar para Plano Ouro
-                </button>
                 <button
                   type="button"
                   onClick={redirectUpgradeToDiamanteWhatsapp}
@@ -924,52 +937,77 @@ const Sidebar: React.FC<SidebarProps> = ({
             <div className="mt-4">
               <p className="text-lg font-extrabold tracking-wide text-white/90">AÇÕES PRINCIPAIS</p>
               <div className="mt-2 grid grid-cols-4 gap-2">
-                {primaryActions.map((action) => (
-                  <button
-                    key={action.id}
-                    type="button"
-                    onClick={action.onClick}
-                    className={`relative rounded-2xl bg-gradient-to-br ${action.className} px-2 py-2 text-center min-h-[76px] shadow-lg`}
-                  >
-                    {action.badge != null && action.badge > 0 && (
-                      <span className="absolute right-2 top-2 min-w-[22px] h-[22px] px-1 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">
-                        {action.badge > 99 ? '99+' : action.badge}
-                      </span>
-                    )}
-                    <action.icon className="h-4 w-4 text-white/95 mb-2 mx-auto" />
-                    <p className="text-[10px] font-extrabold leading-[1.05] whitespace-normal break-normal">
-                      {Array.isArray(action.labelLines) && action.labelLines.length > 0
-                        ? action.labelLines.map((line, lineIdx) => (
-                            <span key={`${action.id}-line-${lineIdx}`} className="block">
-                              {line}
-                            </span>
-                          ))
-                        : action.label}
-                    </p>
-                  </button>
-                ))}
+                {primaryActions.map((action) => {
+                  const isLocked = isMobileActionVisuallyLocked(action.id);
+                  return (
+                    <button
+                      key={action.id}
+                      type="button"
+                      onClick={action.onClick}
+                      aria-disabled={isLocked}
+                      className={`relative rounded-2xl px-2 py-2 text-center min-h-[76px] shadow-lg transition-all ${
+                        isLocked
+                          ? 'bg-[#111827] border border-white/10 text-white/45 shadow-none grayscale'
+                          : `bg-gradient-to-br ${action.className} text-white hover:scale-[1.02]`
+                      }`}
+                    >
+                      {isLocked && (
+                        <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[8px] font-black text-white/80">
+                          <Lock className="h-2.5 w-2.5" />
+                          {getMobileLockedLabel(action.id)}
+                        </span>
+                      )}
+                      {action.badge != null && action.badge > 0 && !isLocked && (
+                        <span className="absolute right-2 top-2 min-w-[22px] h-[22px] px-1 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">
+                          {action.badge > 99 ? '99+' : action.badge}
+                        </span>
+                      )}
+                      <action.icon className={`h-4 w-4 mb-2 mx-auto ${isLocked ? 'text-white/35' : 'text-white/95'}`} />
+                      <p className={`text-[10px] font-extrabold leading-[1.05] whitespace-normal break-normal ${isLocked ? 'text-white/50' : ''}`}>
+                        {Array.isArray(action.labelLines) && action.labelLines.length > 0
+                          ? action.labelLines.map((line, lineIdx) => (
+                              <span key={`${action.id}-line-${lineIdx}`} className="block">
+                                {line}
+                              </span>
+                            ))
+                          : action.label}
+                      </p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
             <div className="mt-4 rounded-2xl border border-white/10 bg-[#0b1220] p-3">
               <p className="text-lg font-extrabold tracking-wide text-white/90">GESTÃO DO NEGÓCIO</p>
               <div className="mt-3 grid grid-cols-5 gap-2">
-                {businessActions.map((action) => (
-                  <button
-                    key={action.id}
-                    type="button"
-                    onClick={action.onClick}
-                    className="relative rounded-xl border border-white/10 bg-white/5 px-1.5 py-2 text-center hover:bg-white/10 transition-colors"
-                  >
-                    {action.badge != null && action.badge > 0 && (
-                      <span className="absolute -right-1 -top-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-                        {action.badge > 99 ? '99+' : action.badge}
-                      </span>
-                    )}
-                    <action.icon className="h-3.5 w-3.5 mx-auto mb-1 text-white/90" />
-                    <p className="text-[8px] font-semibold leading-[1.05] whitespace-normal break-normal">{action.label}</p>
-                  </button>
-                ))}
+                {businessActions.map((action) => {
+                  const isLocked = isMobileActionVisuallyLocked(action.id);
+                  return (
+                    <button
+                      key={action.id}
+                      type="button"
+                      onClick={action.onClick}
+                      aria-disabled={isLocked}
+                      className={`relative rounded-xl border px-1.5 py-2 text-center transition-colors ${
+                        isLocked
+                          ? 'border-white/5 bg-black/25 text-white/35 grayscale'
+                          : 'border-white/10 bg-white/5 text-white hover:bg-white/10'
+                      }`}
+                    >
+                      {isLocked && (
+                        <Lock className="absolute right-1 top-1 h-2.5 w-2.5 text-white/40" />
+                      )}
+                      {action.badge != null && action.badge > 0 && !isLocked && (
+                        <span className="absolute -right-1 -top-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                          {action.badge > 99 ? '99+' : action.badge}
+                        </span>
+                      )}
+                      <action.icon className={`h-3.5 w-3.5 mx-auto mb-1 ${isLocked ? 'text-white/30' : 'text-white/90'}`} />
+                      <p className={`text-[8px] font-semibold leading-[1.05] whitespace-normal break-normal ${isLocked ? 'text-white/40' : ''}`}>{action.label}</p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
             {topMonthlyWinner && !dismissTopWinnerCard ? (
@@ -1014,23 +1052,27 @@ const Sidebar: React.FC<SidebarProps> = ({
 
           <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#05070d]/95 backdrop-blur px-3 py-2">
             <div className="grid grid-cols-5 gap-2">
-              <button type="button" onClick={() => executeMobileAction('appointments', () => onTabChange('appointments'))} className="text-center text-xs py-2 rounded-lg hover:bg-white/10">
+              <button type="button" onClick={() => executeMobileAction('appointments', () => onTabChange('appointments'))} className={mobileBottomButtonClass('appointments')}>
+                {isMobileActionVisuallyLocked('appointments') && <Lock className="absolute right-2 top-1 h-2.5 w-2.5 text-white/35" />}
                 <Home className="h-4 w-4 mx-auto mb-1" />
                 Início
               </button>
-              <button type="button" onClick={() => executeMobileAction('appointments', () => onTabChange('appointments'))} className="text-center text-xs py-2 rounded-lg hover:bg-white/10">
+              <button type="button" onClick={() => executeMobileAction('appointments', () => onTabChange('appointments'))} className={mobileBottomButtonClass('appointments')}>
+                {isMobileActionVisuallyLocked('appointments') && <Lock className="absolute right-2 top-1 h-2.5 w-2.5 text-white/35" />}
                 <Calendar className="h-4 w-4 mx-auto mb-1" />
                 Agenda
               </button>
-              <button type="button" onClick={() => executeMobileAction('clients', () => onTabChange('clients'))} className="text-center text-xs py-2 rounded-lg hover:bg-white/10">
+              <button type="button" onClick={() => executeMobileAction('clients', () => onTabChange('clients'))} className={mobileBottomButtonClass('clients')}>
+                {isMobileActionVisuallyLocked('clients') && <Lock className="absolute right-2 top-1 h-2.5 w-2.5 text-white/35" />}
                 <Users className="h-4 w-4 mx-auto mb-1" />
                 Clientes
               </button>
-              <button type="button" onClick={openFinancialDashboard} className="text-center text-xs py-2 rounded-lg hover:bg-white/10">
+              <button type="button" onClick={openFinancialDashboard} className={mobileBottomButtonClass('dashboard')}>
+                {isMobileActionVisuallyLocked('dashboard') && <Lock className="absolute right-2 top-1 h-2.5 w-2.5 text-white/35" />}
                 <DollarSign className="h-4 w-4 mx-auto mb-1" />
                 Financeiro
               </button>
-              <button type="button" onClick={openSettings} className="text-center text-xs py-2 rounded-lg hover:bg-white/10">
+              <button type="button" onClick={openSettings} className={mobileBottomButtonClass('config')}>
                 <MoreHorizontal className="h-4 w-4 mx-auto mb-1" />
                 Mais
               </button>
@@ -1043,7 +1085,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      {/* ✅ Modal de upgrade do Plano (Prata → Ouro) */}
+      {/* ✅ Modal de upgrade do Plano (Prata → Diamante) */}
       {showPlanUpgradeModal && (
         <div
           className="fixed inset-0 z-[130] flex items-start sm:items-center justify-center bg-black/70 p-3 sm:p-4 pt-6 sm:pt-4"
@@ -1074,45 +1116,24 @@ const Sidebar: React.FC<SidebarProps> = ({
 
             <div className="px-4 py-4 space-y-3">
               <div className={`${isLight ? 'text-gray-900' : 'text-white'} font-semibold`}>
-                ✨ Recurso exclusivo dos planos Ouro e Diamante
+                ✨ Recurso exclusivo do Plano Diamante
               </div>
               <div className={`${isLight ? 'text-gray-700' : 'text-gray-300'} text-sm leading-relaxed`}>
-                Deseja fazer upgrade do seu plano?
+                Seu plano Prata não inclui esse recurso.
                 <br />
-                Por apenas <strong>R$ 20,00</strong> a mais na sua fatura mensal, você libera esse recurso.
+                Para liberar, o próximo nível é o <strong>Plano Diamante</strong>.
               </div>
-
-              <div className={`mt-2 rounded-xl p-3 border ${isLight ? 'bg-amber-50 border-amber-200' : 'bg-white/5 border-amber-300/30'}`}>
-                <div className={`${isLight ? 'text-gray-900' : 'text-gray-100'} text-sm font-extrabold`}>
-                  🥇 No Plano OURO você libera:
-                </div>
-                <div className={`${isLight ? 'text-gray-800' : 'text-gray-300'} text-sm leading-relaxed mt-2`}>
-                  <div className="space-y-1">
-                    <div>✅ Sistema de estoque de produtos</div>
-                    <div>✅ Sistema de assinaturas mensais</div>
-                    <div>✅ Profissionais ilimitados</div>
-                    <div>✅ Controle de comissões por profissionais</div>
-                    <div>✅ E muito mais recursos para crescer seu estabelecimento</div>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={redirectUpgradeToWhatsapp}
-                className="w-full mt-2 px-4 py-3 rounded-xl font-extrabold text-black bg-gradient-to-r from-amber-300 to-yellow-400 hover:from-amber-400 hover:to-yellow-500 transition-all shadow-lg"
-              >
-                🔼 Mudar para Plano Ouro
-              </button>
 
               <div className={`mt-2 rounded-xl p-3 border ${isLight ? 'bg-gray-50 border-gray-200' : 'bg-white/5 border-gray-800'}`}>
                 <div className={`${isLight ? 'text-gray-900' : 'text-gray-100'} text-sm font-extrabold`}>
-                  👉 Ou você pode escolher o Plano DIAMANTE 💎
+                  💎 No Plano DIAMANTE você libera:
                 </div>
                 <div className={`${isLight ? 'text-gray-700' : 'text-gray-300'} text-sm leading-relaxed mt-2`}>
-                  No Plano DIAMANTE, você tem tudo do Plano OURO e algo incrível a mais: <strong>lembretes automáticos</strong>,
-                  evitando muito as faltas e esquecimentos.
                   <div className="mt-2 space-y-1">
+                    <div>✅ Sistema de estoque de produtos</div>
+                    <div>✅ Sistema completo de assinantes</div>
+                    <div>✅ Profissionais ilimitados</div>
+                    <div>✅ Controle de comissões por profissionais</div>
                     <div>✅ Lembretes automáticos no WhatsApp ILIMITADO</div>
                     <div>✅ O sistema avisa seu cliente 1 hora antes do horário agendado</div>
                     <div>✅ Mensagens ilimitadas para:</div>
@@ -1123,7 +1144,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     📲 Seu cliente agenda normalmente e o sistema faz tudo sozinho, sem você precisar lembrar ninguém.
                   </div>
                   <div className="mt-2 font-semibold">
-                    Valor do diamante: <strong>R$ 49,99</strong> a mais na sua fatura.
+                    Fale com o suporte para ativar o Diamante.
                   </div>
                 </div>
 

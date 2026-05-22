@@ -29,6 +29,7 @@ import { AdminEstablishmentWhatsappReminders } from '../../modules/whatsapp-remi
 import { AppDownloadLinks } from '../components/AppDownloadLinks';
 import { NewRegistrations } from '../components/NewRegistrations';
 import { PWADownloadLink } from '../components/PWADownloadLink';
+import { SiteClientsPanel } from '../components/SiteClientsPanel';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 
@@ -180,6 +181,7 @@ const AdminDashboard = () => {
   const [showDeleted, setShowDeleted] = useState(false);
   const [deletedContainmentIds, setDeletedContainmentIds] = useState<string[]>([]);
   const [showNewRegistrations, setShowNewRegistrations] = useState(false);
+  const [showSiteClientsPanel, setShowSiteClientsPanel] = useState(false);
   const [pendingRegistrationsCount, setPendingRegistrationsCount] = useState(0);
   const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
   const [showEstablishmentInfoModal, setShowEstablishmentInfoModal] = useState(false);
@@ -4057,6 +4059,17 @@ const AdminDashboard = () => {
 
               <button
                 type="button"
+                onClick={() => canEditEverything() && setShowSiteClientsPanel(true)}
+                disabled={!canEditEverything()}
+                className="flex items-center space-x-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-600"
+                title={!canEditEverything() ? 'Apenas Lucas e Erlon podem acessar' : 'Clientes pagos vindos do site'}
+              >
+                <DollarSign className="h-4 w-4" />
+                <span>Clientes Site</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={openTop5DetailsModal}
                 className="flex items-center space-x-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
                 title="Abre detalhamento do Top 5 com até 20 posições"
@@ -6455,6 +6468,10 @@ const AdminDashboard = () => {
             fetchPendingRegistrationsCount(); // Atualizar contagem ao fechar
           }}
         />
+      )}
+
+      {showSiteClientsPanel && (
+        <SiteClientsPanel onClose={() => setShowSiteClientsPanel(false)} />
       )}
 
       {/* Seção de Links de Download */}

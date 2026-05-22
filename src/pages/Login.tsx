@@ -1,4 +1,4 @@
-import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Download, Eye, EyeOff } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -84,6 +84,13 @@ const Login = () => {
 
     checkVersionAndCleanup();
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('registered') === 'success') {
+      toast.success('Conta criada com sucesso! Faça login para acessar.');
+    }
+  }, [location.search]);
 
   // Carregar credenciais salvas do localStorage ou sessionStorage (do admin)
   useEffect(() => {
@@ -405,6 +412,15 @@ const Login = () => {
         </form>
 
         <div className="text-center mt-4 space-y-3">
+          <Link
+            to="/app"
+            onClick={(e) => e.stopPropagation()}
+            className="group flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-300/60 bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 px-4 py-3 text-sm font-black text-white shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.01] hover:from-emerald-400 hover:to-teal-400"
+          >
+            <Download className="h-5 w-5 transition-transform group-hover:-translate-y-0.5" />
+            Baixar App
+          </Link>
+
           {/* Botão de Emergência - Limpeza Completa */}
           <div className="p-3 bg-red-900/30 border border-red-500/50 rounded-lg">
             <button

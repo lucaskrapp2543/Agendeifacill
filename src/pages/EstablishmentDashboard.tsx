@@ -4953,6 +4953,7 @@ const EstablishmentDashboard = () => {
   const fetchServiceSubcategoriesRequestIdRef = useRef(0);
   const [pendingScrollToCategoryId, setPendingScrollToCategoryId] = useState<string | null>(null);
   const [highlightedCategoryId, setHighlightedCategoryId] = useState<string | null>(null);
+  const [sidebarCloseSignal, setSidebarCloseSignal] = useState(0);
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
   const [showAddSubcategoryModal, setShowAddSubcategoryModal] = useState(false);
   const [showEditCategoryModal, setShowEditCategoryModal] = useState(false);
@@ -7147,8 +7148,19 @@ const EstablishmentDashboard = () => {
         setPendingScrollToCategoryId(String(insertedCategory.id));
         setHighlightedCategoryId(String(insertedCategory.id));
       }
-      fetchServiceCategories();
-      toast(`Categoria "${categoryName.toUpperCase()}" adicionada com sucesso!`, 'success');
+      setActiveTab('service-categories');
+      setSidebarCloseSignal((value) => value + 1);
+      window.dispatchEvent(new Event('agendei:close-sidebar'));
+      await fetchServiceCategories();
+      if (insertedCategory?.id) {
+        setTimeout(() => {
+          const el = document.getElementById(`service-category-${String(insertedCategory.id)}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }, 250);
+      }
+      toast(`Categoria "${categoryName.toUpperCase()}" adicionada! Agora adicione seus serviços dentro dela.`, 'success');
     } catch (error: any) {
       console.error('❌ Erro ao adicionar categoria (catch):', error);
 
@@ -7234,6 +7246,58 @@ const EstablishmentDashboard = () => {
   const activeProfessionalsForService = (establishment?.professionals || []).filter(
     (prof: any) => String(prof?.name || '').trim() && !Boolean((prof as any)?.hidden_from_booking)
   );
+
+  const completeServicesOnboardingIfReady = async (createdService?: any) => {
+    if (onboardingStep !== 3 || !establishment?.id) return false;
+
+    const combinedServices = [
+      ...(servicesWithPrices || []),
+      ...(serviceSubcategories || []),
+      ...(createdService ? [createdService] : []),
+    ];
+
+    const uniqueServices = combinedServices.reduce((acc: any[], service: any) => {
+      const id = String(service?.id || '').trim();
+      const name = String(service?.name || '').trim();
+      const price = Number(service?.price || 0);
+      if (!id || !name || !Number.isFinite(price) || price <= 0) return acc;
+      if (!acc.some((item) => String(item?.id || '') === id)) {
+        acc.push({
+          id,
+          name,
+          price,
+          duration: Number(service?.duration || 30),
+        });
+      }
+      return acc;
+    }, []);
+
+    if (uniqueServices.length === 0) return false;
+
+    const { error } = await supabase
+      .from('establishments')
+      .update({
+        services_with_prices: uniqueServices,
+        onboarding_step: 4,
+      })
+      .eq('id', establishment.id);
+
+    if (error) {
+      console.error('Erro ao liberar onboarding apos criar serviço:', error);
+      toast.error('Serviço criado, mas houve erro ao liberar o sistema. Tente atualizar a página.');
+      return false;
+    }
+
+    setOnboardingStep(4);
+    setEstablishment({
+      ...establishment,
+      services_with_prices: uniqueServices,
+      onboarding_step: 4,
+    } as any);
+    setServicesWithPrices(uniqueServices);
+    toast.success('🎉 Serviço criado! Todas as funcionalidades foram liberadas.');
+    return true;
+  };
 
   const parseExcludedProfessionalIds = (raw: any): string[] => {
     if (!Array.isArray(raw)) return [];
@@ -7345,6 +7409,7 @@ const EstablishmentDashboard = () => {
 
             // ✅ Atualização imediata da UI (não depender só do fetch)
             if (insertedRetry) {
+              effectiveInsertedSubcategory = insertedRetry;
               setServiceSubcategories(prev => {
                 if (prev.some(s => s.id === insertedRetry.id)) return prev;
                 const next = [...prev, insertedRetry as any] as ServiceSubcategory[];
@@ -7390,8 +7455,14 @@ const EstablishmentDashboard = () => {
       }
 
       // Revalidar do banco para garantir consistência
+      setActiveTab('service-categories');
+      setSidebarCloseSignal((value) => value + 1);
+      window.dispatchEvent(new Event('agendei:close-sidebar'));
       await fetchServiceSubcategories();
-      toast(`Serviço "${nomeServico}" adicionado com sucesso!`, 'success');
+      const unlockedOnboarding = await completeServicesOnboardingIfReady(effectiveInsertedSubcategory);
+      if (!unlockedOnboarding) {
+        toast(`Serviço "${nomeServico}" adicionado com sucesso!`, 'success');
+      }
     } catch (error: any) {
       console.error('❌ Erro ao adicionar subcategoria (catch):', error);
 
@@ -12445,22 +12516,13 @@ Estamos te aguardando!`;
         };
 
       case 2: // Foto do estabelecimento
-        return {
-          isValid: Boolean((establishment as any)?.logo_url),
-          message: 'Adicione a foto do estabelecimento para continuar.'
-        };
+        return { isValid: true, message: '' };
 
       case 3: // Senha condicional por quantidade de profissionais
         if (!wizardProfessionalCount) {
           return { isValid: false, message: 'Escolha quantos profissionais trabalham no estabelecimento.' };
         }
-        if (wizardProfessionalCount === 'one') {
-          return { isValid: true, message: '' };
-        }
-        return {
-          isValid: Boolean((establishment?.pin_password && establishment.pin_password !== '0000') || pinPassword.length === 4),
-          message: 'Crie e salve uma senha de 4 dígitos para continuar.'
-        };
+        return { isValid: true, message: '' };
 
       case 4: // Comodidades
         {
@@ -12487,21 +12549,7 @@ Estamos te aguardando!`;
         return { isValid: true, message: '' };
 
       case 8: // PIX
-        {
-          const PIX_PLACEHOLDER = '123456789@';
-          const hasPix: boolean = !!(
-            (pixKey && pixKey.trim() === PIX_PLACEHOLDER) ||
-            (pixKeyType && pixKey && pixKey.trim() !== '' && pixKey.trim().toLowerCase() !== 'naotenhopix') ||
-            (pixKey && pixKey.trim().toLowerCase() === 'naotenhopix') ||
-            (establishment?.pix_key && (establishment.pix_key.trim() === PIX_PLACEHOLDER || (establishment.pix_key.trim() !== '' && establishment.pix_key.trim().toLowerCase() !== 'naotenhopix')))
-          );
-          return {
-            isValid: hasPix,
-            message: hasPix
-              ? ''
-              : 'Para continuar, preencha seu PIX e clique em SALVAR.'
-          };
-        }
+        return { isValid: true, message: '' };
 
       case 9: // Links personalizados
         {
@@ -23742,6 +23790,27 @@ Estamos te aguardando!`;
     }
   };
 
+  const goToCurrentOnboardingStep = () => {
+    setShowOnboardingWelcomeModal(false);
+    setShowBlockedItemModal(false);
+
+    const nextTab =
+      onboardingStep <= 1
+        ? 'settings'
+        : onboardingStep === 2
+          ? 'professionals'
+          : onboardingStep === 3
+            ? 'service-categories'
+            : 'passo-a-passo';
+
+    handleTabChange(nextTab);
+    window.dispatchEvent(new Event('agendei:close-sidebar'));
+
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 100);
+  };
+
   // Função para atualizar o mês selecionado
   const handleMonthChange = async (newMonth: Date) => {
     console.log('📅 Mudando mês para:', newMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }));
@@ -24691,6 +24760,7 @@ Estamos te aguardando!`;
           pendingReviewsCount={pendingReviewsCount}
           pendingSubscribersCount={pendingSubscribersCount}
           topMonthlyWinner={monthlyTopWinner}
+          closeSignal={sidebarCloseSignal}
         />
 
         {/* Conteúdo principal */}
@@ -27514,7 +27584,12 @@ Estamos te aguardando!`;
                     </div>
                   )}
 
-                  <BaileysWhatsAppSettings userId={user?.id} />
+                  {onboardingStep >= 4 && (
+                    <BaileysWhatsAppSettings
+                      userId={user?.id}
+                      isPlanPrataActive={Boolean((establishment as any)?.plan_prata_active)}
+                    />
+                  )}
 
                   {/* Quiz Passo-a-Passo para Novos Usuários (só aparece se não foi completado) */}
                   {isNewUser && !quizCompleted && (
@@ -27894,7 +27969,7 @@ Estamos te aguardando!`;
                             <label className="block text-sm font-medium mb-1">Logo do Estabelecimento</label>
                             {isNewUser && (
                               <p className="text-sm text-gray-300 mb-2">
-                                Esta e a foto do seu estabelecimento?
+                                Esta é a foto do seu estabelecimento? Se quiser, pode trocar agora. Se não quiser, pode continuar.
                               </p>
                             )}
                             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
@@ -27958,7 +28033,7 @@ Estamos te aguardando!`;
                                   onClick={handleQuizNext}
                                   className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"
                                 >
-                                  Sim, continuar
+                                  Continuar sem trocar foto
                                 </button>
                                 <button
                                   type="button"
@@ -28172,55 +28247,13 @@ Estamos te aguardando!`;
 
                         {(!isNewUser || quizStep === 3) && (
                           <div id="quiz-step-senha">
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1">
-                              <label className="block text-sm font-extrabold text-white">🔐 Senha de 4 dígitos (segurança do sistema)</label>
-                              <button
-                                onClick={() => showInfoModalFunc(
-                                  'Senha de 4 dígitos para configurações',
-                                  'Essa senha deixa seu sistema mais restritivo (recomendado). Ela pode ser exigida para acessar áreas sensíveis do sistema e evitar que outros profissionais mexam onde não devem.\n\n' +
-                                  'Ela pode bloquear/autorizar, por exemplo:\n' +
-                                  '• Entrar em Configurações / Página\n' +
-                                  '• Entrar em Meus serviços (criar/editar/excluir serviços)\n' +
-                                  '• Entrar em Meus assinantes\n' +
-                                  '• Entrar em Profissionais\n' +
-                                  '• Entrar no Financeiro e visualizar/alterar dados (inclusive de outros profissionais)\n' +
-                                  '• Alterar dados sensíveis dos profissionais (ex: % comissão e senha)\n' +
-                                  '• Cancelar agendamentos quando o sistema exigir senha\n\n' +
-                                  'Defina uma senha de 4 dígitos e clique em Salvar.'
-                                )}
-                                className="sm:hidden text-xs text-amber-300 hover:text-amber-200 underline flex items-center gap-1"
-                              >
-                                <AlertTriangle className="h-3 w-3" />
-                                Ver informações
-                              </button>
-                            </div>
-                            <div className="mb-3 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3">
-                              <div className="flex items-start gap-2">
-                                <AlertTriangle className="h-5 w-5 text-amber-300 mt-0.5 flex-shrink-0" />
-                                <div className="min-w-0">
-                                  <div className="text-sm font-extrabold text-amber-100">
-                                    Importante: isso deixa seu sistema mais restritivo (recomendado)
-                                  </div>
-                                  {isNewUser ? (
-                                    <div className="text-xs text-amber-100/90 mt-1 leading-relaxed">
-                                      Quantos profissionais trabalham no seu estabelecimento?
-                                    </div>
-                                  ) : (
-                                    <div className="text-xs text-amber-100/90 mt-1 leading-relaxed">
-                                      A senha salva aqui pode ser usada para <strong>bloquear/autorizar ações sensíveis</strong>, como:
-                                      <span className="block mt-1">
-                                        • Entrar em <strong>Configurações / Página</strong><br />
-                                        • Entrar em <strong>Meus serviços</strong> (criar/editar/excluir serviços)<br />
-                                        • Entrar em <strong>Meus assinantes</strong><br />
-                                        • Entrar em <strong>Profissionais</strong><br />
-                                        • Entrar no <strong>Financeiro</strong> e ver/alterar dados (inclusive de outros profissionais)<br />
-                                        • Alterar dados dos profissionais (ex: <strong>% comissão</strong> e senha)<br />
-                                        • Cancelar agendamentos quando o sistema exigir senha
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
+                            <div className="mb-3">
+                              <label className="block text-sm font-extrabold text-white">
+                                Quantos profissionais trabalham no seu estabelecimento?
+                              </label>
+                              <p className="mt-1 text-xs text-gray-400">
+                                Se for só você, pode continuar sem senha. Se tiver equipe, recomendamos criar uma senha de segurança.
+                              </p>
                             </div>
                             {isNewUser && (
                               <div className="mb-3 flex flex-wrap gap-2">
@@ -28253,22 +28286,69 @@ Estamos te aguardando!`;
                               </div>
                             )}
                             {(!isNewUser || wizardProfessionalCount === 'multiple') && (
-                              <div className="flex gap-2">
-                                <input
-                                  type="password"
-                                  maxLength={4}
-                                  value={pinPassword}
-                                  onChange={(e) => setPinPassword(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
-                                  placeholder="Digite uma senha de 4 dígitos"
-                                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
-                                />
-                                <button
-                                  onClick={handleSavePin}
-                                  className="px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-extrabold shadow-lg shadow-blue-600/20"
-                                >
-                                  ✅ Salvar Senha
-                                </button>
+                              <div className="space-y-3">
+                                {isNewUser && wizardProfessionalCount === 'multiple' && (
+                                  <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3">
+                                    <div className="text-sm font-extrabold text-amber-100">Recomendado: criar senha de 4 dígitos</div>
+                                    <p className="mt-1 text-xs text-amber-100/90">
+                                      Assim outros profissionais não mexem em configurações, financeiro e áreas sensíveis.
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => showInfoModalFunc(
+                                        'Por que devo colocar senha?',
+                                        'Essa senha deixa seu sistema mais seguro quando existe mais de um profissional usando.\n\n' +
+                                        'Ela pode bloquear/autorizar, por exemplo:\n' +
+                                        '• Entrar em Configurações / Página\n' +
+                                        '• Entrar em Meus serviços (criar/editar/excluir serviços)\n' +
+                                        '• Entrar em Meus assinantes\n' +
+                                        '• Entrar em Profissionais\n' +
+                                        '• Entrar no Financeiro e visualizar/alterar dados\n' +
+                                        '• Alterar dados sensíveis dos profissionais\n' +
+                                        '• Cancelar agendamentos quando o sistema exigir senha\n\n' +
+                                        'Mesmo assim, ela é opcional no primeiro acesso. Você pode criar depois.'
+                                      )}
+                                      className="mt-2 text-xs text-amber-200 hover:text-amber-100 underline flex items-center gap-1"
+                                    >
+                                      <HelpCircle className="h-3 w-3" />
+                                      Por que devo colocar senha?
+                                    </button>
+                                  </div>
+                                )}
+                                <div className="flex gap-2">
+                                  <input
+                                    type="password"
+                                    maxLength={4}
+                                    value={pinPassword}
+                                    onChange={(e) => setPinPassword(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                                    placeholder="Digite uma senha de 4 dígitos (opcional)"
+                                    className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={handleSavePin}
+                                    className="px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-extrabold shadow-lg shadow-blue-600/20"
+                                  >
+                                    ✅ Salvar Senha
+                                  </button>
+                                </div>
+                                <p className="text-xs text-gray-400">
+                                  Não é obrigatório agora. Se não quiser, clique em Confirmar e continuar.
+                                </p>
                               </div>
+                            )}
+                            {!isNewUser && (
+                              <button
+                                type="button"
+                                onClick={() => showInfoModalFunc(
+                                  'Senha de 4 dígitos para configurações',
+                                  'Essa senha deixa seu sistema mais restritivo (recomendado). Ela pode ser exigida para acessar áreas sensíveis do sistema e evitar que outros profissionais mexam onde não devem.'
+                                )}
+                                className="mt-2 text-xs text-amber-300 hover:text-amber-200 underline flex items-center gap-1"
+                              >
+                                <AlertTriangle className="h-3 w-3" />
+                                Ver informações
+                              </button>
                             )}
                             <p className="text-sm text-gray-400 mt-1">
                               {establishment?.pin_password && establishment.pin_password !== '0000' ? 'Senha atual: ' + establishment.pin_password : 'Nenhuma senha definida'}
@@ -28720,8 +28800,20 @@ Estamos te aguardando!`;
                           <div className="flex flex-col flex-1">
                             <span className="text-white text-sm sm:text-base">Pagina de agendamentos simples</span>
                             <span className="hidden sm:inline text-xs text-gray-400 mt-1">
-                              Ao ativar essa opção, sua pagina de agendamentos fica modo simples: mostra somente botão de agendamento, foto de perfil e suas assinaturas mensais (se tiver).
+                              Ao marcar essa opção, seu sistema vai ter uma página só com um botão escrito Agendar, sem informações e sem fotos.
                             </span>
+                            <button
+                              type="button"
+                              onClick={() => showInfoModalFunc(
+                                'Pagina de agendamentos simples',
+                                'Ao marcar essa opção, seu sistema vai ter uma página simples só com um botão escrito "Agendar".\n\n' +
+                                'Ela não mostra informações do estabelecimento, fotos, comodidades ou detalhes extras. É uma página limpa para o cliente clicar e agendar direto.'
+                              )}
+                              className="mt-1 text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
+                            >
+                              <HelpCircle className="h-3 w-3" />
+                              Ver mais informações
+                            </button>
                           </div>
                         </label>
 
@@ -31743,7 +31835,7 @@ Estamos te aguardando!`;
 
               {/* Modal de Informações Mobile */}
               {showInfoModal && infoModalContent && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-start sm:items-center justify-center z-[10050] p-3 sm:p-4 pt-6 sm:pt-4">
                   <div className="bg-[#1a1b1c] rounded-lg border border-gray-700 max-w-md w-full max-h-[90vh] overflow-y-auto">
                     <div className="p-6">
                       <div className="flex justify-between items-center mb-4">
@@ -36467,133 +36559,7 @@ Estamos te aguardando!`;
                     <div>1) Clique em <strong>Adicionar primeira categoria</strong>.</div>
                     <div>2) Entre na categoria e clique em <strong>Adicionar serviço</strong>.</div>
                     <div>3) Preencha <strong>nome, valor e duração</strong> do serviço.</div>
-                    <div>4) Clique em <strong>Salvar serviços e liberar</strong>.</div>
-                  </div>
-                </div>
-              )}
-
-              {/* Botão para completar onboarding e desbloquear tudo */}
-              {onboardingStep === 3 && (
-                <div className="mb-6 p-5 bg-gradient-to-r from-gray-800 to-black rounded-lg shadow-lg border-4 border-gray-700">
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div className="flex-1">
-                      <h3 className="text-xl font-bold text-white mb-2">
-                        Finalize seus serviços
-                      </h3>
-                      <p className="text-gray-200 text-sm">
-                        Quando terminar de adicionar os serviços, clique no botão para liberar o sistema.
-                      </p>
-                    </div>
-                    <button
-                      onClick={async () => {
-                        if (!establishment) return;
-
-                        try {
-                          // Buscar serviços de service_subcategories (sistema de categorias)
-                          const { data: subcategoriesData } = await supabase
-                            .from('service_subcategories')
-                            .select(`
-                              *,
-                              service_categories!inner (
-                                establishment_id
-                              )
-                            `)
-                            .eq('service_categories.establishment_id', establishment.id)
-                            .eq('is_active', true);
-
-                          // Converter subcategorias para formato de serviços
-                          const servicesFromCategories = (subcategoriesData || []).map((sub: any) => ({
-                            id: sub.id,
-                            name: sub.name,
-                            price: Number(sub.price),
-                            duration: Number(sub.duration || 30)
-                          }));
-
-                          // Buscar serviços salvos em services_with_prices (sistema antigo)
-                          const { data: establishmentData } = await supabase
-                            .from('establishments')
-                            .select('services_with_prices')
-                            .eq('id', establishment.id)
-                            .single();
-
-                          const savedServices = establishmentData?.services_with_prices || [];
-                          const localServices = servicesWithPrices || [];
-
-                          // Combinar todos os serviços
-                          const allServices = [...localServices, ...savedServices, ...servicesFromCategories];
-
-                          // Remover duplicatas por ID
-                          const uniqueServices = allServices.reduce((acc: any[], service: any) => {
-                            if (!acc.find(s => s.id === service.id)) {
-                              acc.push(service);
-                            }
-                            return acc;
-                          }, []);
-
-                          console.log('🔍 DEBUG - Verificando serviços:', {
-                            localServices: localServices.length,
-                            savedServices: savedServices.length,
-                            servicesFromCategories: servicesFromCategories.length,
-                            uniqueServices: uniqueServices.length,
-                            services: uniqueServices.map((s: any) => ({
-                              id: s.id,
-                              name: s.name,
-                              price: s.price
-                            }))
-                          });
-
-                          // Verificar serviços válidos (com nome e preço)
-                          const validServices = uniqueServices.filter((s: any) =>
-                            s.name && s.name.trim().length > 0 && Number(s.price) > 0
-                          );
-
-                          console.log('✅ DEBUG - Serviços válidos:', validServices.length);
-
-                          if (validServices.length === 0) {
-                            toast('Adicione pelo menos um serviço com NOME e PREÇO maior que zero antes de salvar.', 'warning');
-                            return;
-                          }
-
-                          // Salvar serviços válidos e completar onboarding
-                          const { error: saveError } = await supabase
-                            .from('establishments')
-                            .update({
-                              services_with_prices: validServices.map((s: any) => ({
-                                id: s.id,
-                                name: s.name.trim(),
-                                price: Number(s.price),
-                                duration: Number(s.duration || 30)
-                              })),
-                              onboarding_step: 4
-                            })
-                            .eq('id', establishment.id);
-
-                          if (saveError) {
-                            console.error('Erro ao salvar:', saveError);
-                            toast.error('Erro ao salvar serviços. Tente novamente.');
-                            return;
-                          }
-
-                          setOnboardingStep(4);
-                          setEstablishment({
-                            ...establishment,
-                            services_with_prices: validServices
-                          });
-                          setServicesWithPrices(validServices);
-
-                          toast.success('🎉 Parabéns! Todas as funcionalidades foram liberadas!');
-                          setActiveTab('appointments');
-                          window.scrollTo({ top: 0, behavior: 'smooth' });
-                        } catch (error) {
-                          console.error('Erro ao completar onboarding:', error);
-                          toast.error('Erro ao salvar. Tente novamente.');
-                        }
-                      }}
-                      className="px-8 py-4 bg-white text-black font-bold text-lg rounded-lg hover:bg-gray-50 transition-all shadow-xl hover:shadow-2xl transform hover:scale-105 flex items-center gap-3 whitespace-nowrap"
-                    >
-                      <Check className="h-6 w-6" />
-                      Salvar serviços e liberar
-                    </button>
+                    <div>4) Ao salvar o primeiro serviço, o sistema libera tudo automaticamente.</div>
                   </div>
                 </div>
               )}
@@ -36631,14 +36597,6 @@ Estamos te aguardando!`;
                     Voce pode organizar de dois jeitos: por categoria (ex.: <strong>Cabelo</strong> e os servicos de cabelo dentro dela)
                     ou em uma categoria unica (<strong>Meus servicos</strong>) com tudo dentro.
                   </div>
-                )}
-                {isServiceWizardOnboarding && serviceCategories.length === 0 && (
-                  <button
-                    onClick={() => handleAddCategory('Meus serviços')}
-                    className="mt-2 w-full px-4 py-3 bg-emerald-600 text-white rounded-lg border border-emerald-500 hover:bg-emerald-700 transition-colors text-sm font-extrabold shadow-md"
-                  >
-                    Quero usar só 1 categoria ( meus serviços ) e colocar tudo que faço nela
-                  </button>
                 )}
               </div>
 
@@ -38688,8 +38646,8 @@ Estamos te aguardando!`;
       {/* Modal para Adicionar Produto */}
       {
         showAddProductModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start sm:items-center justify-center z-50 p-3 sm:p-4">
+            <div className="bg-white rounded-lg w-full max-w-md max-h-[92vh] overflow-y-auto p-4 sm:p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Adicionar Produto</h3>
                 <button
@@ -39199,9 +39157,13 @@ Estamos te aguardando!`;
       {/* Modal para Adicionar Categoria */}
       {
         showAddCategoryModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-              <div className="flex items-center justify-between mb-4">
+          <div
+            className="fixed inset-0 bg-black/60 flex items-start sm:items-center justify-center z-[10040] p-3 sm:p-4"
+            onWheel={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.stopPropagation()}
+          >
+            <div className="bg-white rounded-lg w-full max-w-md max-h-[88vh] overflow-y-auto overscroll-contain shadow-2xl">
+              <div className="sticky top-0 z-10 bg-white flex items-center justify-between px-4 sm:px-6 py-3 border-b border-gray-100">
                 <h3 className="text-lg font-semibold text-gray-900">Adicionar Categoria</h3>
                 <button
                   onClick={() => {
@@ -39216,7 +39178,39 @@ Estamos te aguardando!`;
                 </button>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-4 px-4 sm:px-6 py-4">
+                <div className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 p-3 sm:p-4">
+                  <div className="text-sm font-extrabold text-blue-950 mb-2">
+                    💡 Como usar categorias?
+                  </div>
+                  <div className="text-xs sm:text-sm text-blue-950 leading-relaxed space-y-2">
+                    <p>A categoria serve para <strong>organizar seus serviços</strong>.</p>
+                    <p>
+                      Exemplo: <strong>CABELO</strong> pode ter Degradê, Tesoura e Social.
+                    </p>
+                    <p className="hidden sm:block">
+                      Você também pode simplificar e criar uma categoria chamada <strong>SERVIÇOS</strong>,
+                      colocando tudo dentro dela: cabelo, barba, sobrancelha e outros.
+                    </p>
+                    <p className="hidden sm:block font-bold">
+                      Você escolhe o melhor jeito. A categoria é só para deixar seus serviços mais fáceis de encontrar.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => showInfoModalFunc(
+                        'Como usar categorias',
+                        'A categoria serve para separar e organizar seus serviços na página de agendamento.\n\n' +
+                        'Exemplo: crie a categoria CABELO e dentro dela coloque serviços como Degradê, Corte na tesoura e Corte social.\n\n' +
+                        'Você também pode criar uma categoria chamada SERVIÇOS e colocar tudo dentro dela: cabelo, barba, sobrancelha e outros.\n\n' +
+                        'Você escolhe o melhor jeito. A categoria é só para deixar seus serviços mais fáceis de encontrar.'
+                      )}
+                      className="sm:hidden text-xs font-bold text-blue-700 underline"
+                    >
+                      Ver exemplo completo
+                    </button>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Nome da categoria
@@ -39292,7 +39286,7 @@ Estamos te aguardando!`;
                   </label>
                 </div>
 
-                <div className="flex gap-3 pt-4">
+                <div className="sticky bottom-0 -mx-4 sm:-mx-6 flex gap-3 border-t border-gray-100 bg-white px-4 sm:px-6 py-3">
                   <button
                     type="button"
                     onClick={() => {
@@ -39670,7 +39664,7 @@ Estamos te aguardando!`;
       {/* Modal para Editar Subcategoria */}
       {
         excludeProfessionalConfirm && (
-          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[70] p-4">
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[10070] p-4">
             <div className="bg-white rounded-xl w-full max-w-md shadow-2xl border border-gray-200 p-5">
               <h4 className="text-base font-bold text-gray-900 mb-2">
                 Confirmar ocultação da categoria
@@ -40808,18 +40802,14 @@ Estamos te aguardando!`;
                 <button
                   type="button"
                   className="flex-1 rounded-xl bg-black text-white font-extrabold px-4 py-3 text-sm sm:text-base hover:bg-gray-900 transition-colors"
-                  onClick={() => {
-                    setShowOnboardingWelcomeModal(false);
-                    handleTabChange('settings');
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
+                  onClick={goToCurrentOnboardingStep}
                 >
                   Ir para Configurações / Página
                 </button>
                 <button
                   type="button"
                   className="flex-1 rounded-xl bg-white/90 border border-gray-300 text-gray-900 font-extrabold px-4 py-3 text-sm sm:text-base hover:bg-white transition-colors"
-                  onClick={() => setShowOnboardingWelcomeModal(false)}
+                  onClick={goToCurrentOnboardingStep}
                 >
                   Entendi
                 </button>
@@ -41490,33 +41480,7 @@ Estamos te aguardando!`;
               <div className="flex flex-col sm:flex-row gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowBlockedItemModal(false);
-                    // Levar direto para a próxima etapa que falta (não apenas "Passo a passo")
-                    // Step 1 -> Configurações / Página
-                    // Step 2 -> Profissionais
-                    // Step 3 -> Meus serviços
-                    const nextTab =
-                      onboardingStep <= 1
-                        ? 'settings'
-                        : onboardingStep === 2
-                          ? 'professionals'
-                          : onboardingStep === 3
-                            ? 'service-categories'
-                            : 'passo-a-passo';
-
-                    setActiveTab(nextTab as any);
-
-                    // Ajuste de scroll: em passo-a-passo, focar no vídeo; nas outras abas, subir pro topo
-                    setTimeout(() => {
-                      if (nextTab === 'passo-a-passo') {
-                        const el = document.getElementById('how-it-works-video');
-                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      } else {
-                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                      }
-                    }, 200);
-                  }}
+                  onClick={goToCurrentOnboardingStep}
                   className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-black text-white hover:bg-gray-800 transition-colors shadow-lg"
                 >
                   {onboardingStep <= 1
@@ -41529,7 +41493,7 @@ Estamos te aguardando!`;
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowBlockedItemModal(false)}
+                  onClick={goToCurrentOnboardingStep}
                   className="flex-1 px-4 py-3 rounded-xl font-extrabold bg-white border border-gray-300 text-gray-900 hover:bg-gray-50 transition-colors"
                 >
                   Entendi
