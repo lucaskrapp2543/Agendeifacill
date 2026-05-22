@@ -1,5 +1,5 @@
 import { ArrowLeft, Building, CheckCircle, Copy, CreditCard, Eye, EyeOff, Globe, Lock, Mail, Phone, QrCode, User } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -142,6 +142,8 @@ const CadastroAg = () => {
   const [checkoutId, setCheckoutId] = useState('');
   const [isCreatingCheckout, setIsCreatingCheckout] = useState<PaymentMethod | null>(null);
   const [paymentStatusMessage, setPaymentStatusMessage] = useState('');
+  const [showAccountCreatedModal, setShowAccountCreatedModal] = useState(false);
+  const paymentOptionsRef = useRef<HTMLDivElement | null>(null);
 
   const createCheckoutUrl = import.meta.env.PROD
     ? '/.netlify/functions/site-registration-create-checkout'
@@ -269,8 +271,8 @@ const CadastroAg = () => {
       const status = String(data?.checkout?.status || '').toLowerCase();
 
       if (status === 'converted') {
-        toast.success('Conta criada com sucesso! Faça login para acessar.');
-        navigate('/login?registered=success', { replace: true });
+        setPaymentStatusMessage('');
+        setShowAccountCreatedModal(true);
         return;
       }
 
@@ -298,6 +300,9 @@ const CadastroAg = () => {
     setShowPaymentOptions(true);
     setPaymentStatusMessage('');
     toast.success('Cadastro preenchido. Agora escolha como pagar para criar a conta.');
+    setTimeout(() => {
+      paymentOptionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
   };
 
   const handleCreateCheckout = async (method: PaymentMethod) => {
@@ -365,6 +370,29 @@ const CadastroAg = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex flex-col">
+      {showAccountCreatedModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 text-center shadow-2xl border border-emerald-200">
+            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 text-4xl">
+              🎉
+            </div>
+            <h2 className="text-2xl font-black text-gray-900">
+              Parabéns! Agora você é Agendei Fácil
+            </h2>
+            <p className="mt-3 text-base leading-relaxed text-gray-700">
+              Sua conta foi criada com sucesso e seu pagamento foi aprovado. Seja muito bem-vindo! 🚀
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate('/login?registered=success', { replace: true })}
+              className="mt-6 w-full rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 px-5 py-3 text-base font-extrabold text-white shadow-lg hover:from-emerald-600 hover:to-green-700 transition-colors"
+            >
+              Fazer login
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header com botão voltar */}
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-md mx-auto px-4 py-4">
@@ -621,7 +649,7 @@ const CadastroAg = () => {
               </div>
 
               {showPaymentOptions && (
-                <div className="space-y-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <div ref={paymentOptionsRef} className="space-y-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
                   <div>
                     <h3 className="text-base font-bold text-gray-900">Escolha como pagar</h3>
                     <p className="text-sm text-gray-600">
