@@ -908,7 +908,7 @@ export const createAppointment = async (appointmentData: any) => {
       const { data: establishmentData } = await retryRequest(async () => {
         return await supabase
           .from('establishments')
-          .select('business_hours, professionals')
+          .select('business_hours, professionals, use_60_minute_schedule, use_20_minute_schedule, use_15_minute_interval')
           .eq('id', appointmentData.establishment_id)
           .maybeSingle();
       });
@@ -935,6 +935,54 @@ export const createAppointment = async (appointmentData: any) => {
       const selectedProfessional = byId || byName[0] || null;
       resolvedProfessionalForWrite =
         String(selectedProfessional?.id || '').trim() || professionalRef;
+
+      const appointmentTotalDurationMinutes =
+        newDurationMinutes + getAdditionalProductsDuration(appointmentData?.additional_products);
+      const appointmentDateKey = String(appointmentData?.appointment_date || '').slice(0, 10);
+      const blockedMap =
+        selectedProfessional?.blocked_hours &&
+        typeof selectedProfessional.blocked_hours === 'object' &&
+        !Array.isArray(selectedProfessional.blocked_hours)
+          ? selectedProfessional.blocked_hours
+          : {};
+      const blockedTimes = Array.isArray(blockedMap[appointmentDateKey])
+        ? blockedMap[appointmentDateKey]
+          .map((rawTime: any) => normalizeTimeHHmm(rawTime))
+          .filter(Boolean)
+        : [];
+
+      if (blockedTimes.length > 0) {
+        const use60MinuteSchedule = Boolean((establishmentData as any)?.use_60_minute_schedule);
+        const use20MinuteSchedule = Boolean((establishmentData as any)?.use_20_minute_schedule);
+        const use15MinuteInterval = Boolean((establishmentData as any)?.use_15_minute_interval);
+        const currentGridInterval = use60MinuteSchedule
+          ? 60
+          : use20MinuteSchedule
+            ? 20
+            : use15MinuteInterval
+              ? 30
+              : 15;
+        const isAligned = (step: number) =>
+          blockedTimes.every((time: string) => {
+            const [, minutesStr = ''] = String(time).split(':');
+            const minutes = Number(minutesStr);
+            return Number.isFinite(minutes) && minutes % step === 0;
+          });
+        const blockedSlotDuration = (() => {
+          if (use60MinuteSchedule) return isAligned(60) ? 60 : 15;
+          if (use20MinuteSchedule) return isAligned(20) ? 20 : 15;
+          if (use15MinuteInterval) return isAligned(30) ? 30 : 15;
+          return currentGridInterval;
+        })();
+        const blockedConflict = blockedTimes.some((blockedTime: string) => {
+          const blockedStart = timeToMinutes(blockedTime);
+          return overlapsInterval(newStartMinutes, appointmentTotalDurationMinutes, blockedStart, blockedStart + blockedSlotDuration);
+        });
+
+        if (blockedConflict) {
+          throw new Error('Esse horário foi bloqueado pelo profissional. Escolha outro horário.');
+        }
+      }
 
       const dayKey = getDayKeyFromDate(String(appointmentData?.appointment_date || ''));
       const workDay = selectedProfessional?.work_hours?.[dayKey];
@@ -969,7 +1017,8 @@ export const createAppointment = async (appointmentData: any) => {
       if (
         msg.includes('intervalo do profissional') ||
         msg.includes('intervalo do estabelecimento') ||
-        msg.includes('profissional está fechado')
+        msg.includes('profissional está fechado') ||
+        msg.includes('bloqueado pelo profissional')
       ) {
         throw intervalError;
       }
