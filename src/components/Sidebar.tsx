@@ -536,7 +536,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const mobileDescriptions: Record<string, string> = {
     notifications: 'Veja avisos de agendamentos, cancelamentos e compras de assinaturas.',
     appointments: 'Veja seus agendamentos, crie reservas e acompanhe o dia.',
-    'whatsapp-reminders': 'Ative lembretes automáticos: seu cliente recebe mensagem 1 hora antes do horário.',
+    'whatsapp-reminders': 'Conecte o WhatsApp por QR ou código e ative lembretes automáticos para seus clientes.',
     indication: 'Ganhe 1 mês grátis compartilhando seu link de indicação.',
     clients: 'Cadastre clientes, veja histórico e anotações importantes.',
     subscribers: 'Gerencie assinantes e planos mensais do seu estabelecimento.',

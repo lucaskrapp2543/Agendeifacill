@@ -35,7 +35,6 @@ import { TransferAppointmentModal } from '../components/TransferAppointmentModal
 import { useToast } from '../components/ui/Toaster';
 import { YouTubeResumePlayer } from '../components/YouTubeResumePlayer';
 // UpdateButton removido - sistema automático já cuida de tudo
-import { EstablishmentWhatsappRemindersInfo } from '../../modules/whatsapp-reminders/ui/EstablishmentWhatsappRemindersInfo';
 import { ValidityDisplay } from '../components/ValidityDisplay';
 import { ValidityHeader } from '../components/ValidityHeader';
 import { useAuth } from '../context/AuthContext';
@@ -27411,7 +27410,92 @@ Estamos te aguardando!`;
 
               {activeTab === 'whatsapp-reminders' && (
                 <div className="space-y-6 w-full max-w-6xl">
-                  {establishment && <EstablishmentWhatsappRemindersInfo establishmentId={establishment.id} />}
+                  <div className="rounded-2xl border border-emerald-500/25 bg-[#050806] p-4 sm:p-6 shadow-xl">
+                    <div className="mb-5">
+                      <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-200">
+                        WhatsApp conectado por QR ou código
+                      </div>
+                      <h2 className="mt-3 text-2xl font-extrabold text-white">
+                        Lembretes automáticos pelo WhatsApp do seu estabelecimento
+                      </h2>
+                      <p className="mt-2 max-w-3xl text-sm text-gray-300 leading-relaxed">
+                        Use o WhatsApp (Baileys - QR ou código) para conectar o número da barbearia e enviar lembretes automáticos aos clientes.
+                        O antigo fluxo da Meta não é mais necessário nesta tela.
+                      </p>
+                    </div>
+
+                    <BaileysWhatsAppSettings
+                      userId={user?.id}
+                      isPlanPrataActive={Boolean((establishment as any)?.plan_prata_active)}
+                    />
+                  </div>
+
+                  <div className="rounded-2xl border border-emerald-500/25 bg-[#050806] p-4 sm:p-6 shadow-xl">
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[0.95fr_1.65fr]">
+                      <div className="rounded-2xl border border-amber-500/20 bg-black/40 p-4">
+                        <div className="text-sm font-bold text-amber-200">Visual do lembrete</div>
+                        <div className="mt-1 text-xs text-amber-200/70">Exemplo de comunicação automática com seu cliente</div>
+
+                        <div className="mt-4 overflow-hidden rounded-xl border border-amber-500/10 bg-black/30">
+                          <img
+                            src="/lembrete.png"
+                            alt="Exemplo de lembrete automático no WhatsApp"
+                            className="w-full h-auto object-cover"
+                            loading="lazy"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-emerald-500/25 bg-black/35 p-4">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                          <div className="rounded-xl border border-emerald-500/15 bg-black/30 p-4">
+                            <div className="text-sm font-bold text-emerald-200">Como funciona</div>
+                            <div className="mt-2 text-sm text-gray-200 leading-relaxed">
+                              Nosso sistema envia mensagem automática para seus clientes no WhatsApp deles. A conexão agora é feita pelo
+                              WhatsApp (Baileys - QR ou código), usando o número do próprio estabelecimento.
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-emerald-500/15 bg-black/30 p-4">
+                            <div className="text-sm font-bold text-emerald-200">O que preciso para esse recurso?</div>
+                            <div className="mt-2 text-sm text-gray-200 leading-relaxed">
+                              Esse recurso é exclusivo do plano{' '}
+                              <span className="font-extrabold text-amber-200">Diamante</span>. Conecte o WhatsApp acima para liberar os lembretes.
+                            </div>
+                            <div className="mt-2 text-xs text-gray-400 leading-relaxed">
+                              <span className="font-semibold text-gray-300">Observação:</span> no plano Prata, a tela aparece, mas a conexão fica bloqueada com aviso para subir ao Diamante.
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 rounded-xl border border-emerald-500/15 bg-black/30 p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm font-bold text-white">Quer reduzir drasticamente as faltas?</div>
+                            <span className="inline-flex items-center rounded-full bg-emerald-600/20 border border-emerald-500/30 px-3 py-1 text-[11px] font-semibold text-emerald-200">
+                              Lembretes automáticos
+                            </span>
+                          </div>
+
+                          <div className="mt-2 text-sm text-gray-200 leading-relaxed">
+                            Seu cliente recebe um aviso antes do horário marcado. Isso reduz esquecimentos, melhora a presença e deixa a agenda mais previsível.
+                          </div>
+
+                          <ul className="mt-3 space-y-1 text-sm text-gray-200">
+                            <li>• Cai drasticamente o número de faltas</li>
+                            <li>• Você protege seu tempo e seu faturamento</li>
+                            <li>• Seu negócio fica mais profissional</li>
+                          </ul>
+                        </div>
+
+                        <div className="mt-4 rounded-xl border border-emerald-500/15 bg-black/30 p-4">
+                          <div className="text-sm font-bold text-white">Como funciona a conexão</div>
+                          <div className="mt-2 text-sm text-gray-200 leading-relaxed">
+                            Abra a seção acima, gere o QR Code ou código de pareamento, conecte o WhatsApp da barbearia e deixe o sistema enviar os lembretes automaticamente.
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 

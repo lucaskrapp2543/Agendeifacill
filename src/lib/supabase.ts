@@ -2227,18 +2227,50 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
       return { data: null, error };
     }
 
+    const resolveBestSubscriber = (rows: any[] = []) => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const score = (sub: any): number => {
+        const rawEndDate = String(sub?.end_date || '').slice(0, 10);
+        const endDate = rawEndDate ? new Date(`${rawEndDate}T00:00:00`) : null;
+        const isPaid = String(sub?.payment_status || '').toLowerCase().trim() === 'paid';
+        const isCurrent = Boolean(endDate && endDate.getTime() >= today.getTime());
+        if (isPaid && isCurrent) return 0;
+        if (isCurrent) return 1;
+        if (isPaid) return 2;
+        return 3;
+      };
+      const toTime = (value: unknown): number => {
+        const t = new Date(String(value || '')).getTime();
+        return Number.isFinite(t) ? t : 0;
+      };
+      return [...rows].sort((a: any, b: any) => {
+        const scoreDiff = score(a) - score(b);
+        if (scoreDiff !== 0) return scoreDiff;
+        const endDiff = toTime(b?.end_date) - toTime(a?.end_date);
+        if (endDiff !== 0) return endDiff;
+        return (toTime(b?.updated_at) || toTime(b?.created_at)) - (toTime(a?.updated_at) || toTime(a?.created_at));
+      })[0] || null;
+    };
+
     // Buscar por número normalizado (verificar tanto client_whatsapp quanto subscriber_whatsapp)
-    const subscriber = data?.find(sub => {
+    const matchingSubscribers = (data || []).filter(sub => {
       const clientPhone = normalizePhoneNumber(sub.client_whatsapp || '');
       const subscriberPhone = normalizePhoneNumber(sub.subscriber_whatsapp || '');
 
       return clientPhone === normalizedWhatsapp || subscriberPhone === normalizedWhatsapp;
     });
+    const subscriber = resolveBestSubscriber(matchingSubscribers);
 
     if (subscriber) {
       // Verificar se o assinante está vencido
-      const isExpired = (new Date(subscriber.end_date) < new Date()) ||
-        subscriber.payment_status === 'unpaid';
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const endDateOnly = String(subscriber.end_date || '').slice(0, 10);
+      const endDate = endDateOnly ? new Date(`${endDateOnly}T00:00:00`) : null;
+      const isExpired = !endDate ||
+        endDate.getTime() < today.getTime() ||
+        String(subscriber.payment_status || '').toLowerCase().trim() === 'unpaid';
 
       if (isExpired) {
         return {

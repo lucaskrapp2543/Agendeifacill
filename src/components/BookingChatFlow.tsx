@@ -920,11 +920,21 @@ export function BookingChatFlow({
   ): Promise<{ status: 'active' | 'expired' | 'none'; data: any }> => {
     const establishmentId = String(establishment?.id || establishment?.establishment_id || '').trim();
     if (!establishmentId) return { status: 'none', data: null };
+    const isSubscriberRecordExpired = (record: any): boolean => {
+      if (Boolean(record?.is_expired)) return true;
+      const paymentStatus = String(record?.payment_status || '').toLowerCase().trim();
+      if (paymentStatus === 'unpaid') return true;
+      const endDateStr = String(record?.end_date || '').slice(0, 10);
+      if (!endDateStr) return true;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const endDate = new Date(`${endDateStr}T00:00:00`);
+      return Number.isNaN(endDate.getTime()) || endDate.getTime() < today.getTime();
+    };
     try {
       const { data: firstData, error: firstError } = await checkNewSubscriber(phoneRaw, establishmentId);
       if (firstData && !firstError) {
-        const isExpired =
-          Boolean((firstData as any)?.is_expired) || new Date((firstData as any)?.end_date) < new Date();
+        const isExpired = isSubscriberRecordExpired(firstData);
         if (!isExpired) return { status: 'active', data: firstData };
         return { status: 'expired', data: firstData };
       }
@@ -934,7 +944,7 @@ export function BookingChatFlow({
     try {
       const { data: secondData, error: secondError } = await checkLegacySubscriber(phoneRaw, establishmentId);
       if (secondData && !secondError) {
-        const isExpired = new Date((secondData as any)?.end_date) < new Date();
+        const isExpired = isSubscriberRecordExpired(secondData);
         if (!isExpired) return { status: 'active', data: secondData };
         return { status: 'expired', data: secondData };
       }
