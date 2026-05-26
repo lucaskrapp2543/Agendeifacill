@@ -3,12 +3,14 @@ import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { checkWhatsAppSubscriber, supabase } from '../lib/supabase';
+import { getScheduleIntervalMinutes } from '../utils/scheduleGrid';
 import { PaymentModal } from './PaymentModal';
 
 interface Professional {
   id: string;
   name: string;
   photo?: string;
+  blocked_hours?: Record<string, string[]>;
   specific_services?: Array<{ id: string; name: string; price: number; duration: number }>;
 }
 
@@ -659,6 +661,10 @@ export default function ReservarCliente({
           id: prof.id,
           name: prof.name,
           photo: prof.photo_url || prof.photo,
+          blocked_hours:
+            prof?.blocked_hours && typeof prof.blocked_hours === 'object' && !Array.isArray(prof.blocked_hours)
+              ? prof.blocked_hours
+              : {},
           // ✅ PRESERVAR serviços específicos do profissional
           specific_services: Array.isArray(prof?.specific_services) ? prof.specific_services : [],
         }));
@@ -1760,6 +1766,12 @@ export default function ReservarCliente({
         return startA < endB && startB < endA;
       };
 
+      const scheduleIntervalMinutes = getScheduleIntervalMinutes({
+        use60MinuteSchedule: use60MinuteScheduleProp,
+        use20MinuteSchedule: use20MinuteScheduleProp || use20MinuteSchedule,
+        use15MinuteInterval,
+      });
+
       // Construir lista de datas (inclui a selecionada e vai semanalmente até o fim do mês)
       const selectedDateObj = (() => {
         const [y, m, d] = (selectedDate || '').split('-').map(Number);
@@ -1816,7 +1828,7 @@ export default function ReservarCliente({
         const blockedTimes = Array.isArray(blockedByDate) ? blockedByDate : [];
         return blockedTimes.some((blocked: string) => {
           const blockedStart = parseTimeToMinutes(String(blocked || ''));
-          const blockedDuration = 15; // compatível com trigger no banco
+          const blockedDuration = scheduleIntervalMinutes; // mesmo alcance usado pelo trigger no banco
           return hasOverlap(novoInicioMin, totalDuration, blockedStart, blockedDuration);
         });
       };
@@ -1878,7 +1890,7 @@ export default function ReservarCliente({
 
           const remaining = dayBlocked.filter((blocked: string) => {
             const blockedStart = parseTimeToMinutes(normalizeTimeHHmm(String(blocked || '')));
-            const blockedDuration = 15;
+            const blockedDuration = scheduleIntervalMinutes;
             const isConflict = hasOverlap(novoInicioMin, totalDuration, blockedStart, blockedDuration);
             return !isConflict;
           });
