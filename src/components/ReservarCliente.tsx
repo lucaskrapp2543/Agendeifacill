@@ -932,12 +932,7 @@ export default function ReservarCliente({
         const totalDurationRaw = selectedServices.length > 0
           ? calculateTotalDuration(selectedServices)
           : selectedService?.duration || 30;
-        const selectedDuration = parseDurationMinutes(totalDurationRaw);
-        const minSubscriberDuration = selectedSubscription
-          ? parseDurationMinutes(selectedSubscription?.service_duration ?? selectedSubscription?.duration)
-          : 0;
-        const totalDuration =
-          minSubscriberDuration > 0 ? Math.max(selectedDuration, minSubscriberDuration) : selectedDuration;
+        const totalDuration = getSelectedReservationDurationMinutes();
 
         // Buscar horários do estabelecimento e do profissional
         const establishmentHours = await supabase
@@ -1586,20 +1581,30 @@ export default function ReservarCliente({
     setStep('confirm');
   };
 
+  const getSelectedReservationDurationMinutes = (): number => {
+    const totalDurationRaw =
+      selectedServices.length > 0
+        ? calculateTotalDuration(selectedServices)
+        : selectedService?.duration || 30;
+    const selectedDuration = parseDurationMinutes(totalDurationRaw);
+
+    // Quando o barbeiro escolhe um serviço específico dentro da assinatura
+    // (divided_services), a duração desse serviço é a regra principal.
+    if (selectedSubscription && selectedSubscriberPlanMeta?.serviceName) {
+      return selectedDuration;
+    }
+
+    const minSubscriberDuration = selectedSubscription
+      ? parseDurationMinutes(selectedSubscription?.service_duration ?? selectedSubscription?.duration)
+      : 0;
+    return minSubscriberDuration > 0 ? Math.max(selectedDuration, minSubscriberDuration) : selectedDuration;
+  };
+
   const handleConfirmReservation = async () => {
     if (!selectedProfessional || (!selectedService && selectedServices.length === 0) || !selectedTime) return;
 
     if (slotPrefill?.maxDurationMinutes != null) {
-      const totalDurationRaw =
-        selectedServices.length > 0
-          ? calculateTotalDuration(selectedServices)
-          : selectedService!.duration;
-        const selectedDuration = parseDurationMinutes(totalDurationRaw);
-        const minSubscriberDuration = selectedSubscription
-          ? parseDurationMinutes(selectedSubscription?.service_duration ?? selectedSubscription?.duration)
-          : 0;
-        const totalDur =
-          minSubscriberDuration > 0 ? Math.max(selectedDuration, minSubscriberDuration) : selectedDuration;
+      const totalDur = getSelectedReservationDurationMinutes();
       if (!validateSlotDurationMinutes(totalDur)) return;
     }
 
@@ -1621,16 +1626,7 @@ export default function ReservarCliente({
       const baseTotalPrice = selectedServices.length > 0
         ? calculateTotalPrice(selectedServices)
         : selectedService!.price;
-      const totalDurationRaw =
-        selectedServices.length > 0
-          ? calculateTotalDuration(selectedServices)
-          : selectedService!.duration;
-      const selectedDuration = parseDurationMinutes(totalDurationRaw);
-      const minSubscriberDuration = selectedSubscription
-        ? parseDurationMinutes(selectedSubscription?.service_duration ?? selectedSubscription?.duration)
-        : 0;
-      const totalDuration =
-        minSubscriberDuration > 0 ? Math.max(selectedDuration, minSubscriberDuration) : selectedDuration;
+      const totalDuration = getSelectedReservationDurationMinutes();
 
       // Criar nome dos serviços
       const serviceNames = servicesToInsert.map(s => s.name).join(', ');

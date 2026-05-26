@@ -456,8 +456,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   };
 
   const normalizeProfessionalPercentage = (raw: unknown): number => {
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) return 100;
+    const normalizedRaw = String(raw ?? '').trim().replace('%', '').replace(',', '.');
+    const parsed = Number(normalizedRaw);
+    if (!Number.isFinite(parsed)) return 0;
     if (parsed < 0) return 0;
     if (parsed > 100) {
       const legacyScaled = parsed / 10;
@@ -873,6 +874,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     const key = normalizeNameKey(professionalNameRaw);
     if (!key) return false;
     const professional = professionals.find((p) => normalizeNameKey(p.full_name) === key);
+    if (!professional) return false;
     return normalizeProfessionalPercentage(professional?.percentage) === 100;
   };
 

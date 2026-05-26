@@ -3397,8 +3397,9 @@ const EstablishmentDashboard = () => {
 
   // Normaliza percentual com fallback de compatibilidade para dados legados em escala x10.
   const normalizeProfessionalPercentage = (raw: unknown): number => {
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) return 100;
+    const normalizedRaw = String(raw ?? '').trim().replace('%', '').replace(',', '.');
+    const parsed = Number(normalizedRaw);
+    if (!Number.isFinite(parsed)) return 0;
     if (parsed < 0) return 0;
     if (parsed > 100) {
       const legacyScaled = parsed / 10;
@@ -3409,6 +3410,7 @@ const EstablishmentDashboard = () => {
   };
 
   const isOwnerProfessional = (professional?: { percentage?: unknown } | null): boolean => {
+    if (!professional || professional.percentage == null || String(professional.percentage).trim() === '') return false;
     return normalizeProfessionalPercentage(professional?.percentage) === 100;
   };
 
