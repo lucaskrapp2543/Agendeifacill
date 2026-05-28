@@ -46,6 +46,7 @@ interface BookingChatFlowProps {
 }
 
 const toMoney = (value: number): string => `R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`;
+const DEFAULT_SERVICE_IMAGE_URL = '/SERVIÇOS2.png';
 const toBRDateFromDateOnly = (value: string): string => {
   const [year, month, day] = String(value || '').slice(0, 10).split('-');
   if (!year || !month || !day) return value;
@@ -304,6 +305,7 @@ export function BookingChatFlow({
         name: service.name,
         price: Number(service.price || 0),
         duration: parseDurationMinutes(service.duration, 30),
+        image_url: String((service as any)?.image_url || '').trim() || null,
         loyalty_points: Math.max(0, Math.floor(Number(service?.loyalty_points ?? 0))),
         __source_index: index,
       }));
@@ -325,6 +327,7 @@ export function BookingChatFlow({
         name: normalizedName || `Serviço ${index + 1}`,
         price: Number(service?.price || service?.service_price || 0),
         duration: parseDurationMinutes(rawDuration, 30),
+        image_url: String(service?.image_url || service?.service_image_url || '').trim() || null,
         loyalty_points: Math.max(0, Math.floor(Number(service?.loyalty_points ?? 0))),
         __source_index: index,
       };
@@ -1802,21 +1805,54 @@ export function BookingChatFlow({
                   const serviceId = String(service?.id || '');
                   const selected = selectedServiceIds.includes(serviceId);
                   const serviceDuration = Number(service?.duration || 0);
+                  const serviceImageUrl = String(service?.image_url || '').trim() || DEFAULT_SERVICE_IMAGE_URL;
                   return (
-                    <button
-                      key={serviceId}
-                      type="button"
-                      onClick={() => toggleService(serviceId)}
-                      className={`w-full text-left px-3 py-2 rounded-lg border ${selected ? 'bg-emerald-600 border-emerald-500' : 'bg-white/10 border-white/20'}`}
-                    >
-                      <div className="font-semibold">{service.name}</div>
-                      <div className="text-xs text-white/80">{toMoney(Number(service?.price || 0))} • {formatDuration(serviceDuration > 0 ? serviceDuration : 30)}</div>
-                      {Math.max(0, Math.floor(Number(service?.loyalty_points ?? 0))) > 0 ? (
-                        <div className="text-[11px] text-[#E6C78B] mt-0.5 font-semibold">
-                          +{Math.max(0, Math.floor(Number(service?.loyalty_points ?? 0)))} pt(s) fidelidade ao concluir
+                    <div key={serviceId} className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleService(serviceId)}
+                        className={`w-full text-left px-3 py-2.5 rounded-xl border transition-all ${selected ? 'bg-emerald-600 border-emerald-500' : 'bg-white/10 border-white/20 hover:bg-white/15'}`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <img
+                              src={serviceImageUrl}
+                              alt={`Foto de ${service.name}`}
+                              className="h-14 w-14 sm:h-16 sm:w-16 rounded-xl object-cover border border-white/25 shrink-0 bg-black/20"
+                              loading="lazy"
+                              decoding="async"
+                            />
+                            <div className="min-w-0">
+                              <div className="font-semibold text-white truncate">{service.name}</div>
+                              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-white/80">
+                                <span className="font-bold">{toMoney(Number(service?.price || 0))}</span>
+                                <span>•</span>
+                                <span>{formatDuration(serviceDuration > 0 ? serviceDuration : 30)}</span>
+                              </div>
+                              {Math.max(0, Math.floor(Number(service?.loyalty_points ?? 0))) > 0 ? (
+                                <div className="text-[11px] text-[#E6C78B] mt-0.5 font-semibold">
+                                  +{Math.max(0, Math.floor(Number(service?.loyalty_points ?? 0)))} pt(s) fidelidade ao concluir
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                          {selected && (
+                            <span className="text-[10px] font-black px-2 py-1 rounded-full bg-black/30 text-white shrink-0">
+                              SELECIONADO
+                            </span>
+                          )}
                         </div>
-                      ) : null}
-                    </button>
+                      </button>
+                      {selected && (
+                        <button
+                          type="button"
+                          onClick={() => void goNext()}
+                          className="w-full rounded-xl bg-[#E6C78B] px-4 py-2.5 text-sm font-black text-black shadow-lg shadow-black/20 hover:bg-[#f0d69c] transition-colors"
+                        >
+                          Agendar com {selectedServiceIds.length} serviço{selectedServiceIds.length > 1 ? 's' : ''} selecionado{selectedServiceIds.length > 1 ? 's' : ''}
+                        </button>
+                      )}
+                    </div>
                   );
                 })}
               </div>

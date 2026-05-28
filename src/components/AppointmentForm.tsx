@@ -19,11 +19,14 @@ import { ProfessionalSelector } from './ProfessionalSelector';
 import { SubscriptionLimitModal } from './SubscriptionLimitModal';
 import { TimeSlotSelector } from './TimeSlotSelector';
 
+const DEFAULT_SERVICE_IMAGE_URL = '/SERVIÇOS2.png';
+
 interface Service {
   id: string;
   name: string;
   price: number;
   duration: number;
+  image_url?: string | null;
   excluded_professional_ids?: string[] | null;
 }
 
@@ -3150,6 +3153,7 @@ export function AppointmentForm({
                                   const isSelected = selectedCategoryServices.some(service => service.id === subcategory.id);
                                   const totalSelected = (selectedCategoryServices?.length || 0) + (selectedProfessionalSpecificServices?.length || 0);
                                   const isDisabled = !isSelected && totalSelected >= 4;
+                                  const serviceImageUrl = String((subcategory as any).image_url || '').trim() || DEFAULT_SERVICE_IMAGE_URL;
 
                                   return (
                                     <div
@@ -3162,11 +3166,20 @@ export function AppointmentForm({
                                       }}
                                     >
                                       <div className="flex justify-between items-center mb-3">
-                                        <div>
-                                          <h4 className="font-extrabold text-white">{subcategory.name}</h4>
-                                          <p className="text-sm" style={{ color: '#A1A1A1' }}>
-                                            {subcategory.duration}min • R$ {subcategory.price.toFixed(2)}
-                                          </p>
+                                        <div className="flex items-center gap-3 min-w-0">
+                                          <img
+                                            src={serviceImageUrl}
+                                            alt={`Foto de ${subcategory.name}`}
+                                            className="h-16 w-16 sm:h-20 sm:w-20 rounded-xl object-cover border border-white/10 bg-black/20 shrink-0"
+                                            loading="lazy"
+                                            decoding="async"
+                                          />
+                                          <div className="min-w-0">
+                                            <h4 className="font-extrabold text-white truncate">{subcategory.name}</h4>
+                                            <p className="text-sm" style={{ color: '#A1A1A1' }}>
+                                              R$ {subcategory.price.toFixed(2)} • {subcategory.duration}min
+                                            </p>
+                                          </div>
                                         </div>
                                         <div className={`w-6 h-6 border-2 rounded-full flex items-center justify-center ${isSelected ? 'border-green-500 bg-green-500 text-white' : 'border-gray-300 text-gray-400'}`}>
                                           {isSelected ? '✓' : '+'}

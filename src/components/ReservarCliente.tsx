@@ -2782,33 +2782,44 @@ export default function ReservarCliente({
                     {filteredDirectServices.map((service) => {
                       const isSelected = selectedServices.some(s => s.id === service.id);
                       return (
-                        <button
-                          key={service.id}
-                          onClick={() => handleMultipleServiceToggle(service)}
-                          className={`p-4 border-2 rounded-lg transition-all text-left ${isSelected
-                            ? 'border-black bg-gray-100'
-                            : 'border-gray-300 hover:border-black hover:bg-gray-50'
-                            }`}
-                        >
-                          <div className="flex justify-between items-center">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-5 h-5 border-2 rounded flex items-center justify-center ${isSelected
-                                ? 'border-black bg-black'
-                                : 'border-gray-300'
-                                }`}>
-                                {isSelected && (
-                                  <div className="w-2 h-2 bg-white rounded-full"></div>
-                                )}
-                              </div>
-                              <div>
-                                <h4 className="font-semibold text-gray-800">{service.name}</h4>
-                                <p className="text-sm text-gray-600">
-                                  {formatDuration(service.duration)} • {formatPrice(service.price)}
-                                </p>
+                        <div key={service.id} className="space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => handleMultipleServiceToggle(service)}
+                            className={`w-full p-4 border-2 rounded-lg transition-all text-left ${isSelected
+                              ? 'border-black bg-gray-100'
+                              : 'border-gray-300 hover:border-black hover:bg-gray-50'
+                              }`}
+                          >
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-5 h-5 border-2 rounded flex items-center justify-center ${isSelected
+                                  ? 'border-black bg-black'
+                                  : 'border-gray-300'
+                                  }`}>
+                                  {isSelected && (
+                                    <div className="w-2 h-2 bg-white rounded-full"></div>
+                                  )}
+                                </div>
+                                <div>
+                                  <h4 className="font-semibold text-gray-800">{service.name}</h4>
+                                  <p className="text-sm text-gray-600">
+                                    {formatDuration(service.duration)} • {formatPrice(service.price)}
+                                  </p>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </button>
+                          </button>
+                          {isSelected && (
+                            <button
+                              type="button"
+                              onClick={handleMultipleServicesConfirm}
+                              className="w-full rounded-lg bg-black hover:bg-gray-800 text-white font-semibold py-2.5 px-4 transition-colors"
+                            >
+                              Agendar com {selectedServices.length} serviço{selectedServices.length > 1 ? 's' : ''} selecionado{selectedServices.length > 1 ? 's' : ''}
+                            </button>
+                          )}
+                        </div>
                       );
                     })}
                   </div>

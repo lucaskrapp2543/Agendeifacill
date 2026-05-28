@@ -25,6 +25,7 @@ import {
   Settings,
   UserCheck,
   Users,
+  X,
   type LucideIcon
 } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
@@ -66,7 +67,7 @@ interface SidebarProps {
   isDashboardUnlocked?: boolean;
   isSettingsUnlocked?: boolean;
   onDashboardPinModal?: () => void;
-  onSettingsPinModal?: () => void;
+  onSettingsPinModal?: (targetTab?: TabType | null) => void;
   establishment?: any;
   onboardingStep?: number; // Controla o progresso do onboarding
   onBlockedItemClick?: () => void; // Callback quando clicar em item bloqueado
@@ -110,12 +111,25 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [isMobile, setIsMobile] = useState(false);
   const [showMenuScrollHint, setShowMenuScrollHint] = useState(false);
   const [dismissTopWinnerCard, setDismissTopWinnerCard] = useState(false);
+  const [showAdminMenu, setShowAdminMenu] = useState(false);
+  const [pendingAdminMenuAfterPin, setPendingAdminMenuAfterPin] = useState(false);
   const navRef = useRef<HTMLElement | null>(null);
   const isLight = useLightLayout;
 
   useEffect(() => {
     setDismissTopWinnerCard(false);
   }, [topMonthlyWinner?.establishmentId]);
+
+  useEffect(() => {
+    if (!pendingAdminMenuAfterPin || !isSettingsUnlocked) return;
+    setPendingAdminMenuAfterPin(false);
+    setShowAdminMenu(true);
+  }, [pendingAdminMenuAfterPin, isSettingsUnlocked]);
+
+  useEffect(() => {
+    if (isExpanded) return;
+    setShowAdminMenu(false);
+  }, [isExpanded]);
 
   const updateMenuScrollHint = () => {
     const navEl = navRef.current;
@@ -276,6 +290,26 @@ const Sidebar: React.FC<SidebarProps> = ({
     setIsExpanded(false);
   };
 
+  const hasAdminPin =
+    Boolean(establishment?.pin_password) &&
+    String(establishment?.pin_password || '').trim().length > 0 &&
+    String(establishment?.pin_password || '').trim() !== '0000';
+
+  const openAdminMenu = () => {
+    if (onboardingStep < 4) {
+      onBlockedItemClick?.();
+      return;
+    }
+
+    if (hasAdminPin && !isSettingsUnlocked) {
+      setPendingAdminMenuAfterPin(true);
+      onSettingsPinModal?.(activeTab);
+      return;
+    }
+
+    setShowAdminMenu((current) => !current);
+  };
+
   const menuItems = [
     {
       id: 'notifications',
@@ -292,6 +326,13 @@ const Sidebar: React.FC<SidebarProps> = ({
       showBadge: unreadNotifications > 0,
       badgeCount: unreadNotifications,
       disabled: !isNotificationsUnlocked || isItemLocked('notifications')
+    },
+    {
+      id: 'top10-clientes',
+      label: 'Top 5',
+      icon: Crown,
+      onClick: () => handleItemClick(() => onTabChange('top10-clientes')),
+      isActive: activeTab === 'top10-clientes',
     },
     {
       id: 'appointments',
@@ -320,6 +361,13 @@ const Sidebar: React.FC<SidebarProps> = ({
       },
       isActive: activeTab === 'client-page',
       disabled: isItemLocked('client-page')
+    },
+    {
+      id: 'admin-menu',
+      label: 'Menu Admin',
+      icon: Settings,
+      onClick: openAdminMenu,
+      isActive: false,
     },
     {
       id: 'subscribers',
@@ -494,6 +542,14 @@ const Sidebar: React.FC<SidebarProps> = ({
       disabled: isItemLocked('support')
     },
     {
+      id: 'passo-a-passo',
+      label: 'Como funciona o Sistema',
+      icon: Rocket,
+      onClick: () => handleItemClick(() => onTabChange('passo-a-passo')),
+      isActive: activeTab === 'passo-a-passo',
+      disabled: false
+    },
+    {
       id: 'config',
       label: 'Configurações\\Pagina',
       icon: Settings,
@@ -532,6 +588,120 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   ];
 
+  const adminMenuItemIds = new Set([
+    'whatsapp-reminders',
+    'indication',
+    'subscribers',
+    'clients',
+    'service-categories',
+    'products',
+    'professionals',
+    'dashboard',
+    'expenses',
+    'taxes',
+    'config',
+  ]);
+  const adminMenuItems = menuItems.filter((item) => adminMenuItemIds.has(item.id));
+  const mainSidebarItemOrder = new Map(
+    ['notifications', 'top10-clientes', 'appointments', 'client-page', 'admin-menu', 'support', 'passo-a-passo', 'logout'].map((id, index) => [id, index])
+  );
+  const sidebarMenuItems = menuItems
+    .filter((item) => !adminMenuItemIds.has(item.id) && mainSidebarItemOrder.has(item.id))
+    .sort((a, b) => (mainSidebarItemOrder.get(a.id) ?? 999) - (mainSidebarItemOrder.get(b.id) ?? 999));
+  const isAdminTabActive =
+    activeTab === 'whatsapp-reminders' ||
+    activeTab === 'indication' ||
+    activeTab === 'subscribers' ||
+    activeTab === 'clients' ||
+    activeTab === 'service-categories' ||
+    activeTab === 'products' ||
+    activeTab === 'professionals' ||
+    activeTab === 'financial-dashboard' ||
+    activeTab === 'expenses' ||
+    activeTab === 'taxes' ||
+    activeTab === 'settings';
+
+  const adminShortcutItems: Array<{
+    id: string;
+    label: string;
+    description: string;
+    icon: LucideIcon;
+    isActive?: boolean;
+    lockedByPlan?: boolean;
+    showBadge?: boolean;
+    badgeCount?: number | string;
+    onClick: () => void;
+  }> = [
+    {
+      id: 'receber-adiantado',
+      label: 'Receber adiantado',
+      description: 'Atalho para configurar Mercado Pago e pagamentos antecipados.',
+      icon: CreditCard,
+      isActive: isReceberAdiantadoOpen,
+      onClick: () => {
+        if (onboardingStep < 4) {
+          onBlockedItemClick?.();
+          return;
+        }
+        if (!onReceberAdiantadoClick) return;
+        handleItemClick(onReceberAdiantadoClick);
+        setShowAdminMenu(false);
+      },
+    },
+    {
+      id: 'fila-espera',
+      label: 'Fila de Espera',
+      description: 'Controle a fila de atendimento do estabelecimento.',
+      icon: ListOrdered,
+      isActive: activeTab === 'fila-espera',
+      lockedByPlan: isPlanLockedItem('fila-espera'),
+      onClick: () => {
+        if (isItemLocked('fila-espera')) {
+          onBlockedItemClick?.();
+          return;
+        }
+        if (isPlanLockedItem('fila-espera')) {
+          openUpgradeModal();
+          return;
+        }
+        handleItemClick(() => onTabChange('fila-espera'));
+        setShowAdminMenu(false);
+      },
+    },
+    {
+      id: 'placa-barbearia',
+      label: 'Placa Barbearia',
+      description: 'Peça a placa com QR Code para divulgar a barbearia.',
+      icon: CreditCard,
+      isActive: activeTab === 'placa-barbearia',
+      onClick: () => {
+        if (isItemLocked('placa-barbearia')) {
+          onBlockedItemClick?.();
+          return;
+        }
+        handleItemClick(() => onTabChange('placa-barbearia'));
+        setShowAdminMenu(false);
+      },
+    },
+    {
+      id: 'reviews',
+      label: 'Avaliações',
+      description: 'Modere avaliações dos clientes antes de publicar.',
+      icon: Bell,
+      isActive: activeTab === 'reviews',
+      showBadge: pendingReviewsCount > 0,
+      badgeCount: pendingReviewsCount > 99 ? '99+' : pendingReviewsCount,
+      onClick: () => {
+        if (isItemLocked('reviews')) {
+          onBlockedItemClick?.();
+          return;
+        }
+        handleItemClick(() => onTabChange('reviews'));
+        setShowAdminMenu(false);
+      },
+    },
+  ];
+
   // Textos auxiliares (mobile fullscreen) — estilo CNH Digital
   const mobileDescriptions: Record<string, string> = {
     notifications: 'Veja avisos de agendamentos, cancelamentos e compras de assinaturas.',
@@ -553,91 +723,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     config: 'Configurações do sistema e do seu estabelecimento.',
     logout: 'Sair da sua conta neste dispositivo.',
     hours: 'Em breve.',
-  };
-
-  type MobileVariant = 'neutral' | 'brandAmber' | 'brandGreen' | 'brandBlue' | 'brandPurple';
-
-  const getMobileVariant = (id: string): MobileVariant => {
-    if (id === 'whatsapp-reminders') return 'brandAmber';
-    if (id === 'indication') return 'brandGreen';
-    if (id === 'receber-adiantado') return 'brandBlue';
-    if (id === 'fila-espera') return 'brandPurple';
-    if (id === 'placa-barbearia') return 'brandBlue';
-    return 'neutral';
-  };
-
-  const getMobileCardStyles = (variant: MobileVariant, isActiveCard: boolean, isDisabledCard: boolean) => {
-    // Menos arredondado que antes, mas ainda moderno
-    const shape = 'rounded-2xl';
-
-    if (isActiveCard) {
-      // Ativo: card claro (estilo CNH), com texto legível e borda forte
-      return {
-        card: `bg-white border-white ${shape}`,
-        title: 'text-black',
-        desc: 'text-black/60',
-        icon: 'text-black',
-        chevron: 'text-black',
-      };
-    }
-
-    if (isDisabledCard) {
-      return {
-        card: `${isLight ? `bg-gray-100 border-gray-200` : `bg-black border-white/15`} ${shape} opacity-80`,
-        title: isLight ? 'text-gray-500' : 'text-white/50',
-        desc: isLight ? 'text-gray-400' : 'text-white/35',
-        icon: isLight ? 'text-gray-500' : 'text-white/50',
-        chevron: isLight ? 'text-gray-400' : 'text-white/35',
-      };
-    }
-
-    // Base neutra: bem sóbria
-    const neutral = {
-      // No tema escuro, evitar "preto chapado" e usar um card mais premium (tom grafite)
-      card: `${isLight
-        ? 'bg-white border-gray-200 hover:bg-gray-50'
-        : 'bg-gradient-to-r from-[#121318] to-[#0B0B0C] border-white/10 hover:from-[#161922] hover:to-[#0F1115]'
-        } ${shape}`,
-      title: isLight ? 'text-gray-900' : 'text-white',
-      desc: isLight ? 'text-gray-600' : 'text-white/70',
-      icon: isLight ? 'text-gray-900' : 'text-white',
-      chevron: isLight ? 'text-gray-900' : 'text-white',
-    };
-
-    // Variantes com cores “que fazem sentido” no fundo (sem virar carnaval)
-    const variants: Record<MobileVariant, typeof neutral> = {
-      neutral,
-      brandAmber: {
-        card: `bg-gradient-to-r from-amber-300 to-yellow-400 border-amber-200 ${shape} hover:from-amber-400 hover:to-yellow-500`,
-        title: 'text-black',
-        desc: 'text-black/70',
-        icon: 'text-black',
-        chevron: 'text-black',
-      },
-      brandGreen: {
-        card: `bg-gradient-to-r from-green-500 to-emerald-600 border-emerald-400/40 ${shape} hover:from-green-600 hover:to-emerald-700`,
-        title: 'text-white',
-        desc: 'text-white/80',
-        icon: 'text-white',
-        chevron: 'text-white',
-      },
-      brandBlue: {
-        card: `bg-gradient-to-r from-[#009EE3] to-[#0077B6] border-white/10 ${shape} hover:from-[#0088C7] hover:to-[#006AA3]`,
-        title: 'text-white',
-        desc: 'text-white/80',
-        icon: 'text-white',
-        chevron: 'text-white',
-      },
-      brandPurple: {
-        card: `bg-gradient-to-r from-purple-600 to-fuchsia-700 border-white/10 ${shape} hover:from-purple-700 hover:to-fuchsia-800`,
-        title: 'text-white',
-        desc: 'text-white/80',
-        icon: 'text-white',
-        chevron: 'text-white',
-      },
-    };
-
-    return variants[variant] || neutral;
   };
 
   if (isMobile) {
@@ -693,6 +778,21 @@ const Sidebar: React.FC<SidebarProps> = ({
       badge?: number;
     }> = [
       {
+        id: 'notifications',
+        label: 'Notificações',
+        icon: Bell,
+        onClick: () => executeMobileAction('notifications', onNotificationsClick || (() => { })),
+        className: 'from-slate-700 to-slate-950',
+        badge: unreadNotifications > 0 ? unreadNotifications : undefined,
+      },
+      {
+        id: 'top10-clientes',
+        label: 'Top 5',
+        icon: Crown,
+        onClick: () => executeMobileAction('top10-clientes', () => onTabChange('top10-clientes')),
+        className: 'from-amber-500 to-yellow-600',
+      },
+      {
         id: 'appointments',
         label: 'Meus Agendamentos',
         labelLines: ['Meus', 'Agendamentos'],
@@ -707,6 +807,9 @@ const Sidebar: React.FC<SidebarProps> = ({
         onClick: () => executeMobileAction('client-page', () => onTabChange('client-page')),
         className: 'from-sky-500 to-blue-600',
       },
+    ];
+
+    const businessActions: Array<{ id: string; label: string; icon: LucideIcon; onClick: () => void; className: string; badge?: number }> = [
       {
         id: 'subscribers',
         label: 'Meus Assinantes',
@@ -754,19 +857,77 @@ const Sidebar: React.FC<SidebarProps> = ({
         onClick: () => executeMobileAction('placa-barbearia', () => onTabChange('placa-barbearia')),
         className: 'from-blue-500 to-indigo-600',
       },
+      {
+        id: 'reviews',
+        label: 'Avaliações',
+        icon: Bell,
+        onClick: () => executeMobileAction('reviews', () => onTabChange('reviews')),
+        className: 'from-gray-700 to-gray-950',
+        badge: pendingReviewsCount > 0 ? pendingReviewsCount : undefined,
+      },
+      {
+        id: 'clients',
+        label: 'Meus Clientes',
+        icon: Users,
+        onClick: () => executeMobileAction('clients', () => onTabChange('clients')),
+        className: 'from-slate-600 to-slate-800',
+      },
+      {
+        id: 'service-categories',
+        label: 'Meus Serviços',
+        icon: Layers,
+        onClick: () => executeMobileAction('service-categories', () => onTabChange('service-categories')),
+        className: 'from-slate-600 to-slate-800',
+      },
+      {
+        id: 'products',
+        label: 'Meus Produtos',
+        icon: Package,
+        onClick: () => executeMobileAction('products', () => onTabChange('products'), { respectPlanLock: true }),
+        className: 'from-slate-600 to-slate-800',
+      },
+      {
+        id: 'professionals',
+        label: 'Profissionais',
+        icon: UserCheck,
+        onClick: () => executeMobileAction('professionals', () => onTabChange('professionals')),
+        className: 'from-slate-600 to-slate-800',
+      },
+      {
+        id: 'dashboard',
+        label: 'Financeiro',
+        icon: BarChart3,
+        onClick: openFinancialDashboard,
+        className: 'from-slate-600 to-slate-800',
+      },
+      {
+        id: 'expenses',
+        label: 'Despesas',
+        icon: DollarSign,
+        onClick: () => executeMobileAction('expenses', () => onTabChange('expenses')),
+        className: 'from-slate-600 to-slate-800',
+      },
+      {
+        id: 'taxes',
+        label: 'Minhas Taxas',
+        icon: Receipt,
+        onClick: () => executeMobileAction('taxes', () => onTabChange('taxes')),
+        className: 'from-slate-600 to-slate-800',
+      },
+      {
+        id: 'config',
+        label: 'Config',
+        icon: Settings,
+        onClick: openSettings,
+        className: 'from-slate-600 to-slate-800',
+      },
     ];
 
-    const businessActions: Array<{ id: string; label: string; icon: LucideIcon; onClick: () => void; badge?: number }> = [
-      { id: 'reviews', label: 'Avaliações', icon: Bell, onClick: () => executeMobileAction('reviews', () => onTabChange('reviews')), badge: pendingReviewsCount > 0 ? pendingReviewsCount : undefined },
-      { id: 'clients', label: 'Meus Clientes', icon: Users, onClick: () => executeMobileAction('clients', () => onTabChange('clients')) },
-      { id: 'service-categories', label: 'Meus Serviços', icon: Layers, onClick: () => executeMobileAction('service-categories', () => onTabChange('service-categories')) },
-      { id: 'products', label: 'Meus Produtos', icon: Package, onClick: () => executeMobileAction('products', () => onTabChange('products'), { respectPlanLock: true }) },
-      { id: 'professionals', label: 'Profissionais', icon: UserCheck, onClick: () => executeMobileAction('professionals', () => onTabChange('professionals')) },
-      { id: 'dashboard', label: 'Financeiro', icon: BarChart3, onClick: openFinancialDashboard },
-      { id: 'expenses', label: 'Despesas', icon: DollarSign, onClick: () => executeMobileAction('expenses', () => onTabChange('expenses')) },
-      { id: 'taxes', label: 'Minhas Taxas', icon: Receipt, onClick: () => executeMobileAction('taxes', () => onTabChange('taxes')) },
+    const mainMobileMenuActions: Array<{ id: string; label: string; icon: LucideIcon; onClick: () => void; tone?: 'danger'; isActive?: boolean }> = [
+      { id: 'admin-menu', label: 'Menu Admin', icon: Settings, onClick: openAdminMenu, isActive: showAdminMenu || isAdminTabActive },
       { id: 'support', label: 'Falar com Suporte', icon: MessageSquare, onClick: () => executeMobileAction('support', () => onTabChange('support')) },
-      { id: 'config', label: 'Config', icon: Settings, onClick: openSettings },
+      { id: 'passo-a-passo', label: 'Como funciona', icon: Rocket, onClick: () => executeMobileAction('passo-a-passo', () => onTabChange('passo-a-passo')) },
+      { id: 'logout', label: 'Sair', icon: LogOut, onClick: onSignOut, tone: 'danger' },
     ];
 
     const isMobileActionVisuallyLocked = (itemId: string) =>
@@ -976,11 +1137,54 @@ const Sidebar: React.FC<SidebarProps> = ({
                   );
                 })}
               </div>
+
+              <div className="mt-3 space-y-2">
+                {mainMobileMenuActions.filter((action) => action.id === 'admin-menu').map((action) => {
+                  const Icon = action.icon;
+                  const isDanger = action.tone === 'danger';
+                  const isAdminMenuAction = action.id === 'admin-menu';
+                  const isLocked = isAdminMenuAction && hasAdminPin && !isSettingsUnlocked;
+                  return (
+                    <button
+                      key={action.id}
+                      type="button"
+                      onClick={action.onClick}
+                      className={`w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all ${
+                        isDanger
+                          ? 'border-red-500/30 bg-red-600/10 text-red-200 hover:bg-red-600/20'
+                          : action.isActive
+                            ? 'border-white bg-white text-black shadow-lg'
+                            : 'border-white/10 bg-white/5 text-white hover:bg-white/10'
+                      }`}
+                    >
+                      <div className="relative">
+                        <Icon className="h-5 w-5" />
+                        {isLocked && <Lock className="absolute -bottom-1 -right-1 h-3 w-3 text-amber-400" />}
+                      </div>
+                      <span className="flex-1 text-sm font-extrabold">{action.label}</span>
+                      {isAdminMenuAction ? (
+                        <ChevronRight className={`h-4 w-4 opacity-70 transition-transform ${showAdminMenu ? 'rotate-90' : ''}`} />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 opacity-70" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-white/10 bg-[#0b1220] p-3">
-              <p className="text-lg font-extrabold tracking-wide text-white/90">GESTÃO DO NEGÓCIO</p>
-              <div className="mt-3 grid grid-cols-5 gap-2">
+            {showAdminMenu && (
+            <div className="mt-3 rounded-2xl border border-white/10 bg-[#0b1220] p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-lg font-extrabold tracking-wide text-white/90">MENU ADMIN</p>
+                  <p className="text-xs text-white/55 font-semibold">Assinantes, pagamentos, equipe e configurações.</p>
+                </div>
+                <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-extrabold text-white/70">
+                  Admin
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-4 gap-2">
                 {businessActions.map((action) => {
                   const isLocked = isMobileActionVisuallyLocked(action.id);
                   return (
@@ -989,10 +1193,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                       type="button"
                       onClick={action.onClick}
                       aria-disabled={isLocked}
-                      className={`relative rounded-xl border px-1.5 py-2 text-center transition-colors ${
+                      className={`relative rounded-xl border px-1.5 py-2.5 text-center min-h-[72px] transition-all ${
                         isLocked
                           ? 'border-white/5 bg-black/25 text-white/35 grayscale'
-                          : 'border-white/10 bg-white/5 text-white hover:bg-white/10'
+                          : `border-white/10 bg-gradient-to-br ${action.className} text-white hover:scale-[1.02]`
                       }`}
                     >
                       {isLocked && (
@@ -1003,12 +1207,38 @@ const Sidebar: React.FC<SidebarProps> = ({
                           {action.badge > 99 ? '99+' : action.badge}
                         </span>
                       )}
-                      <action.icon className={`h-3.5 w-3.5 mx-auto mb-1 ${isLocked ? 'text-white/30' : 'text-white/90'}`} />
-                      <p className={`text-[8px] font-semibold leading-[1.05] whitespace-normal break-normal ${isLocked ? 'text-white/40' : ''}`}>{action.label}</p>
+                      <action.icon className={`h-4 w-4 mx-auto mb-1.5 ${isLocked ? 'text-white/30' : 'text-white/90'}`} />
+                      <p className={`text-[9px] font-extrabold leading-[1.05] whitespace-normal break-normal ${isLocked ? 'text-white/40' : ''}`}>{action.label}</p>
                     </button>
                   );
                 })}
               </div>
+            </div>
+            )}
+
+            <div className="mt-3 space-y-2">
+              {mainMobileMenuActions.filter((action) => action.id !== 'admin-menu').map((action) => {
+                const Icon = action.icon;
+                const isDanger = action.tone === 'danger';
+                return (
+                  <button
+                    key={action.id}
+                    type="button"
+                    onClick={action.onClick}
+                    className={`w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all ${
+                      isDanger
+                        ? 'border-red-500/30 bg-red-600/10 text-red-200 hover:bg-red-600/20'
+                        : action.isActive
+                          ? 'border-white bg-white text-black shadow-lg'
+                          : 'border-white/10 bg-white/5 text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <Icon className="h-5 w-5" />
+                    <span className="flex-1 text-sm font-extrabold">{action.label}</span>
+                    <ChevronRight className="h-4 w-4 opacity-70" />
+                  </button>
+                );
+              })}
             </div>
             {topMonthlyWinner && !dismissTopWinnerCard ? (
               <div
@@ -1041,17 +1271,10 @@ const Sidebar: React.FC<SidebarProps> = ({
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={onSignOut}
-              className="mt-4 w-full rounded-2xl border border-red-500/40 bg-red-600/10 px-4 py-4 text-center text-red-300 font-extrabold"
-            >
-              Sair do Sistema
-            </button>
           </div>
 
           <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#05070d]/95 backdrop-blur px-3 py-2">
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               <button type="button" onClick={() => executeMobileAction('appointments', () => onTabChange('appointments'))} className={mobileBottomButtonClass('appointments')}>
                 {isMobileActionVisuallyLocked('appointments') && <Lock className="absolute right-2 top-1 h-2.5 w-2.5 text-white/35" />}
                 <Home className="h-4 w-4 mx-auto mb-1" />
@@ -1061,11 +1284,6 @@ const Sidebar: React.FC<SidebarProps> = ({
                 {isMobileActionVisuallyLocked('appointments') && <Lock className="absolute right-2 top-1 h-2.5 w-2.5 text-white/35" />}
                 <Calendar className="h-4 w-4 mx-auto mb-1" />
                 Agenda
-              </button>
-              <button type="button" onClick={() => executeMobileAction('clients', () => onTabChange('clients'))} className={mobileBottomButtonClass('clients')}>
-                {isMobileActionVisuallyLocked('clients') && <Lock className="absolute right-2 top-1 h-2.5 w-2.5 text-white/35" />}
-                <Users className="h-4 w-4 mx-auto mb-1" />
-                Clientes
               </button>
               <button type="button" onClick={openFinancialDashboard} className={mobileBottomButtonClass('dashboard')}>
                 {isMobileActionVisuallyLocked('dashboard') && <Lock className="absolute right-2 top-1 h-2.5 w-2.5 text-white/35" />}
@@ -1180,9 +1398,141 @@ const Sidebar: React.FC<SidebarProps> = ({
         />
       )}
 
+      {showAdminMenu && !isMobile && (
+        <div
+          className={`fixed top-0 bottom-0 z-50 w-80 border-r shadow-2xl ${
+            isLight ? 'bg-white border-gray-200 text-gray-900' : 'bg-[#070a12] border-white/10 text-white'
+          }`}
+          style={{ left: isExpanded ? '16rem' : '4rem' }}
+        >
+          <div className={`flex items-center justify-between px-4 py-4 border-b ${isLight ? 'border-gray-200' : 'border-white/10'}`}>
+            <div>
+              <div className="text-lg font-extrabold">Menu Admin</div>
+              <div className={`text-xs mt-0.5 ${isLight ? 'text-gray-600' : 'text-white/60'}`}>
+                Opções internas liberadas com a senha de 4 dígitos.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAdminMenu(false)}
+              className={`h-9 w-9 rounded-lg flex items-center justify-center ${isLight ? 'hover:bg-gray-100' : 'hover:bg-white/10'}`}
+              title="Fechar Menu Admin"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="p-3 space-y-2 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 86px)' }}>
+            {adminMenuItems.map((item) => {
+              const Icon = item.icon;
+              const isPlanLocked = Boolean((item as any).lockedByPlan);
+              const isOnboardingLocked = !isPlanLocked && isItemLockedByOnboarding(item.id);
+              return (
+                <button
+                  key={`admin-${item.id}`}
+                  type="button"
+                  onClick={() => {
+                    item.onClick();
+                    if (!isPlanLocked && !isOnboardingLocked) {
+                      setShowAdminMenu(false);
+                    }
+                  }}
+                  className={`relative w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
+                    item.isActive
+                      ? isLight
+                        ? 'bg-gray-900 text-white border-gray-900'
+                        : 'bg-white text-black border-white'
+                      : isPlanLocked || isOnboardingLocked
+                        ? isLight
+                          ? 'bg-gray-100 text-gray-500 border-gray-200'
+                          : 'bg-white/5 text-white/45 border-white/10'
+                        : isLight
+                          ? 'bg-white text-gray-900 hover:bg-gray-50 border-gray-200'
+                          : 'bg-white/5 text-white hover:bg-white/10 border-white/10'
+                  }`}
+                >
+                  <div className="relative">
+                    <Icon className="h-5 w-5" />
+                    {(isPlanLocked || isOnboardingLocked) && (
+                      <Lock className="absolute -bottom-1 -right-1 h-3 w-3 text-amber-400" />
+                    )}
+                    {item.showBadge && (
+                      <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center font-bold leading-none">
+                        {item.badgeCount}
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-extrabold truncate">
+                      {item.label}
+                    </div>
+                    <div className={`text-[11px] mt-0.5 ${item.isActive ? 'opacity-70' : isLight ? 'text-gray-500' : 'text-white/50'}`}>
+                      {isPlanLocked ? 'Recurso do plano Diamante' : isOnboardingLocked ? 'Bloqueado pelo passo a passo' : mobileDescriptions[item.id] || 'Abrir opção administrativa'}
+                    </div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 opacity-50" />
+                </button>
+              );
+            })}
+
+            {adminShortcutItems.map((item) => {
+              const Icon = item.icon;
+              const isPlanLocked = Boolean(item.lockedByPlan);
+              const isOnboardingLocked = !isPlanLocked && isItemLockedByOnboarding(item.id);
+              return (
+                <button
+                  key={`admin-shortcut-${item.id}`}
+                  type="button"
+                  onClick={item.onClick}
+                  className={`relative w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
+                    item.isActive
+                      ? isLight
+                        ? 'bg-gray-900 text-white border-gray-900'
+                        : 'bg-white text-black border-white'
+                      : isPlanLocked || isOnboardingLocked
+                        ? isLight
+                          ? 'bg-gray-100 text-gray-500 border-gray-200'
+                          : 'bg-white/5 text-white/45 border-white/10'
+                        : isLight
+                          ? 'bg-white text-gray-900 hover:bg-gray-50 border-gray-200'
+                          : 'bg-white/5 text-white hover:bg-white/10 border-white/10'
+                  }`}
+                >
+                  <div className="relative">
+                    <Icon className="h-5 w-5" />
+                    {(isPlanLocked || isOnboardingLocked) && (
+                      <Lock className="absolute -bottom-1 -right-1 h-3 w-3 text-amber-400" />
+                    )}
+                    {item.showBadge && (
+                      <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center font-bold leading-none">
+                        {item.badgeCount}
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-extrabold truncate">
+                      {item.label}
+                    </div>
+                    <div className={`text-[11px] mt-0.5 ${item.isActive ? 'opacity-70' : isLight ? 'text-gray-500' : 'text-white/50'}`}>
+                      {isPlanLocked ? 'Recurso do plano Diamante' : isOnboardingLocked ? 'Bloqueado pelo passo a passo' : item.description}
+                    </div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 opacity-50" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div
+        aria-hidden="true"
+        className={`hidden md:block flex-shrink-0 transition-all duration-300 ${isExpanded ? 'w-64' : 'w-16'}`}
+      />
+
       <div
         className={`flex fixed left-0 top-0 bottom-0 border-r transition-all duration-300 z-40 flex-col ${isExpanded ? 'w-64' : 'w-16'
-          } md:relative md:z-auto md:flex-shrink-0 ${isLight ? 'bg-white border-gray-200' : 'bg-gradient-to-b from-gray-900 via-black to-black border-gray-800'
+          } ${isLight ? 'bg-white border-gray-200' : 'bg-gradient-to-b from-gray-900 via-black to-black border-gray-800'
           }`}
         style={{ minHeight: '100vh' }}
       >
@@ -1279,91 +1629,14 @@ const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
 
-          {/* Botão Passo a Passo */}
-          <div className="relative">
-            <button
-              onClick={() => handleItemClick(() => onTabChange('top10-clientes'))}
-              className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${activeTab === 'top10-clientes'
-                ? isLight
-                  ? 'bg-gray-900 text-white shadow-md'
-                  : 'bg-white text-black shadow-md'
-                : isLight
-                  ? 'bg-white text-gray-800 hover:bg-gray-100 border border-gray-200'
-                  : 'bg-transparent text-white'
-                }`}
-              title={isExpanded ? '' : 'TOP 5 clientes'}
-            >
-              <Crown
-                className={`h-5 w-5 flex-shrink-0 ${activeTab === 'top10-clientes'
-                  ? isLight
-                    ? 'text-white'
-                    : 'text-black'
-                  : isLight
-                    ? 'text-gray-700'
-                    : 'text-yellow-300'
-                  }`}
-              />
-              {isExpanded && (
-                <span className="text-sm font-medium whitespace-nowrap">
-                  👑 TOP 5 clientes
-                </span>
-              )}
-            </button>
-
-            {!isExpanded && (
-              <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
-                👑 TOP 5 clientes
-              </div>
-            )}
-          </div>
-
-          {/* Botão Passo a Passo */}
-          <div className="relative">
-            <button
-              onClick={() => handleItemClick(() => onTabChange('passo-a-passo'))}
-              className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${activeTab === 'passo-a-passo'
-                ? isLight
-                  ? 'bg-gray-900 text-white shadow-md'
-                  : 'bg-white text-black shadow-md'
-                : isLight
-                  ? 'bg-white text-gray-800 hover:bg-gray-100 border border-gray-200'
-                  : 'bg-transparent text-white'
-                }`}
-              title={isExpanded ? '' : 'Passo a passo'}
-            >
-              <Rocket
-                className={`h-5 w-5 flex-shrink-0 ${activeTab === 'passo-a-passo'
-                  ? isLight
-                    ? 'text-white'
-                    : 'text-black'
-                  : isLight
-                    ? 'text-gray-700'
-                    : 'text-white'
-                  }`}
-              />
-              {isExpanded && (
-                <span className="text-sm font-medium whitespace-nowrap">
-                  Como funciona o Sistema
-                </span>
-              )}
-            </button>
-
-            {/* Tooltip para menu recolhido */}
-            {!isExpanded && (
-              <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
-                Como funciona o Sistema
-              </div>
-            )}
-          </div>
-
-          {menuItems.map((item, index) => {
+          {sidebarMenuItems.map((item, index) => {
             const Icon = item.icon;
             const isIndicationItem = item.id === 'indication';
             const isWhatsappPremiumItem = item.id === 'whatsapp-reminders';
             const isSubscribersItem = item.id === 'subscribers';
             const isAppointmentsItem = item.id === 'appointments';
             const isBookingPageItem = item.id === 'client-page';
-            const isLastItem = index === menuItems.length - 1;
+            const isLastItem = index === sidebarMenuItems.length - 1;
             const isPlanLocked = Boolean((item as any).lockedByPlan);
             const isOnboardingLocked = !isPlanLocked && isItemLockedByOnboarding(item.id);
             const shouldHighlightAppointmentsShortcut =

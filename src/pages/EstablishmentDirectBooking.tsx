@@ -10,6 +10,8 @@ import { createAppointment, signIn, supabase } from '../lib/supabase';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
 import type { Establishment } from '../types/supabase';
 
+const DEFAULT_SERVICE_IMAGE_URL = '/SERVIÇOS2.png';
+
 const EstablishmentDirectBooking: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
@@ -361,6 +363,7 @@ const EstablishmentDirectBooking: React.FC = () => {
           name: sub.name,
           price: Number(sub.price),
           duration: Number(sub.duration || 30),
+          image_url: String(sub?.image_url || '').trim() || null,
           _categoria: c.name,
         }))
       );
@@ -728,15 +731,25 @@ const EstablishmentDirectBooking: React.FC = () => {
 
                     const formattedPrice = service.price ? service.price.toFixed(2).replace('.', ',') : '0,00';
                     const isSelected = selectedService?.id === service.id;
+                    const serviceImageUrl = String(service?.image_url || '').trim() || DEFAULT_SERVICE_IMAGE_URL;
 
                     return (
-                      <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                        <span>
-                          {service.name || 'Serviço'}
-                          {service._categoria ? (
-                            <span className="ml-2 text-xs text-gray-500">({service._categoria})</span>
-                          ) : null}
-                        </span>
+                      <div key={index} className="flex justify-between items-center gap-3 p-3 bg-gray-50 rounded">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <img
+                            src={serviceImageUrl}
+                            alt={`Foto de ${service.name || 'serviço'}`}
+                            className="h-14 w-14 rounded-lg object-cover border border-gray-200 bg-white shrink-0"
+                            loading="lazy"
+                            decoding="async"
+                          />
+                          <span className="min-w-0">
+                            {service.name || 'Serviço'}
+                            {service._categoria ? (
+                              <span className="ml-2 text-xs text-gray-500">({service._categoria})</span>
+                            ) : null}
+                          </span>
+                        </div>
                         <span className="font-semibold text-blue-600">R$ {formattedPrice}</span>
                       </div>
                     );
@@ -810,6 +823,7 @@ const EstablishmentDirectBooking: React.FC = () => {
                         if (!service || typeof service !== 'object') return null;
                         const formattedPrice = service.price ? service.price.toFixed(2).replace('.', ',') : '0,00';
                         const isSelected = selectedService?.id === service.id;
+                        const serviceImageUrl = String(service?.image_url || '').trim() || DEFAULT_SERVICE_IMAGE_URL;
 
                         return (
                           <button
@@ -822,13 +836,22 @@ const EstablishmentDirectBooking: React.FC = () => {
                             className={`w-full p-4 rounded-lg ${isSelected ? 'bg-[#242628] text-white' : 'bg-gray-50 text-gray-900'
                               }`}
                           >
-                            <div className="flex flex-col items-start gap-1">
-                              <span className="text-base font-medium">{service.name}</span>
-                              {service._categoria && (
-                                <span className="text-xs opacity-70">Categoria: {service._categoria}</span>
-                              )}
-                              <span className="text-sm opacity-80">R$ {formattedPrice}</span>
-                              <span className="text-sm opacity-80">{service.duration}min</span>
+                            <div className="flex items-center gap-3 text-left">
+                              <img
+                                src={serviceImageUrl}
+                                alt={`Foto de ${service.name || 'serviço'}`}
+                                className="h-16 w-16 sm:h-20 sm:w-20 rounded-xl object-cover border border-gray-200 bg-white shrink-0"
+                                loading="lazy"
+                                decoding="async"
+                              />
+                              <div className="flex flex-col items-start gap-1">
+                                <span className="text-base font-medium">{service.name}</span>
+                                {service._categoria && (
+                                  <span className="text-xs opacity-70">Categoria: {service._categoria}</span>
+                                )}
+                                <span className="text-sm opacity-80">R$ {formattedPrice}</span>
+                                <span className="text-sm opacity-80">{service.duration}min</span>
+                              </div>
                             </div>
                           </button>
                         );

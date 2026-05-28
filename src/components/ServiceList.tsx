@@ -1,10 +1,13 @@
-import { Calendar, Clock, DollarSign } from 'lucide-react';
+import { Clock, DollarSign } from 'lucide-react';
+
+const DEFAULT_SERVICE_IMAGE_URL = '/SERVIÇOS2.png';
 
 interface Service {
   id: string;
   name: string;
   price: number;
   duration: number;
+  image_url?: string | null;
 }
 
 interface ServiceListProps {
@@ -29,10 +32,18 @@ export function ServiceList({ services, selectedService, onSelectService, onBook
         >
           <div className="flex flex-col space-y-3">
             <div className="flex items-center gap-2">
-              <Calendar className="h-5 w-5" style={{ color: selectedService?.id === service.id ? '#E6C78B' : '#A1A1A1' }} />
-              <span className="font-extrabold text-white">
-                {service.name}
-              </span>
+              <img
+                src={String(service.image_url || '').trim() || DEFAULT_SERVICE_IMAGE_URL}
+                alt={`Foto de ${service.name}`}
+                className="h-14 w-14 rounded-xl object-cover border border-white/10 shrink-0"
+                loading="lazy"
+                decoding="async"
+              />
+              <div className="min-w-0">
+                <span className="font-extrabold text-white block truncate">
+                  {service.name}
+                </span>
+              </div>
             </div>
 
             <div className="flex items-center gap-4">

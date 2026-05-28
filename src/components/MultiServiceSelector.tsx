@@ -1,11 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Clock, DollarSign, Calendar, ChevronDown, Plus, X } from 'lucide-react';
+import { Clock, DollarSign, ChevronDown, Plus, X } from 'lucide-react';
+
+const DEFAULT_SERVICE_IMAGE_URL = '/SERVIÇOS2.png';
 
 interface Service {
   id: string;
   name: string;
   price: number;
   duration: number;
+  image_url?: string | null;
 }
 
 interface MultiServiceSelectorProps {
@@ -71,7 +74,13 @@ export function MultiServiceSelector({
                 className="flex items-center justify-between p-3 bg-primary/10 border border-primary/20 rounded-lg"
               >
                 <div className="flex items-center gap-3">
-                  <Calendar className="h-4 w-4 text-primary" />
+                  <img
+                    src={String(service.image_url || '').trim() || DEFAULT_SERVICE_IMAGE_URL}
+                    alt={`Foto de ${service.name}`}
+                    className="h-12 w-12 rounded-lg object-cover border border-primary/20 bg-white shrink-0"
+                    loading="lazy"
+                    decoding="async"
+                  />
                   <div>
                     <span className="font-medium text-primary">{service.name}</span>
                     <div className="flex items-center gap-4 text-sm text-gray-600">
@@ -150,8 +159,14 @@ export function MultiServiceSelector({
                     className="w-full px-4 py-3 border-b border-gray-200 last:border-b-0"
                   >
                     <div className="flex flex-col space-y-2 mb-2">
-                      <div className="flex items-center gap-2">
-                        <Calendar className="h-5 w-5 text-gray-600" />
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={String(service.image_url || '').trim() || DEFAULT_SERVICE_IMAGE_URL}
+                          alt={`Foto de ${service.name}`}
+                          className="h-16 w-16 rounded-lg object-cover border border-gray-200 bg-gray-50 shrink-0"
+                          loading="lazy"
+                          decoding="async"
+                        />
                         <span className="font-medium text-gray-900">{service.name}</span>
                       </div>
                       <div className="flex items-center gap-4">

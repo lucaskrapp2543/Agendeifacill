@@ -1066,6 +1066,7 @@ export default function BookingPage() {
               name: s.name,
               price: Number(s.price || 0),
               duration: Number(s.duration || 30),
+              image_url: String((s as any)?.image_url || '').trim() || null,
               loyalty_points: Math.max(0, Math.floor(Number(s.loyalty_points ?? 0))),
               category_id: String((s as any)?.category_id || '').trim() || null,
               category_name: String((s as any)?.service_categories?.name || '').trim() || null,

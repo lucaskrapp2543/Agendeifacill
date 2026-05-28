@@ -77,44 +77,75 @@ const PinPasswordModal = ({ onClose, onSubmit, title = 'Digite sua senha', showR
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
-      <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-sm border border-gray-700 relative">
-        <h2 className="text-xl font-bold text-white mb-4">{title}</h2>
-        <form onSubmit={handleSubmit}>
-          <input
-            type="password"
-            maxLength={4}
-            value={pin}
-            onChange={handlePinChange}
-            placeholder="Digite a senha de 4 dígitos"
-            className="w-full px-4 py-2 bg-[#242628] border border-gray-600 rounded-lg mb-4 text-center text-2xl tracking-widest text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-            autoFocus
-          />
-          {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm px-4 py-6">
+      <div className="relative w-full max-w-sm overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b from-[#181c25] via-[#11151c] to-[#090b10] shadow-2xl">
+        <div className="absolute -top-20 left-1/2 h-40 w-40 -translate-x-1/2 rounded-full bg-blue-500/20 blur-3xl" />
+        <div className="relative p-5 sm:p-6">
+          <div className="mb-5 flex items-start gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-blue-400/30 bg-blue-500/15 text-2xl shadow-lg shadow-blue-950/30">
+              🔐
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 inline-flex rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-blue-200">
+                Acesso seguro
+              </div>
+              <h2 className="text-xl font-extrabold leading-tight text-white">{title}</h2>
+              <p className="mt-1 text-xs font-medium leading-relaxed text-white/55">
+                Informe o PIN de 4 dígitos para liberar as opções protegidas.
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit}>
+            <div className="mb-4">
+              <input
+                type="password"
+                maxLength={4}
+                value={pin}
+                onChange={handlePinChange}
+                placeholder="Senha de 4 dígitos"
+                className="w-full rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-4 text-center text-3xl font-black tracking-[0.35em] text-white outline-none placeholder:text-base placeholder:font-semibold placeholder:tracking-wide placeholder:text-white/35 focus:border-blue-400 focus:bg-white/[0.09] focus:ring-4 focus:ring-blue-500/15"
+                autoFocus
+              />
+              <div className="mt-2 flex justify-center gap-2">
+                {[0, 1, 2, 3].map((index) => (
+                  <span
+                    key={index}
+                    className={`h-2 w-2 rounded-full transition-colors ${pin.length > index ? 'bg-blue-400' : 'bg-white/20'}`}
+                  />
+                ))}
+              </div>
+            </div>
+
+          {error && (
+            <p className="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-center text-sm font-semibold text-red-200">
+              {error}
+            </p>
+          )}
           {showRememberOption && (
-            <label className="flex items-center gap-2 mb-4 cursor-pointer">
+            <label className="mb-4 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3 transition-colors hover:bg-white/[0.07]">
               <input
                 type="checkbox"
                 checked={remember}
                 onChange={(e) => setRemember(e.target.checked)}
-                className="rounded border-gray-500 bg-[#242628] text-blue-500 focus:ring-blue-500"
+                className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-blue-500 focus:ring-2 focus:ring-blue-500"
               />
-              <span className="text-sm text-gray-400">
+              <span className="text-sm font-medium leading-relaxed text-white/70">
                 Lembrar neste aparelho — deixar senha pré-preenchida (só clicar em Validar)
               </span>
             </label>
           )}
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2.5">
             <button
               type="submit"
-              className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
+              className="w-full rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 py-3.5 font-extrabold text-white shadow-lg shadow-blue-950/40 transition-all hover:from-blue-500 hover:to-indigo-500 active:scale-[0.99]"
             >
               Validar Senha
             </button>
             <button
               type="button"
               onClick={handleClose}
-              className="w-full bg-gray-700 text-white py-2 rounded-lg hover:bg-gray-600 transition-colors"
+              className="w-full rounded-2xl border border-white/10 bg-white/10 py-3.5 font-extrabold text-white transition-colors hover:bg-white/15"
             >
               Voltar
             </button>
@@ -122,7 +153,7 @@ const PinPasswordModal = ({ onClose, onSubmit, title = 'Digite sua senha', showR
               <button
                 type="button"
                 onClick={handleClearPrefill}
-                className="w-full text-sm text-gray-400 hover:text-gray-300 py-1 transition-colors"
+                className="w-full rounded-xl py-2 text-sm font-semibold text-white/55 transition-colors hover:bg-white/5 hover:text-white/80"
               >
                 Zerar preenchimento
               </button>
@@ -131,12 +162,13 @@ const PinPasswordModal = ({ onClose, onSubmit, title = 'Digite sua senha', showR
               href="https://wa.link/p958kx"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-center text-blue-400 hover:text-blue-300 transition-colors"
+              className="rounded-xl py-2 text-center font-semibold text-blue-300 transition-colors hover:bg-blue-500/10 hover:text-blue-200"
             >
               Esqueci minha senha
             </a>
           </div>
         </form>
+        </div>
       </div>
     </div>
   );

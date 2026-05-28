@@ -112,6 +112,7 @@ interface Service {
   name: string;
   price: number;
   duration: number;
+  image_url?: string | null;
 }
 
 interface CustomAmenity {
@@ -309,6 +310,7 @@ interface ServiceSubcategory {
   name: string;
   price: number;
   duration: number;
+  image_url?: string | null;
   /** Pontos somados ao concluir (não assinante); padrão 0 se ausente no banco */
   loyalty_points?: number;
   is_active: boolean;
@@ -4640,11 +4642,72 @@ const EstablishmentDashboard = () => {
   const [showDashboardPinModal, setShowDashboardPinModal] = useState(false);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
 
+  const getProfessionalAgendaUnlockCacheKey = (professionalId: string) =>
+    establishment?.id
+      ? `professional_agenda_unlocked_${establishment.id}_${String(professionalId || '').trim()}_${user?.id || 'anon'}`
+      : '';
+
+  const getProfessionalAgendaPinValue = (professionalId: string) =>
+    String(
+      establishment?.professionals_pins?.find((p) => String(p?.professional_id || '').trim() === String(professionalId || '').trim())?.pin || ''
+    ).trim();
+
+  const rememberProfessionalAgendaUnlock = (professionalId: string) => {
+    const cacheKey = getProfessionalAgendaUnlockCacheKey(professionalId);
+    const professionalPin = getProfessionalAgendaPinValue(professionalId);
+    if (!cacheKey || !/^\d{4}$/.test(professionalPin) || professionalPin === '0000') return;
+    try {
+      localStorage.setItem(cacheKey, professionalPin);
+    } catch {
+      // Cache local opcional; se o navegador bloquear, apenas pede senha de novo.
+    }
+  };
+
+  const clearProfessionalAgendaUnlockCache = (professionalId: string) => {
+    const cacheKey = getProfessionalAgendaUnlockCacheKey(professionalId);
+    if (!cacheKey) return;
+    try {
+      localStorage.removeItem(cacheKey);
+    } catch {
+      // Cache local opcional.
+    }
+  };
+
   // Chaves localStorage para "Lembrar neste aparelho" — só pré-preencher a senha (usuário ainda clica em Validar)
   const pinPrefillDashboardKey = (id: string) => `pin_prefill_dashboard_${String(id)}`;
   const pinPrefillSettingsKey = (id: string) => `pin_prefill_settings_${String(id)}`;
   const pinSettingsPrefill = (() => { try { return establishment?.id ? (localStorage.getItem(pinPrefillSettingsKey(establishment.id)) ?? '') : ''; } catch { return ''; } })();
   const pinDashboardPrefill = (() => { try { return establishment?.id ? (localStorage.getItem(pinPrefillDashboardKey(establishment.id)) ?? '') : ''; } catch { return ''; } })();
+
+  useEffect(() => {
+    if (!establishment?.id || !Array.isArray(professionals) || professionals.length === 0) {
+      setUnlockedAppointmentsByProfessional({});
+      return;
+    }
+
+    const nextUnlocked: Record<string, boolean> = {};
+    professionals.forEach((professional) => {
+      const professionalId = String(professional?.id || '').trim();
+      if (!professionalId || !Boolean((professional as any)?.lock_appointments_with_owner_pin)) return;
+
+      const professionalPin = getProfessionalAgendaPinValue(professionalId);
+      if (!/^\d{4}$/.test(professionalPin) || professionalPin === '0000') return;
+
+      const cacheKey = getProfessionalAgendaUnlockCacheKey(professionalId);
+      if (!cacheKey) return;
+
+      try {
+        const savedPin = String(localStorage.getItem(cacheKey) || '').trim();
+        if (savedPin === professionalPin) {
+          nextUnlocked[professionalId] = true;
+        }
+      } catch {
+        // Cache local opcional.
+      }
+    });
+
+    setUnlockedAppointmentsByProfessional(nextUnlocked);
+  }, [establishment?.id, establishment?.professionals_pins, professionals, user?.id]);
 
   // Estados para valores financeiros iniciais
   // Estados para edição do valor bruto por mês
@@ -4976,12 +5039,14 @@ const EstablishmentDashboard = () => {
   const [selectedSubcategoryForLabel, setSelectedSubcategoryForLabel] = useState<ServiceSubcategory | null>(null);
   const [subcategoryLabelDraft, setSubcategoryLabelDraft] = useState({ name: '', color: '#111827' });
   const [isEditingSubcategoryCustomDuration, setIsEditingSubcategoryCustomDuration] = useState(false);
+  const [uploadingServicePhotoKey, setUploadingServicePhotoKey] = useState<string | null>(null);
   const [newSubcategory, setNewSubcategory] = useState({
     name: '',
     price: '',
     duration: '30',
     customDuration: '',
     loyalty_points: '0',
+    image_url: '',
   });
 
   // Estados para controlar visibilidade dos tutoriais
@@ -5313,6 +5378,195 @@ const EstablishmentDashboard = () => {
       .getPublicUrl(filePath);
 
     return publicUrl;
+  };
+
+  const prepareServiceImageForUpload = async (file: File): Promise<File | null> => {
+    if (file.size > 20 * 1024 * 1024) {
+      toast('A imagem deve ter no máximo 20MB.', 'error');
+      return null;
+    }
+
+    const extFromName = String(file.name || '').split('.').pop()?.toLowerCase();
+    const typeLower = String(file.type || '').toLowerCase();
+    const isHeic =
+      typeLower === 'image/heic' ||
+      typeLower === 'image/heif' ||
+      extFromName === 'heic' ||
+      extFromName === 'heif';
+    const imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif', 'bmp', 'tiff', 'tif', 'jfif'];
+    const seemsImage = typeLower.startsWith('image/') || imageExtensions.includes(String(extFromName || ''));
+
+    if (!seemsImage) {
+      toast('Arquivo inválido. Envie uma imagem (JPG, PNG, WebP, HEIC, etc).', 'error');
+      return null;
+    }
+
+    let inputFile = file;
+    if (isHeic) {
+      try {
+        const mod: any = await import('heic2any');
+        const heic2any = mod?.default || mod;
+        const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
+        const blob: Blob = Array.isArray(out) ? out[0] : out;
+        inputFile = new File([blob], `${uuidv4()}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      } catch (e) {
+        console.warn('Falha ao converter HEIC/HEIF da foto do serviço:', e);
+        toast('Esse formato (HEIC) não foi suportado aqui. Envie em JPG/PNG.', 'error');
+        return null;
+      }
+    }
+
+    try {
+      const objectUrl = URL.createObjectURL(inputFile);
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = objectUrl;
+      });
+
+      const targetWidth = 600;
+      const targetHeight = 400;
+      const canvas = document.createElement('canvas');
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        URL.revokeObjectURL(objectUrl);
+        return inputFile;
+      }
+
+      const scale = Math.max(targetWidth / Math.max(1, image.width), targetHeight / Math.max(1, image.height));
+      const drawWidth = image.width * scale;
+      const drawHeight = image.height * scale;
+      const drawX = (targetWidth - drawWidth) / 2;
+      const drawY = (targetHeight - drawHeight) / 2;
+
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(0, 0, targetWidth, targetHeight);
+      ctx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+      URL.revokeObjectURL(objectUrl);
+
+      let quality = 0.78;
+      let outputBlob: Blob | null = null;
+      for (let i = 0; i < 5; i += 1) {
+        outputBlob = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob((blob) => resolve(blob), 'image/webp', quality)
+        );
+        if (!outputBlob) break;
+        if (outputBlob.size <= 250 * 1024) break;
+        quality = Math.max(0.58, quality - 0.06);
+      }
+
+      if (!outputBlob) return inputFile;
+      return new File([outputBlob], `${uuidv4()}_${Date.now()}.webp`, { type: 'image/webp' });
+    } catch (error) {
+      console.warn('Falha ao otimizar foto do serviço no cliente:', error);
+      return inputFile;
+    }
+  };
+
+  const uploadServiceImageToStorage = async (file: File, serviceKey: string): Promise<string | null> => {
+    if (!establishment?.id) return null;
+
+    const fileToUpload = await prepareServiceImageForUpload(file);
+    if (!fileToUpload) return null;
+
+    const safeServiceKey = String(serviceKey || 'service')
+      .replace(/[^a-zA-Z0-9_-]/g, '')
+      .slice(0, 80) || 'service';
+    const fileName = `${safeServiceKey}_${uuidv4()}_${Date.now()}.webp`;
+    const filePath = `${establishment.id}/service-photos/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('establishment-assets')
+      .upload(filePath, fileToUpload, {
+        contentType: fileToUpload.type || 'image/webp',
+        cacheControl: '31536000',
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error('Erro no upload da foto do serviço:', uploadError);
+      const details = formatSupabaseErrorDetails(uploadError);
+      const lower = String(details || '').toLowerCase();
+      let friendlyHint = '';
+      if (lower.includes('row-level security') || lower.includes('permission') || lower.includes('not authorized')) {
+        friendlyHint = 'Sem permissão para gravar no Storage.';
+      } else if (lower.includes('bucket') && lower.includes('not found')) {
+        friendlyHint = 'Bucket de imagens não encontrado.';
+      } else if (lower.includes('payload') || lower.includes('entity too large') || lower.includes('413')) {
+        friendlyHint = 'Arquivo muito grande para upload.';
+      } else if (lower.includes('network') || lower.includes('failed to fetch')) {
+        friendlyHint = 'Falha de conexão durante o upload.';
+      }
+      toast(
+        `Erro ao fazer upload da foto do serviço${friendlyHint ? `: ${friendlyHint}` : ''}${details ? ` | ${details}` : ''}`,
+        'error'
+      );
+      return null;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('establishment-assets')
+      .getPublicUrl(filePath);
+
+    return publicUrl;
+  };
+
+  const handleNewSubcategoryImageFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !establishment?.id) return;
+
+    setUploadingServicePhotoKey('new-subcategory');
+    try {
+      const uploadedUrl = await uploadServiceImageToStorage(file, `new-${selectedCategoryForSubcategory || 'service'}`);
+      if (uploadedUrl) {
+        setNewSubcategory((prev) => ({ ...prev, image_url: uploadedUrl }));
+        toast('Foto do serviço enviada com sucesso!', 'success');
+      }
+    } finally {
+      setUploadingServicePhotoKey(null);
+      event.target.value = '';
+    }
+  };
+
+  const handleEditSubcategoryImageFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !editingSubcategory || !establishment?.id) return;
+
+    const uploadKey = `edit-${editingSubcategory.id}`;
+    setUploadingServicePhotoKey(uploadKey);
+    try {
+      const uploadedUrl = await uploadServiceImageToStorage(file, editingSubcategory.id);
+      if (uploadedUrl) {
+        setEditingSubcategory((prev) => prev ? { ...prev, image_url: uploadedUrl } : prev);
+        toast('Foto do serviço enviada com sucesso!', 'success');
+      }
+    } finally {
+      setUploadingServicePhotoKey(null);
+      event.target.value = '';
+    }
+  };
+
+  const handleLegacyServiceImageFileChange = async (serviceId: string, event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !establishment?.id) return;
+
+    const uploadKey = `legacy-${serviceId}`;
+    setUploadingServicePhotoKey(uploadKey);
+    try {
+      const uploadedUrl = await uploadServiceImageToStorage(file, serviceId);
+      if (uploadedUrl) {
+        setServicesWithPrices((prev) => prev.map((service) =>
+          String(service.id) === String(serviceId) ? { ...service, image_url: uploadedUrl } : service
+        ));
+        toast('Foto do serviço enviada com sucesso! Clique em salvar para confirmar.', 'success');
+      }
+    } finally {
+      setUploadingServicePhotoKey(null);
+      event.target.value = '';
+    }
   };
 
   const handleNewProductImageFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -6975,6 +7229,7 @@ const EstablishmentDashboard = () => {
           name: String(item?.name || ''),
           price: Number(item?.price || 0),
           duration: Number(item?.duration || 30),
+          image_url: String(item?.image_url || '').trim() || null,
           loyalty_points: Math.max(0, Math.floor(Number((item as any)?.loyalty_points ?? 0))),
           is_active: Boolean(item?.is_active),
           display_order: Number(item?.display_order || 0),
@@ -7330,6 +7585,19 @@ const EstablishmentDashboard = () => {
         .map((s: any) => Number(s?.display_order ?? -1))
         .filter((n: number) => Number.isFinite(n));
       const displayOrder = orders.length ? Math.max(...orders) + 1 : 0;
+      const imageUrl = String(newSubcategory.image_url || '').trim();
+      const insertPayload: any = {
+        category_id: selectedCategoryForSubcategory,
+        name: nomeServico,
+        price: price,
+        duration: duration,
+        loyalty_points: loyaltyPts,
+        is_active: true,
+        display_order: displayOrder,
+      };
+      if (imageUrl) {
+        insertPayload.image_url = imageUrl;
+      }
 
       // Atualizar sessão do Supabase antes de inserir (resolve problemas no iPhone/mobile)
       try {
@@ -7347,20 +7615,31 @@ const EstablishmentDashboard = () => {
 
       const { data: insertedSubcategory, error } = await supabase
         .from('service_subcategories')
-        .insert({
-          category_id: selectedCategoryForSubcategory,
-          name: nomeServico,
-          price: price,
-          duration: duration,
-          loyalty_points: loyaltyPts,
-          is_active: true,
-          display_order: displayOrder
-        })
+        .insert(insertPayload)
         .select('*')
         .single();
 
       let effectiveInsertedSubcategory = insertedSubcategory;
       let effectiveError = error;
+
+      if (effectiveError && imageUrl) {
+        const msg = `${String((effectiveError as any)?.message || '')} ${String((effectiveError as any)?.details || '')}`.toLowerCase();
+        const missingImageColumn = msg.includes('image_url') && (msg.includes('column') || msg.includes('schema') || msg.includes('does not exist'));
+        if (missingImageColumn) {
+          const fallbackPayload = { ...insertPayload };
+          delete fallbackPayload.image_url;
+          const { data: insertedWithoutImage, error: imageFallbackError } = await supabase
+            .from('service_subcategories')
+            .insert(fallbackPayload)
+            .select('*')
+            .single();
+          effectiveInsertedSubcategory = insertedWithoutImage;
+          effectiveError = imageFallbackError as any;
+          if (!imageFallbackError) {
+            toast('Serviço salvo, mas falta aplicar a migration image_url para vincular a foto.', 'error');
+          }
+        }
+      }
 
       if (effectiveError) {
         console.error('❌ Erro ao adicionar subcategoria:', effectiveError);
@@ -7389,15 +7668,7 @@ const EstablishmentDashboard = () => {
             // Tentar inserir novamente
             const { data: insertedRetry, error: retryError } = await supabase
               .from('service_subcategories')
-              .insert({
-                category_id: selectedCategoryForSubcategory,
-                name: nomeServico,
-                price: price,
-                duration: duration,
-                loyalty_points: loyaltyPts,
-                is_active: true,
-                display_order: displayOrder
-              })
+              .insert(insertPayload)
               .select('*')
               .single();
 
@@ -7435,7 +7706,7 @@ const EstablishmentDashboard = () => {
         }
       }
 
-      setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0' });
+      setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0', image_url: '' });
       setShowAddSubcategoryModal(false);
       setSelectedCategoryForSubcategory(null);
 
@@ -7671,28 +7942,36 @@ const EstablishmentDashboard = () => {
     }
 
     try {
+      const imageUrl = String((editingSubcategory as any).image_url || '').trim();
+      const updatePayload: any = {
+        name: editingSubcategory.name,
+        price: price,
+        duration: duration,
+        loyalty_points: loyaltyPts,
+        image_url: imageUrl || null,
+      };
       let { error } = await supabase
         .from('service_subcategories')
-        .update({
-          name: editingSubcategory.name,
-          price: price,
-          duration: duration,
-          loyalty_points: loyaltyPts,
-        })
+        .update(updatePayload)
         .eq('id', editingSubcategory.id);
 
       if (error) {
         const msg = String((error as any)?.message || '').toLowerCase();
-        if (msg.includes('loyalty_points') && (msg.includes('column') || msg.includes('schema'))) {
+        if (
+          (msg.includes('loyalty_points') || msg.includes('image_url')) &&
+          (msg.includes('column') || msg.includes('schema') || msg.includes('does not exist'))
+        ) {
+          const fallbackPayload = { ...updatePayload };
+          if (msg.includes('loyalty_points')) delete fallbackPayload.loyalty_points;
+          if (msg.includes('image_url')) delete fallbackPayload.image_url;
           const { error: err2 } = await supabase
             .from('service_subcategories')
-            .update({
-              name: editingSubcategory.name,
-              price: price,
-              duration: duration,
-            })
+            .update(fallbackPayload)
             .eq('id', editingSubcategory.id);
           error = err2 as any;
+          if (!err2 && msg.includes('image_url') && imageUrl) {
+            toast('Serviço salvo, mas falta aplicar a migration image_url para vincular a foto.', 'error');
+          }
         }
       }
 
@@ -7711,6 +7990,7 @@ const EstablishmentDashboard = () => {
               name: editingSubcategory.name,
               price: price,
               duration: duration,
+              image_url: imageUrl || null,
               loyalty_points: loyaltyPts,
             }
             : sub
@@ -8925,6 +9205,7 @@ const EstablishmentDashboard = () => {
           delete next[professionalId];
           return next;
         });
+        clearProfessionalAgendaUnlockCache(professionalId);
       }
 
       toast.success(
@@ -9630,12 +9911,14 @@ const EstablishmentDashboard = () => {
         const name = String(service?.name || '').trim();
         const price = Number(service?.price || 0);
         const duration = Number(service?.duration || 0);
+        const imageUrl = String((service as any)?.image_url || '').trim();
 
         return {
           id,
           name,
           price: Number.isFinite(price) && price > 0 ? price : 0,
           duration: Number.isFinite(duration) && duration > 0 ? duration : 30,
+          image_url: imageUrl || null,
         };
       })
       .filter((service) => service.name.length > 0 && service.price > 0);
@@ -9710,7 +9993,8 @@ const EstablishmentDashboard = () => {
           id: s.id,
           name: s.name.trim(),
           price: Number(s.price),
-          duration: Number(s.duration)
+          duration: Number(s.duration),
+          image_url: String((s as any).image_url || '').trim() || null
         })).filter(s => s.name && s.price > 0),
         profile_image: profileImage,
         custom_photo_1: customPhoto1,
@@ -9816,7 +10100,8 @@ const EstablishmentDashboard = () => {
           id: s.id,
           name: s.name.trim(),
           price: Number(s.price),
-          duration: Number(s.duration)
+          duration: Number(s.duration),
+          image_url: String((s as any).image_url || '').trim() || null
         })).filter(s => s.name && s.price > 0),
         profile_image: profileImage,
         affiliate_link: affiliateLink.trim(),
@@ -10003,14 +10288,24 @@ const EstablishmentDashboard = () => {
       setAppointments((prev) =>
         prev.map((apt) =>
           String(apt.id) === String(appointmentId)
-            ? { ...apt, status: 'cancelled' as Appointment['status'] }
+            ? {
+              ...apt,
+              status: 'cancelled' as Appointment['status'],
+              cancellation_source: CANCELLATION_SOURCE.ESTABLISHMENT_STAFF,
+              cancellation_detail: 'Cancelado pelo painel do estabelecimento.',
+            } as Appointment
             : apt
         )
       );
       setMonthlyAppointments((prev) =>
         prev.map((apt) =>
           String(apt.id) === String(appointmentId)
-            ? { ...apt, status: 'cancelled' as Appointment['status'] }
+            ? {
+              ...apt,
+              status: 'cancelled' as Appointment['status'],
+              cancellation_source: CANCELLATION_SOURCE.ESTABLISHMENT_STAFF,
+              cancellation_detail: 'Cancelado pelo painel do estabelecimento.',
+            } as Appointment
             : apt
         )
       );
@@ -11212,6 +11507,8 @@ Estamos te aguardando!`;
         'professional_tip_amount',
         'is_loyalty_reward',
         'manual_status_override',
+        'cancellation_source',
+        'cancellation_detail',
       ];
       const buildAppointmentSelect = (missingColumns: Set<string>) =>
         appointmentSelectColumns.filter((col) => !missingColumns.has(col)).join(', ');
@@ -17472,6 +17769,7 @@ Estamos te aguardando!`;
         break;
       case 'unlock_appointments_view':
         setUnlockedAppointmentsByProfessional((prev) => ({ ...prev, [professionalId]: true }));
+        rememberProfessionalAgendaUnlock(professionalId);
         break;
       case 'unlock_financial_view':
         setUnlockedFinancialByProfessional((prev) => ({ ...prev, [professionalId]: true }));
@@ -17530,6 +17828,7 @@ Estamos te aguardando!`;
     if (!hasValidProfessionalPin) {
       // Compatibilidade com dados antigos: se a trava estiver ativa sem senha válida, libera para não travar a operação.
       setUnlockedAppointmentsByProfessional((prev) => ({ ...prev, [professionalId]: true }));
+      clearProfessionalAgendaUnlockCache(professionalId);
       toast.error('Este profissional não possui senha válida. Configure uma senha de 4 dígitos para proteger a agenda.');
       return;
     }
@@ -24774,8 +25073,8 @@ Estamos te aguardando!`;
           isDashboardUnlocked={isDashboardUnlocked}
           isSettingsUnlocked={isSettingsUnlocked}
           onDashboardPinModal={() => setShowDashboardPinModal(true)}
-          onSettingsPinModal={() => {
-            setPendingTabAfterPin('settings');
+          onSettingsPinModal={(targetTab) => {
+            setPendingTabAfterPin(targetTab === null ? activeTab : targetTab || 'settings');
             setShowPinModal(true);
           }}
           establishment={establishment}
@@ -36895,7 +37194,32 @@ Estamos te aguardando!`;
 
                       <div className="space-y-2">
                         {servicesWithPrices.map((service, index) => (
-                          <div key={service.id} className="grid grid-cols-1 md:grid-cols-[1fr_120px_140px_auto] gap-2 items-center">
+                          <div key={service.id} className="grid grid-cols-1 md:grid-cols-[96px_1fr_120px_140px_auto] gap-2 items-center">
+                            <div className="flex items-center gap-2">
+                              {(service as any).image_url ? (
+                                <img
+                                  src={String((service as any).image_url)}
+                                  alt={`Foto de ${service.name || 'serviço'}`}
+                                  className="h-16 w-20 rounded-lg object-cover border border-amber-200 bg-white"
+                                  loading="lazy"
+                                  decoding="async"
+                                />
+                              ) : (
+                                <div className="h-16 w-20 rounded-lg border border-dashed border-amber-300 bg-white flex items-center justify-center">
+                                  <ImageIcon className="h-5 w-5 text-amber-700/60" />
+                                </div>
+                              )}
+                              <label className={`md:hidden px-3 py-2 rounded-lg text-xs font-bold text-white ${uploadingServicePhotoKey === `legacy-${service.id}` ? 'bg-gray-500' : 'bg-amber-700'}`}>
+                                Foto
+                                <input
+                                  type="file"
+                                  accept="image/*,image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif"
+                                  onChange={(e) => handleLegacyServiceImageFileChange(service.id, e)}
+                                  disabled={uploadingServicePhotoKey === `legacy-${service.id}`}
+                                  className="hidden"
+                                />
+                              </label>
+                            </div>
                             <input
                               type="text"
                               value={service.name}
@@ -36923,13 +37247,34 @@ Estamos te aguardando!`;
                                 </option>
                               ))}
                             </select>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveService(service.id)}
-                              className="px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors"
-                            >
-                              Excluir
-                            </button>
+                            <div className="flex flex-col gap-1">
+                              <label className={`hidden md:inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-bold text-white ${uploadingServicePhotoKey === `legacy-${service.id}` ? 'bg-gray-500 cursor-wait' : 'bg-amber-700 hover:bg-amber-800 cursor-pointer'}`}>
+                                {uploadingServicePhotoKey === `legacy-${service.id}` ? 'Enviando...' : ((service as any).image_url ? 'Trocar foto' : 'Foto')}
+                                <input
+                                  type="file"
+                                  accept="image/*,image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif"
+                                  onChange={(e) => handleLegacyServiceImageFileChange(service.id, e)}
+                                  disabled={uploadingServicePhotoKey === `legacy-${service.id}`}
+                                  className="hidden"
+                                />
+                              </label>
+                              {(service as any).image_url && (
+                                <button
+                                  type="button"
+                                  onClick={() => setServicesWithPrices((prev) => prev.map((item) => item.id === service.id ? { ...item, image_url: null } : item))}
+                                  className="px-3 py-1 rounded-lg border border-red-200 bg-white text-red-700 text-xs font-semibold hover:bg-red-50 transition-colors"
+                                >
+                                  Remover foto
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveService(service.id)}
+                                className="px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors"
+                              >
+                                Excluir
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -37239,6 +37584,15 @@ Estamos te aguardando!`;
                                     </button>
                                   </div>
                                 </div>
+                                {(subcategory as any).image_url && (
+                                  <img
+                                    src={String((subcategory as any).image_url)}
+                                    alt={`Foto de ${subcategory.name}`}
+                                    className="mb-3 h-28 w-full rounded-xl object-cover border border-gray-200 bg-white"
+                                    loading="lazy"
+                                    decoding="async"
+                                  />
+                                )}
                                 <div className="space-y-1">
                                   <div className="flex justify-between">
                                     <span className="text-sm text-black">Preço:</span>
@@ -39437,7 +39791,7 @@ Estamos te aguardando!`;
                 <h3 className="text-lg font-semibold text-gray-900">Adicionar Serviço</h3>
                 <button
                   onClick={() => {
-                    setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0' });
+                    setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0', image_url: '' });
                     setShowAddSubcategoryModal(false);
                     setSelectedCategoryForSubcategory(null);
                   }}
@@ -39522,11 +39876,55 @@ Estamos te aguardando!`;
                     Padrão 0: não mostra pontos no booking. Aumente se quiser exibir no agendamento público (não assinante).
                   </p>
                 </div>
+                <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                  <label className="block text-sm font-semibold text-gray-800 mb-2">
+                    Foto do serviço <span className="font-normal text-gray-500">(opcional)</span>
+                  </label>
+                  <div className="flex items-center gap-3">
+                    {newSubcategory.image_url ? (
+                      <img
+                        src={newSubcategory.image_url}
+                        alt="Prévia da foto do serviço"
+                        className="h-20 w-28 rounded-lg object-cover border border-gray-200 bg-white"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    ) : (
+                      <div className="h-20 w-28 rounded-lg border border-dashed border-gray-300 bg-white flex items-center justify-center">
+                        <ImageIcon className="h-6 w-6 text-gray-400" />
+                      </div>
+                    )}
+                    <div className="flex-1 space-y-2">
+                      <label className={`inline-flex items-center justify-center px-3 py-2 rounded-lg text-sm font-bold text-white ${uploadingServicePhotoKey === 'new-subcategory' ? 'bg-gray-500 cursor-wait' : 'bg-black hover:bg-gray-800 cursor-pointer'}`}>
+                        {uploadingServicePhotoKey === 'new-subcategory' ? 'Enviando...' : 'Adicionar foto'}
+                        <input
+                          type="file"
+                          accept="image/*,image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif"
+                          onChange={handleNewSubcategoryImageFileChange}
+                          disabled={uploadingServicePhotoKey === 'new-subcategory'}
+                          className="hidden"
+                        />
+                      </label>
+                      {newSubcategory.image_url && (
+                        <button
+                          type="button"
+                          onClick={() => setNewSubcategory((prev) => ({ ...prev, image_url: '' }))}
+                          className="ml-2 text-xs font-semibold text-red-600 hover:text-red-700"
+                        >
+                          Remover
+                        </button>
+                      )}
+                      <p className="text-[11px] text-gray-500">
+                        A imagem será otimizada automaticamente para carregar rápido no Booking.
+                      </p>
+                    </div>
+                  </div>
+                </div>
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
                     onClick={() => {
-                      setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0' });
+                      setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0', image_url: '' });
                       setShowAddSubcategoryModal(false);
                       setSelectedCategoryForSubcategory(null);
                     }}
@@ -39918,6 +40316,50 @@ Estamos te aguardando!`;
                   <p className="text-[11px] text-gray-500 mt-1">
                     Use 0 para não exibir pontos no booking. Valores maiores que 0 somam ao concluir (não assinante).
                   </p>
+                </div>
+                <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                  <label className="block text-sm font-semibold text-gray-800 mb-2">
+                    Foto do serviço <span className="font-normal text-gray-500">(opcional)</span>
+                  </label>
+                  <div className="flex items-center gap-3">
+                    {(editingSubcategory as any).image_url ? (
+                      <img
+                        src={String((editingSubcategory as any).image_url)}
+                        alt="Prévia da foto do serviço"
+                        className="h-20 w-28 rounded-lg object-cover border border-gray-200 bg-white"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    ) : (
+                      <div className="h-20 w-28 rounded-lg border border-dashed border-gray-300 bg-white flex items-center justify-center">
+                        <ImageIcon className="h-6 w-6 text-gray-400" />
+                      </div>
+                    )}
+                    <div className="flex-1 space-y-2">
+                      <label className={`inline-flex items-center justify-center px-3 py-2 rounded-lg text-sm font-bold text-white ${uploadingServicePhotoKey === `edit-${editingSubcategory.id}` ? 'bg-gray-500 cursor-wait' : 'bg-black hover:bg-gray-800 cursor-pointer'}`}>
+                        {uploadingServicePhotoKey === `edit-${editingSubcategory.id}` ? 'Enviando...' : 'Adicionar foto'}
+                        <input
+                          type="file"
+                          accept="image/*,image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif"
+                          onChange={handleEditSubcategoryImageFileChange}
+                          disabled={uploadingServicePhotoKey === `edit-${editingSubcategory.id}`}
+                          className="hidden"
+                        />
+                      </label>
+                      {(editingSubcategory as any).image_url && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingSubcategory((prev) => prev ? ({ ...prev, image_url: null } as ServiceSubcategory) : prev)}
+                          className="ml-2 text-xs font-semibold text-red-600 hover:text-red-700"
+                        >
+                          Remover
+                        </button>
+                      )}
+                      <p className="text-[11px] text-gray-500">
+                        Salve o serviço para confirmar a foto no Booking.
+                      </p>
+                    </div>
+                  </div>
                 </div>
                 <div className="flex gap-3 pt-4">
                   <button

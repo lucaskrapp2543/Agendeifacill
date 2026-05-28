@@ -1,9 +1,9 @@
 import { format, parse } from 'date-fns';
 import { Calendar, ChevronLeft, ChevronRight, Clock, Coins, Crown, Package, Phone, Plus, Trash2, User, X } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-import { CANCELLATION_SOURCE } from '../utils/appointmentCancellationMeta';
+import { CANCELLATION_SOURCE, describeCancellationSourcePt } from '../utils/appointmentCancellationMeta';
 import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
 import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
 import { ChangeAppointmentServiceModal } from './ChangeAppointmentServiceModal';
@@ -88,6 +88,8 @@ interface Appointment {
   /** Gorjeta 100% para o profissional (fora da % do serviço) */
   professional_tip_amount?: number | null;
   manual_status_override?: boolean | null;
+  cancellation_source?: string | null;
+  cancellation_detail?: string | null;
 }
 
 interface ServiceSubcategoryLabel {
@@ -378,6 +380,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>(
       professionals.length > 0 ? professionals[0].id : ''
     );
+    const [visibleProfessionalIds, setVisibleProfessionalIds] = useState<string[]>([]);
     const [selectedProfessionalForInfo, setSelectedProfessionalForInfo] = useState<string | null>(null);
     const [showColorLegend, setShowColorLegend] = useState<'red' | 'yellow' | 'green' | null>(null);
     const [showReminderInfo, setShowReminderInfo] = useState(false);
@@ -434,6 +437,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [showBarbershopCashModal, setShowBarbershopCashModal] = useState(false);
     const [barbershopCashOpeningInput, setBarbershopCashOpeningInput] = useState('');
     const [barbershopCashOpeningValue, setBarbershopCashOpeningValue] = useState(0);
+    const [barbershopCashRealInput, setBarbershopCashRealInput] = useState('');
     const [isLoadingBarbershopCashOpening, setIsLoadingBarbershopCashOpening] = useState(false);
     const [isSavingBarbershopCashOpening, setIsSavingBarbershopCashOpening] = useState(false);
     const [barbershopCashFeatureUnavailable, setBarbershopCashFeatureUnavailable] = useState(false);
@@ -468,6 +472,185 @@ export const AllProfessionalsAppointmentsView: React.FC<
     >({});
     const [professionalGoalConfigs, setProfessionalGoalConfigs] = useState<Record<string, ProfessionalGoalMonthlyConfig>>({});
     const selectedDateIso = format(selectedDate, 'yyyy-MM-dd');
+    const professionalVisibilityStorageKey = establishment?.id
+      ? `agendeifacil:appointments-visible-professionals:${establishment.id}`
+      : '';
+    const professionalVisibilityLoadedKeyRef = useRef('');
+    const hasOwnerConfigPin = Boolean(
+      establishment?.pin_password &&
+      String(establishment.pin_password || '').trim().length > 0 &&
+      String(establishment.pin_password || '').trim() !== '0000'
+    );
+    const [pendingVisibilityUnlockProfessionalId, setPendingVisibilityUnlockProfessionalId] = useState<string | null>(null);
+
+    const hasValidProfessionalAppointmentPin = (professionalId: string): boolean => {
+      const normalizedId = String(professionalId || '').trim();
+      if (!normalizedId) return false;
+      const pin = String(
+        professionalPins.find((item) => String(item?.professional_id || '').trim() === normalizedId)?.pin ||
+        establishment?.professionals_pins?.find((item: ProfessionalPin) => String(item?.professional_id || '').trim() === normalizedId)?.pin ||
+        ''
+      ).trim();
+      return /^\d{4}$/.test(pin) && pin !== '0000';
+    };
+
+    const isProfessionalAppointmentsProtected = (professional: Professional): boolean => {
+      return Boolean((professional as any)?.lock_appointments_with_owner_pin) && hasValidProfessionalAppointmentPin(professional.id);
+    };
+
+    const isProfessionalAppointmentsUnlocked = (professionalId: string): boolean =>
+      Boolean(unlockedAppointmentsByProfessional[String(professionalId || '').trim()]);
+
+    const canShowProfessionalInAgenda = (professional: Professional): boolean => {
+      if (!isProfessionalAppointmentsProtected(professional)) return true;
+      return isProfessionalAppointmentsUnlocked(professional.id);
+    };
+
+    const getSelectableProfessionalIds = () =>
+      professionals
+        .filter(canShowProfessionalInAgenda)
+        .map((professional) => String(professional.id || '').trim())
+        .filter(Boolean);
+
+    const persistProfessionalVisibilityPreference = (professionalIds: string[]) => {
+      if (!professionalVisibilityStorageKey) return;
+      professionalVisibilityLoadedKeyRef.current = professionalVisibilityStorageKey;
+      try {
+        localStorage.setItem(professionalVisibilityStorageKey, JSON.stringify(professionalIds));
+      } catch {
+        // Preferencia local opcional; se o navegador bloquear, a agenda continua funcionando.
+      }
+    };
+
+    useEffect(() => {
+      const currentIds = professionals.map((professional) => String(professional.id || '').trim()).filter(Boolean);
+      if (currentIds.length === 0) {
+        setVisibleProfessionalIds([]);
+        return;
+      }
+      const selectableIds = getSelectableProfessionalIds();
+
+      let savedIds: string[] | null = null;
+      let hasSavedPreference = false;
+      if (professionalVisibilityStorageKey) {
+        try {
+          const raw = localStorage.getItem(professionalVisibilityStorageKey);
+          hasSavedPreference = raw !== null;
+          const parsed = raw ? JSON.parse(raw) : null;
+          if (Array.isArray(parsed)) {
+            savedIds = parsed.map((id) => String(id || '').trim()).filter(Boolean);
+          }
+        } catch {
+          savedIds = null;
+        }
+      }
+
+      const nextIds = hasSavedPreference && savedIds && savedIds.length > 0
+        ? savedIds.filter((id) => currentIds.includes(id))
+        : selectableIds;
+
+      setVisibleProfessionalIds(nextIds);
+      professionalVisibilityLoadedKeyRef.current = professionalVisibilityStorageKey || 'no-storage-key';
+    }, [professionals, professionalVisibilityStorageKey, unlockedAppointmentsByProfessional, professionalPins, establishment?.professionals_pins]);
+
+    const visibleProfessionals = useMemo(
+      () =>
+        visibleProfessionalIds.length > 0
+          ? professionals.filter((professional) => (
+            visibleProfessionalIds.includes(String(professional.id || '').trim()) &&
+            canShowProfessionalInAgenda(professional)
+          ))
+          : [],
+      [professionals, visibleProfessionalIds, unlockedAppointmentsByProfessional]
+    );
+
+    useEffect(() => {
+      if (visibleProfessionals.length === 0) return;
+      if (!visibleProfessionals.some((professional) => professional.id === selectedProfessionalId)) {
+        setSelectedProfessionalId(visibleProfessionals[0].id);
+      }
+    }, [selectedProfessionalId, visibleProfessionals]);
+
+    useEffect(() => {
+      if (!pendingVisibilityUnlockProfessionalId) return;
+      if (!isProfessionalAppointmentsUnlocked(pendingVisibilityUnlockProfessionalId)) return;
+      setVisibleProfessionalIds((current) => {
+        if (current.includes(pendingVisibilityUnlockProfessionalId)) return current;
+        const next = [...current, pendingVisibilityUnlockProfessionalId];
+        persistProfessionalVisibilityPreference(next);
+        toast('Preferência salva neste aparelho.', 'success');
+        return next;
+      });
+      setSelectedProfessionalId(pendingVisibilityUnlockProfessionalId);
+      setPendingVisibilityUnlockProfessionalId(null);
+    }, [pendingVisibilityUnlockProfessionalId, unlockedAppointmentsByProfessional]);
+
+    const toggleProfessionalVisibility = (professionalId: string) => {
+      const normalizedId = String(professionalId || '').trim();
+      if (!normalizedId) return;
+      const targetProfessional = professionals.find((professional) => String(professional.id || '').trim() === normalizedId);
+      if (!targetProfessional) return;
+      const isProtectedAndLocked =
+        isProfessionalAppointmentsProtected(targetProfessional) && !isProfessionalAppointmentsUnlocked(normalizedId);
+
+      if (isProtectedAndLocked) {
+        setPendingVisibilityUnlockProfessionalId(normalizedId);
+        onRequestAppointmentsUnlock?.(normalizedId);
+        return;
+      }
+
+      setVisibleProfessionalIds((current) => {
+        const validIds = professionals.map((professional) => String(professional.id || '').trim()).filter(Boolean);
+        const base = current.filter((id) => validIds.includes(id));
+        const isVisible = base.includes(normalizedId);
+
+        if (isVisible && base.length <= 1) {
+          toast('Deixe pelo menos um profissional aparecendo na agenda.', 'warning');
+          return base;
+        }
+
+        if (isVisible) {
+          const next = base.filter((id) => id !== normalizedId);
+          persistProfessionalVisibilityPreference(next);
+          toast('Preferência salva neste aparelho.', 'success');
+          return next;
+        }
+
+        const next = [...base, normalizedId];
+        persistProfessionalVisibilityPreference(next);
+        toast('Preferência salva neste aparelho.', 'success');
+        return next;
+      });
+    };
+
+    const selectOnlyProfessional = (professionalId: string) => {
+      const normalizedId = String(professionalId || '').trim();
+      if (!normalizedId) return;
+      const targetProfessional = professionals.find((professional) => String(professional.id || '').trim() === normalizedId);
+      if (!targetProfessional) return;
+      const isProtectedAndLocked =
+        isProfessionalAppointmentsProtected(targetProfessional) && !isProfessionalAppointmentsUnlocked(normalizedId);
+      if (isProtectedAndLocked) {
+        setPendingVisibilityUnlockProfessionalId(normalizedId);
+        onRequestAppointmentsUnlock?.(normalizedId);
+        return;
+      }
+      persistProfessionalVisibilityPreference([normalizedId]);
+      setVisibleProfessionalIds([normalizedId]);
+      setSelectedProfessionalId(normalizedId);
+      toast('Preferência salva neste aparelho.', 'success');
+    };
+
+    const selectAllProfessionals = () => {
+      const selectableIds = getSelectableProfessionalIds();
+      persistProfessionalVisibilityPreference(selectableIds);
+      setVisibleProfessionalIds(selectableIds);
+      if (selectableIds.length === 0) {
+        toast('Todos os profissionais estão protegidos por senha. Selecione um e digite a senha para exibir.', 'warning');
+      } else {
+        toast('Preferência salva neste aparelho.', 'success');
+      }
+    };
 
     useEffect(() => {
       let cancelled = false;
@@ -2200,15 +2383,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [availabilityProfessionalName, setAvailabilityProfessionalName] = useState<string>('');
     const [availabilitySlots, setAvailabilitySlots] = useState<TimeSlot[]>([]);
 
-    const hasOwnerConfigPin = Boolean(
-      establishment?.pin_password &&
-      String(establishment.pin_password || '').trim().length > 0 &&
-      String(establishment.pin_password || '').trim() !== '0000'
-    );
-
     const isAppointmentsLockedForProfessional = (professional: Professional): boolean => {
-      if (!hasOwnerConfigPin) return false;
-      if (!Boolean((professional as any)?.lock_appointments_with_owner_pin)) return false;
+      if (!isProfessionalAppointmentsProtected(professional)) return false;
       return !Boolean(unlockedAppointmentsByProfessional[String(professional.id)]);
     };
 
@@ -2228,6 +2404,62 @@ export const AllProfessionalsAppointmentsView: React.FC<
         detail.includes('nao comparec') ||
         detail.includes('não comparec')
       );
+    };
+
+    const getCancellationActorInfo = (apt: Appointment): { label: string; tone: 'client' | 'internal' | 'system' | 'unknown' } => {
+      const source = String(apt.cancellation_source || '').trim().toLowerCase();
+      const detail = String(apt.cancellation_detail || '').trim().toLowerCase();
+      const appointmentOrigin = getAppointmentOriginLabel(apt).toLowerCase();
+
+      if (source === CANCELLATION_SOURCE.CLIENT || detail.includes('cliente')) {
+        return { label: 'Cliente cancelou pelo app/link público', tone: 'client' };
+      }
+
+      if (
+        source === CANCELLATION_SOURCE.ESTABLISHMENT_STAFF ||
+        detail.includes('painel') ||
+        detail.includes('interno') ||
+        detail.includes('barbearia') ||
+        detail.includes('estabelecimento')
+      ) {
+        return { label: 'Cancelado dentro do sistema/barbearia', tone: 'internal' };
+      }
+
+      if (
+        source === CANCELLATION_SOURCE.SYSTEM_ABANDONED_CHECKOUT ||
+        source === CANCELLATION_SOURCE.SYSTEM_PAYMENT_TIMEOUT ||
+        source === CANCELLATION_SOURCE.PAYMENT_REJECTED ||
+        detail.includes('limpeza automática') ||
+        detail.includes('pagamento')
+      ) {
+        return { label: describeCancellationSourcePt(source), tone: 'system' };
+      }
+
+      if (!source && !detail && appointmentOrigin.includes('interno')) {
+        return {
+          label: 'Registro antigo sem origem salva; agendamento criado dentro da barbearia',
+          tone: 'internal',
+        };
+      }
+
+      if (!source && !detail && appointmentOrigin.includes('cliente')) {
+        return {
+          label: 'Registro antigo sem origem salva; agendamento veio do cliente',
+          tone: 'client',
+        };
+      }
+
+      if (!source && !detail) {
+        return {
+          label: 'Registro antigo sem origem salva; não dá para confirmar quem cancelou',
+          tone: 'unknown',
+        };
+      }
+
+      return {
+        label: describeCancellationSourcePt(source),
+        tone: 'unknown',
+      };
     };
 
     const formatCurrency = (value: number) => {
@@ -2438,6 +2670,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
       .reduce((sum, apt) => sum + getCashAmountForAppointment(apt), 0);
 
     const barbershopCashTotal = barbershopCashOpeningValue + dailyCashSalesTotal;
+    const barbershopCashRealAmount = Number(String(barbershopCashRealInput || '').replace(',', '.').trim());
+    const hasBarbershopCashRealAmount = Number.isFinite(barbershopCashRealAmount) && barbershopCashRealInput.trim() !== '';
+    const barbershopCashDifference = hasBarbershopCashRealAmount ? round2(barbershopCashRealAmount - barbershopCashTotal) : 0;
 
     const handleOpenBarbershopCash = () => {
       if (barbershopCashFeatureUnavailable) {
@@ -4015,6 +4250,121 @@ export const AllProfessionalsAppointmentsView: React.FC<
       };
     };
 
+    const getPaymentMethodLabel = (method: unknown): string => {
+      const key = String(method || '').trim();
+      const labels: Record<string, string> = {
+        pix: 'PIX',
+        dinheiro: 'Dinheiro',
+        credito: 'Crédito',
+        debito: 'Débito',
+        transferencia: 'Transferência',
+        pagar_local: 'Pagamento no local',
+        multi: 'Misto',
+        assinante: 'Assinante',
+        pendente: 'Pagamento no local',
+      };
+      return labels[key] || (key ? key : 'Pagamento no local');
+    };
+
+    const getStatusLabel = (status: unknown): string => {
+      const key = String(status || '').trim();
+      const labels: Record<string, string> = {
+        completed: 'Concluído',
+        confirmed: 'Em andamento',
+        pending: 'Pendente',
+        cancelled: 'Não compareceu',
+      };
+      return labels[key] || 'Pendente';
+    };
+
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    const sanitizeCashLabel = (raw: unknown): string => {
+      const value = String(raw || '').trim();
+      if (!value) return '';
+      const withoutUndefined = value
+        .replace(/\(\s*undefined\s*\)/gi, '')
+        .replace(/\bundefined\b/gi, '')
+        .replace(/\bnull\b/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      return withoutUndefined;
+    };
+
+    const getCashAppointmentProfessionalLabel = (apt: Appointment): string => {
+      const byName = sanitizeCashLabel(apt.professional_name);
+      if (byName) return byName;
+
+      const byProfessionalId = String(apt.professional_id || '').trim();
+      if (byProfessionalId) {
+        const fromId = professionals.find((p) => String(p.id || '').trim() === byProfessionalId);
+        const name = sanitizeCashLabel(fromId?.name);
+        if (name) return name;
+      }
+
+      const rawProfessional = String(apt.professional || '').trim();
+      if (rawProfessional && !UUID_REGEX.test(rawProfessional)) {
+        return sanitizeCashLabel(rawProfessional);
+      }
+
+      const fromLegacyId = professionals.find((p) => String(p.id || '').trim() === rawProfessional);
+      const legacyName = sanitizeCashLabel(fromLegacyId?.name);
+      if (legacyName) return legacyName;
+
+      return 'Profissional não informado';
+    };
+
+    const getCashAppointmentServiceLabel = (apt: Appointment): string => {
+      const service = sanitizeCashLabel(apt.service);
+      return service || 'Serviço não informado';
+    };
+
+    const selectedDayAppointments = appointments
+      .filter((apt) => String(apt.appointment_date || '').slice(0, 10) === selectedDateIso)
+      .sort((a, b) => String(a.appointment_time || '').localeCompare(String(b.appointment_time || '')));
+
+    const completedDayAppointments = selectedDayAppointments.filter((apt) => apt.status === 'completed');
+
+    const getPaymentAmountsForAppointment = (apt: Appointment): Record<string, number> => {
+      const splitRows = parsePaymentSplitDetails(apt);
+      if (splitRows.length > 0) {
+        return splitRows.reduce<Record<string, number>>((acc, row) => {
+          const method = row.method || 'pagar_local';
+          acc[method] = round2((acc[method] || 0) + row.amount);
+          return acc;
+        }, {});
+      }
+
+      const method = String(apt.payment_method || '').trim() || 'pagar_local';
+      return { [method]: calculateTotalPrice(apt) };
+    };
+
+    const paymentSummary = completedDayAppointments.reduce<Record<string, number>>((acc, apt) => {
+      const amounts = getPaymentAmountsForAppointment(apt);
+      Object.entries(amounts).forEach(([method, amount]) => {
+        acc[method] = round2((acc[method] || 0) + amount);
+      });
+      return acc;
+    }, {});
+
+    const dayGrossRevenue = completedDayAppointments.reduce((sum, apt) => sum + calculateServiceTotal(apt), 0);
+    const dayTotalReceived = completedDayAppointments.reduce((sum, apt) => sum + calculateTotalPrice(apt), 0);
+    const dayProfessionalPayout = completedDayAppointments.reduce((sum, apt) => {
+      const professional = professionals.find((p) => appointmentBelongsToProfessionalColumn(apt, p)) || null;
+      const baseValue = calculateServiceTotal(apt);
+      const cardTaxAmount = getCardTaxAmountForServiceBase(apt, baseValue);
+      const baseAfterTax = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
+      const percentage = getEffectiveProfessionalPercentageForAppointment(apt, professional);
+      const tip = getProfessionalTipAmount(apt);
+      return sum + (baseAfterTax * percentage) / 100 + tip;
+    }, 0);
+    const dayBarbershopNet = Math.max(0, round2(dayGrossRevenue - dayProfessionalPayout));
+
+    const pendingAppointmentsCount = selectedDayAppointments.filter((apt) => apt.status === 'pending' || apt.status === 'confirmed').length;
+    const missingPaymentMethodCount = selectedDayAppointments.filter((apt) => apt.status !== 'cancelled' && !String(apt.payment_method || '').trim()).length;
+    const completedAppointmentsCount = completedDayAppointments.length;
+    const cancelledAppointmentsCount = selectedDayAppointments.filter((apt) => apt.status === 'cancelled').length;
+
     // Função para buscar serviços do estabelecimento
     const fetchEstablishmentServices = async (professionalId?: string) => {
       if (!establishment?.id) return [];
@@ -4593,42 +4943,92 @@ export const AllProfessionalsAppointmentsView: React.FC<
               <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6" />
             </button>
           </div>
-          {/* Seletor de Profissional - MOBILE (opcional) */}
-          <div className="md:hidden mt-2 sm:mt-4">
-            <label className="block text-xs sm:text-sm font-medium text-gray-800 mb-1 sm:mb-2">
-              Pular para Profissional (ou arraste abaixo):
-            </label>
-            <select
-              value={selectedProfessionalId}
-              onChange={(e) => {
-                setSelectedProfessionalId(e.target.value);
-                // Scroll horizontal para o profissional selecionado
-                setTimeout(() => {
-                  const professionalIndex = professionals.findIndex(p => p.id === e.target.value);
-                  const scrollContainer = document.querySelector('.mobile-scroll-container');
-                  if (scrollContainer && professionalIndex >= 0) {
-                    scrollContainer.scrollTo({
-                      left: professionalIndex * 280,
-                      behavior: 'smooth'
-                    });
-                  }
-                }, 100);
-              }}
-              className="w-full px-2 sm:px-3 py-1.5 sm:py-2 border-2 border-gray-400 rounded-lg focus:ring-2 focus:ring-gray-600 focus:border-gray-600 bg-white text-black font-semibold text-sm sm:text-base transition-colors"
-            >
-              {professionals.map((prof) => (
-                <option key={prof.id} value={prof.id} className="text-black font-normal">
-                  {prof.name}
-                </option>
-              ))}
-            </select>
-          </div>
 
-          {/* Texto de ajuda */}
-          <p className="text-xs sm:text-sm text-gray-600 mt-1 sm:mt-2 text-center">
-            👈 Arraste para o lado para ver mais profissionais 👉
-          </p>
-          <div className="mt-3 flex flex-col items-center gap-2">
+          {professionals.length > 1 && (
+            <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-extrabold text-gray-900">Profissionais na tela</div>
+                  <div className="text-xs text-gray-600">
+                    Marque quem deve aparecer nesta agenda. Essa escolha fica salva apenas neste aparelho.
+                  </div>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={selectAllProfessionals}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-900 hover:bg-gray-100"
+                  >
+                    Mostrar todos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenBarbershopCash}
+                    data-tutorial-id="appointments-caixa"
+                    className="hidden md:inline-flex items-center justify-center rounded-lg bg-emerald-700 hover:bg-emerald-600 px-4 py-2 text-xs font-extrabold text-white transition-colors disabled:opacity-60"
+                    disabled={isLoadingBarbershopCashOpening}
+                  >
+                    {`CAIXA / GERAL (${format(selectedDate, 'dd/MM/yyyy')})`}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                {professionals.map((professional) => {
+                  const isVisible = visibleProfessionals.some((visibleProfessional) => visibleProfessional.id === professional.id);
+                  const isProtectedAndLocked =
+                    isProfessionalAppointmentsProtected(professional) && !isProfessionalAppointmentsUnlocked(professional.id);
+                  return (
+                    <button
+                      key={professional.id}
+                      type="button"
+                      onClick={() => toggleProfessionalVisibility(professional.id)}
+                      onDoubleClick={() => selectOnlyProfessional(professional.id)}
+                      className={`flex-shrink-0 rounded-full border px-3 py-2 text-xs font-extrabold transition-colors ${
+                        isVisible
+                          ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm'
+                          : isProtectedAndLocked
+                            ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                          : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-100'
+                      }`}
+                      title={
+                        isProtectedAndLocked
+                          ? 'Agenda protegida. Clique para digitar a senha e exibir este profissional.'
+                          : 'Clique para marcar/desmarcar. Dois cliques deixam somente este profissional.'
+                      }
+                    >
+                      {isVisible ? '✓ ' : isProtectedAndLocked ? '🔒 ' : ''}{professional.name}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-2 text-[11px] text-gray-500">
+                Mostrando {visibleProfessionals.length} de {professionals.length} profissional(is).
+              </div>
+              {visibleProfessionals.length === 0 && (
+                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                  Nenhum profissional está aberto na tela. Profissionais com agenda protegida ficam desmarcados até digitar a senha deles.
+                </div>
+              )}
+            </div>
+          )}
+
+          {professionals.length <= 1 && (
+            <div className="mt-3 hidden md:flex justify-end">
+              <button
+                type="button"
+                onClick={handleOpenBarbershopCash}
+                data-tutorial-id="appointments-caixa"
+                className="inline-flex items-center justify-center rounded-lg bg-emerald-700 hover:bg-emerald-600 px-4 py-2 text-xs font-extrabold text-white transition-colors disabled:opacity-60"
+                disabled={isLoadingBarbershopCashOpening}
+              >
+                {`CAIXA / GERAL (${format(selectedDate, 'dd/MM/yyyy')})`}
+              </button>
+            </div>
+          )}
+
+          <div className="mt-3 flex flex-col items-center gap-2 md:hidden">
             <button
               type="button"
               onClick={handleOpenBarbershopCash}
@@ -4636,11 +5036,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
               className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold transition-colors disabled:opacity-60"
               disabled={isLoadingBarbershopCashOpening}
             >
-              {`CAIXA DA BARBEARIA (${format(selectedDate, 'dd/MM/yyyy')})`}
+              {`CAIXA / GERAL (${format(selectedDate, 'dd/MM/yyyy')})`}
             </button>
             {canViewBarbershopCash ? (
               <p className="text-xs text-emerald-700 font-medium text-center">
-                Total em caixa hoje: {formatCurrency(barbershopCashTotal)} (abertura {formatCurrency(barbershopCashOpeningValue)} + dinheiro {formatCurrency(dailyCashSalesTotal)})
+                Total esperado em caixa: {formatCurrency(barbershopCashTotal)} (abertura {formatCurrency(barbershopCashOpeningValue)} + dinheiro {formatCurrency(dailyCashSalesTotal)})
               </p>
             ) : (
               <p className="text-xs text-gray-500 text-center">
@@ -4651,14 +5051,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
         </div>
 
         {showBarbershopCashModal && canViewBarbershopCash && (
-          <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
-            <div className="w-full max-w-md rounded-2xl overflow-hidden shadow-2xl border border-emerald-500/30 bg-gradient-to-b from-[#0b0b0c] to-black">
+          <div className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4">
+            <div className="w-full max-w-6xl max-h-[92vh] overflow-hidden rounded-3xl shadow-2xl border border-emerald-500/30 bg-gradient-to-b from-[#07110f] via-[#0b0b0c] to-black">
               <div className="p-4 border-b border-white/10">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-white font-extrabold text-lg">Caixa da barbearia</div>
+                    <div className="text-white font-extrabold text-2xl">Caixa / Geral</div>
                     <div className="text-xs text-white/70 mt-1">{format(selectedDate, 'dd/MM/yyyy')}</div>
-                    <p className="text-sm text-white/80 mt-2">Informe o valor em especie inicial do dia.</p>
+                    <p className="text-sm text-white/80 mt-2">Painel diário para acompanhar financeiro, atendimentos, pendências e fechamento do caixa físico.</p>
                   </div>
                   <button
                     type="button"
@@ -4670,24 +5070,148 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   </button>
                 </div>
               </div>
-              <div className="p-4 space-y-3">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="Ex: 150,00"
-                  value={barbershopCashOpeningInput}
-                  onChange={(e) => setBarbershopCashOpeningInput(e.target.value.replace(',', '.'))}
-                  className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white text-lg font-medium placeholder:text-white/50 focus:outline-none focus:border-emerald-400"
-                />
-                <div className="text-xs text-white/70 space-y-1">
-                  <p>Abertura registrada: <span className="font-semibold text-white">{formatCurrency(barbershopCashOpeningValue)}</span></p>
-                  <p>Vendas em dinheiro no dia: <span className="font-semibold text-white">{formatCurrency(dailyCashSalesTotal)}</span></p>
-                  <p>Total em caixa no dia: <span className="font-semibold text-emerald-300">{formatCurrency(barbershopCashTotal)}</span></p>
-                  <p className="text-white/60">* Considera apenas agendamentos concluidos no dia.</p>
+              <div className="max-h-[calc(92vh-150px)] overflow-y-auto p-4 space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-emerald-200">Status do caixa</p>
+                    <h3 className="mt-2 text-xl font-extrabold text-white">
+                      {barbershopCashOpeningValue > 0 ? 'Caixa aberto' : 'Caixa sem abertura'}
+                    </h3>
+                    <p className="mt-1 text-sm text-white/65">
+                      {barbershopCashOpeningValue > 0
+                        ? `Valor inicial informado: ${formatCurrency(barbershopCashOpeningValue)}`
+                        : 'Abertura opcional. O painel continua funcionando normalmente.'}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-white/55">Abertura do dia</p>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="Ex: 150,00"
+                      value={barbershopCashOpeningInput}
+                      onChange={(e) => setBarbershopCashOpeningInput(e.target.value.replace(',', '.'))}
+                      className="mt-2 w-full px-4 py-3 rounded-xl bg-black/30 border border-white/20 text-white text-lg font-medium placeholder:text-white/40 focus:outline-none focus:border-emerald-400"
+                    />
+                    <button
+                      type="button"
+                      disabled={isSavingBarbershopCashOpening}
+                      onClick={handleSaveBarbershopCashOpening}
+                      className="mt-3 w-full rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:pointer-events-none text-black font-bold py-3 transition-colors"
+                    >
+                      {isSavingBarbershopCashOpening ? 'Salvando...' : barbershopCashOpeningValue > 0 ? 'Atualizar abertura' : 'Abrir caixa'}
+                    </button>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-white/55">Fechamento inteligente</p>
+                    <p className="mt-2 text-sm text-white/70">Total esperado: <span className="font-extrabold text-emerald-300">{formatCurrency(barbershopCashTotal)}</span></p>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="Valor real encontrado"
+                      value={barbershopCashRealInput}
+                      onChange={(e) => setBarbershopCashRealInput(e.target.value.replace(',', '.'))}
+                      className="mt-2 w-full px-4 py-3 rounded-xl bg-black/30 border border-white/20 text-white text-base font-medium placeholder:text-white/40 focus:outline-none focus:border-emerald-400"
+                    />
+                    <div className={`mt-2 rounded-xl px-3 py-2 text-sm font-bold ${!hasBarbershopCashRealAmount
+                      ? 'bg-white/5 text-white/50'
+                      : barbershopCashDifference === 0
+                        ? 'bg-emerald-500/15 text-emerald-200'
+                        : barbershopCashDifference > 0
+                          ? 'bg-blue-500/15 text-blue-200'
+                          : 'bg-red-500/15 text-red-200'
+                    }`}>
+                      {!hasBarbershopCashRealAmount
+                        ? 'Digite o valor real para ver a diferença.'
+                        : barbershopCashDifference === 0
+                          ? 'Caixa batendo certinho.'
+                          : barbershopCashDifference > 0
+                            ? `Sobrou ${formatCurrency(Math.abs(barbershopCashDifference))}`
+                            : `Faltou ${formatCurrency(Math.abs(barbershopCashDifference))}`}
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-2 border border-white/10 rounded-xl p-3 bg-white/[0.03]">
-                  <p className="text-xs font-semibold text-white/80 mb-2">Historico de abertura (diario)</p>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+                    <p className="text-xs text-white/55 font-bold">Faturamento bruto do dia</p>
+                    <p className="mt-1 text-2xl font-black text-white">{formatCurrency(dayGrossRevenue)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
+                    <p className="text-xs text-emerald-100/70 font-bold">Lucro líquido da barbearia</p>
+                    <p className="mt-1 text-2xl font-black text-emerald-200">{formatCurrency(dayBarbershopNet)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+                    <p className="text-xs text-white/55 font-bold">Total recebido</p>
+                    <p className="mt-1 text-2xl font-black text-white">{formatCurrency(dayTotalReceived)}</p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                  <p className="text-sm font-extrabold text-white mb-3">Formas de pagamento</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {['pix', 'dinheiro', 'debito', 'credito', 'transferencia', 'pagar_local', 'multi', 'assinante'].map((method) => (
+                      <div key={method} className="rounded-xl bg-black/25 border border-white/10 p-3">
+                        <p className="text-[11px] font-bold text-white/55">{getPaymentMethodLabel(method)}</p>
+                        <p className="mt-1 text-base font-black text-white">{formatCurrency(paymentSummary[method] || 0)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                  <div className="lg:col-span-2 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                    <p className="text-sm font-extrabold text-white mb-3">Atendimentos do dia</p>
+                    <div className="max-h-80 overflow-y-auto space-y-2">
+                      {selectedDayAppointments.length === 0 ? (
+                        <p className="text-sm text-white/55">Nenhum atendimento encontrado para este dia.</p>
+                      ) : selectedDayAppointments.map((apt) => (
+                        <div key={apt.id} className="rounded-xl border border-white/10 bg-black/25 p-3">
+                          {(() => {
+                            const serviceLabel = getCashAppointmentServiceLabel(apt);
+                            const professionalLabel = getCashAppointmentProfessionalLabel(apt);
+                            return (
+                          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-extrabold text-white">{apt.client_name || 'Cliente sem nome'}</p>
+                              <p className="text-xs text-white/55">{apt.appointment_time} • {serviceLabel} • {professionalLabel}</p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${apt.status === 'completed' ? 'bg-emerald-500/20 text-emerald-200' : apt.status === 'cancelled' ? 'bg-red-500/20 text-red-200' : 'bg-amber-500/20 text-amber-200'}`}>
+                                {getStatusLabel(apt.status)}
+                              </span>
+                              <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${apt.payment_method ? 'bg-blue-500/20 text-blue-200' : 'bg-red-500/20 text-red-200'}`}>
+                                {getPaymentMethodLabel(apt.payment_method)}
+                              </span>
+                              <span className="rounded-full px-2 py-1 text-[11px] font-black bg-white/10 text-white">
+                                {formatCurrency(calculateTotalPrice(apt))}
+                              </span>
+                            </div>
+                          </div>
+                            );
+                          })()}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4">
+                    <p className="text-sm font-extrabold text-amber-100 mb-3">Pendências do dia</p>
+                    <div className="space-y-2 text-sm">
+                      <p className="flex justify-between text-white/80"><span>Clientes não concluídos</span><strong>{pendingAppointmentsCount}</strong></p>
+                      <p className="flex justify-between text-white/80"><span>Sem forma de pagamento</span><strong>{missingPaymentMethodCount}</strong></p>
+                      <p className="flex justify-between text-white/80"><span>Concluídos</span><strong>{completedAppointmentsCount}</strong></p>
+                      <p className="flex justify-between text-white/80"><span>Não compareceu/cancelado</span><strong>{cancelledAppointmentsCount}</strong></p>
+                    </div>
+                    <div className="mt-4 rounded-xl bg-black/25 border border-white/10 p-3 text-xs text-white/60">
+                      A abertura do caixa é opcional. Sem abertura, o valor inicial considerado é R$ 0,00.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border border-white/10 rounded-xl p-3 bg-white/[0.03]">
+                  <p className="text-xs font-semibold text-white/80 mb-2">Histórico de abertura (diário)</p>
                   {barbershopCashHistoryLoading ? (
                     <p className="text-xs text-white/60">Carregando historico...</p>
                   ) : barbershopCashHistory.length === 0 ? (
@@ -4728,14 +5252,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   className="flex-1 rounded-xl bg-white/10 hover:bg-white/15 text-white font-medium py-3 transition-colors"
                 >
                   Fechar
-                </button>
-                <button
-                  type="button"
-                  disabled={isSavingBarbershopCashOpening}
-                  onClick={handleSaveBarbershopCashOpening}
-                  className="flex-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:pointer-events-none text-black font-bold py-3 transition-colors"
-                >
-                  {isSavingBarbershopCashOpening ? 'Salvando...' : 'Salvar abertura'}
                 </button>
               </div>
             </div>
@@ -5084,56 +5600,71 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {cancelledHistoryRows.map((apt) => (
-                      <div key={`cancelled-history-${apt.id}`} className="rounded-lg border border-red-200 p-3 bg-red-50">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="text-sm font-extrabold text-gray-900 truncate">
-                              {String(getDisplayedClientName(apt) || apt.client_name || 'Cliente')}
-                            </div>
-                            <div className="text-xs text-gray-700 truncate">{String(apt.service || 'Serviço não informado')}</div>
-                            <div className="text-[11px] text-gray-700 mt-1">
-                              Data: {String(apt.appointment_date || '').slice(0, 10).split('-').reverse().join('/')} • Horário: {String(apt.appointment_time || '--:--')}
-                            </div>
-                            <div className="text-[11px] text-gray-700">
-                              Origem: {getAppointmentOriginLabel(apt)}
-                            </div>
-                            <div className="text-[11px] text-gray-700">
-                              Duração: {formatDuration(getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos))}
-                            </div>
-                            <div className="text-[11px] text-gray-700">
-                              Agendado em: {formatAppointmentCreatedAt((apt as any)?.created_at)}
-                            </div>
-                            {apt.client_whatsapp && (
+                    {cancelledHistoryRows.map((apt) => {
+                      const cancellationActor = getCancellationActorInfo(apt);
+                      const cancellationToneClass =
+                        cancellationActor.tone === 'client'
+                          ? 'border-blue-200 bg-blue-50 text-blue-800'
+                          : cancellationActor.tone === 'internal'
+                            ? 'border-amber-200 bg-amber-50 text-amber-800'
+                            : cancellationActor.tone === 'system'
+                              ? 'border-purple-200 bg-purple-50 text-purple-800'
+                              : 'border-gray-200 bg-gray-50 text-gray-700';
+
+                      return (
+                        <div key={`cancelled-history-${apt.id}`} className="rounded-lg border border-red-200 p-3 bg-red-50">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-sm font-extrabold text-gray-900 truncate">
+                                {String(getDisplayedClientName(apt) || apt.client_name || 'Cliente')}
+                              </div>
+                              <div className="text-xs text-gray-700 truncate">{String(apt.service || 'Serviço não informado')}</div>
+                              <div className={`mt-2 inline-flex max-w-full items-center rounded-md border px-2 py-1 text-[11px] font-extrabold ${cancellationToneClass}`}>
+                                Quem cancelou: {cancellationActor.label}
+                              </div>
+                              <div className="text-[11px] text-gray-700 mt-1">
+                                Data: {String(apt.appointment_date || '').slice(0, 10).split('-').reverse().join('/')} • Horário: {String(apt.appointment_time || '--:--')}
+                              </div>
+                              <div className="text-[11px] text-gray-700">
+                                Origem do agendamento: {getAppointmentOriginLabel(apt)}
+                              </div>
+                              <div className="text-[11px] text-gray-700">
+                                Duração: {formatDuration(getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos))}
+                              </div>
+                              <div className="text-[11px] text-gray-700">
+                                Agendado em: {formatAppointmentCreatedAt((apt as any)?.created_at)}
+                              </div>
+                              {apt.client_whatsapp && (
                               <div className="text-[11px] text-gray-700">
                                 WhatsApp: {apt.client_whatsapp}
                               </div>
-                            )}
-                            {apt.payment_method && (
+                              )}
+                              {apt.payment_method && (
                               <div className="text-[11px] text-gray-700">
                                 Forma de PG: {String(apt.payment_method)}
                               </div>
-                            )}
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <div className={`text-[11px] font-bold ${isClientNoShowCancellation(apt) ? 'text-orange-700' : 'text-red-700'}`}>
-                              {isClientNoShowCancellation(apt) ? 'AUSENTE (FALTA)' : 'CANCELADO'}
+                              )}
                             </div>
-                            <div className="text-xs text-gray-700">
-                              Base: {formatCurrency(Number(apt.price || 0))}
-                            </div>
-                            <div className="text-xs font-semibold text-gray-900">
-                              Total: {formatCurrency(calculateTotalPrice(apt))}
-                            </div>
-                            {(apt as any)?.cancellation_detail ? (
-                              <div className="mt-1 text-[10px] text-gray-600 max-w-[170px] whitespace-normal break-words">
-                                {String((apt as any).cancellation_detail)}
+                            <div className="shrink-0 text-right">
+                              <div className={`text-[11px] font-bold ${isClientNoShowCancellation(apt) ? 'text-orange-700' : 'text-red-700'}`}>
+                                {isClientNoShowCancellation(apt) ? 'AUSENTE (FALTA)' : 'CANCELADO'}
                               </div>
-                            ) : null}
+                              <div className="text-xs text-gray-700">
+                                Base: {formatCurrency(Number(apt.price || 0))}
+                              </div>
+                              <div className="text-xs font-semibold text-gray-900">
+                                Total: {formatCurrency(calculateTotalPrice(apt))}
+                              </div>
+                              {apt.cancellation_detail ? (
+                                <div className="mt-1 text-[10px] text-gray-600 max-w-[170px] whitespace-normal break-words">
+                                  Detalhe: {String(apt.cancellation_detail)}
+                                </div>
+                              ) : null}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -5157,8 +5688,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
           }
         `}</style>
           <div className="scroll-container-top mobile-scroll-container">
-            <div className="flex gap-0 min-w-max scroll-content-flip">
-              {professionals.map((professional, index) => {
+            <div
+              className="grid gap-0 scroll-content-flip"
+              style={{
+                gridTemplateColumns: `repeat(${Math.max(visibleProfessionals.length, 1)}, minmax(280px, 1fr))`,
+                minWidth: `${Math.max(visibleProfessionals.length, 1) * 280}px`,
+                width: '100%',
+              }}
+            >
+              {visibleProfessionals.map((professional, index) => {
                 const appointmentsLocked = isAppointmentsLockedForProfessional(professional);
                 const financialLocked = isFinancialLockedForProfessional(professional);
                 const timeSlots = generateTimeSlotsWithAppointments(professional);
@@ -5240,14 +5778,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 return (
                   <div
                     key={professional.id}
+                    data-professional-column-id={professional.id}
                     data-tutorial-id="appointments-professional-area"
-                    className={`flex-shrink-0 ${index !== 0
+                    className={`${index !== 0
                       ? useLightLayout
                         ? 'border-l border-black/20'
                         : 'border-l-4 border-gray-400'
                       : ''
                       }`}
-                    style={{ width: '280px' }}
                   >
                     {/* Cabeçalho do Profissional */}
                     <div className={`p-2 sticky top-0 z-10 ${useLightLayout
@@ -5308,19 +5846,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             >
                               {financialLocked ? '🔒 Financeiro' : '💰 Financeiro'}
                             </button>
-                            {onGoToProfessionalConfig && (
-                              <button
-                                onClick={() => onGoToProfessionalConfig(professional.id)}
-                                data-tutorial-id="appointments-config"
-                                className={`flex-1 px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
-                                  ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
-                                  : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
-                                  }`}
-                                title="Ir para configurações do profissional"
-                              >
-                                ⚙️ Config
-                              </button>
-                            )}
                           </div>
                           {onOpenBlockHoursModal && (
                             <button
