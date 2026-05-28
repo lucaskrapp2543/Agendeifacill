@@ -782,7 +782,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         label: 'Notificações',
         icon: Bell,
         onClick: () => executeMobileAction('notifications', onNotificationsClick || (() => { })),
-        className: 'from-slate-700 to-slate-950',
+        className: 'bg-[#111827]',
         badge: unreadNotifications > 0 ? unreadNotifications : undefined,
       },
       {
@@ -790,7 +790,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         label: 'Top 5',
         icon: Crown,
         onClick: () => executeMobileAction('top10-clientes', () => onTabChange('top10-clientes')),
-        className: 'from-amber-500 to-yellow-600',
+        className: 'bg-[#3a2a0a]',
       },
       {
         id: 'appointments',
@@ -798,14 +798,14 @@ const Sidebar: React.FC<SidebarProps> = ({
         labelLines: ['Meus', 'Agendamentos'],
         icon: Calendar,
         onClick: () => executeMobileAction('appointments', () => onTabChange('appointments')),
-        className: 'from-orange-500 to-amber-500',
+        className: 'bg-[#3b2412]',
       },
       {
         id: 'client-page',
         label: 'Pagina de Agendamentos',
         icon: Link,
         onClick: () => executeMobileAction('client-page', () => onTabChange('client-page')),
-        className: 'from-sky-500 to-blue-600',
+        className: 'bg-[#102a43]',
       },
     ];
 
@@ -815,7 +815,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         label: 'Meus Assinantes',
         icon: Crown,
         onClick: () => executeMobileAction('subscribers', () => onTabChange('subscribers'), { respectPlanLock: true }),
-        className: 'from-fuchsia-500 to-violet-600',
+        className: 'bg-[#2b1b3f]',
         badge: pendingSubscribersCount > 0 ? pendingSubscribersCount : undefined,
       },
       {
@@ -823,14 +823,14 @@ const Sidebar: React.FC<SidebarProps> = ({
         label: 'Lembretes para Clientes',
         icon: MessageCircle,
         onClick: () => executeMobileAction('whatsapp-reminders', () => onTabChange('whatsapp-reminders')),
-        className: 'from-amber-400 to-yellow-500',
+        className: 'bg-[#3a2a0a]',
       },
       {
         id: 'indication',
         label: 'Quero 1 mes gratis',
         icon: Gift,
         onClick: () => executeMobileAction('indication', () => onTabChange('indication')),
-        className: 'from-emerald-500 to-green-600',
+        className: 'bg-[#123524]',
       },
       {
         id: 'receber-adiantado',
@@ -841,28 +841,28 @@ const Sidebar: React.FC<SidebarProps> = ({
           onReceberAdiantadoClick();
           setIsExpanded(false);
         },
-        className: 'from-cyan-500 to-sky-600',
+        className: 'bg-[#102a43]',
       },
       {
         id: 'fila-espera',
         label: 'Fila de Espera',
         icon: ListOrdered,
         onClick: () => executeMobileAction('fila-espera', () => onTabChange('fila-espera'), { respectPlanLock: true }),
-        className: 'from-pink-500 to-fuchsia-600',
+        className: 'bg-[#3b1730]',
       },
       {
         id: 'placa-barbearia',
         label: 'Placa Barbearia',
         icon: CreditCard,
         onClick: () => executeMobileAction('placa-barbearia', () => onTabChange('placa-barbearia')),
-        className: 'from-blue-500 to-indigo-600',
+        className: 'bg-[#172554]',
       },
       {
         id: 'reviews',
         label: 'Avaliações',
         icon: Bell,
         onClick: () => executeMobileAction('reviews', () => onTabChange('reviews')),
-        className: 'from-gray-700 to-gray-950',
+        className: 'bg-[#1f2937]',
         badge: pendingReviewsCount > 0 ? pendingReviewsCount : undefined,
       },
       {
@@ -870,56 +870,56 @@ const Sidebar: React.FC<SidebarProps> = ({
         label: 'Meus Clientes',
         icon: Users,
         onClick: () => executeMobileAction('clients', () => onTabChange('clients')),
-        className: 'from-slate-600 to-slate-800',
+        className: 'bg-[#1f2937]',
       },
       {
         id: 'service-categories',
         label: 'Meus Serviços',
         icon: Layers,
         onClick: () => executeMobileAction('service-categories', () => onTabChange('service-categories')),
-        className: 'from-slate-600 to-slate-800',
+        className: 'bg-[#1f2937]',
       },
       {
         id: 'products',
         label: 'Meus Produtos',
         icon: Package,
         onClick: () => executeMobileAction('products', () => onTabChange('products'), { respectPlanLock: true }),
-        className: 'from-slate-600 to-slate-800',
+        className: 'bg-[#1f2937]',
       },
       {
         id: 'professionals',
         label: 'Profissionais',
         icon: UserCheck,
         onClick: () => executeMobileAction('professionals', () => onTabChange('professionals')),
-        className: 'from-slate-600 to-slate-800',
+        className: 'bg-[#1f2937]',
       },
       {
         id: 'dashboard',
         label: 'Financeiro',
         icon: BarChart3,
         onClick: openFinancialDashboard,
-        className: 'from-slate-600 to-slate-800',
+        className: 'bg-[#1f2937]',
       },
       {
         id: 'expenses',
         label: 'Despesas',
         icon: DollarSign,
         onClick: () => executeMobileAction('expenses', () => onTabChange('expenses')),
-        className: 'from-slate-600 to-slate-800',
+        className: 'bg-[#1f2937]',
       },
       {
         id: 'taxes',
         label: 'Minhas Taxas',
         icon: Receipt,
         onClick: () => executeMobileAction('taxes', () => onTabChange('taxes')),
-        className: 'from-slate-600 to-slate-800',
+        className: 'bg-[#1f2937]',
       },
       {
         id: 'config',
         label: 'Config',
         icon: Settings,
         onClick: openSettings,
-        className: 'from-slate-600 to-slate-800',
+        className: 'bg-[#1f2937]',
       },
     ];
 
@@ -939,7 +939,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     const mobileBottomButtonClass = (itemId: string) =>
       `relative text-center text-xs py-2 rounded-lg transition-colors ${
         isMobileActionVisuallyLocked(itemId)
-          ? 'text-white/35 grayscale'
+          ? 'text-white/35'
           : 'text-white hover:bg-white/10'
       }`;
 
@@ -1071,7 +1071,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
 
-            <div className="mt-3 rounded-2xl border border-white/10 bg-gradient-to-r from-[#111827] to-[#0f172a] p-3 flex items-center justify-between gap-2">
+            <div className="mt-3 rounded-2xl border border-white/10 bg-[#111827] p-3 flex items-center justify-between gap-2">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="h-12 w-12 rounded-full border border-amber-400/60 overflow-hidden bg-black flex items-center justify-center">
                   {establishmentImage ? (
@@ -1106,10 +1106,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                       type="button"
                       onClick={action.onClick}
                       aria-disabled={isLocked}
-                      className={`relative rounded-2xl px-2 py-2 text-center min-h-[76px] shadow-lg transition-all ${
+                      className={`relative rounded-2xl border px-2 py-2 text-center min-h-[76px] transition-colors ${
                         isLocked
-                          ? 'bg-[#111827] border border-white/10 text-white/45 shadow-none grayscale'
-                          : `bg-gradient-to-br ${action.className} text-white hover:scale-[1.02]`
+                          ? 'bg-[#111827] border-white/10 text-white/45'
+                          : `border-white/10 ${action.className} text-white hover:bg-[#263244]`
                       }`}
                     >
                       {isLocked && (
@@ -1149,11 +1149,11 @@ const Sidebar: React.FC<SidebarProps> = ({
                       key={action.id}
                       type="button"
                       onClick={action.onClick}
-                      className={`w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all ${
+                      className={`w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
                         isDanger
                           ? 'border-red-500/30 bg-red-600/10 text-red-200 hover:bg-red-600/20'
                           : action.isActive
-                            ? 'border-white bg-white text-black shadow-lg'
+                            ? 'border-white bg-white text-black'
                             : 'border-white/10 bg-white/5 text-white hover:bg-white/10'
                       }`}
                     >
@@ -1193,10 +1193,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                       type="button"
                       onClick={action.onClick}
                       aria-disabled={isLocked}
-                      className={`relative rounded-xl border px-1.5 py-2.5 text-center min-h-[72px] transition-all ${
+                      className={`relative rounded-xl border px-1.5 py-2.5 text-center min-h-[72px] transition-colors ${
                         isLocked
-                          ? 'border-white/5 bg-black/25 text-white/35 grayscale'
-                          : `border-white/10 bg-gradient-to-br ${action.className} text-white hover:scale-[1.02]`
+                          ? 'border-white/5 bg-black/25 text-white/35'
+                          : `border-white/10 ${action.className} text-white hover:bg-[#263244]`
                       }`}
                     >
                       {isLocked && (
@@ -1225,11 +1225,11 @@ const Sidebar: React.FC<SidebarProps> = ({
                     key={action.id}
                     type="button"
                     onClick={action.onClick}
-                    className={`w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all ${
+                    className={`w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
                       isDanger
                         ? 'border-red-500/30 bg-red-600/10 text-red-200 hover:bg-red-600/20'
                         : action.isActive
-                          ? 'border-white bg-white text-black shadow-lg'
+                          ? 'border-white bg-white text-black'
                           : 'border-white/10 bg-white/5 text-white hover:bg-white/10'
                     }`}
                   >
@@ -1264,7 +1264,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={() => executeMobileAction('top10-clientes', () => onTabChange('top10-clientes'))}
-                className="mt-4 w-full rounded-2xl border border-amber-300/30 bg-gradient-to-r from-[#1f2937] via-[#374151] to-[#111827] px-3 py-3 text-left"
+                className="mt-4 w-full rounded-2xl border border-white/10 bg-[#111827] px-3 py-3 text-left"
               >
                 <p className="text-amber-300 text-xs font-bold">🏆 TOP 1 BARBEIRO</p>
                 <p className="text-white text-sm font-extrabold mt-1">Ver destaque do mês e ranking</p>
@@ -1273,7 +1273,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
           </div>
 
-          <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#05070d]/95 backdrop-blur px-3 py-2">
+          <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#05070d] px-3 py-2">
             <div className="grid grid-cols-4 gap-2">
               <button type="button" onClick={() => executeMobileAction('appointments', () => onTabChange('appointments'))} className={mobileBottomButtonClass('appointments')}>
                 {isMobileActionVisuallyLocked('appointments') && <Lock className="absolute right-2 top-1 h-2.5 w-2.5 text-white/35" />}
