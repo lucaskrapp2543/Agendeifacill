@@ -32,6 +32,7 @@ import { PWADownloadLink } from '../components/PWADownloadLink';
 import { SiteClientsPanel } from '../components/SiteClientsPanel';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { fireMercadoPagoPendingReconcile } from '../utils/fireMercadoPagoPendingReconcile';
 
 interface Establishment {
   id: string;
@@ -756,14 +757,14 @@ const AdminDashboard = () => {
     const paymentStatus = String(row?.payment_status || '').toLowerCase();
     const pixPaymentStatus = String(row?.pix_payment_status || '').toLowerCase();
     const hasTransactionId = Boolean(String(row?.payment_transaction_id || '').trim());
-    const isPaid = paymentStatus === 'paid' || pixPaymentStatus === 'confirmado';
+    const isPaid = paymentStatus === 'paid' || pixPaymentStatus === 'confirmado' || pixPaymentStatus === 'aprovado';
     if (!isPaid) return null;
-    if (paymentStatus === 'paid' && !hasTransactionId && pixPaymentStatus !== 'confirmado') return null;
+    if (paymentStatus === 'paid' && !hasTransactionId && pixPaymentStatus !== 'confirmado' && pixPaymentStatus !== 'aprovado') return null;
 
     const metodo = String(row?.payment_method || '').toLowerCase();
     const isPixByMethod = metodo === 'pix' || metodo === 'pix_now';
     const isCreditByMethod = metodo === 'credito' || metodo === 'credit_card' || metodo === 'credit';
-    const isPixByStatus = pixPaymentStatus === 'confirmado';
+    const isPixByStatus = pixPaymentStatus === 'confirmado' || pixPaymentStatus === 'aprovado';
 
     if (isPixByMethod || isPixByStatus) return 'pix';
     if (isCreditByMethod) return 'credito';
@@ -811,6 +812,149 @@ const AdminDashboard = () => {
     if (provider.includes('pix')) return 'pix';
     if (provider.includes('card') || provider.includes('credit') || provider.includes('credito')) return 'credito';
     return null;
+  };
+
+  const isMercadoPagoTransactionId = (value: unknown) => /^[0-9]+$/.test(String(value || '').trim());
+
+  const shouldRunAdminMpReconcileForEstablishment = (establishmentId: string) => {
+    if (typeof window === 'undefined') return true;
+    const key = `admin_mp_reconcile_last_run_${establishmentId}`;
+    const lastRunAt = Number(window.sessionStorage.getItem(key) || 0);
+    const cooldownMs = 10 * 60 * 1000;
+    if (Date.now() - lastRunAt < cooldownMs) return false;
+    window.sessionStorage.setItem(key, String(Date.now()));
+    return true;
+  };
+
+  const reconcileAdminPendingMpAppointments = async (ids: string[]) => {
+    try {
+      const since = subDays(new Date(), 2).toISOString();
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('establishment_id')
+        .in('establishment_id', ids)
+        .eq('status', 'pending_payment')
+        .not('payment_transaction_id', 'is', null)
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      if (error) throw error;
+
+      const pendingEstablishmentIds = Array.from(
+        new Set(((data as any[]) || []).map((row) => String(row?.establishment_id || '').trim()).filter(Boolean))
+      )
+        .filter(shouldRunAdminMpReconcileForEstablishment)
+        .slice(0, 8);
+
+      if (pendingEstablishmentIds.length === 0) return;
+      await Promise.allSettled(pendingEstablishmentIds.map((estId) => fireMercadoPagoPendingReconcile(estId)));
+    } catch (error) {
+      console.warn('⚠️ Não foi possível reconciliar pendências MP pelo admin:', error);
+    }
+  };
+
+  const ensureAdminMpCommissionsFromKnownPayments = async (ids: string[], monthStart: Date, monthEnd: Date) => {
+    try {
+      const rowsToUpsert: any[] = [];
+
+      await reconcileAdminPendingMpAppointments(ids);
+
+      const { data: appts, error: apptsError } = await supabase
+        .from('appointments')
+        .select('id,establishment_id,price,payment_status,pix_payment_status,payment_method,payment_transaction_id,status,created_at,appointment_date')
+        .in('establishment_id', ids)
+        .gte('created_at', monthStart.toISOString())
+        .lte('created_at', monthEnd.toISOString())
+        .or('payment_status.eq.paid,pix_payment_status.eq.confirmado,pix_payment_status.eq.aprovado')
+        .limit(10000);
+
+      if (apptsError) throw apptsError;
+
+      for (const row of (appts as any[]) || []) {
+        const estId = String(row?.establishment_id || '').trim();
+        const appointmentId = String(row?.id || '').trim();
+        const paymentId = String(row?.payment_transaction_id || '').trim();
+        if (!estId || !appointmentId || !isMercadoPagoTransactionId(paymentId)) continue;
+        const method = getMetodoPixOuCreditoAppointment(row);
+        if (!method) continue;
+        const status = String(row?.status || '').toLowerCase();
+        if (status === 'cancelled' || status === 'canceled') continue;
+
+        rowsToUpsert.push({
+          establishment_id: estId,
+          source_key: `appointment:payment:${paymentId}`,
+          source_type: 'appointment',
+          source_id: appointmentId,
+          payment_id: paymentId,
+          external_reference: `appointment_${appointmentId}`,
+          payment_method: method,
+          gross_amount_cents: valorCents(row?.price),
+          commission_cents: 100,
+          status: 'paid',
+          paid_at: row?.created_at || new Date().toISOString(),
+          metadata: { origin: 'admin_dashboard_seed_appointments' },
+        });
+      }
+
+      const subsQuery = supabase.from('client_subscriptions') as any;
+      const { data: subsData, error: subsError } = await subsQuery
+        .select('id,establishment_id,payment_status,subscription_payment_provider,subscriber_payment_method,subscription_payment_order_id,created_at,last_payment_date,custom_subscription_value,subscriptions(value)')
+        .in('establishment_id', ids)
+        .eq('payment_status', 'paid');
+
+      if (subsError) throw subsError;
+
+      for (const sub of (subsData as any[]) || []) {
+        const estId = String(sub?.establishment_id || '').trim();
+        const subId = String(sub?.id || '').trim();
+        const paymentId = String(sub?.subscription_payment_order_id || '').trim();
+        const provider = String(sub?.subscription_payment_provider || '').toLowerCase();
+        if (!estId || !subId || !paymentId || !provider.includes('mercadopago')) continue;
+
+        const paymentDateRaw = getSubscriptionPaymentDate(sub);
+        const paymentDate = paymentDateRaw ? new Date(paymentDateRaw) : null;
+        const paymentTs = paymentDate?.getTime() || NaN;
+        if (!Number.isFinite(paymentTs) || paymentTs < monthStart.getTime() || paymentTs > monthEnd.getTime()) continue;
+
+        const method = getMetodoAssinaturaPixOuCredito(sub);
+        if (!method) continue;
+
+        rowsToUpsert.push({
+          establishment_id: estId,
+          source_key: `subscription:payment:${paymentId}`,
+          source_type: 'subscription',
+          source_id: subId,
+          payment_id: paymentId,
+          external_reference: null,
+          payment_method: method,
+          gross_amount_cents: valorCents(getSubscriptionBruto(sub)),
+          commission_cents: 100,
+          status: 'paid',
+          paid_at: paymentDateRaw,
+          metadata: { origin: 'admin_dashboard_seed_subscriptions', provider },
+        });
+      }
+
+      if (rowsToUpsert.length === 0) return;
+
+      const { error: upsertError } = await supabase
+        .from('admin_mp_commissions')
+        .upsert(rowsToUpsert, { onConflict: 'source_key', ignoreDuplicates: true });
+
+      if (upsertError) {
+        const msg = String((upsertError as any)?.message || '').toLowerCase();
+        const missingOrBlocked =
+          msg.includes('admin_mp_commissions') ||
+          msg.includes('relation') ||
+          msg.includes('does not exist') ||
+          msg.includes('schema cache') ||
+          msg.includes('row-level security');
+        if (!missingOrBlocked) throw upsertError;
+      }
+    } catch (error) {
+      console.warn('⚠️ Não foi possível semear comissões MP pelo admin:', error);
+    }
   };
 
   // (removido) carregarCostMetrics
@@ -2302,6 +2446,8 @@ const AdminDashboard = () => {
       const { start: monthStart, end: monthEnd } = getMonthRange(monthDate);
       const monthStartStr = format(monthStart, 'yyyy-MM-dd');
       const monthEndStr = format(monthEnd, 'yyyy-MM-dd');
+
+      await ensureAdminMpCommissionsFromKnownPayments(ids, monthStart, monthEnd);
 
       const { data: commissionRows, error: commissionError } = await supabase
         .from('admin_mp_commissions')

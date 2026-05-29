@@ -182,6 +182,12 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
     return closeToCreation;
   };
 
+  const isPaymentConfirmedNotification = (notification: Notification) => {
+    const metaKind = String(notification.metadata?.notification_kind || '').toLowerCase();
+    const title = String(notification.title || '').toLowerCase();
+    return metaKind === 'payment_confirmed' || title.includes('pagamento confirmado');
+  };
+
   const formatCancelledReasonText = (notification: Notification): string => {
     const meta = notification.metadata as Record<string, unknown> | null | undefined;
     const srcMeta = meta?.cancellation_source != null ? String(meta.cancellation_source) : '';
@@ -215,6 +221,19 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
   const buildNotificationMessage = (notification: Notification) => {
     const snapshot = notification.appointment_id ? appointmentDetailsMap[notification.appointment_id] : undefined;
     if (snapshot) {
+      if (isPaymentConfirmedNotification(notification)) {
+        const rawPaymentMessage = String(notification.message || '').trim();
+        if (rawPaymentMessage) return rawPaymentMessage;
+
+        const clientName = String(snapshot.client_name || '').trim() || 'Cliente';
+        const serviceName = String(snapshot.service || snapshot.service_name || '').trim() || 'serviço';
+        const date = String(snapshot.appointment_date || '').trim();
+        const time = String(snapshot.appointment_time || '').trim();
+        const professionalName = resolveProfessionalName(snapshot);
+        const withProfessional = professionalName ? ` com ${professionalName}` : '';
+        return `${clientName} teve pagamento confirmado para ${serviceName} em ${date} às ${time}${withProfessional}`;
+      }
+
       const clientName = String(snapshot.client_name || '').trim() || 'Cliente';
       const serviceName = String(snapshot.service || snapshot.service_name || '').trim() || 'serviço';
       const date = String(snapshot.appointment_date || '').trim();
@@ -668,10 +687,13 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
   // Filtrar notificações
   const filteredNotifications = notifications.filter(notification => {
     if (filter === 'all') return true;
+    if (filter === 'new_appointment') {
+      return notification.type === 'new_appointment' && !isPaymentConfirmedNotification(notification);
+    }
     return notification.type === filter;
   });
 
-  const newAppointmentsCount = notifications.filter(n => n.type === 'new_appointment' && !n.read).length;
+  const newAppointmentsCount = notifications.filter(n => n.type === 'new_appointment' && !n.read && !isPaymentConfirmedNotification(n)).length;
   const cancelledAppointmentsCount = notifications.filter(n => n.type === 'cancelled_appointment' && !n.read).length;
 
   return (
