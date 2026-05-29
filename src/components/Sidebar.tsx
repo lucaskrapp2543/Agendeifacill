@@ -9,7 +9,6 @@ import {
   Crown,
   DollarSign,
   Gift,
-  Home,
   Layers,
   Link,
   ListOrdered,
@@ -18,7 +17,6 @@ import {
   Menu,
   MessageCircle,
   MessageSquare,
-  MoreHorizontal,
   Package,
   Receipt,
   Rocket,
@@ -115,6 +113,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [pendingAdminMenuAfterPin, setPendingAdminMenuAfterPin] = useState(false);
   const navRef = useRef<HTMLElement | null>(null);
   const isLight = useLightLayout;
+  const useLegacyMobileMenu = false;
 
   useEffect(() => {
     setDismissTopWinnerCard(false);
@@ -264,13 +263,13 @@ const Sidebar: React.FC<SidebarProps> = ({
   // No celular, só abre o menu automaticamente na home inicial.
   // Em telas de conteúdo (ex.: Meus Serviços), nunca força abrir de novo.
   useEffect(() => {
-    if (!isMobile) return;
+    if (!isMobile || !useLegacyMobileMenu) return;
     if (activeTab === 'appointments' && closeSignal === 0) {
       setIsExpanded(true);
       return;
     }
     setIsExpanded(false);
-  }, [isMobile, activeTab, closeSignal]);
+  }, [isMobile, activeTab, closeSignal, useLegacyMobileMenu]);
 
   useEffect(() => {
     const handleCloseSidebar = () => setIsExpanded(false);
@@ -725,7 +724,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     hours: 'Em breve.',
   };
 
-  if (isMobile) {
+  if (isMobile && useLegacyMobileMenu) {
     const establishmentName = String(establishment?.name || 'Barbearia').trim() || 'Barbearia';
     const establishmentCode = String(establishment?.code || '').trim();
     const establishmentImage = String(establishment?.logo_url || establishment?.profile_image_url || '').trim();
@@ -938,13 +937,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     const getMobileLockedLabel = (itemId: string) =>
       isPlanLockedItem(itemId) ? 'Plano' : isItemLockedByOnboarding(itemId) ? 'Bloqueado' : '';
 
-    const mobileBottomButtonClass = (itemId: string) =>
-      `relative text-center text-xs py-2 rounded-lg ${
-        isMobileActionVisuallyLocked(itemId)
-          ? 'text-white/35'
-          : 'text-white'
-      }`;
-
     if (!isExpanded) {
       return (
         <div className="fixed inset-x-0 top-0 z-40 pointer-events-none">
@@ -1034,9 +1026,15 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
-        <div className="fixed inset-0 z-40 bg-[#05070d] text-white overflow-hidden">
+        <button
+          type="button"
+          aria-label="Fechar menu lateral"
+          onClick={() => setIsExpanded(false)}
+          className="fixed inset-0 z-30 bg-black/45"
+        />
+        <div className="fixed left-0 top-0 bottom-0 z-40 w-[min(88vw,22rem)] border-r border-white/10 bg-[#05070d] text-white overflow-hidden">
           <div className="h-full overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
-          <div className="px-3 pb-24">
+          <div className="px-3 pb-6">
             <div className="pt-3 flex items-center justify-between">
               <button
                 type="button"
@@ -1276,30 +1274,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
           </div>
           </div>
-
-          <div className="absolute bottom-0 left-0 right-0 border-t border-white/10 bg-[#05070d] px-3 py-2">
-            <div className="grid grid-cols-4 gap-2">
-              <button type="button" onClick={() => executeMobileAction('appointments', () => onTabChange('appointments'))} className={mobileBottomButtonClass('appointments')}>
-                {isMobileActionVisuallyLocked('appointments') && <Lock className="absolute right-2 top-1 h-2.5 w-2.5 text-white/35" />}
-                <Home className="h-4 w-4 mx-auto mb-1" />
-                Início
-              </button>
-              <button type="button" onClick={() => executeMobileAction('appointments', () => onTabChange('appointments'))} className={mobileBottomButtonClass('appointments')}>
-                {isMobileActionVisuallyLocked('appointments') && <Lock className="absolute right-2 top-1 h-2.5 w-2.5 text-white/35" />}
-                <Calendar className="h-4 w-4 mx-auto mb-1" />
-                Agenda
-              </button>
-              <button type="button" onClick={openFinancialDashboard} className={mobileBottomButtonClass('dashboard')}>
-                {isMobileActionVisuallyLocked('dashboard') && <Lock className="absolute right-2 top-1 h-2.5 w-2.5 text-white/35" />}
-                <DollarSign className="h-4 w-4 mx-auto mb-1" />
-                Financeiro
-              </button>
-              <button type="button" onClick={openSettings} className={mobileBottomButtonClass('config')}>
-                <MoreHorizontal className="h-4 w-4 mx-auto mb-1" />
-                Mais
-              </button>
-            </div>
-          </div>
         </div>
       </>
     );
@@ -1394,6 +1368,46 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
+      {/* Mobile recolhido: menu some da lateral e volta o botão flutuante */}
+      {isMobile && !isExpanded && (
+        <div className="fixed inset-x-0 top-0 z-40 pointer-events-none md:hidden">
+          <div className="p-3 flex items-center justify-between">
+            <div className="pointer-events-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsExpanded(true)}
+                className="h-11 w-11 rounded-xl border border-white/20 bg-[#111827] text-white flex items-center justify-center"
+                title="Abrir menu"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsExpanded(true)}
+                className="h-11 px-3 rounded-xl border border-white/20 bg-[#111827] text-white text-xs font-semibold tracking-wide flex items-center gap-2"
+                title="Abrir menu"
+              >
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                Abrir menu
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={onNotificationsClick}
+              className="pointer-events-auto h-11 w-11 rounded-xl border border-white/20 bg-[#111827] text-white flex items-center justify-center relative"
+              title="Notificacoes"
+            >
+              <Bell className="h-5 w-5" />
+              {unreadNotifications > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                  {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Overlay do sidebar antigo (somente desktop). Em mobile isso causava camada escura presa. */}
       {!isMobile && isExpanded && (
         <div
@@ -1402,12 +1416,14 @@ const Sidebar: React.FC<SidebarProps> = ({
         />
       )}
 
-      {showAdminMenu && !isMobile && (
+      {showAdminMenu && (
         <div
-          className={`fixed top-0 bottom-0 z-50 w-80 border-r shadow-2xl ${
+          className={`fixed top-0 bottom-0 z-50 border-r shadow-2xl ${
+            isMobile ? 'w-[min(88vw,22rem)] left-0 md:hidden' : 'w-80'
+          } ${
             isLight ? 'bg-white border-gray-200 text-gray-900' : 'bg-[#070a12] border-white/10 text-white'
           }`}
-          style={{ left: isExpanded ? '16rem' : '4rem' }}
+          style={isMobile ? undefined : { left: isExpanded ? '16rem' : '4rem' }}
         >
           <div className={`flex items-center justify-between px-4 py-4 border-b ${isLight ? 'border-gray-200' : 'border-white/10'}`}>
             <div>
@@ -1534,6 +1550,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         className={`hidden md:block flex-shrink-0 transition-all duration-300 ${isExpanded ? 'w-64' : 'w-16'}`}
       />
 
+      {(!isMobile || isExpanded) && (
       <div
         className={`flex fixed left-0 top-0 bottom-0 border-r transition-all duration-300 z-40 flex-col ${isExpanded ? 'w-64' : 'w-16'
           } ${isLight ? 'bg-white border-gray-200' : 'bg-gradient-to-b from-gray-900 via-black to-black border-gray-800'
@@ -2074,6 +2091,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </nav>
 
       </div>
+      )}
     </>
   );
 };

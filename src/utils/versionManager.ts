@@ -227,9 +227,18 @@ export const applyUpdate = async (): Promise<void> => {
   }
 };
 
-// Função de LIMPEZA COMPLETA FORÇADA - limpa TUDO
-export const forceCompleteCleanup = async (): Promise<void> => {
+interface ForceCompleteCleanupOptions {
+  preserveLoginData?: boolean;
+  preserveVersion?: boolean;
+}
+
+// Função de LIMPEZA COMPLETA FORÇADA - limpa dados locais do aparelho
+export const forceCompleteCleanup = async (
+  options: ForceCompleteCleanupOptions = {}
+): Promise<void> => {
   try {
+    const preserveLoginData = options.preserveLoginData ?? true;
+    const preserveVersion = options.preserveVersion ?? true;
     console.log('🧹 Iniciando limpeza completa forçada...');
 
     // 1. Limpar Service Workers PRIMEIRO
@@ -293,21 +302,31 @@ export const forceCompleteCleanup = async (): Promise<void> => {
       console.warn('⚠️ Erro ao limpar sessionStorage:', error);
     }
 
-    // 6. Limpar localStorage (EXCETO versão e dados de autenticação/login)
+    // 6. Limpar localStorage (preservação de versão/login é opcional)
     try {
       const currentVersion = getCurrentVersion();
-      // Chaves importantes que NUNCA devem ser limpas
-      const keysToKeep = [
-        VERSION_KEY,                    // Versão do app
-        'agendafacil_auth_token',       // Token de autenticação principal
-        'saved_email',                  // Email salvo do login
-        'saved_password',               // Senha salva do login
-        'save_credentials',             // Flag de salvar credenciais
-        'supabase.auth.token',          // Token antigo do Supabase (se existir)
-      ];
+      const keysToKeep: string[] = [];
 
-      // Salvar versão atual antes de limpar
-      setStoredVersion(currentVersion);
+      // Em fluxos automáticos de atualização, manter versão evita ruído/rechecagens.
+      if (preserveVersion) {
+        keysToKeep.push(VERSION_KEY);
+      }
+
+      // Em limpezas automáticas mantemos login; na limpeza manual podemos zerar.
+      if (preserveLoginData) {
+        keysToKeep.push(
+          'agendafacil_auth_token', // Token de autenticação principal
+          'saved_email', // Email salvo do login
+          'saved_password', // Senha salva do login
+          'save_credentials', // Flag de salvar credenciais
+          'supabase.auth.token' // Token antigo do Supabase (se existir)
+        );
+      }
+
+      // Salvar versão atual antes de limpar (somente quando preservada)
+      if (preserveVersion) {
+        setStoredVersion(currentVersion);
+      }
 
       // Limpar tudo exceto as chaves importantes
       const allKeys: string[] = [];
@@ -319,8 +338,11 @@ export const forceCompleteCleanup = async (): Promise<void> => {
       }
 
       allKeys.forEach(key => localStorage.removeItem(key));
-      console.log('✅ localStorage limpo (versão e autenticação preservadas)');
-      console.log('🔒 Chaves preservadas:', keysToKeep.filter(key => localStorage.getItem(key)));
+      console.log('✅ localStorage limpo');
+      console.log(
+        `🔒 preservação -> versão: ${preserveVersion ? 'sim' : 'não'}, login: ${preserveLoginData ? 'sim' : 'não'}`
+      );
+      console.log('🔒 Chaves preservadas:', keysToKeep.filter((key) => localStorage.getItem(key)));
     } catch (error) {
       console.warn('⚠️ Erro ao limpar localStorage:', error);
     }
