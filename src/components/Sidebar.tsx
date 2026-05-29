@@ -768,6 +768,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       });
     };
 
+    const mobileActionCardClass = 'bg-[#1f2937]';
+
     const primaryActions: Array<{
       id: string;
       label: string;
@@ -782,7 +784,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         label: 'Notificações',
         icon: Bell,
         onClick: () => executeMobileAction('notifications', onNotificationsClick || (() => { })),
-        className: 'bg-[#111827]',
+        className: mobileActionCardClass,
         badge: unreadNotifications > 0 ? unreadNotifications : undefined,
       },
       {
@@ -790,7 +792,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         label: 'Top 5',
         icon: Crown,
         onClick: () => executeMobileAction('top10-clientes', () => onTabChange('top10-clientes')),
-        className: 'bg-[#3a2a0a]',
+        className: mobileActionCardClass,
       },
       {
         id: 'appointments',
@@ -798,14 +800,14 @@ const Sidebar: React.FC<SidebarProps> = ({
         labelLines: ['Meus', 'Agendamentos'],
         icon: Calendar,
         onClick: () => executeMobileAction('appointments', () => onTabChange('appointments')),
-        className: 'bg-[#3b2412]',
+        className: mobileActionCardClass,
       },
       {
         id: 'client-page',
         label: 'Pagina de Agendamentos',
         icon: Link,
         onClick: () => executeMobileAction('client-page', () => onTabChange('client-page')),
-        className: 'bg-[#102a43]',
+        className: mobileActionCardClass,
       },
     ];
 
@@ -815,7 +817,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         label: 'Meus Assinantes',
         icon: Crown,
         onClick: () => executeMobileAction('subscribers', () => onTabChange('subscribers'), { respectPlanLock: true }),
-        className: 'bg-[#2b1b3f]',
+        className: mobileActionCardClass,
         badge: pendingSubscribersCount > 0 ? pendingSubscribersCount : undefined,
       },
       {
@@ -823,14 +825,14 @@ const Sidebar: React.FC<SidebarProps> = ({
         label: 'Lembretes para Clientes',
         icon: MessageCircle,
         onClick: () => executeMobileAction('whatsapp-reminders', () => onTabChange('whatsapp-reminders')),
-        className: 'bg-[#3a2a0a]',
+        className: mobileActionCardClass,
       },
       {
         id: 'indication',
         label: 'Quero 1 mes gratis',
         icon: Gift,
         onClick: () => executeMobileAction('indication', () => onTabChange('indication')),
-        className: 'bg-[#123524]',
+        className: mobileActionCardClass,
       },
       {
         id: 'receber-adiantado',
@@ -841,28 +843,28 @@ const Sidebar: React.FC<SidebarProps> = ({
           onReceberAdiantadoClick();
           setIsExpanded(false);
         },
-        className: 'bg-[#102a43]',
+        className: mobileActionCardClass,
       },
       {
         id: 'fila-espera',
         label: 'Fila de Espera',
         icon: ListOrdered,
         onClick: () => executeMobileAction('fila-espera', () => onTabChange('fila-espera'), { respectPlanLock: true }),
-        className: 'bg-[#3b1730]',
+        className: mobileActionCardClass,
       },
       {
         id: 'placa-barbearia',
         label: 'Placa Barbearia',
         icon: CreditCard,
         onClick: () => executeMobileAction('placa-barbearia', () => onTabChange('placa-barbearia')),
-        className: 'bg-[#172554]',
+        className: mobileActionCardClass,
       },
       {
         id: 'reviews',
         label: 'Avaliações',
         icon: Bell,
         onClick: () => executeMobileAction('reviews', () => onTabChange('reviews')),
-        className: 'bg-[#1f2937]',
+        className: mobileActionCardClass,
         badge: pendingReviewsCount > 0 ? pendingReviewsCount : undefined,
       },
       {
@@ -870,56 +872,56 @@ const Sidebar: React.FC<SidebarProps> = ({
         label: 'Meus Clientes',
         icon: Users,
         onClick: () => executeMobileAction('clients', () => onTabChange('clients')),
-        className: 'bg-[#1f2937]',
+        className: mobileActionCardClass,
       },
       {
         id: 'service-categories',
         label: 'Meus Serviços',
         icon: Layers,
         onClick: () => executeMobileAction('service-categories', () => onTabChange('service-categories')),
-        className: 'bg-[#1f2937]',
+        className: mobileActionCardClass,
       },
       {
         id: 'products',
         label: 'Meus Produtos',
         icon: Package,
         onClick: () => executeMobileAction('products', () => onTabChange('products'), { respectPlanLock: true }),
-        className: 'bg-[#1f2937]',
+        className: mobileActionCardClass,
       },
       {
         id: 'professionals',
         label: 'Profissionais',
         icon: UserCheck,
         onClick: () => executeMobileAction('professionals', () => onTabChange('professionals')),
-        className: 'bg-[#1f2937]',
+        className: mobileActionCardClass,
       },
       {
         id: 'dashboard',
         label: 'Financeiro',
         icon: BarChart3,
         onClick: openFinancialDashboard,
-        className: 'bg-[#1f2937]',
+        className: mobileActionCardClass,
       },
       {
         id: 'expenses',
         label: 'Despesas',
         icon: DollarSign,
         onClick: () => executeMobileAction('expenses', () => onTabChange('expenses')),
-        className: 'bg-[#1f2937]',
+        className: mobileActionCardClass,
       },
       {
         id: 'taxes',
         label: 'Minhas Taxas',
         icon: Receipt,
         onClick: () => executeMobileAction('taxes', () => onTabChange('taxes')),
-        className: 'bg-[#1f2937]',
+        className: mobileActionCardClass,
       },
       {
         id: 'config',
         label: 'Config',
         icon: Settings,
         onClick: openSettings,
-        className: 'bg-[#1f2937]',
+        className: mobileActionCardClass,
       },
     ];
 
@@ -937,10 +939,10 @@ const Sidebar: React.FC<SidebarProps> = ({
       isPlanLockedItem(itemId) ? 'Plano' : isItemLockedByOnboarding(itemId) ? 'Bloqueado' : '';
 
     const mobileBottomButtonClass = (itemId: string) =>
-      `relative text-center text-xs py-2 rounded-lg transition-colors ${
+      `relative text-center text-xs py-2 rounded-lg ${
         isMobileActionVisuallyLocked(itemId)
           ? 'text-white/35'
-          : 'text-white hover:bg-white/10'
+          : 'text-white'
       }`;
 
     if (!isExpanded) {
@@ -951,7 +953,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={() => setIsExpanded(true)}
-                className="h-11 w-11 rounded-xl border border-white/20 bg-black/70 text-white flex items-center justify-center"
+                className="h-11 w-11 rounded-xl border border-white/20 bg-[#111827] text-white flex items-center justify-center"
                 title="Abrir menu"
               >
                 <Menu className="h-5 w-5" />
@@ -959,17 +961,17 @@ const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={() => setIsExpanded(true)}
-                className="h-11 px-3 rounded-xl border border-white/20 bg-black/70 text-white text-xs font-semibold tracking-wide flex items-center gap-2"
+                className="h-11 px-3 rounded-xl border border-white/20 bg-[#111827] text-white text-xs font-semibold tracking-wide flex items-center gap-2"
                 title="Abrir menu"
               >
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
                 Abrir menu
               </button>
             </div>
             <button
               type="button"
               onClick={onNotificationsClick}
-              className="pointer-events-auto h-11 w-11 rounded-xl border border-white/20 bg-black/70 text-white flex items-center justify-center relative"
+              className="pointer-events-auto h-11 w-11 rounded-xl border border-white/20 bg-[#111827] text-white flex items-center justify-center relative"
               title="Notificacoes"
             >
               <Bell className="h-5 w-5" />
@@ -1032,13 +1034,14 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
-        <div className="fixed inset-0 z-40 bg-[#05070d] text-white overflow-y-auto">
+        <div className="fixed inset-0 z-40 bg-[#05070d] text-white overflow-hidden">
+          <div className="h-full overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
           <div className="px-3 pb-24">
             <div className="pt-3 flex items-center justify-between">
               <button
                 type="button"
                 onClick={() => setIsExpanded(false)}
-                className="h-10 w-10 rounded-xl border border-white/15 bg-white/5 flex items-center justify-center"
+                className="h-10 w-10 rounded-xl border border-white/15 bg-[#111827] flex items-center justify-center"
                 title="Fechar menu"
               >
                 <Menu className="h-4.5 w-4.5" />
@@ -1059,7 +1062,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={onNotificationsClick}
-                className="h-10 w-10 rounded-xl border border-white/15 bg-white/5 flex items-center justify-center relative"
+                className="h-10 w-10 rounded-xl border border-white/15 bg-[#111827] flex items-center justify-center relative"
                 title="Notificacoes"
               >
                 <Bell className="h-4.5 w-4.5" />
@@ -1089,7 +1092,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   </p>
                 </div>
               </div>
-              <div className="rounded-xl border border-white/10 bg-black/30 px-2.5 py-2 text-right shrink-0">
+              <div className="rounded-xl border border-white/10 bg-[#0f172a] px-2.5 py-2 text-right shrink-0">
                 <p className="text-xs text-white/70">Hoje é</p>
                 <p className="text-[14px] font-extrabold">{todayLabel}</p>
               </div>
@@ -1106,14 +1109,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                       type="button"
                       onClick={action.onClick}
                       aria-disabled={isLocked}
-                      className={`relative rounded-2xl border px-2 py-2 text-center min-h-[76px] transition-colors ${
+                      className={`relative rounded-2xl border px-2 py-2 text-center min-h-[76px] ${
                         isLocked
                           ? 'bg-[#111827] border-white/10 text-white/45'
-                          : `border-white/10 ${action.className} text-white hover:bg-[#263244]`
+                          : `border-white/10 ${action.className} text-white`
                       }`}
                     >
                       {isLocked && (
-                        <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[8px] font-black text-white/80">
+                        <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-[#0f172a] px-1.5 py-0.5 text-[8px] font-black text-white/80">
                           <Lock className="h-2.5 w-2.5" />
                           {getMobileLockedLabel(action.id)}
                         </span>
@@ -1149,12 +1152,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                       key={action.id}
                       type="button"
                       onClick={action.onClick}
-                      className={`w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
+                      className={`w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left ${
                         isDanger
-                          ? 'border-red-500/30 bg-red-600/10 text-red-200 hover:bg-red-600/20'
+                          ? 'border-red-500/30 bg-red-600/10 text-red-200'
                           : action.isActive
                             ? 'border-white bg-white text-black'
-                            : 'border-white/10 bg-white/5 text-white hover:bg-white/10'
+                            : 'border-white/10 bg-[#0f172a] text-white'
                       }`}
                     >
                       <div className="relative">
@@ -1163,7 +1166,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                       </div>
                       <span className="flex-1 text-sm font-extrabold">{action.label}</span>
                       {isAdminMenuAction ? (
-                        <ChevronRight className={`h-4 w-4 opacity-70 transition-transform ${showAdminMenu ? 'rotate-90' : ''}`} />
+                        <ChevronRight className={`h-4 w-4 opacity-70 ${showAdminMenu ? 'rotate-90' : ''}`} />
                       ) : (
                         <ChevronRight className="h-4 w-4 opacity-70" />
                       )}
@@ -1180,7 +1183,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   <p className="text-lg font-extrabold tracking-wide text-white/90">MENU ADMIN</p>
                   <p className="text-xs text-white/55 font-semibold">Assinantes, pagamentos, equipe e configurações.</p>
                 </div>
-                <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-extrabold text-white/70">
+                <div className="rounded-full border border-white/10 bg-[#0f172a] px-2.5 py-1 text-[10px] font-extrabold text-white/70">
                   Admin
                 </div>
               </div>
@@ -1193,10 +1196,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                       type="button"
                       onClick={action.onClick}
                       aria-disabled={isLocked}
-                      className={`relative rounded-xl border px-1.5 py-2.5 text-center min-h-[72px] transition-colors ${
+                      className={`relative rounded-xl border px-1.5 py-2.5 text-center min-h-[72px] ${
                         isLocked
                           ? 'border-white/5 bg-black/25 text-white/35'
-                          : `border-white/10 ${action.className} text-white hover:bg-[#263244]`
+                          : `border-white/10 ${action.className} text-white`
                       }`}
                     >
                       {isLocked && (
@@ -1225,12 +1228,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                     key={action.id}
                     type="button"
                     onClick={action.onClick}
-                    className={`w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
+                    className={`w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left ${
                       isDanger
-                        ? 'border-red-500/30 bg-red-600/10 text-red-200 hover:bg-red-600/20'
+                        ? 'border-red-500/30 bg-red-600/10 text-red-200'
                         : action.isActive
                           ? 'border-white bg-white text-black'
-                          : 'border-white/10 bg-white/5 text-white hover:bg-white/10'
+                          : 'border-white/10 bg-[#0f172a] text-white'
                     }`}
                   >
                     <Icon className="h-5 w-5" />
@@ -1251,7 +1254,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     executeMobileAction('top10-clientes', () => onTabChange('top10-clientes'));
                   }
                 }}
-                className="mt-4 w-full text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/70 rounded-2xl"
+                className="mt-4 w-full text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 rounded-2xl"
                 aria-label="Abrir ranking Top 1 do mês"
               >
                 <TopMonthlyWinnerCard
@@ -1272,8 +1275,9 @@ const Sidebar: React.FC<SidebarProps> = ({
             )}
 
           </div>
+          </div>
 
-          <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#05070d] px-3 py-2">
+          <div className="absolute bottom-0 left-0 right-0 border-t border-white/10 bg-[#05070d] px-3 py-2">
             <div className="grid grid-cols-4 gap-2">
               <button type="button" onClick={() => executeMobileAction('appointments', () => onTabChange('appointments'))} className={mobileBottomButtonClass('appointments')}>
                 {isMobileActionVisuallyLocked('appointments') && <Lock className="absolute right-2 top-1 h-2.5 w-2.5 text-white/35" />}
