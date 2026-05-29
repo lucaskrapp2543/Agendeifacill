@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { refreshAccessToken } from './mp-oauth';
 import { checkMPPaymentStatus } from './mp-service';
+import { recordAdminMpCommission } from './adminMpCommission';
 
 export type ReconcileMpPendingResult = {
   checked: number;
@@ -143,6 +144,21 @@ export async function reconcilePendingMercadoPagoAppointments(
         errors.push(`${id}: ${String((updErr as any)?.message || updErr)}`);
       } else {
         updated += 1;
+        await recordAdminMpCommission(supabaseAdmin, {
+          establishmentId,
+          sourceType: 'appointment',
+          sourceId: id,
+          paymentId: String(pid),
+          externalReference: String((payment as any)?.external_reference || '') || null,
+          paymentMethod,
+          grossAmountCents: Math.round(Number((payment as any)?.transaction_amount || 0) * 100) || null,
+          paidAt: String((payment as any)?.date_approved || (payment as any)?.date_created || '') || null,
+          metadata: {
+            origin: 'reconcile_pending_appointments',
+            payment_status: (payment as any)?.status || null,
+            payment_method_id: (payment as any)?.payment_method_id || null,
+          },
+        });
       }
     } catch (e: any) {
       errors.push(`${id}: ${String(e?.message || e)}`);

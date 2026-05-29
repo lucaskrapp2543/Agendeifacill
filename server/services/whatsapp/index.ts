@@ -21,13 +21,28 @@ const persistSessionStatus = async (payload: SessionStatusPayload) => {
   if (!supabaseAdmin) return;
   const userId = String(payload.userId || '').trim();
   if (!userId) return;
+
+  const { data: existingSession } = await supabaseAdmin
+    .from('whatsapp_sessions')
+    .select('phone,connected_at')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  const isConnectedStatus = String(payload.status || '').toLowerCase() === 'connected';
+  const phoneToPersist = isConnectedStatus
+    ? payload.phone || null
+    : payload.phone || existingSession?.phone || null;
+  const connectedAtToPersist = isConnectedStatus
+    ? payload.connectedAt || new Date().toISOString()
+    : payload.connectedAt || existingSession?.connected_at || null;
+
   await supabaseAdmin.from('whatsapp_sessions').upsert(
     {
       user_id: userId,
       status: payload.status,
-      phone: payload.phone || null,
+      phone: phoneToPersist,
       session_path: payload.sessionPath,
-      connected_at: payload.connectedAt || null,
+      connected_at: connectedAtToPersist,
       last_seen: payload.lastSeen || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     },

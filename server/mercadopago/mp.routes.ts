@@ -9,6 +9,7 @@ import { Request, Response, Router } from 'express';
 import axios from 'axios';
 // Importar de src/lib para compatibilidade (também funciona em server local)
 import { exchangeCodeForToken, getAuthorizationUrl } from '../../src/lib/mercadopago/mp-oauth';
+import { recordAdminMpCommission } from '../../src/lib/mercadopago/adminMpCommission';
 import { confirmPendingAppointmentFromMpPaymentMetadata } from '../../src/lib/mercadopago/confirmAppointmentFromMpPayment';
 import { reconcilePendingMercadoPagoAppointments } from '../../src/lib/mercadopago/reconcilePendingAppointmentsMp';
 import { checkMPPaymentStatus, createMPPayment, CreateMPPaymentRequest } from '../../src/lib/mercadopago/mp-service';
@@ -70,7 +71,7 @@ const getNextDueDate = (planTypeRaw: unknown): string => {
 
 const SITE_PLAN_CONFIG = {
   prata: { label: 'PRATA', amountCents: 3790 },
-  diamante: { label: 'DIAMANTE', amountCents: 5790 },
+  diamante: { label: 'DIAMANTE', amountCents: 6790 },
 } as const;
 
 router.post('/site-registration-create-checkout', async (req: Request, res: Response) => {
@@ -1644,6 +1645,20 @@ router.post('/webhook', async (req: Request, res: Response) => {
           .eq('id', String((row as any).id));
       }
 
+      await recordAdminMpCommission(supabaseAdmin, {
+        establishmentId,
+        sourceType: 'subscription',
+        sourceId: String((rows[0] as any)?.id || ''),
+        paymentId: preapprovalId,
+        paymentMethod: 'credito',
+        paidAt: new Date().toISOString(),
+        metadata: {
+          origin: 'mercadopago_webhook_subscription_preapproval_local',
+          preapproval_status: status,
+          updated_subscribers: rows.length,
+        },
+      });
+
       return res.status(200).json({
         message: 'Webhook de assinatura recorrente processado automaticamente',
         preapprovalId,
@@ -1789,6 +1804,22 @@ router.post('/webhook', async (req: Request, res: Response) => {
                         .in('id', ids);
 
                       if (!subscriberUpdateError) {
+                        await recordAdminMpCommission(supabaseAdmin, {
+                          establishmentId,
+                          sourceType: 'subscription',
+                          sourceId: ids[0] || null,
+                          paymentId: String(paymentId),
+                          externalReference,
+                          paymentMethod: String((payment as any)?.payment_method_id || ''),
+                          grossAmountCents: Math.round(Number((payment as any)?.transaction_amount || 0) * 100) || null,
+                          paidAt: String((payment as any)?.date_approved || (payment as any)?.date_created || '') || null,
+                          metadata: {
+                            origin: 'mercadopago_webhook_subscription_checkout_local',
+                            subscription_id: subscriptionId,
+                            updated_subscribers: ids.length,
+                            payment_status: (payment as any)?.status || null,
+                          },
+                        });
                         return res.status(200).json({
                           message: 'Webhook de assinatura externa processado automaticamente',
                           establishmentId,
@@ -1882,6 +1913,22 @@ router.post('/webhook', async (req: Request, res: Response) => {
             pix_payment_status: payment.payment_method_id === 'pix' ? 'aprovado' : null,
           })
           .eq('id', appointment.id);
+
+        await recordAdminMpCommission(supabaseAdmin, {
+          establishmentId: String(appointment.establishment_id || ''),
+          sourceType: 'appointment',
+          sourceId: String(appointment.id),
+          paymentId: String(paymentId),
+          externalReference: String((payment as any)?.external_reference || '') || null,
+          paymentMethod,
+          grossAmountCents: Math.round(Number((payment as any)?.transaction_amount || 0) * 100) || null,
+          paidAt: String((payment as any)?.date_approved || (payment as any)?.date_created || '') || null,
+          metadata: {
+            origin: 'mercadopago_webhook_appointment_local',
+            payment_status: (payment as any)?.status || null,
+            payment_method_id: (payment as any)?.payment_method_id || null,
+          },
+        });
 
         return res.status(200).json({
           message: 'Webhook processado com sucesso',

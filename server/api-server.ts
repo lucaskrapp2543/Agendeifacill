@@ -50,6 +50,7 @@ import { createClient } from '@supabase/supabase-js';
 import cors from 'cors';
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import { recordAdminMpCommission } from '../src/lib/mercadopago/adminMpCommission';
 import { checkMPPaymentStatus } from '../src/lib/mercadopago/mp-service';
 import {
   checkPaymentStatus,
@@ -428,6 +429,7 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
     // Validar pagamento no gateway correto
     let normalizedStatus = '';
     let statusDetail: string | undefined;
+    let mercadoPagoPaymentContext: any = null;
 
     if (providerFinal.startsWith('mercadopago')) {
       // Buscar access_token do estabelecimento
@@ -452,6 +454,7 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
       const paymentId = Number(orderId);
       if (Number.isFinite(paymentId) && paymentId > 0) {
         const mpStatus = await checkMPPaymentStatus(paymentId, accessToken);
+        mercadoPagoPaymentContext = mpStatus;
         normalizedStatus = String((mpStatus as any)?.status || '').toLowerCase();
         statusDetail = String((mpStatus as any)?.status_detail || '').trim() || undefined;
 
@@ -475,6 +478,7 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
           }
         );
         normalizedStatus = String((preapprovalResp.data as any)?.status || '').toLowerCase();
+        mercadoPagoPaymentContext = preapprovalResp.data;
         if (normalizedStatus !== 'authorized') {
           return res.status(400).json({
             error: 'Assinatura recorrente ainda não autorizada',
@@ -562,6 +566,25 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
         .single();
       if (insErr) return res.status(500).json({ error: 'Erro ao criar assinatura', details: insErr });
       resultRow = ins;
+    }
+
+    if (providerFinal.startsWith('mercadopago')) {
+      await recordAdminMpCommission(supabaseAdmin, {
+        establishmentId: String(establishmentId),
+        sourceType: 'subscription',
+        sourceId: String(resultRow?.id || existing?.id || ''),
+        paymentId: String(orderId),
+        externalReference: String(mercadoPagoPaymentContext?.external_reference || '') || null,
+        paymentMethod: subscriberPaymentMethod || providerFinal,
+        grossAmountCents: Math.round(Number(mercadoPagoPaymentContext?.transaction_amount || 0) * 100) || null,
+        paidAt: String(mercadoPagoPaymentContext?.date_approved || mercadoPagoPaymentContext?.date_created || '') || null,
+        metadata: {
+          origin: 'api_confirm_subscription_pix',
+          provider: providerFinal,
+          subscription_id: String(subscriptionId),
+          payment_status: normalizedStatus,
+        },
+      });
     }
 
     return res.status(200).json({

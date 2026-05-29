@@ -2731,6 +2731,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
       if (apt.additional_products) {
         total += apt.additional_products.reduce((sum, p) => sum + p.price, 0);
       }
+      // Compatibilidade com bases legadas: evita inflar quando total_price é menor que a soma manual.
+      const cappedTotal = Number((apt as any)?.total_price || 0);
+      if (Number.isFinite(cappedTotal) && cappedTotal > 0 && total > cappedTotal) return cappedTotal;
       return total;
     };
 
@@ -4122,6 +4125,19 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const getAppointmentDateOnly = (raw: unknown): string => String(raw || '').slice(0, 10);
       const getAppointmentMonthKey = (raw: unknown): string => String(raw || '').slice(0, 7);
       const getAppointmentStatus = (raw: unknown): string => String(raw || '').trim().toLowerCase();
+      const isSubscriberFinancialAppointment = (apt: Appointment): boolean => {
+        const paymentMethod = String((apt as any)?.payment_method || '').trim().toLowerCase();
+        if (Boolean((apt as any)?.is_subscriber) || paymentMethod === 'assinante') return true;
+        if (String((apt as any)?.subscription_id || '').trim()) return true;
+        if (String((apt as any)?.subscriber_service_id || '').trim()) return true;
+        if (String((apt as any)?.subscriber_service_name || '').trim()) return true;
+
+        const clientName = String((apt as any)?.client_name || '').trim().toLowerCase();
+        const hasSubscriberLabel = clientName.includes('assinante');
+        const basePrice = Number((apt as any)?.price || 0);
+        const totalPrice = Number((apt as any)?.total_price || 0);
+        return hasSubscriberLabel && (basePrice <= 0 || totalPrice <= 0);
+      };
       const isAppointmentFromSelectedDay = (apt: Appointment) =>
         getAppointmentDateOnly(apt.appointment_date) === selectedDateStr;
 
@@ -4149,7 +4165,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
         return (
           appointmentBelongsToProfessionalColumn(apt, professionalRef) &&
           isAppointmentFromSelectedDay(apt) &&
-          getAppointmentStatus(apt.status) === 'completed'
+          getAppointmentStatus(apt.status) === 'completed' &&
+          !isSubscriberFinancialAppointment(apt)
         );
       });
 
@@ -4168,30 +4185,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
       });
       const mergedMonthAppointments = Array.from(mergedMonthAppointmentsMap.values());
 
-      // Para valores financeiros mensais, usar apenas confirmados/completos
-      const monthlyAppointmentsForPro = mergedMonthAppointments.filter((apt) => {
+      // Para valores mensais do modal, usar a mesma base do financeiro: apenas concluídos.
+      const monthlyCompletedAppointmentsForPro = mergedMonthAppointments.filter((apt) => {
         const status = getAppointmentStatus(apt.status);
         return (
           appointmentBelongsToProfessionalColumn(apt, professionalRef) &&
-          (status === 'confirmed' || status === 'completed')
+          status === 'completed' &&
+          !isSubscriberFinancialAppointment(apt)
         );
       });
 
-      // Para contagem mensal, usar todos não cancelados
-      const monthlyAppointmentsForCount = mergedMonthAppointments.filter((apt) => {
-        const status = getAppointmentStatus(apt.status);
-        return (
-          appointmentBelongsToProfessionalColumn(apt, professionalRef) &&
-          status !== 'cancelled'
-        );
-      });
+      // Para contagem mensal, manter alinhado ao total de concluídos no período.
+      const monthlyAppointmentsForCount = monthlyCompletedAppointmentsForPro;
 
       const dailyGross = dailyAppointments.reduce(
         // ✅ No saldo do barbeiro, NÃO contar produtos V2. Apenas serviço + serviços extra.
         (sum, apt) => sum + calculateServiceTotal(apt),
         0
       );
-      const monthlyGross = monthlyAppointmentsForPro.reduce(
+      const monthlyGross = monthlyCompletedAppointmentsForPro.reduce(
         // ✅ No saldo do barbeiro, NÃO contar produtos V2. Apenas serviço + serviços extra.
         (sum, apt) => sum + calculateServiceTotal(apt),
         0
@@ -4221,7 +4233,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }, 0);
 
       // Calcular líquido mensal: verificar se taxa é descontada do estabelecimento ou do profissional
-      const monthlyNet = monthlyAppointmentsForPro.reduce((total, apt) => {
+      const monthlyNet = monthlyCompletedAppointmentsForPro.reduce((total, apt) => {
         const baseValue = calculateServiceTotal(apt);
         const cardTaxAmount = getCardTaxAmountForServiceBase(apt, baseValue);
         const baseAfterTax = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
@@ -7230,7 +7242,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                       const badgeText = isAvulso
                         ? 'RESERVA'
                         : isSqueeze
-                          ? (apt.is_subscriber ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
+                          ? (Boolean((appointment as any)?.is_subscriber) ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
                           : isPast
                             ? 'Já passou'
                             : isBlocked

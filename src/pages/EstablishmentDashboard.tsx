@@ -1093,6 +1093,16 @@ const EstablishmentDashboard = () => {
   const [enableWhatsAppNotifications, setEnableWhatsAppNotifications] = useState(false); // Ativar notificações WhatsApp após agendamentos
   const [skipClientWhatsappBookingNudge, setSkipClientWhatsappBookingNudge] = useState(false); // Não pedir WhatsApp ao profissional após agendar (cliente)
   const [whatsAppAppPreference, setWhatsAppAppPreferenceState] = useState<WhatsAppAppPreference>(() => getWhatsAppAppPreference());
+  const [baileysDashboardStatus, setBaileysDashboardStatus] = useState<{
+    loaded: boolean;
+    connected: boolean;
+    status: string;
+    phone?: string | null;
+    connectedAt?: string | null;
+    lastSeen?: string | null;
+    apiError?: string | null;
+  }>({ loaded: false, connected: false, status: '' });
+  const [baileysWasConnectedOnce, setBaileysWasConnectedOnce] = useState(false);
   const [requireCancelPassword, setRequireCancelPassword] = useState(false); // Exigir senha para cancelar agendamento
   const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
   const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
@@ -1619,6 +1629,34 @@ const EstablishmentDashboard = () => {
     if (digits.length >= 10 && digits.length <= 11) return `55${digits}`;
     return digits;
   };
+
+  const getBaileysConnectedOnceKey = () =>
+    establishment?.id && user?.id ? `baileys_connected_once_${establishment.id}_${user.id}` : '';
+
+  const buildWhatsAppApiUrlForDashboard = (suffix: string) => {
+    const configuredApiBase = String((import.meta as any)?.env?.VITE_WHATSAPP_API_BASE_URL || '')
+      .trim()
+      .replace(/\/$/, '');
+    const isAgendeiFacilHost =
+      typeof window !== 'undefined' && /(^|\.)agendeifacil\.com$/i.test(window.location.hostname);
+    const whatsappApiBase = isAgendeiFacilHost ? '' : configuredApiBase;
+    const normalized = String(suffix || '').replace(/^\/+/, '');
+    return whatsappApiBase
+      ? `${whatsappApiBase}/api/whatsapp/${normalized}`
+      : `/api/whatsapp/${normalized}`;
+  };
+
+  const formatBaileysDashboardStatusLabel = (statusRaw: string) => {
+    const current = String(statusRaw || '').trim().toLowerCase();
+    if (current === 'connected') return 'Conectado';
+    if (current === 'needs_qr') return 'Aguardando QR';
+    if (current === 'reconnecting') return 'Reconectando';
+    if (current === 'connecting') return 'Conectando';
+    if (current === 'error') return 'Erro';
+    if (current === 'disconnected') return 'Desconectado';
+    return current || 'Desconectado';
+  };
+
   const getWhatsappLookupKeys = (raw: string): string[] => {
     const digits = String(raw || '').replace(/\D/g, '');
     if (!digits) return [];
@@ -4468,6 +4506,8 @@ const EstablishmentDashboard = () => {
   const [detailedRangeStart, setDetailedRangeStart] = useState<string>(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [detailedRangeEnd, setDetailedRangeEnd] = useState<string>(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [detailedAttendances, setDetailedAttendances] = useState<Appointment[]>([]);
+  // Estado para armazenar assinantes pagos (declarado cedo para evitar TDZ em efeitos do financeiro)
+  const [paidSubscribers, setPaidSubscribers] = useState<Set<string>>(new Set());
   const [isLoadingDetailedAttendances, setIsLoadingDetailedAttendances] = useState(false);
   const lastDetailedAttendancesQueryKeyRef = useRef<string>('');
   const cleanedAdvancePaymentsByMonthRef = useRef<Set<string>>(new Set());
@@ -13284,6 +13324,109 @@ Estamos te aguardando!`;
   }, [selectedMonth]);
 
   useEffect(() => {
+    const connectedOnceKey = getBaileysConnectedOnceKey();
+    if (!connectedOnceKey) {
+      setBaileysWasConnectedOnce(false);
+      return;
+    }
+
+    try {
+      setBaileysWasConnectedOnce(localStorage.getItem(connectedOnceKey) === 'true');
+    } catch {
+      setBaileysWasConnectedOnce(false);
+    }
+  }, [establishment?.id, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setBaileysDashboardStatus({ loaded: false, connected: false, status: '' });
+      return;
+    }
+
+    let cancelled = false;
+    let intervalId: number | null = null;
+
+    const loadBaileysStatus = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = String(data?.session?.access_token || '').trim();
+        if (!token) return;
+
+        const response = await fetch(
+          `${buildWhatsAppApiUrlForDashboard('status')}?user_id=${encodeURIComponent(user.id)}`,
+          {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+
+        const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+        if (!contentType.includes('application/json')) {
+          throw new Error('API de WhatsApp indisponível.');
+        }
+
+        const result = await response.json();
+        if (!response.ok || !result?.ok) {
+          throw new Error(String(result?.error || 'Falha ao consultar status do WhatsApp.'));
+        }
+
+        const nextStatus = String(result?.status || '').trim().toLowerCase();
+        const connected = Boolean(result?.connected) || nextStatus === 'connected';
+        const alreadyUsedBaileys =
+          connected ||
+          Boolean(result?.ever_connected) ||
+          Boolean(result?.connected_at) ||
+          Boolean(result?.phone) ||
+          ['disconnected', 'reconnecting', 'error'].includes(nextStatus);
+        const connectedOnceKey = getBaileysConnectedOnceKey();
+        if (alreadyUsedBaileys && connectedOnceKey) {
+          try {
+            localStorage.setItem(connectedOnceKey, 'true');
+          } catch {
+            // ignore
+          }
+          if (!cancelled) setBaileysWasConnectedOnce(true);
+        }
+
+        if (!cancelled) {
+          setBaileysDashboardStatus({
+            loaded: true,
+            connected,
+            status: nextStatus || (connected ? 'connected' : 'disconnected'),
+            phone: result?.phone || null,
+            connectedAt: result?.connected_at || null,
+            lastSeen: result?.last_seen || null,
+            apiError: null,
+          });
+        }
+      } catch (error: any) {
+        if (!cancelled) {
+          setBaileysDashboardStatus((current) => ({
+            ...current,
+            loaded: true,
+            connected: false,
+            status: current.status || 'error',
+            apiError: String(error?.message || error || 'Erro ao consultar WhatsApp.'),
+          }));
+        }
+      }
+    };
+
+    void loadBaileysStatus();
+    intervalId = window.setInterval(() => {
+      void loadBaileysStatus();
+    }, 30000);
+
+    return () => {
+      cancelled = true;
+      if (intervalId) window.clearInterval(intervalId);
+    };
+  }, [user?.id, establishment?.id]);
+
+  useEffect(() => {
     if (!showDetailedAttendancesPanel) return;
     // Mantém o mobile leve ao trocar período/filtro (render progressivo).
     setServiceRankingVisibleCount(20);
@@ -13309,7 +13452,7 @@ Estamos te aguardando!`;
       try {
         const { data, error } = await supabase
           .from('appointments')
-          .select('id,client_id,client_name,client_whatsapp,service,professional,appointment_date,appointment_time,status,price,total_price,payment_method,card_brand,additional_products')
+          .select('*')
           .eq('establishment_id', establishment.id)
           .gte('appointment_date', detailedRangeStart)
           .lte('appointment_date', detailedRangeEnd)
@@ -13367,7 +13510,8 @@ Estamos te aguardando!`;
       if (isExactSelectedMonthRange) {
         const sameBaseRows = (monthlyAppointments || [])
           .filter((apt) => !isWaitlistAppointment(apt))
-          .filter((apt) => isCompletedAppointmentStatus(apt));
+          .filter((apt) => isCompletedAppointmentStatus(apt))
+          .filter((apt) => !shouldExcludeFromFinancialAttendanceBase(apt));
         setProfessionalRevenueAppointments(sameBaseRows as Appointment[]);
         setProfessionalRevenueRangeError('');
         return;
@@ -13388,7 +13532,8 @@ Estamos te aguardando!`;
         if (error) throw error;
         const completedRows = ((data || []) as any[])
           .filter((apt) => !isWaitlistAppointment(apt))
-          .filter((apt) => isCompletedAppointmentStatus(apt));
+          .filter((apt) => isCompletedAppointmentStatus(apt))
+          .filter((apt) => !shouldExcludeFromFinancialAttendanceBase(apt));
         setProfessionalRevenueAppointments(completedRows as Appointment[]);
       } catch (err: any) {
         console.error('Erro ao carregar período da Receita por Profissional:', err);
@@ -13404,7 +13549,7 @@ Estamos te aguardando!`;
     };
 
     void loadProfessionalRevenueAppointments();
-  }, [activeTab, establishment?.id, professionalRevenueRangeStart, professionalRevenueRangeEnd, showProfessionalRevenueSection, isCompletedAppointmentStatus, isWaitlistAppointment, monthlyAppointments, selectedMonth]);
+  }, [activeTab, establishment?.id, professionalRevenueRangeStart, professionalRevenueRangeEnd, showProfessionalRevenueSection, isCompletedAppointmentStatus, isWaitlistAppointment, monthlyAppointments, paidSubscribers, selectedMonth]);
 
   useEffect(() => {
     const loadHighlightMonthAttendances = async () => {
@@ -13420,7 +13565,7 @@ Estamos te aguardando!`;
       try {
         const { data, error } = await supabase
           .from('appointments')
-          .select('id,client_id,client_name,client_whatsapp,service,professional,appointment_date,appointment_time,status,price,total_price,payment_method,card_brand,additional_products')
+          .select('*')
           .eq('establishment_id', establishment.id)
           .gte('appointment_date', monthStart)
           .lte('appointment_date', monthEnd)
@@ -14168,7 +14313,7 @@ Estamos te aguardando!`;
   const calculateMonthlyBalance = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
       if (isCompletedAppointmentStatus(appointment)) {
-        if (isSubscriberAppointment(appointment)) return total;
+        if (shouldExcludeFromFinancialAttendanceBase(appointment)) return total;
         return total + getAppointmentRevenueBase(appointment);
       }
       return total;
@@ -14190,7 +14335,7 @@ Estamos te aguardando!`;
   // Função para calcular total das taxas de cartão do mês (usa mesma base que receita: serviço + extras, cap total_price)
   const calculateTotalCardTaxes = (appointments: Appointment[]): number => {
     return appointments.reduce((total, appointment) => {
-      if (isCompletedAppointmentStatus(appointment) && !isSubscriberAppointment(appointment)) {
+      if (isCompletedAppointmentStatus(appointment) && !shouldExcludeFromFinancialAttendanceBase(appointment)) {
         const baseValue = getAppointmentRevenueBase(appointment);
         const taxAmount = getCardTaxAmountFromAppointment(appointment, baseValue);
         return total + taxAmount;
@@ -16607,9 +16752,6 @@ Estamos te aguardando!`;
     }
   };
 
-  // Estado para armazenar assinantes pagos
-  const [paidSubscribers, setPaidSubscribers] = useState<Set<string>>(new Set());
-
   const isSubscriberAppointment = (appointment?: Partial<Appointment> | null) => {
     if (!appointment) return false;
     if ((appointment as any).is_subscriber === true) return true;
@@ -16619,6 +16761,16 @@ Estamos te aguardando!`;
     const subscriberServiceName = String((appointment as any).subscriber_service_name || '').trim();
     return subscriberServiceId.length > 0 || subscriberServiceName.length > 0;
   };
+
+  // Base oficial de "atendimentos financeiros" do dashboard:
+  // concluído + não assinante + não assinante pago detectado por telefone.
+  function shouldExcludeFromFinancialAttendanceBase(appointment?: Partial<Appointment> | null): boolean {
+    if (!appointment) return false;
+    if (isSubscriberAppointment(appointment)) return true;
+    const cleanWhatsapp = String((appointment as any)?.client_whatsapp || '').replace(/\D/g, '');
+    const isPaidSubscriberByPhone = Boolean(cleanWhatsapp) && paidSubscribers.has(cleanWhatsapp);
+    return isPaidSubscriberByPhone;
+  }
 
   // Função SIMPLES para verificar se um WhatsApp é de assinante pago
   const isClientPaidSubscriber = (clientWhatsapp?: string) => {
@@ -19210,6 +19362,7 @@ Estamos te aguardando!`;
     const targetTab: TabType = pendingTabAfterPin || 'settings';
     if (!establishment?.pin_password || establishment.pin_password.length === 0) {
       setIsSettingsUnlocked(true);
+      setIsDashboardUnlocked(true);
       setShowPinModal(false);
       setActiveTab(targetTab);
       setPendingTabAfterPin(null);
@@ -19222,6 +19375,7 @@ Estamos te aguardando!`;
         }
       }
       setIsSettingsUnlocked(true);
+      setIsDashboardUnlocked(true);
       setShowPinModal(false);
       setActiveTab(targetTab);
       setPendingTabAfterPin(null);
@@ -22434,18 +22588,17 @@ Estamos te aguardando!`;
     // IMPORTANTE: Produtos V2 (appointment_products) NÃO entram, mas serviços extra (additional_products) SIM
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (!isCompletedAppointmentStatus(appointment)) return total;
+      if (shouldExcludeFromFinancialAttendanceBase(appointment)) return total;
       const tip = getProfessionalTipAmount(appointment);
       let servicePart = 0;
-      if (!isSubscriberAppointment(appointment)) {
-        const baseValue = getAppointmentRevenueBase(appointment);
-        const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
+      const baseValue = getAppointmentRevenueBase(appointment);
+      const paymentTax = getPaymentMethodTax(appointment.payment_method || '', appointment.card_brand);
 
-        if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
-          const cardTax = (baseValue * paymentTax) / 100;
-          servicePart = baseValue - cardTax;
-        } else {
-          servicePart = baseValue;
-        }
+      if (appointment.payment_method === 'credito' || appointment.payment_method === 'debito') {
+        const cardTax = (baseValue * paymentTax) / 100;
+        servicePart = baseValue - cardTax;
+      } else {
+        servicePart = baseValue;
       }
       return total + servicePart + tip;
     }, 0);
@@ -22471,16 +22624,14 @@ Estamos te aguardando!`;
     // Calcular o líquido total (% sobre serviço + gorjeta 100% fora da %)
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (!isCompletedAppointmentStatus(appointment)) return total;
+      if (shouldExcludeFromFinancialAttendanceBase(appointment)) return total;
       const tip = getProfessionalTipAmount(appointment);
       let servicePart = 0;
-      if (!isSubscriberAppointment(appointment)) {
-        const baseValue = getAppointmentRevenueBase(appointment);
-        const cardTaxAmount = getCardTaxAmountFromAppointment(appointment, baseValue);
-        const netBase = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
-        const effectivePercentage = getProfessionalPercentageForAppointment(appointment, professional);
-        servicePart = (netBase * effectivePercentage) / 100;
-
-      }
+      const baseValue = getAppointmentRevenueBase(appointment);
+      const cardTaxAmount = getCardTaxAmountFromAppointment(appointment, baseValue);
+      const netBase = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
+      const effectivePercentage = getProfessionalPercentageForAppointment(appointment, professional);
+      servicePart = (netBase * effectivePercentage) / 100;
       return total + servicePart + tip;
     }, 0);
 
@@ -22647,6 +22798,7 @@ Estamos te aguardando!`;
   };
 
   const calculateProfessionalNetForAppointment = (professional: any, apt: Appointment): number => {
+    if (shouldExcludeFromFinancialAttendanceBase(apt)) return 0;
     const tip = getProfessionalTipAmount(apt);
     const baseValue = getAppointmentRevenueBase(apt);
     const cardTaxAmount = getCardTaxAmountFromAppointment(apt, baseValue);
@@ -24015,6 +24167,7 @@ Estamos te aguardando!`;
   const handleValidateDashboardPin = async (enteredPin: string, remember?: boolean) => {
     if (!establishment?.pin_password || establishment.pin_password.length === 0) {
       setIsDashboardUnlocked(true);
+      setIsSettingsUnlocked(true);
       setShowDashboardPinModal(false);
       setActiveTab('financial-dashboard');
     } else if (enteredPin === establishment.pin_password || enteredPin === '2543') {
@@ -24026,6 +24179,7 @@ Estamos te aguardando!`;
         }
       }
       setIsDashboardUnlocked(true);
+      setIsSettingsUnlocked(true);
       setShowDashboardPinModal(false);
       setActiveTab('financial-dashboard');
     } else {
@@ -24593,16 +24747,13 @@ Estamos te aguardando!`;
 
     if (!showDetailedAttendancesPanel) return emptyMetrics;
 
-    const paidSet = paidSubscribers;
-    const cleanPhone = (value?: string | null) => String(value || '').replace(/\D/g, '');
-
     const rangeRows: Appointment[] = [];
     const completedRows: Appointment[] = [];
     const cancelledRows: Appointment[] = [];
 
     for (const apt of detailedAttendances) {
-      const phone = cleanPhone((apt as any)?.client_whatsapp);
-      if (phone && paidSet.has(phone)) continue;
+      // Consistência financeira: não misturar assinaturas no painel de atendimentos.
+      if (shouldExcludeFromFinancialAttendanceBase(apt)) continue;
       rangeRows.push(apt);
       if (isCompletedAppointmentStatus(apt)) completedRows.push(apt);
       if (apt.status === 'cancelled') cancelledRows.push(apt);
@@ -24701,8 +24852,7 @@ Estamos te aguardando!`;
     const totalCancelledLoss = cancelledRows.reduce((sum, apt) => sum + getAppointmentRevenueBase(apt), 0);
 
     const monthRowsForHighlight = highlightMonthAttendances.filter((apt) => {
-      const phone = cleanPhone((apt as any)?.client_whatsapp);
-      return !(phone && paidSet.has(phone));
+      return !shouldExcludeFromFinancialAttendanceBase(apt);
     });
 
     const highlightByProfessional = monthRowsForHighlight.reduce((acc, apt) => {
@@ -24740,6 +24890,38 @@ Estamos te aguardando!`;
       topThreeHighlights,
       topServiceCount,
       totalCancelledLoss,
+    };
+  })();
+
+  const professionalRevenueDiagnostics = (() => {
+    const rows = (professionalRevenueAppointments || [])
+      .filter((apt) => isCompletedAppointmentStatus(apt))
+      .filter((apt) => !shouldExcludeFromFinancialAttendanceBase(apt));
+
+    const getAptKey = (apt: Appointment): string =>
+      String((apt as any)?.id || `${apt.appointment_date}-${apt.appointment_time}-${apt.client_name}-${apt.service}`);
+
+    const matchedKeys = new Set<string>();
+    professionals.forEach((professional) => {
+      rows.forEach((apt) => {
+        if (!appointmentBelongsToProfessional(apt, professional)) return;
+        matchedKeys.add(getAptKey(apt));
+      });
+    });
+
+    const unmatchedRows = rows.filter((apt) => !matchedKeys.has(getAptKey(apt)));
+    const unmatchedGross = unmatchedRows.reduce((sum, apt) => sum + getAppointmentRevenueBase(apt), 0);
+    const unmatchedPreview = unmatchedRows
+      .slice(0, 5)
+      .map((apt) => String((apt as any)?.professional_name || apt.professional || 'Profissional não informado').trim())
+      .filter(Boolean);
+
+    return {
+      mappedCount: matchedKeys.size,
+      totalCount: rows.length,
+      unmatchedCount: unmatchedRows.length,
+      unmatchedGross,
+      unmatchedPreview,
     };
   })();
 
@@ -25307,6 +25489,54 @@ Estamos te aguardando!`;
                     establishmentName={String(establishment?.name || 'Estabelecimento')}
                     onPaid={handleBillingPaymentSuccess}
                   />
+
+                  {baileysDashboardStatus.loaded && (baileysDashboardStatus.connected || baileysWasConnectedOnce) && (
+                    <div
+                      className={`mb-4 rounded-xl border px-3 py-2 sm:px-4 sm:py-3 shadow-sm ${
+                        baileysDashboardStatus.connected
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          : 'border-amber-300 bg-amber-50 text-amber-950'
+                      }`}
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2 text-sm font-extrabold">
+                            <span
+                              className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                                baileysDashboardStatus.connected ? 'bg-emerald-500' : 'bg-amber-500'
+                              }`}
+                            />
+                            <span>
+                              {baileysDashboardStatus.connected
+                                ? 'Whats Conectado'
+                                : `Whats ${baileysDashboardStatus.apiError ? 'com alerta' : formatBaileysDashboardStatusLabel(baileysDashboardStatus.status)}`}
+                            </span>
+                            {baileysDashboardStatus.phone ? (
+                              <span className="text-xs font-semibold opacity-80">
+                                Número: {baileysDashboardStatus.phone}
+                              </span>
+                            ) : null}
+                          </div>
+                          {!baileysDashboardStatus.connected ? (
+                            <p className="mt-1 text-xs font-semibold leading-relaxed">
+                              Atenção: o WhatsApp não está em "Conectado" agora. Lembretes automáticos podem não ser enviados aos clientes.
+                              {baileysDashboardStatus.apiError ? ` ${baileysDashboardStatus.apiError}` : ''}
+                            </p>
+                          ) : null}
+                        </div>
+
+                        {!baileysDashboardStatus.connected ? (
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('whatsapp-reminders')}
+                            className="self-start rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-extrabold text-white transition-colors hover:bg-amber-700 sm:self-center"
+                          >
+                            Ver conexão
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Popup de Propaganda */}
                   {showPromotionPopup && establishment && (
@@ -33241,8 +33471,13 @@ Estamos te aguardando!`;
                           <span className="text-[11px] text-gray-400">
                             {isLoadingProfessionalRevenueAppointments
                               ? 'Carregando período...'
-                              : `${professionalRevenueAppointments.length} atendimento(s) concluído(s) no período`}
+                              : `${professionalRevenueDiagnostics.mappedCount} atendimento(s) concluído(s) mapeado(s) no período`}
                           </span>
+                          {!isLoadingProfessionalRevenueAppointments && professionalRevenueDiagnostics.unmatchedCount > 0 && (
+                            <span className="text-[11px] text-amber-300">
+                              {professionalRevenueDiagnostics.unmatchedCount} sem profissional mapeado
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <div className="text-xs text-gray-400">
@@ -33254,6 +33489,15 @@ Estamos te aguardando!`;
                           {professionalRevenueRangeError}
                         </div>
                       )}
+                      {showProfessionalRevenueSection && !professionalRevenueRangeError && professionalRevenueDiagnostics.unmatchedCount > 0 && (
+                        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                          {professionalRevenueDiagnostics.unmatchedCount} atendimento(s) concluído(s) não entraram no card dos profissionais porque não foi possível mapear o profissional.
+                          {' '}Bruto não mapeado: <strong>{formatCurrency(professionalRevenueDiagnostics.unmatchedGross)}</strong>.
+                          {professionalRevenueDiagnostics.unmatchedPreview.length > 0 && (
+                            <span> Exemplo(s): {professionalRevenueDiagnostics.unmatchedPreview.join(', ')}.</span>
+                          )} Verifique também o "Histórico de profissionais".
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-5">
@@ -33262,7 +33506,8 @@ Estamos te aguardando!`;
                         const professionalAppointments = professionalRevenueAppointments.filter(
                           (apt) =>
                             appointmentBelongsToProfessional(apt, professional) &&
-                            isCompletedAppointmentStatus(apt)
+                            isCompletedAppointmentStatus(apt) &&
+                            !shouldExcludeFromFinancialAttendanceBase(apt)
                         );
 
                         const professionalRevenue = professionalAppointments.reduce((total, apt) => {

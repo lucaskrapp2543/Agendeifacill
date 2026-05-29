@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { recordAdminMpCommission } from './adminMpCommission';
 
 /**
  * Confirma agendamento em `pending_payment` usando external_reference/metadata do pagamento MP,
@@ -28,12 +29,12 @@ export async function confirmPendingAppointmentFromMpPaymentMetadata(
 
   const { data: aptRows, error } = await admin
     .from('appointments')
-    .select('id, status')
+    .select('id, establishment_id, status')
     .eq('id', appointmentId)
     .limit(1);
 
   if (error || !aptRows?.[0]) return { ok: false };
-  const apt = aptRows[0] as { id: string; status?: string };
+  const apt = aptRows[0] as { id: string; establishment_id?: string | null; status?: string };
   if (String(apt.status || '') !== 'pending_payment') return { ok: false };
 
   const paymentMethodId = String(payment.payment_method_id || '').toLowerCase();
@@ -61,6 +62,22 @@ export async function confirmPendingAppointmentFromMpPaymentMetadata(
   console.log('✅ [MP] Agendamento confirmado via external_reference/metadata', {
     appointmentId: apt.id,
     paymentId: paymentIdStr,
+  });
+
+  await recordAdminMpCommission(admin, {
+    establishmentId: String(apt.establishment_id || ''),
+    sourceType: 'appointment',
+    sourceId: String(apt.id),
+    paymentId: paymentIdStr,
+    externalReference: ext || null,
+    paymentMethod,
+    grossAmountCents: Math.round(Number(payment?.transaction_amount || 0) * 100) || null,
+    paidAt: String(payment?.date_approved || payment?.date_created || '') || null,
+    metadata: {
+      origin: 'confirm_appointment_from_mp_metadata',
+      payment_status: payment?.status || null,
+      payment_method_id: payment?.payment_method_id || null,
+    },
   });
   return { ok: true, appointmentId: String(apt.id) };
 }

@@ -6,6 +6,7 @@ import {
   Clock,
   FileText,
   Filter,
+  LogIn,
   Lock,
   Mail,
   MessageSquare,
@@ -253,6 +254,27 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
     } catch (error) {
       console.error('Erro:', error);
       toast.error('Erro ao excluir inscrição');
+    }
+  };
+
+  const loginAsRegistration = async (registration: RegistrationForm) => {
+    const email = String(registration.email || '').trim();
+    const password = String(registration.password || '');
+    if (!email || !password) {
+      toast.error('Esta inscrição não tem email/senha para preencher o login.');
+      return;
+    }
+
+    try {
+      sessionStorage.setItem('admin_login_email', email);
+      sessionStorage.setItem('admin_login_password', password);
+      sessionStorage.setItem('admin_login_flag', 'true');
+
+      await supabase.auth.signOut();
+      window.location.href = '/login';
+    } catch (error) {
+      console.error('Erro ao abrir login do estabelecimento:', error);
+      toast.error('Erro ao abrir login do estabelecimento.');
     }
   };
 
@@ -641,6 +663,16 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
                         ⚠️ Senha em texto claro - visível apenas para admin
                       </p>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => loginAsRegistration(selectedRegistration)}
+                      className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                      title="Sair do admin e abrir /login com email e senha deste estabelecimento preenchidos"
+                    >
+                      <LogIn className="w-4 h-4" />
+                      Login neste estabelecimento
+                    </button>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">

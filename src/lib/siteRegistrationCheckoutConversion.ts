@@ -1,6 +1,6 @@
 const SITE_REGISTRATION_PLAN_CONFIG = {
   prata: { label: 'PRATA', amountCents: 3790, planPrataActive: true },
-  diamante: { label: 'DIAMANTE', amountCents: 5790, planPrataActive: false },
+  diamante: { label: 'DIAMANTE', amountCents: 6790, planPrataActive: false },
 } as const;
 
 const isApprovedStatus = (raw: unknown) => {

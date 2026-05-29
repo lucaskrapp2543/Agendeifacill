@@ -36,7 +36,7 @@ const PLAN_CONFIG: Record<SitePlan, { label: string; amount: number; description
   },
   diamante: {
     label: 'Diamante',
-    amount: 57.9,
+    amount: 67.9,
     description: 'Plano completo com WhatsApp, assinantes, estoque e recorrências.'
   }
 };

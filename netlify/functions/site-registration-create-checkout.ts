@@ -23,7 +23,7 @@ type CheckoutMethod = 'pix' | 'recurring_card';
 
 const PLAN_CONFIG: Record<SitePlan, { label: string; amountCents: number }> = {
   prata: { label: 'PRATA', amountCents: 3790 },
-  diamante: { label: 'DIAMANTE', amountCents: 5790 },
+  diamante: { label: 'DIAMANTE', amountCents: 6790 },
 };
 
 const normalizePlan = (raw: unknown): SitePlan | null => {

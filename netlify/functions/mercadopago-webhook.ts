@@ -1,6 +1,7 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
+import { recordAdminMpCommission } from '../../src/lib/mercadopago/adminMpCommission';
 import { confirmPendingAppointmentFromMpPaymentMetadata } from '../../src/lib/mercadopago/confirmAppointmentFromMpPayment';
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { checkMPPaymentStatus } from '../../src/lib/mercadopago/mp-service';
@@ -62,7 +63,7 @@ const normalizeSubscriptionPaymentStatus = (raw: unknown): 'paid' | 'pending' | 
 
 const SITE_PLAN_CONFIG = {
   prata: { label: 'PRATA', amountCents: 3790, planPrataActive: true },
-  diamante: { label: 'DIAMANTE', amountCents: 5790, planPrataActive: false },
+  diamante: { label: 'DIAMANTE', amountCents: 6790, planPrataActive: false },
 } as const;
 
 const isApprovedMpStatus = (raw: unknown) => {
@@ -502,6 +503,21 @@ export const handler: Handler = async (event) => {
         }
       }
 
+      await recordAdminMpCommission(supabaseAdmin, {
+        establishmentId,
+        sourceType: 'subscription',
+        sourceId: String((rows[0] as any)?.id || ''),
+        paymentId: preapprovalId,
+        externalReference: String(preapproval?.external_reference || '') || null,
+        paymentMethod: 'credito',
+        paidAt: new Date().toISOString(),
+        metadata: {
+          origin: 'mercadopago_webhook_subscription_preapproval',
+          preapproval_status: status,
+          updated_subscribers: rows.length,
+        },
+      });
+
       return json(200, {
         message: 'Webhook de assinatura recorrente processado automaticamente',
         preapprovalId,
@@ -705,6 +721,22 @@ export const handler: Handler = async (event) => {
                       if (subscriberUpdateError) {
                         console.error('❌ [MP Webhook] Erro ao marcar assinante como pago automaticamente:', subscriberUpdateError);
                       } else {
+                        await recordAdminMpCommission(supabaseAdmin, {
+                          establishmentId,
+                          sourceType: 'subscription',
+                          sourceId: ids[0] || null,
+                          paymentId: String(paymentId),
+                          externalReference,
+                          paymentMethod: String((payment as any)?.payment_method_id || ''),
+                          grossAmountCents: Math.round(Number((payment as any)?.transaction_amount || 0) * 100) || null,
+                          paidAt: String((payment as any)?.date_approved || (payment as any)?.date_created || '') || null,
+                          metadata: {
+                            origin: 'mercadopago_webhook_subscription_checkout',
+                            subscription_id: subscriptionId,
+                            updated_subscribers: ids.length,
+                            payment_status: (payment as any)?.status || null,
+                          },
+                        });
                         maybeSubscriptionCheckoutHandled = true;
                         return json(200, {
                           message: 'Webhook de assinatura externa processado automaticamente',
@@ -928,6 +960,22 @@ export const handler: Handler = async (event) => {
             console.error('❌ [MP Webhook] Erro ao atualizar agendamento:', updateError);
             return json(500, { error: 'Erro ao atualizar agendamento' });
           }
+
+          await recordAdminMpCommission(supabaseAdmin, {
+            establishmentId: String(appointment.establishment_id || ''),
+            sourceType: 'appointment',
+            sourceId: String(appointment.id),
+            paymentId: String(paymentId),
+            externalReference: String((payment as any)?.external_reference || '') || null,
+            paymentMethod,
+            grossAmountCents: Math.round(Number((payment as any)?.transaction_amount || 0) * 100) || null,
+            paidAt: String((payment as any)?.date_approved || (payment as any)?.date_created || '') || null,
+            metadata: {
+              origin: 'mercadopago_webhook_appointment',
+              payment_status: (payment as any)?.status || null,
+              payment_method_id: (payment as any)?.payment_method_id || null,
+            },
+          });
 
           console.log('✅ [MP Webhook] Agendamento atualizado com sucesso:', appointment.id);
           return json(200, {

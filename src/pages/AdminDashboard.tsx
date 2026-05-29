@@ -133,6 +133,18 @@ interface MetaErrorSummaryRow {
   lastCause: string;
 }
 
+interface AdminMpCommissionTopRow {
+  establishmentId: string;
+  establishmentName: string;
+  establishmentCode: string;
+  totalCents: number;
+  totalCount: number;
+  pixCount: number;
+  creditCount: number;
+  appointmentCount: number;
+  subscriptionCount: number;
+}
+
 // (removido) AdminCostRow
 
 const AdminDashboard = () => {
@@ -620,6 +632,10 @@ const AdminDashboard = () => {
   const [lucroCreditoMesDetalhe, setLucroCreditoMesDetalhe] = useState<number>(0);
   const [lucroPixMesTotal, setLucroPixMesTotal] = useState<number>(0);
   const [isLoadingLucroPixMes, setIsLoadingLucroPixMes] = useState(false);
+  const [adminMpCommissionTopRows, setAdminMpCommissionTopRows] = useState<AdminMpCommissionTopRow[]>([]);
+  const [adminMpCommissionUsingFallback, setAdminMpCommissionUsingFallback] = useState(false);
+  const [adminMpCommissionTodayCents, setAdminMpCommissionTodayCents] = useState(0);
+  const [adminMpCommissionTodayCount, setAdminMpCommissionTodayCount] = useState(0);
   const DELETED_CONTAINMENT_STORAGE_KEY = `admin_deleted_containment_ids_v2_${String(user?.id || 'global')}`;
   const DELETED_CONTAINMENT_STORAGE_KEY_LEGACY = 'admin_deleted_containment_ids_v1';
 
@@ -2275,6 +2291,10 @@ const AdminDashboard = () => {
       setLucroPixMesDetalhe(0);
       setLucroCreditoMesDetalhe(0);
       setLucroPixMesTotal(0);
+      setAdminMpCommissionTopRows([]);
+      setAdminMpCommissionUsingFallback(false);
+      setAdminMpCommissionTodayCents(0);
+      setAdminMpCommissionTodayCount(0);
       return;
     }
     setIsLoadingLucroPixMes(true);
@@ -2282,6 +2302,112 @@ const AdminDashboard = () => {
       const { start: monthStart, end: monthEnd } = getMonthRange(monthDate);
       const monthStartStr = format(monthStart, 'yyyy-MM-dd');
       const monthEndStr = format(monthEnd, 'yyyy-MM-dd');
+
+      const { data: commissionRows, error: commissionError } = await supabase
+        .from('admin_mp_commissions')
+        .select('establishment_id,source_type,payment_method,commission_cents,paid_at,status')
+        .in('establishment_id', ids)
+        .eq('status', 'paid')
+        .gte('paid_at', monthStart.toISOString())
+        .lte('paid_at', monthEnd.toISOString())
+        .limit(10000);
+
+      if (!commissionError && Array.isArray(commissionRows)) {
+        let countPix = 0;
+        let countCredito = 0;
+        let countPixAppts = 0;
+        let countPixSubs = 0;
+        let countCreditoAppts = 0;
+        let countCreditoSubs = 0;
+        let totalCents = 0;
+        let todayCents = 0;
+        let todayCount = 0;
+        const todayStart = startOfDay(new Date()).getTime();
+        const todayEnd = endOfDay(new Date()).getTime();
+        const topMap = new Map<string, AdminMpCommissionTopRow>();
+
+        const ensureTopRow = (estId: string) => {
+          const existing = topMap.get(estId);
+          if (existing) return existing;
+          const est = establishments.find((item) => String(item.id) === estId);
+          const row: AdminMpCommissionTopRow = {
+            establishmentId: estId,
+            establishmentName: est?.name || 'Estabelecimento removido/indisponível',
+            establishmentCode: est?.code || '—',
+            totalCents: 0,
+            totalCount: 0,
+            pixCount: 0,
+            creditCount: 0,
+            appointmentCount: 0,
+            subscriptionCount: 0,
+          };
+          topMap.set(estId, row);
+          return row;
+        };
+
+        for (const row of commissionRows as any[]) {
+          const estId = String(row?.establishment_id || '').trim();
+          if (!estId) continue;
+          const sourceType = String(row?.source_type || '').toLowerCase();
+          const method = String(row?.payment_method || '').toLowerCase() === 'pix' ? 'pix' : 'credito';
+          const cents = Math.max(0, Math.round(Number(row?.commission_cents || 0)));
+          totalCents += cents;
+          const paidAt = new Date(String(row?.paid_at || ''));
+          const paidAtMs = paidAt.getTime();
+          if (Number.isFinite(paidAtMs) && paidAtMs >= todayStart && paidAtMs <= todayEnd) {
+            todayCents += cents;
+            todayCount += 1;
+          }
+
+          const top = ensureTopRow(estId);
+          top.totalCents += cents;
+          top.totalCount += 1;
+          if (method === 'pix') {
+            countPix += 1;
+            top.pixCount += 1;
+            if (sourceType === 'appointment') countPixAppts += 1;
+            if (sourceType === 'subscription') countPixSubs += 1;
+          } else {
+            countCredito += 1;
+            top.creditCount += 1;
+            if (sourceType === 'appointment') countCreditoAppts += 1;
+            if (sourceType === 'subscription') countCreditoSubs += 1;
+          }
+          if (sourceType === 'appointment') top.appointmentCount += 1;
+          if (sourceType === 'subscription') top.subscriptionCount += 1;
+        }
+
+        setQtdVendasPixMes(countPix);
+        setQtdVendasCreditoMes(countCredito);
+        setQtdPixAgendamentosMes(countPixAppts);
+        setQtdPixAssinaturasMes(countPixSubs);
+        setQtdCreditoAgendamentosMes(countCreditoAppts);
+        setQtdCreditoAssinaturasMes(countCreditoSubs);
+        setLucroPixMesDetalhe(countPix);
+        setLucroCreditoMesDetalhe(countCredito);
+        setLucroPixMesTotal(Math.round(totalCents) / 100);
+        setAdminMpCommissionTodayCents(todayCents);
+        setAdminMpCommissionTodayCount(todayCount);
+        setAdminMpCommissionTopRows(
+          Array.from(topMap.values())
+            .sort((a, b) => b.totalCents - a.totalCents || b.totalCount - a.totalCount)
+            .slice(0, 8)
+        );
+        setAdminMpCommissionUsingFallback(false);
+        return;
+      }
+
+      const commissionErrorMessage = String((commissionError as any)?.message || '').toLowerCase();
+      const canUseLegacyFallback =
+        commissionErrorMessage.includes('admin_mp_commissions') ||
+        commissionErrorMessage.includes('relation') ||
+        commissionErrorMessage.includes('does not exist') ||
+        commissionErrorMessage.includes('schema cache');
+      if (!canUseLegacyFallback && commissionError) throw commissionError;
+      setAdminMpCommissionUsingFallback(true);
+      setAdminMpCommissionTopRows([]);
+      setAdminMpCommissionTodayCents(0);
+      setAdminMpCommissionTodayCount(0);
 
       let countPixAppts = 0;
       let countCreditoAppts = 0;
@@ -2383,6 +2509,9 @@ const AdminDashboard = () => {
       setLucroPixMesDetalhe(0);
       setLucroCreditoMesDetalhe(0);
       setLucroPixMesTotal(0);
+      setAdminMpCommissionTopRows([]);
+      setAdminMpCommissionTodayCents(0);
+      setAdminMpCommissionTodayCount(0);
     } finally {
       setIsLoadingLucroPixMes(false);
     }
@@ -2390,6 +2519,30 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     carregarLucroPixPorMes(lucroPixMonth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lucroPixMonth, establishments.length]);
+
+  useEffect(() => {
+    if (establishments.length === 0) return;
+
+    const refreshCommissions = () => {
+      void carregarLucroPixPorMes(lucroPixMonth);
+    };
+
+    const intervalId = window.setInterval(refreshCommissions, 30000);
+    const channel = supabase
+      .channel('admin-mp-commissions-dashboard')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'admin_mp_commissions' },
+        refreshCommissions
+      )
+      .subscribe();
+
+    return () => {
+      window.clearInterval(intervalId);
+      void supabase.removeChannel(channel);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lucroPixMonth, establishments.length]);
 
@@ -4168,48 +4321,46 @@ const AdminDashboard = () => {
         className="max-w-full mx-auto px-2 sm:px-4 lg:px-6 py-6"
         style={isSupportAccount && !canEditEverything() ? { pointerEvents: 'none', userSelect: 'none' } : undefined}
       >
-        {/* Lucro PIX/Crédito por mês: vendas (serviços + assinaturas), PIX R$0,50 e Crédito R$1,00 */}
+        {/* Meus R$1 Mercado Pago: ledger real gravado pelos webhooks/confirmacoes MP */}
         <div className="mb-6">
-          <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl shadow-md p-6 max-w-lg">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center">
-                <DollarSign className="h-10 w-10 text-emerald-700 flex-shrink-0" />
-                <div className="ml-4">
+          <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl shadow-md p-5 sm:p-6 max-w-5xl">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex items-start">
+                <DollarSign className="h-10 w-10 text-emerald-700 flex-shrink-0 mt-1" />
+                <div className="ml-4 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-medium text-emerald-800">Lucro PIX + Crédito</p>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setLucroPixMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
-                        className="p-1 rounded hover:bg-emerald-100 text-emerald-800"
-                        title="Mês anterior"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </button>
-                      <span className="text-xs font-medium text-emerald-800 min-w-[120px] capitalize">
-                        {lucroPixMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setLucroPixMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
-                        disabled={isSameMonthYear(lucroPixMonth, new Date())}
-                        className="p-1 rounded hover:bg-emerald-100 text-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed"
-                        title="Próximo mês"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowMetaErrorsModal(true);
-                          void loadMetaErrorsToday();
-                        }}
-                        className="ml-2 px-2 py-1 rounded border border-red-400/60 bg-red-500/15 text-red-800 hover:bg-red-500/25 text-[11px] font-bold"
-                        title="Ver estabelecimentos com falhas Meta de hoje"
-                      >
-                        Erros Meta
-                      </button>
-                    </div>
+                    <p className="text-sm font-extrabold text-emerald-800">Meus R$1 Mercado Pago</p>
+                    <button
+                      type="button"
+                      onClick={() => setLucroPixMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                      className="p-1 rounded hover:bg-emerald-100 text-emerald-800"
+                      title="Mês anterior"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <span className="text-xs font-medium text-emerald-800 min-w-[120px] capitalize">
+                      {lucroPixMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setLucroPixMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                      disabled={isSameMonthYear(lucroPixMonth, new Date())}
+                      className="p-1 rounded hover:bg-emerald-100 text-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="Próximo mês"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMetaErrorsModal(true);
+                        void loadMetaErrorsToday();
+                      }}
+                      className="ml-2 px-2 py-1 rounded border border-red-400/60 bg-red-500/15 text-red-800 hover:bg-red-500/25 text-[11px] font-bold"
+                      title="Ver estabelecimentos com falhas Meta de hoje"
+                    >
+                      Erros Meta
+                    </button>
                   </div>
                   <p className="text-2xl sm:text-3xl font-bold text-emerald-900 mt-1">
                     {isLoadingLucroPixMes ? '...' : fmtBRL(lucroPixMesTotal)}
@@ -4217,22 +4368,58 @@ const AdminDashboard = () => {
                   <p className="text-xs text-emerald-700/90 mt-1">
                     {isLoadingLucroPixMes
                       ? 'Carregando...'
-                      : `Foram feitas ${qtdVendasPixMes + qtdVendasCreditoMes} venda(s) neste mês para você ter lucro de ${fmtBRL(lucroPixMesTotal)}`}
+                      : `R$1 por pagamento aprovado via Mercado Pago: ${qtdVendasPixMes + qtdVendasCreditoMes} pagamento(s) no mês.`}
+                  </p>
+                  <p className="text-xs text-emerald-700/90 mt-0.5">
+                    Hoje: {isLoadingLucroPixMes ? '...' : `${adminMpCommissionTodayCount} pagamento(s) • ${fmtBRL(adminMpCommissionTodayCents / 100)}`}
                   </p>
                   <p className="text-xs text-emerald-700/90 mt-0.5">
                     {isLoadingLucroPixMes
                       ? '...'
-                      : `PIX: ${qtdVendasPixMes} venda(s) • ${fmtBRL(lucroPixMesDetalhe)} | Crédito: ${qtdVendasCreditoMes} venda(s) • ${fmtBRL(lucroCreditoMesDetalhe)}`}
+                      : `PIX: ${qtdVendasPixMes} • ${fmtBRL(lucroPixMesDetalhe)} | Cartão: ${qtdVendasCreditoMes} • ${fmtBRL(lucroCreditoMesDetalhe)}`}
                   </p>
                   <p className="text-xs text-emerald-700/90 mt-0.5">
                     {isLoadingLucroPixMes
                       ? '...'
-                      : `PIX agend.: ${qtdPixAgendamentosMes} | PIX assin.: ${qtdPixAssinaturasMes} | Crédito agend.: ${qtdCreditoAgendamentosMes} | Crédito assin.: ${qtdCreditoAssinaturasMes}`}
+                      : `Agendamentos: ${qtdPixAgendamentosMes + qtdCreditoAgendamentosMes} | Assinaturas: ${qtdPixAssinaturasMes + qtdCreditoAssinaturasMes}`}
                   </p>
                   <p className="text-xs text-emerald-600/90 mt-0.5">
-                    Total no mês atual: {isLoadingSaldos ? '...' : fmtBRL(lucroPixFiltrado)}
+                    {adminMpCommissionUsingFallback
+                      ? 'Atenção: usando cálculo antigo até colar a migration admin_mp_commissions.'
+                      : 'Atualiza por webhook e por recarregamento automático a cada 30s.'}
                   </p>
                 </div>
+              </div>
+
+              <div className="w-full lg:max-w-md">
+                <div className="text-xs font-extrabold text-emerald-900 mb-2">
+                  Estabelecimentos que mais geraram R$1
+                </div>
+                {isLoadingLucroPixMes ? (
+                  <div className="text-xs text-emerald-700">Carregando ranking...</div>
+                ) : adminMpCommissionTopRows.length === 0 ? (
+                  <div className="text-xs text-emerald-700">Nenhum pagamento Mercado Pago registrado neste mês.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {adminMpCommissionTopRows.map((row, index) => (
+                      <div key={row.establishmentId} className="rounded-lg border border-emerald-200 bg-white/70 px-3 py-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-xs font-extrabold text-emerald-950">
+                              {index + 1}. {row.establishmentName} ({row.establishmentCode})
+                            </div>
+                            <div className="text-[11px] text-emerald-800">
+                              PIX {row.pixCount} | Cartão {row.creditCount} | Agend. {row.appointmentCount} | Assin. {row.subscriptionCount}
+                            </div>
+                          </div>
+                          <div className="text-sm font-black text-emerald-900 whitespace-nowrap">
+                            {fmtBRL(row.totalCents / 100)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -4720,8 +4907,8 @@ const AdminDashboard = () => {
               <strong>WPP CONECTADO:</strong> {whatsappConnectedCount}
               {filterWhatsapp === 'connected' ? <span className="text-[10px] font-semibold opacity-80">(filtrando)</span> : null}
             </button>
-            <span title="Lucro do app no mês atual (PIX R$0,50 por venda e Crédito R$1,00 por venda)">
-              <strong>Lucro mês atual (PIX + Crédito):</strong> {isLoadingSaldos ? '...' : fmtBRL(lucroPixFiltrado)}
+            <span title="Meus R$1 por pagamento aprovado via Mercado Pago no mês selecionado">
+              <strong>Meus R$1 Mercado Pago:</strong> {isLoadingLucroPixMes ? '...' : fmtBRL(lucroPixMesTotal)}
             </span>
             <button
               type="button"

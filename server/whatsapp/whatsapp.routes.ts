@@ -259,6 +259,12 @@ router.get('/status', async (req, res) => {
       dbSession = data;
     }
 
+    const persistedStatus = String(dbSession?.status || '').toLowerCase();
+    const everConnected =
+      Boolean(dbSession?.connected_at) ||
+      Boolean(dbSession?.phone) ||
+      ['connected', 'disconnected', 'reconnecting', 'error'].includes(persistedStatus);
+
     return res.status(200).json({
       ok: true,
       user_id: userId,
@@ -268,6 +274,8 @@ router.get('/status', async (req, res) => {
       phone: dbSession?.phone || null,
       connected_at: dbSession?.connected_at || null,
       last_seen: dbSession?.last_seen || null,
+      has_session_record: Boolean(dbSession),
+      ever_connected: everConnected,
       session_path: manager.getSessionPath(userId),
     });
   } catch (error: any) {

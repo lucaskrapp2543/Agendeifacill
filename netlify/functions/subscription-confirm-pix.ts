@@ -2,6 +2,7 @@ import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
+import { recordAdminMpCommission } from '../../src/lib/mercadopago/adminMpCommission';
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { checkPaymentStatus } from '../../src/lib/pagarme-server';
 
@@ -113,6 +114,7 @@ export const handler: Handler = async (event) => {
     // Validar pagamento (Pagar.me ou Mercado Pago)
     const providerNormalized = String(provider || 'pagarme_pix').toLowerCase().trim();
     let normalizedStatus: string;
+    let mercadoPagoPaymentContext: any = null;
 
     if (providerNormalized.startsWith('mercadopago_')) {
       // Validar pagamento Mercado Pago
@@ -171,6 +173,7 @@ export const handler: Handler = async (event) => {
       const paymentId = Number(orderId);
       if (Number.isFinite(paymentId) && paymentId > 0) {
         const statusResult = await checkMPPaymentStatus(paymentId, String(accessToken));
+        mercadoPagoPaymentContext = statusResult;
         normalizedStatus = String(statusResult.status || '').toLowerCase();
 
         if (normalizedStatus !== 'approved' && normalizedStatus !== 'authorized') {
@@ -192,6 +195,7 @@ export const handler: Handler = async (event) => {
           }
         );
         normalizedStatus = String((preapprovalResp.data as any)?.status || '').toLowerCase();
+        mercadoPagoPaymentContext = preapprovalResp.data;
         if (normalizedStatus !== 'authorized') {
           return {
             statusCode: 400,
@@ -280,6 +284,25 @@ export const handler: Handler = async (event) => {
         .single();
       if (insErr) return { statusCode: 500, body: JSON.stringify({ error: 'Erro ao criar assinatura', details: insErr }) };
       resultRow = ins;
+    }
+
+    if (providerFinal.startsWith('mercadopago')) {
+      await recordAdminMpCommission(supabaseAdmin, {
+        establishmentId: String(establishmentId),
+        sourceType: 'subscription',
+        sourceId: String(resultRow?.id || existing?.id || ''),
+        paymentId: String(orderId),
+        externalReference: String(mercadoPagoPaymentContext?.external_reference || '') || null,
+        paymentMethod: subscriberPaymentMethod || providerFinal,
+        grossAmountCents: Math.round(Number(mercadoPagoPaymentContext?.transaction_amount || 0) * 100) || null,
+        paidAt: String(mercadoPagoPaymentContext?.date_approved || mercadoPagoPaymentContext?.date_created || '') || null,
+        metadata: {
+          origin: 'netlify_subscription_confirm_pix',
+          provider: providerFinal,
+          subscription_id: String(subscriptionId),
+          payment_status: normalizedStatus,
+        },
+      });
     }
 
     return {

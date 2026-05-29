@@ -39,7 +39,7 @@ export default function PlanosCards({
   hidePrata?: boolean;
 }) {
   const precoPrata = 37.9;
-  const precoDiamante = 57.9;
+  const precoDiamante = 67.9;
 
   const prataOk = [
     '1 profissional',
