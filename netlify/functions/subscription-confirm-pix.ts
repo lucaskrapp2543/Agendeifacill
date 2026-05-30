@@ -246,7 +246,9 @@ export const handler: Handler = async (event) => {
     // Reutilizar providerNormalized já declarado acima (linha 56)
     const providerFinal =
       providerNormalized === 'pagarme_card' || providerNormalized === 'pagarme_pix' ||
-        providerNormalized === 'mercadopago_card' || providerNormalized === 'mercadopago_pix'
+        providerNormalized === 'mercadopago_card' ||
+        providerNormalized === 'mercadopago_pix' ||
+        providerNormalized === 'mercadopago_card_recurring'
         ? providerNormalized
         : 'pagarme_pix';
     const subscriberPaymentMethod = getSubscriberPaymentMethodFromProvider(providerFinal);

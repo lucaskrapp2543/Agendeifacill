@@ -421,7 +421,9 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
     const providerNormalized = String(provider || 'pagarme_pix').toLowerCase().trim();
     const providerFinal =
       providerNormalized === 'pagarme_card' || providerNormalized === 'pagarme_pix' ||
-        providerNormalized === 'mercadopago_card' || providerNormalized === 'mercadopago_pix'
+        providerNormalized === 'mercadopago_card' ||
+        providerNormalized === 'mercadopago_pix' ||
+        providerNormalized === 'mercadopago_card_recurring'
         ? providerNormalized
         : 'pagarme_pix';
     const subscriberPaymentMethod = getSubscriberPaymentMethodFromProvider(providerFinal);

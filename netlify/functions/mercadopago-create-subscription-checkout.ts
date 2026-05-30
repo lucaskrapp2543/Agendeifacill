@@ -74,6 +74,7 @@ export const handler: Handler = async (event) => {
     const subscriptionId = String(body?.subscriptionId || '').trim();
     const payerEmail = String(body?.payer?.email || '').trim();
     const payerName = String(body?.payer?.name || '').trim();
+    const cardTokenId = String(body?.card_token_id || body?.cardTokenId || '').trim();
     const backUrlRaw = String(body?.backUrl || '').trim();
 
     if (!establishmentId || !subscriptionId || !payerEmail) {
@@ -97,24 +98,7 @@ export const handler: Handler = async (event) => {
     if (!Number.isFinite(amount) || amount <= 0) {
       return json(400, { error: 'Valor da assinatura inválido' });
     }
-    const applicationFeeCentsRaw =
-      process.env.MERCADOPAGO_CREDIT_PLATFORM_FEE_CENTS ||
-      process.env.PLATFORM_CREDIT_FEE_CENTS ||
-      '100';
-    const applicationFeeCentsParsed = Number(String(applicationFeeCentsRaw).trim());
     const txAmountBrl = Number(amount.toFixed(2));
-    const rawFeeBrl = Number.isFinite(applicationFeeCentsParsed)
-      ? Number((applicationFeeCentsParsed / 100).toFixed(2))
-      : 1;
-    const applicationFee = rawFeeBrl > 0 && rawFeeBrl < txAmountBrl ? rawFeeBrl : 0;
-    if (rawFeeBrl > 0 && applicationFee === 0) {
-      console.warn('[MP preapproval] application_fee omitida: valor da assinatura insuficiente para o split', {
-        txAmountBrl,
-        rawFeeBrl,
-        establishmentId,
-        subscriptionId,
-      });
-    }
 
     const accessToken = await getValidMercadoPagoAccessToken(establishmentId);
     const now = Date.now();
@@ -139,19 +123,17 @@ export const handler: Handler = async (event) => {
         subscription_id: subscriptionId,
         payer_name: payerName || null,
       },
-      status: 'pending',
+      status: cardTokenId ? 'authorized' : 'pending',
     };
-    if (applicationFee > 0) {
-      payload.application_fee = applicationFee;
-    }
+    if (cardTokenId) payload.card_token_id = cardTokenId;
 
-    if (!backUrl) {
+    if (!cardTokenId && !backUrl) {
       return json(400, {
         error: 'back_url is required',
         userMessage: 'Configure MERCADOPAGO_SUBSCRIPTION_BACK_URL com URL HTTPS pública para testes locais e produção.',
       });
     }
-    payload.back_url = backUrl;
+    if (backUrl) payload.back_url = backUrl;
 
     const response = await axios.post(`${MP_API_BASE_URL}/preapproval`, payload, {
       headers: {
@@ -163,7 +145,7 @@ export const handler: Handler = async (event) => {
 
     const preapproval = response.data || {};
     const initPoint = String(preapproval?.init_point || preapproval?.sandbox_init_point || '').trim();
-    if (!initPoint) {
+    if (!cardTokenId && !initPoint) {
       return json(500, { error: 'Mercado Pago não retornou init_point' });
     }
 
@@ -173,17 +155,36 @@ export const handler: Handler = async (event) => {
       sandbox_init_point: String(preapproval?.sandbox_init_point || ''),
       external_reference: externalReference,
       subscription_status: String(preapproval?.status || 'pending'),
+      recurring_mode: cardTokenId ? 'card_token' : 'hosted_checkout',
+      recurrence_created: Boolean(String(preapproval?.id || '').trim()),
       amount_brl_used: amount,
       amount_cents_used: Math.round(amount * 100),
-      application_fee_brl_used: applicationFee,
-      application_fee_cents_used: Math.round(applicationFee * 100),
-      application_fee_applied: applicationFee > 0,
+      application_fee_brl_used: 0,
+      application_fee_cents_used: 0,
+      application_fee_applied: false,
     });
   } catch (error: any) {
     const message =
       String(error?.response?.data?.message || '') ||
       String(error?.response?.data?.error || '') ||
       String(error?.message || 'Erro ao criar checkout externo da assinatura');
-    return json(500, { error: message });
+    const status = Number(error?.response?.status || 500);
+    const lower = message.toLowerCase();
+    const supportsRecurringHint =
+      status === 401 ||
+      status === 403 ||
+      lower.includes('preapproval') ||
+      lower.includes('recurring') ||
+      lower.includes('subscription') ||
+      lower.includes('not authorized') ||
+      lower.includes('not allowed');
+
+    return json(status >= 400 && status < 600 ? status : 500, {
+      error: message,
+      userMessage: supportsRecurringHint
+        ? 'A conta Mercado Pago conectada do barbeiro não conseguiu criar assinatura recorrente agora. Peça para reconectar o Mercado Pago e habilitar Assinaturas/Preapproval na aplicação.'
+        : undefined,
+      recurring_capability_error: supportsRecurringHint,
+    });
   }
 };

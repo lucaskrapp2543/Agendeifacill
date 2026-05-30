@@ -90,7 +90,9 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const [pixQrCodeUrl, setPixQrCodeUrl] = useState('');
   const [isPaid, setIsPaid] = useState(false);
   const [currentPaymentId, setCurrentPaymentId] = useState<string>('');
-  const [currentPaymentProvider, setCurrentPaymentProvider] = useState<'pagarme_pix' | 'pagarme_card' | 'mercadopago_pix' | 'mercadopago_card' | ''>('');
+  const [currentPaymentProvider, setCurrentPaymentProvider] = useState<
+    'pagarme_pix' | 'pagarme_card' | 'mercadopago_pix' | 'mercadopago_card' | 'mercadopago_card_recurring' | ''
+  >('');
   const [lastCheckError, setLastCheckError] = useState<string>('');
   const [cpf, setCpf] = useState('');
   const [nome, setNome] = useState('');
@@ -110,7 +112,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const [hasOpenedCreditLink, setHasOpenedCreditLink] = useState(false);
   const [creditCardLink, setCreditCardLink] = useState<string>('');
   const [isCreditClaimed, setIsCreditClaimed] = useState(false);
-  /** Cobrança única no cartão (MP): endereço exigido pela API de pagamentos */
+  /** Endereço de cobrança usado no fluxo de cartão do Mercado Pago */
   const [billingCep, setBillingCep] = useState('');
   const [billingRua, setBillingRua] = useState('');
   const [billingNumero, setBillingNumero] = useState('');
@@ -185,6 +187,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   }, [isOpen, establishmentId, email]);
 
   const amountInCents = Math.round(Number(subscription.value || 0) * 100);
+  const isMonthlySubscription = Number(subscription.duration_months || 1) === 1;
 
   // ✅ NOVO: Verificar se Mercado Pago está configurado (similar ao PaymentModal)
   useEffect(() => {
@@ -334,7 +337,12 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
   const confirmSubscription = async (
     orderId: string,
-    provider: 'pagarme_pix' | 'pagarme_card' | 'mercadopago_pix' | 'mercadopago_card'
+    provider:
+      | 'pagarme_pix'
+      | 'pagarme_card'
+      | 'mercadopago_pix'
+      | 'mercadopago_card'
+      | 'mercadopago_card_recurring'
   ) => {
     const confirmUrl = import.meta.env.PROD ? '/.netlify/functions/subscription-confirm-pix' : '/api/subscribers/confirm-subscription-pix';
     const resp = await fetch(confirmUrl, {
@@ -380,12 +388,33 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
   const checkPaymentStatusOnce = async (
     orderId: string,
-    provider: 'pagarme_pix' | 'pagarme_card' | 'mercadopago_pix' | 'mercadopago_card'
+    provider:
+      | 'pagarme_pix'
+      | 'pagarme_card'
+      | 'mercadopago_pix'
+      | 'mercadopago_card'
+      | 'mercadopago_card_recurring'
   ): Promise<{ normalized: string; reason?: string }> => {
     let status = '';
     let reason: string | undefined;
 
-    if (provider.startsWith('mercadopago_')) {
+    if (provider === 'mercadopago_card_recurring') {
+      const preapprovalUrl = import.meta.env.PROD
+        ? '/.netlify/functions/mercadopago-get-preapproval-status'
+        : '/api/mercadopago/get-preapproval-status';
+      const r = await fetch(preapprovalUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          establishmentId,
+          preapprovalId: orderId,
+        }),
+      });
+      if (!r.ok) throw new Error('Erro ao verificar status da recorrência');
+      const data = await r.json().catch(() => ({}));
+      status = String(data?.preapproval?.status || '');
+      reason = String(data?.preapproval?.reason || '').trim() || undefined;
+    } else if (provider.startsWith('mercadopago_')) {
       const checkStatusUrl = import.meta.env.PROD
         ? `/.netlify/functions/mercadopago-check-status?paymentId=${orderId}&establishmentId=${establishmentId}`
         : `/api/mercadopago/check-status?paymentId=${orderId}&establishmentId=${establishmentId}`;
@@ -410,7 +439,12 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
   const checkPaymentStatusPeriodically = async (
     orderId: string,
-    provider: 'pagarme_pix' | 'pagarme_card' | 'mercadopago_pix' | 'mercadopago_card'
+    provider:
+      | 'pagarme_pix'
+      | 'pagarme_card'
+      | 'mercadopago_pix'
+      | 'mercadopago_card'
+      | 'mercadopago_card_recurring'
   ) => {
     const maxAttempts = 60;
     let attempts = 0;
@@ -450,7 +484,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           normalized === 'failed' ||
           normalized === 'canceled' ||
           normalized === 'cancelled' ||
-          normalized === 'voided'
+          normalized === 'voided' ||
+          normalized === 'paused'
         ) {
           if (statusIntervalRef.current) {
             window.clearInterval(statusIntervalRef.current);
@@ -460,7 +495,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           const reasonStr = String(reason || '');
 
           // ✅ Qualquer recusa no cartão -> oferecer PIX sem refazer os dados
-          if (provider === 'pagarme_card' || provider === 'mercadopago_card') {
+          if (provider === 'pagarme_card' || provider === 'mercadopago_card' || provider === 'mercadopago_card_recurring') {
             setCardRefusedReason(reasonStr || 'Pagamento no cartão recusado');
             if (reasonStr === 'cc_rejected_high_risk') {
               toast.error(
@@ -786,8 +821,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   };
 
   /**
-   * Cartão Mercado Pago na assinatura: cobrança **única** (API /payments), não preapproval/recorrência automática.
-   * O cliente precisa pagar de novo a cada período (renovação mensal manual).
+   * Cartão Mercado Pago na assinatura mensal:
+   * cria preapproval (recorrência oficial) para cobrança automática mês a mês.
    */
   const handleMercadoPagoSubscriptionBrickSubmit = async (brickData: {
     token: string;
@@ -827,84 +862,148 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setCardRefusedReason('');
 
     try {
-      const createPaymentUrl = import.meta.env.PROD
-        ? '/.netlify/functions/mercadopago-create-payment'
-        : '/api/mercadopago/create-payment';
+      if (!isMonthlySubscription) {
+        const createPaymentUrl = import.meta.env.PROD
+          ? '/.netlify/functions/mercadopago-create-payment'
+          : '/api/mercadopago/create-payment';
 
-      const response = await fetch(createPaymentUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          establishmentId,
-          amount: amountInCents,
-          description: `Assinatura ${subscription.name} (mensal — pagamento único)`,
-          payment_method_id: brickData.payment_method_id,
-          token: brickData.token,
-          issuer_id: brickData.issuer_id,
-          installments: brickData.installments,
-          payer: {
-            email: customer.email,
-            identification: {
-              type: onlyDigits(cpf).length === 11 ? 'CPF' : 'CNPJ',
-              number: onlyDigits(cpf),
+        const legacyResponse = await fetch(createPaymentUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            establishmentId,
+            amount: amountInCents,
+            description: `Assinatura ${subscription.name} (pagamento por período)`,
+            payment_method_id: brickData.payment_method_id,
+            token: brickData.token,
+            issuer_id: brickData.issuer_id,
+            installments: brickData.installments,
+            payer: {
+              email: customer.email,
+              identification: {
+                type: onlyDigits(cpf).length === 11 ? 'CPF' : 'CNPJ',
+                number: onlyDigits(cpf),
+              },
+              first_name: firstName,
+              last_name: lastName,
+              address: {
+                zip_code: cepDigits,
+                street_name: rua,
+                street_number: Number(numero) || 0,
+                neighborhood: String(billingBairro || '').trim() || '—',
+                city: cidade,
+                federal_unit: uf,
+              },
             },
-            first_name: firstName,
-            last_name: lastName,
-            address: {
-              zip_code: cepDigits,
-              street_name: rua,
-              street_number: Number(numero) || 0,
-              neighborhood: String(billingBairro || '').trim() || '—',
-              city: cidade,
-              federal_unit: uf,
+            metadata: {
+              establishment_id: establishmentId,
+              subscription_id: subscription.id,
+              subscription_name: subscription.name,
+              subscription_oneoff_card: true,
             },
-          },
-          metadata: {
-            establishment_id: establishmentId,
-            subscription_id: subscription.id,
-            subscription_name: subscription.name,
-            subscription_oneoff_card: true,
-          },
-        }),
-      });
+          }),
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          String(errorData.message || errorData.error || `Erro ${response.status}`)
-        );
-      }
+        if (!legacyResponse.ok) {
+          const legacyErrorData = await legacyResponse.json().catch(() => ({}));
+          throw new Error(
+            String(legacyErrorData.message || legacyErrorData.error || `Erro ${legacyResponse.status}`)
+          );
+        }
 
-      const result = await response.json();
-      const pid = String((result as any)?.id || '').trim();
-      const st = String((result as any)?.status || '').toLowerCase();
+        const legacyResult = await legacyResponse.json();
+        const pid = String((legacyResult as any)?.id || '').trim();
+        const st = String((legacyResult as any)?.status || '').toLowerCase();
 
-      if (!pid) {
-        throw new Error('Mercado Pago não retornou ID do pagamento.');
-      }
+        if (!pid) {
+          throw new Error('Mercado Pago não retornou ID do pagamento.');
+        }
 
-      setCurrentPaymentId(pid);
-      setCurrentPaymentProvider('mercadopago_card');
-      setHasOpenedCreditLink(true);
+        setCurrentPaymentId(pid);
+        setCurrentPaymentProvider('mercadopago_card');
+        setHasOpenedCreditLink(true);
 
-      if (st === 'approved' || st === 'authorized') {
-        try {
+        if (st === 'approved' || st === 'authorized') {
           const successData = await confirmSubscription(pid, 'mercadopago_card');
           setIsPaid(true);
           setShowCreditInstructions(false);
           setHasOpenedCreditLink(false);
+          setIsCheckingPayment(false);
           toastAfterSubscriptionConfirm(successData);
-        } catch (e: any) {
-          toast.error(`Pagamento aprovado, mas falhou ao registrar: ${e?.message || 'erro'}`);
+          return;
         }
+
+        await createPendingSubscription(pid, 'mercadopago_card');
+        setIsCheckingPayment(true);
+        checkPaymentStatusPeriodically(pid, 'mercadopago_card');
         return;
       }
 
-      await createPendingSubscription(pid, 'mercadopago_card');
+      const createSubscriptionUrl = import.meta.env.PROD
+        ? '/.netlify/functions/mercadopago-create-subscription-checkout'
+        : '/api/mercadopago/create-subscription-checkout';
+
+      const response = await fetch(createSubscriptionUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          establishmentId,
+          subscriptionId: subscription.id,
+          card_token_id: brickData.token,
+          payer: {
+            email: customer.email,
+            name: `${firstName} ${lastName}`.trim(),
+            identification: {
+              type: onlyDigits(cpf).length === 11 ? 'CPF' : 'CNPJ',
+              number: onlyDigits(cpf),
+            },
+          },
+          backUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+        }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const userMessage = String((result as any)?.userMessage || '').trim();
+        throw new Error(userMessage || String((result as any)?.message || (result as any)?.error || `Erro ${response.status}`));
+      }
+
+      const preapprovalId = String((result as any)?.preapproval_id || '').trim();
+      const statusRaw = String((result as any)?.subscription_status || (result as any)?.status || '').toLowerCase();
+      const initPoint = String((result as any)?.init_point || (result as any)?.sandbox_init_point || '').trim();
+
+      if (!preapprovalId) {
+        throw new Error('Mercado Pago não retornou ID da recorrência.');
+      }
+
+      setCurrentPaymentId(preapprovalId);
+      setCurrentPaymentProvider('mercadopago_card_recurring');
+      await createPendingSubscription(preapprovalId, 'mercadopago_card_recurring');
+
+      if (statusRaw === 'authorized' || statusRaw === 'approved') {
+        const successData = await confirmSubscription(preapprovalId, 'mercadopago_card_recurring');
+        setIsPaid(true);
+        setShowCreditInstructions(false);
+        setHasOpenedCreditLink(false);
+        setIsCheckingPayment(false);
+        toastAfterSubscriptionConfirm(successData);
+        return;
+      }
+
+      // Alguns cenários podem exigir ação do cliente no init_point.
+      if (initPoint) {
+        const w = window.open(initPoint, '_blank', 'noopener,noreferrer');
+        if (!w) {
+          toast.error('Seu navegador bloqueou a nova aba. Permita pop-ups para continuar a autorização da assinatura.');
+        } else {
+          setHasOpenedCreditLink(true);
+        }
+      }
+
       setIsCheckingPayment(true);
-      checkPaymentStatusPeriodically(pid, 'mercadopago_card');
+      checkPaymentStatusPeriodically(preapprovalId, 'mercadopago_card_recurring');
     } catch (err: any) {
-      toast.error(String(err?.message || 'Erro ao processar cartão'));
+      toast.error(String(err?.message || 'Erro ao criar assinatura recorrente no cartão'));
     } finally {
       setIsProcessing(false);
     }
@@ -912,7 +1011,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
   const createPendingSubscription = async (
     orderId: string,
-    providerKey: 'pagarme_pix' | 'mercadopago_pix' | 'mercadopago_card'
+    providerKey: 'pagarme_pix' | 'mercadopago_pix' | 'mercadopago_card' | 'mercadopago_card_recurring'
   ) => {
     const url = import.meta.env.PROD
       ? '/.netlify/functions/subscription-create-pending'
@@ -996,9 +1095,9 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     };
 
     try {
-      // Mercado Pago: cartão = cobrança única no Brick (não abre link externo / preapproval).
+      // Mercado Pago: fluxo acontece no Brick (não usa link manual legado).
       if (hasMercadoPago) {
-        toast.error('Use o formulário de cartão abaixo (pagamento único neste mês).');
+        toast.error('Use o formulário de cartão abaixo.');
         return false;
       }
 
@@ -1045,16 +1144,17 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     if (hasMercadoPago) {
       const pid = String(currentPaymentId || '').trim();
       if (!pid) {
-        toast.error('Nenhum pagamento no cartão encontrado. Preencha o cartão acima primeiro.');
+        toast.error('Nenhuma assinatura/pagamento em andamento. Preencha o cartão acima primeiro.');
         return;
       }
       setIsProcessing(true);
       try {
-        const { normalized, reason } = await checkPaymentStatusOnce(pid, 'mercadopago_card');
+        const mpProvider = isMonthlySubscription ? 'mercadopago_card_recurring' : 'mercadopago_card';
+        const { normalized, reason } = await checkPaymentStatusOnce(pid, mpProvider);
         if (normalized === 'paid' || normalized === 'authorized' || normalized === 'approved') {
-          const successData = await confirmSubscription(pid, 'mercadopago_card');
+          const successData = await confirmSubscription(pid, mpProvider);
           setIsPaid(true);
-          setCurrentPaymentProvider('mercadopago_card');
+          setCurrentPaymentProvider(mpProvider);
           setShowCreditInstructions(false);
           setHasOpenedCreditLink(false);
           setIsCheckingPayment(false);
@@ -1203,7 +1303,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setShowCreditInstructions(true);
     setHasOpenedCreditLink(false);
 
-    // Mercado Pago: pagamento único no cartão dentro do modal (Brick). Link externo só para legado Pagar.me/link.
+    // Mercado Pago: assinatura recorrente mensal (ou avulso para planos não mensais) via Brick.
     if (hasMercadoPago) {
       return;
     }
@@ -1302,13 +1402,16 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
               Valor: <span className="font-semibold">R$ {Number(subscription.value || 0).toFixed(2).replace('.', ',')}</span>
             </p>
             <p className="text-xs text-gray-400 mt-2">
-              O plano vale por um período (geralmente 1 mês). Quando vencer, você renova com um novo pagamento.
+              {hasMercadoPago && allowedCard && isMonthlySubscription
+                ? 'No cartão, este plano mensal vira assinatura recorrente automática pelo Mercado Pago.'
+                : 'O plano vale por um período. Quando vencer, você renova conforme a forma de pagamento escolhida.'}
             </p>
             {hasMercadoPago && allowedCard ? (
               <p className="text-xs text-amber-100/95 mt-2 rounded border border-amber-600/40 bg-amber-500/10 p-2">
-                <span className="font-semibold">Cartão (Mercado Pago):</span> cobrança <strong>única</strong> que cobre{' '}
-                <strong>este período</strong> — não há débito automático no cartão todo mês. No próximo período, pague
-                de novo aqui (cartão ou PIX).
+                <span className="font-semibold">Cartão (Mercado Pago):</span>{' '}
+                {isMonthlySubscription
+                  ? 'assinatura recorrente automática no cartão (cobrança mensal pelo Mercado Pago).'
+                  : 'para planos não mensais, o pagamento no cartão continua avulso por período.'}
               </p>
             ) : null}
           </div>
@@ -1577,17 +1680,21 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                   {hasMercadoPago ? (
                     <>
                       <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg p-4">
-                        <p className="text-sm text-amber-100 font-extrabold">Cartão — pagamento único (Mercado Pago)</p>
+                        <p className="text-sm text-amber-100 font-extrabold">
+                          {isMonthlySubscription
+                            ? 'Cartão — assinatura recorrente mensal (Mercado Pago)'
+                            : 'Cartão — pagamento avulso por período (Mercado Pago)'}
+                        </p>
                         <p className="text-xs text-amber-100/90 mt-2">
-                          Preencha o <strong>endereço de cobrança</strong> e os dados do cartão abaixo. É uma cobrança
-                          avulsa (não é recorrência automática no cartão). Cobre <strong>só este período</strong>; para
-                          renovar depois, pague de novo aqui.
+                          {isMonthlySubscription
+                            ? 'Preencha o endereço de cobrança e os dados do cartão para criar a recorrência oficial do Mercado Pago. A cobrança mensal passa a ser automática.'
+                            : 'Preencha o endereço de cobrança e os dados do cartão abaixo. Este plano não mensal usa pagamento avulso por período.'}
                         </p>
                       </div>
 
                       {!(
                         currentPaymentId &&
-                        currentPaymentProvider === 'mercadopago_card' &&
+                          (currentPaymentProvider === 'mercadopago_card' || currentPaymentProvider === 'mercadopago_card_recurring') &&
                         isCheckingPayment
                       ) ? (
                         <div className="space-y-2 rounded-lg border border-gray-700 bg-[#111213] p-3">
@@ -1643,7 +1750,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
                       {String(import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY || '').trim() ? (
                         !(currentPaymentId &&
-                          currentPaymentProvider === 'mercadopago_card' &&
+                          (currentPaymentProvider === 'mercadopago_card' || currentPaymentProvider === 'mercadopago_card_recurring') &&
                           isCheckingPayment) ? (
                           <div className="rounded-lg border border-gray-700 bg-[#111213] p-2">
                             <CardPaymentBrick
@@ -1682,7 +1789,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                       )}
 
                       {(hasOpenedCreditLink || Boolean(String(currentPaymentId || '').trim())) &&
-                      currentPaymentProvider === 'mercadopago_card' ? (
+                      (currentPaymentProvider === 'mercadopago_card' || currentPaymentProvider === 'mercadopago_card_recurring') ? (
                         <div ref={creditActionsRef} className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           <button
                             type="button"

@@ -1231,6 +1231,7 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
     const { establishmentId, subscriptionId, payer, backUrl } = req.body || {};
     const payerEmail = String(payer?.email || '').trim();
     const payerName = String(payer?.name || '').trim();
+    const cardTokenId = String(req.body?.card_token_id || req.body?.cardTokenId || '').trim();
     const SUBSCRIPTION_BACK_URL = String(process.env.MERCADOPAGO_SUBSCRIPTION_BACK_URL || '').trim();
     const backUrlCandidate = String(backUrl || SUBSCRIPTION_BACK_URL || '').trim();
 
@@ -1273,25 +1274,7 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ error: 'Valor da assinatura inválido' });
     }
-    const applicationFeeCentsRaw =
-      process.env.MERCADOPAGO_CREDIT_PLATFORM_FEE_CENTS ||
-      process.env.PLATFORM_CREDIT_FEE_CENTS ||
-      '100';
-    const applicationFeeCentsParsed = Number(String(applicationFeeCentsRaw).trim());
     const txAmountBrl = Number(amount.toFixed(2));
-    const rawFeeBrl = Number.isFinite(applicationFeeCentsParsed)
-      ? Number((applicationFeeCentsParsed / 100).toFixed(2))
-      : 1;
-    // MP exige taxa de marketplace < valor da cobrança; senão o checkout recusa (ex.: assinatura R$ 1 com fee R$ 1).
-    const applicationFee = rawFeeBrl > 0 && rawFeeBrl < txAmountBrl ? rawFeeBrl : 0;
-    if (rawFeeBrl > 0 && applicationFee === 0) {
-      console.warn('[MP preapproval] application_fee omitida: valor da assinatura insuficiente para o split', {
-        txAmountBrl,
-        rawFeeBrl,
-        establishmentId: String(establishmentId),
-        subscriptionId: String(subscriptionId),
-      });
-    }
 
     const externalReference = `subscription_preapproval:${String(establishmentId)}:${String(subscriptionId)}:${Date.now()}`;
     const title = String((subscription as any)?.name || 'Assinatura').trim();
@@ -1313,19 +1296,19 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
         subscription_id: String(subscriptionId),
         payer_name: payerName || null,
       },
-      status: 'pending',
+      status: cardTokenId ? 'authorized' : 'pending',
     };
-    if (applicationFee > 0) {
-      payload.application_fee = applicationFee;
-    }
+    if (cardTokenId) payload.card_token_id = cardTokenId;
 
-    if (!/^https:\/\//i.test(backUrlCandidate)) {
+    if (!cardTokenId && !/^https:\/\//i.test(backUrlCandidate)) {
       return res.status(400).json({
         error: 'back_url is required',
         userMessage: 'Configure MERCADOPAGO_SUBSCRIPTION_BACK_URL com uma URL HTTPS pública.',
       });
     }
-    payload.back_url = backUrlCandidate;
+    if (/^https:\/\//i.test(backUrlCandidate)) {
+      payload.back_url = backUrlCandidate;
+    }
 
     const mpResponse = await axios.post(`${MP_API_BASE_URL}/preapproval`, payload, {
       headers: {
@@ -1336,25 +1319,47 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
     });
 
     const preapproval = mpResponse.data || {};
+    const initPoint = String(preapproval?.init_point || preapproval?.sandbox_init_point || '').trim();
+    if (!cardTokenId && !initPoint) {
+      return res.status(500).json({ error: 'Mercado Pago não retornou init_point' });
+    }
     return res.status(200).json({
       preapproval_id: String(preapproval?.id || ''),
-      init_point: preapproval?.init_point || null,
+      init_point: initPoint || null,
       sandbox_init_point: preapproval?.sandbox_init_point || null,
       external_reference: externalReference,
       subscription_status: String(preapproval?.status || 'pending'),
+      recurring_mode: cardTokenId ? 'card_token' : 'hosted_checkout',
+      recurrence_created: Boolean(String(preapproval?.id || '').trim()),
       amount_brl_used: amount,
       amount_cents_used: Math.round(amount * 100),
-      application_fee_brl_used: applicationFee,
-      application_fee_cents_used: Math.round(applicationFee * 100),
-      application_fee_applied: applicationFee > 0,
+      application_fee_brl_used: 0,
+      application_fee_cents_used: 0,
+      application_fee_applied: false,
     });
   } catch (error: any) {
-    return res.status(500).json({
-      error:
-        error?.response?.data?.message ||
-        error?.response?.data?.error ||
-        error?.message ||
-        'Erro ao criar checkout externo da assinatura',
+    const message =
+      error?.response?.data?.message ||
+      error?.response?.data?.error ||
+      error?.message ||
+      'Erro ao criar checkout externo da assinatura';
+    const status = Number(error?.response?.status || 500);
+    const lower = String(message || '').toLowerCase();
+    const supportsRecurringHint =
+      status === 401 ||
+      status === 403 ||
+      lower.includes('preapproval') ||
+      lower.includes('recurring') ||
+      lower.includes('subscription') ||
+      lower.includes('not authorized') ||
+      lower.includes('not allowed');
+
+    return res.status(status >= 400 && status < 600 ? status : 500).json({
+      error: message,
+      userMessage: supportsRecurringHint
+        ? 'A conta Mercado Pago conectada do barbeiro não conseguiu criar assinatura recorrente agora. Peça para reconectar o Mercado Pago e habilitar Assinaturas/Preapproval na aplicação.'
+        : undefined,
+      recurring_capability_error: supportsRecurringHint,
     });
   }
 });

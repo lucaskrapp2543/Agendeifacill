@@ -1215,8 +1215,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           setUsePagarmeSubscriptionPix(false);
         }
         toast.success(newValue
-          ? 'Recorrência Mercado Pago (PIX) ativada (salva localmente). Pagar.me foi desativado automaticamente.'
-          : 'Recorrência Mercado Pago (PIX) desativada (salva localmente).'
+          ? 'Recorrência Mercado Pago (cartão mensal + PIX manual) ativada (salva localmente). Pagar.me foi desativado automaticamente.'
+          : 'Recorrência Mercado Pago desativada (salva localmente).'
         );
         return;
       }
@@ -1226,8 +1226,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         setUsePagarmeSubscriptionPix(false);
       }
       toast.success(newValue
-        ? 'Recorrência Mercado Pago (PIX) ativada. Pagar.me foi desativado automaticamente.'
-        : 'Recorrência Mercado Pago (PIX) desativada.'
+        ? 'Recorrência Mercado Pago (cartão mensal + PIX manual) ativada. Pagar.me foi desativado automaticamente.'
+        : 'Recorrência Mercado Pago desativada.'
       );
 
       if (onEstablishmentUpdate) onEstablishmentUpdate();
@@ -5092,12 +5092,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     As taxas do Mercado Pago são baixas: <span className="font-semibold">0.99% (PIX) + R$1,00</span> da plataforma.
                   </p>
                   <p className="text-sm text-gray-300 mt-2 leading-relaxed">
-                    <span className="font-semibold text-amber-200">A cobrança recorrente no cartão de crédito (débito em conta)</span> só pode
-                    ocorrer se o Mercado Pago e o seu banco aceitarem recorrência, conforme as regras do Banco Central: é necessário ter CNPJ,
-                    não ter pendências em seu nome nem no CNPJ, e atender aos critérios de idoneidade do banco que você utilizar. Caso contrário,
-                    o cliente pagará a assinatura normalmente todo mês, <span className="font-semibold">sem débito automático em conta</span>.
-                    Não se preocupe: se a mensalidade estiver vencida, o fluxo cobra ao agendar (conforme suas regras no sistema), e você também
-                    pode enviar cobrança manual pelo painel.
+                    <span className="font-semibold text-amber-200">No cartão para assinatura mensal, o sistema cria recorrência oficial (Preapproval) do Mercado Pago.</span>{' '}
+                    Se a conta conectada não tiver permissão para recorrência, o sistema mostra aviso claro para reconectar o Mercado Pago e ativar permissões de Assinaturas/Preapproval.
                   </p>
                   <p className="text-sm text-gray-300 mt-2">
                     No PIX, o pagamento continua <span className="font-semibold">manual</span> (sem cobrança automática).
@@ -5132,7 +5128,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               </div>
               <p className="text-xs text-gray-500 mt-3">
                 Quando ativado, no Booking o botão <span className="text-gray-300 font-semibold">Assinar</span> abre o fluxo de pagamento do Mercado Pago.
-                <span className="text-gray-300 font-semibold"> Cartão</span>: recorrência automática só quando MP/banco aceitarem (regras do BC); caso contrário, pagamento mensal avulso.
+                <span className="text-gray-300 font-semibold"> Cartão (assinatura mensal)</span>: recorrência automática oficial.
                 <span className="text-gray-300 font-semibold"> PIX</span>: sempre manual.
                 Quando desativado, mantém o comportamento atual (link da assinatura ou WhatsApp).
               </p>
