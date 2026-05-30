@@ -698,7 +698,7 @@ router.post('/create-establishment-billing', async (req: Request, res: Response)
 
     const { data: estWithAmount, error: estWithAmountError } = await supabaseAdmin
       .from('establishments')
-      .select('id, name, mercadopago_billing_amount')
+        .select('id, name, plan_type, mercadopago_billing_amount')
       .eq('id', String(establishmentId))
       .single();
 
@@ -709,7 +709,7 @@ router.post('/create-establishment-billing', async (req: Request, res: Response)
     } else {
       const { data: estFallback, error: estFallbackError } = await supabaseAdmin
         .from('establishments')
-        .select('id, name')
+        .select('id, name, plan_type')
         .eq('id', String(establishmentId))
         .single();
 
@@ -758,6 +758,127 @@ router.post('/create-establishment-billing', async (req: Request, res: Response)
       source: 'establishment_dashboard',
       created_at: new Date().toISOString(),
     };
+
+    if (isCard && shouldCreateRecurringSubscription) {
+      const payerCard = body?.payer || {};
+      const idType = String(payerCard?.identification?.type || 'CPF').toUpperCase();
+      const idNum = String(payerCard?.identification?.number || '').replace(/\D/g, '');
+      const addr = payerCard?.address || {};
+      if (!payerCard?.email || !idNum || !(idType === 'CPF' || idType === 'CNPJ')) {
+        return res.status(400).json({ error: 'Para cartão: payer.email e payer.identification são obrigatórios' });
+      }
+      if (!addr?.zip_code || !addr?.street_name || addr?.street_number == null || !addr?.city || !addr?.federal_unit) {
+        return res.status(400).json({ error: 'Para cartão: endereço de cobrança completo é obrigatório' });
+      }
+
+      const payerEmailForCard = String(payerCard.email).trim().toLowerCase();
+      const backUrlCandidate = String(body?.backUrl || process.env.MERCADOPAGO_SUBSCRIPTION_BACK_URL || '').trim();
+      const backUrl = /^https:\/\//i.test(backUrlCandidate) ? backUrlCandidate : undefined;
+      const externalReference = `establishment_billing_subscription:${String(establishmentId)}`;
+      const preapprovalPayload: any = {
+        reason: `Assinatura mensal Agendei Facil - ${String((establishment as any)?.name || 'Estabelecimento')}`,
+        payer_email: payerEmailForCard,
+        card_token_id: tokenRaw,
+        external_reference: externalReference,
+        auto_recurring: {
+          frequency: 1,
+          frequency_type: 'months',
+          transaction_amount: amountCents / 100,
+          currency_id: 'BRL',
+        },
+        status: 'authorized',
+      };
+      if (backUrl) preapprovalPayload.back_url = backUrl;
+
+      const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+      const response = await axios.post(`${MP_API_BASE_URL}/preapproval`, preapprovalPayload, {
+        headers: {
+          Authorization: `Bearer ${platformAccessToken}`,
+          'Content-Type': 'application/json',
+          'X-Idempotency-Key': `est_bill_recur_card_${String(establishmentId)}_${tokenRaw.slice(-24)}`,
+        },
+      });
+
+      const preapproval = response.data || {};
+      const preapprovalId = String(preapproval?.id || '').trim();
+      if (!preapprovalId) {
+        return res.status(500).json({ error: 'Mercado Pago não retornou ID da assinatura.' });
+      }
+
+      const normalizedStatus = normalizeBillingStatus(preapproval?.status);
+      const nowIso = new Date().toISOString();
+      await supabaseAdmin
+        .from('establishment_billing_subscriptions')
+        .upsert(
+          {
+            establishment_id: String(establishmentId),
+            preapproval_id: preapprovalId,
+            status: String(preapproval?.status || 'authorized'),
+            payer_email: payerEmailForCard,
+            amount_cents: amountCents,
+            description: `Assinatura mensal Agendei Facil - ${String((establishment as any)?.name || 'Estabelecimento')}`,
+            init_point: String(preapproval?.init_point || preapproval?.sandbox_init_point || '') || null,
+            payment_provider: 'mercadopago',
+            external_reference: externalReference,
+            metadata: {
+              type: 'establishment_billing_subscription',
+              establishment_id: String(establishmentId),
+              created_from: 'establishment_dashboard_card_token',
+            },
+            updated_at: nowIso,
+          } as any,
+          { onConflict: 'preapproval_id' }
+        );
+
+      await supabaseAdmin
+        .from('establishment_billing_payments')
+        .upsert(
+          {
+            establishment_id: String(establishmentId),
+            amount_cents: amountCents,
+            payment_provider: 'mercadopago_card_recurring',
+            payment_id: preapprovalId,
+            status: normalizedStatus,
+            description: billingDescription,
+            qr_code: null,
+            qr_code_base64: null,
+            metadata: {
+              ...metadataBase,
+              payment_method: 'recurring_card',
+              preapproval_id: preapprovalId,
+              external_reference: externalReference,
+            },
+            paid_at: normalizedStatus === 'paid' ? nowIso : null,
+            updated_at: nowIso,
+          } as any,
+          { onConflict: 'payment_id' }
+        );
+
+      if (normalizedStatus === 'paid') {
+        await supabaseAdmin
+          .from('establishments')
+          .update({
+            payment_status: 'paid',
+            is_blocked: false,
+            is_deleted: false,
+            payment_alert_enabled: false,
+            payment_paid_at: nowIso,
+            payment_due_date: getNextDueDate((establishment as any)?.plan_type),
+          } as any)
+          .eq('id', String(establishmentId));
+      }
+
+      return res.status(200).json({
+        id: preapprovalId,
+        status: String(preapproval?.status || ''),
+        billing_type: 'establishment_billing',
+        subscription_type: 'establishment_billing_recurring_card',
+        amount_cents_used: amountCents,
+        amount_brl_used: amountCents / 100,
+        recurrence_created: true,
+        preapproval_id: preapprovalId,
+      });
+    }
 
     let payment: Awaited<ReturnType<typeof createMPPayment>>;
     if (isCard) {
@@ -834,7 +955,7 @@ router.post('/create-establishment-billing', async (req: Request, res: Response)
           metadata: {
             type: 'establishment_billing',
             establishment_id: String(establishmentId),
-            ...(isCard ? { payment_method: 'credit_card' } : {}),
+            ...(isCard ? { payment_method: 'credit_card' } : { payment_method: 'pix' }),
           },
           paid_at: normalizedStatus === 'paid' ? new Date().toISOString() : null,
           updated_at: new Date().toISOString(),
@@ -1394,7 +1515,7 @@ router.get('/recent-establishment-billing-payments', async (req: Request, res: R
 
     const { data, error } = await supabaseAdmin
       .from('establishment_billing_payments')
-      .select('establishment_id, paid_at, updated_at, status, payment_provider')
+      .select('establishment_id, paid_at, updated_at, status, payment_provider, metadata')
       .eq('status', 'paid')
       .order('updated_at', { ascending: false })
       .limit(1000);
@@ -1406,7 +1527,7 @@ router.get('/recent-establishment-billing-payments', async (req: Request, res: R
       });
     }
 
-    const latestByEstablishment = new Map<string, { establishment_id: string; paid_at: string | null; updated_at: string | null; payment_provider: string }>();
+    const latestByEstablishment = new Map<string, { establishment_id: string; paid_at: string | null; updated_at: string | null; payment_provider: string; payment_method: string }>();
     (data || []).forEach((row: any) => {
       const establishmentId = String(row?.establishment_id || '').trim();
       if (!establishmentId) return;
@@ -1422,6 +1543,7 @@ router.get('/recent-establishment-billing-payments', async (req: Request, res: R
           paid_at: row?.paid_at ? String(row.paid_at) : null,
           updated_at: row?.updated_at ? String(row.updated_at) : null,
           payment_provider: String(row?.payment_provider || 'mercadopago'),
+          payment_method: String(row?.metadata?.payment_method || ''),
         });
       }
     });

@@ -166,7 +166,7 @@ const AdminDashboard = () => {
   const [showPayoutHistoryModal, setShowPayoutHistoryModal] = useState(false);
   const [showLastPaymentsModal, setShowLastPaymentsModal] = useState(false);
   const [automaticPaymentInfoByEstablishment, setAutomaticPaymentInfoByEstablishment] = useState<
-    Record<string, { timestamp: number; paymentProvider: string }>
+    Record<string, { timestamp: number; paymentProvider: string; paymentMethod: string }>
   >({});
   const [isLoadingLastPaymentsSources, setIsLoadingLastPaymentsSources] = useState(false);
   const [lastPaymentsSourcesWarning, setLastPaymentsSourcesWarning] = useState('');
@@ -2810,6 +2810,7 @@ const AdminDashboard = () => {
             next[id] = {
               timestamp: ts,
               paymentProvider: provider,
+              paymentMethod: String(row?.payment_method || '').trim(),
             };
           }
         });
@@ -3972,6 +3973,17 @@ const AdminDashboard = () => {
     if (!isAutomaticPaymentInLastDays(est) || !automaticInfo) {
       return 'Manual (não informado)';
     }
+
+    const method = String(automaticInfo.paymentMethod || '').toLowerCase();
+    if (
+      method.includes('recurring_card') ||
+      method.includes('credit_card') ||
+      method.includes('credito') ||
+      method.includes('credit')
+    ) {
+      return 'Crédito';
+    }
+    if (method.includes('pix')) return 'PIX';
 
     const provider = String(automaticInfo.paymentProvider || '').toLowerCase();
     if (

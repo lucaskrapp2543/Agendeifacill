@@ -26,6 +26,24 @@ const normalizeStatus = (raw: unknown): 'pending' | 'paid' | 'failed' | 'cancell
   return 'pending';
 };
 
+const toISODate = (date: Date) => date.toISOString().slice(0, 10);
+
+const addMonths = (date: Date, months: number) => {
+  const d = new Date(date);
+  const day = d.getDate();
+  d.setMonth(d.getMonth() + months);
+  if (d.getDate() < day) d.setDate(0);
+  return d;
+};
+
+const getNextDueDate = (planTypeRaw: unknown) => {
+  const planType = String(planTypeRaw || 'monthly').toLowerCase().trim();
+  const today = new Date();
+  if (planType === 'annual') return toISODate(addMonths(today, 12));
+  if (planType === 'trial') return toISODate(new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000));
+  return toISODate(addMonths(today, 1));
+};
+
 export const handler: Handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return json(405, { error: 'Method Not Allowed' }, { Allow: 'POST' });
@@ -56,7 +74,7 @@ export const handler: Handler = async (event) => {
     let amountCents = 0;
     const { data: estWithAmount, error: estWithAmountError } = await supabaseAdmin
       .from('establishments')
-      .select('id, name, mercadopago_billing_amount')
+      .select('id, name, plan_type, mercadopago_billing_amount')
       .eq('id', establishmentId)
       .single();
 
@@ -70,7 +88,7 @@ export const handler: Handler = async (event) => {
 
       const { data: estFallback, error: estFallbackError } = await supabaseAdmin
         .from('establishments')
-        .select('id, name')
+        .select('id, name, plan_type')
         .eq('id', establishmentId)
         .single();
 
@@ -118,6 +136,124 @@ export const handler: Handler = async (event) => {
     const pmIdRaw = String(body?.payment_method_id || '').trim();
     const isCard = Boolean(tokenRaw && pmIdRaw);
     const shouldCreateRecurringSubscription = isCard && body?.create_recurring_subscription === true;
+
+    if (isCard && shouldCreateRecurringSubscription) {
+      const payer = body?.payer || {};
+      const idType = String(payer?.identification?.type || 'CPF').toUpperCase();
+      const idNum = String(payer?.identification?.number || '').replace(/\D/g, '');
+      const addr = payer?.address || {};
+      if (!payer?.email || !idNum || !(idType === 'CPF' || idType === 'CNPJ')) {
+        return json(400, { error: 'Para cartão: payer.email e payer.identification são obrigatórios' });
+      }
+      if (!addr?.zip_code || !addr?.street_name || addr?.street_number == null || !addr?.city || !addr?.federal_unit) {
+        return json(400, { error: 'Para cartão: endereço de cobrança completo é obrigatório' });
+      }
+
+      const payerEmailForCard = String(payer.email).trim().toLowerCase();
+      const backUrlCandidate = String(body?.backUrl || SUBSCRIPTION_BACK_URL || '').trim();
+      const backUrl = /^https:\/\//i.test(backUrlCandidate) ? backUrlCandidate : undefined;
+      const externalReference = `establishment_billing_subscription:${establishmentId}`;
+      const preapprovalPayload: any = {
+        reason: `Assinatura mensal Agendei Facil - ${String((establishment as any)?.name || 'Estabelecimento')}`,
+        payer_email: payerEmailForCard,
+        card_token_id: tokenRaw,
+        external_reference: externalReference,
+        auto_recurring: {
+          frequency: 1,
+          frequency_type: 'months',
+          transaction_amount: amountCents / 100,
+          currency_id: 'BRL',
+        },
+        status: 'authorized',
+      };
+      if (backUrl) preapprovalPayload.back_url = backUrl;
+
+      const preapprovalResp = await axios.post(`${MP_API_BASE_URL}/preapproval`, preapprovalPayload, {
+        headers: {
+          Authorization: `Bearer ${PLATFORM_MP_ACCESS_TOKEN}`,
+          'Content-Type': 'application/json',
+          'X-Idempotency-Key': `est_bill_recur_card_${establishmentId}_${tokenRaw.slice(-24)}`,
+        },
+      });
+
+      const preapproval = preapprovalResp.data || {};
+      const preapprovalId = String(preapproval?.id || '').trim();
+      if (!preapprovalId) return json(500, { error: 'Mercado Pago nao retornou ID da assinatura.' });
+
+      const normalized = normalizeStatus(preapproval?.status);
+      const nowIso = new Date().toISOString();
+      await supabaseAdmin
+        .from('establishment_billing_subscriptions')
+        .upsert(
+          {
+            establishment_id: establishmentId,
+            preapproval_id: preapprovalId,
+            status: String(preapproval?.status || 'authorized'),
+            payer_email: payerEmailForCard,
+            amount_cents: amountCents,
+            description: `Assinatura mensal Agendei Facil - ${String((establishment as any)?.name || 'Estabelecimento')}`,
+            init_point: String(preapproval?.init_point || preapproval?.sandbox_init_point || '') || null,
+            payment_provider: 'mercadopago',
+            external_reference: externalReference,
+            metadata: {
+              type: 'establishment_billing_subscription',
+              establishment_id: establishmentId,
+              created_from: 'establishment_dashboard_card_token',
+            },
+            updated_at: nowIso,
+          } as any,
+          { onConflict: 'preapproval_id' }
+        );
+
+      await supabaseAdmin
+        .from('establishment_billing_payments')
+        .upsert(
+          {
+            establishment_id: establishmentId,
+            amount_cents: amountCents,
+            payment_provider: 'mercadopago_card_recurring',
+            payment_id: preapprovalId,
+            status: normalized,
+            description,
+            qr_code: null,
+            qr_code_base64: null,
+            metadata: {
+              ...metadata,
+              payment_method: 'recurring_card',
+              preapproval_id: preapprovalId,
+              external_reference: externalReference,
+            },
+            paid_at: normalized === 'paid' ? nowIso : null,
+            updated_at: nowIso,
+          } as any,
+          { onConflict: 'payment_id' }
+        );
+
+      if (normalized === 'paid') {
+        await supabaseAdmin
+          .from('establishments')
+          .update({
+            payment_status: 'paid',
+            is_blocked: false,
+            is_deleted: false,
+            payment_alert_enabled: false,
+            payment_paid_at: nowIso,
+            payment_due_date: getNextDueDate((establishment as any)?.plan_type),
+          } as any)
+          .eq('id', establishmentId);
+      }
+
+      return json(200, {
+        id: preapprovalId,
+        status: String(preapproval?.status || ''),
+        billing_type: 'establishment_billing',
+        subscription_type: 'establishment_billing_recurring_card',
+        amount_cents_used: amountCents,
+        amount_brl_used: amountCents / 100,
+        recurrence_created: true,
+        preapproval_id: preapprovalId,
+      });
+    }
 
     let paymentData: CreateMPPaymentRequest;
 
@@ -191,7 +327,7 @@ export const handler: Handler = async (event) => {
           description,
           qr_code: isCard ? null : String(pixData?.qr_code || '') || null,
           qr_code_base64: isCard ? null : String(pixData?.qr_code_base64 || '') || null,
-          metadata: { ...metadata, ...(isCard ? { payment_method: 'credit_card' } : {}) },
+          metadata: { ...metadata, ...(isCard ? { payment_method: 'credit_card' } : { payment_method: 'pix' }) },
           paid_at: normalized === 'paid' ? new Date().toISOString() : null,
           updated_at: new Date().toISOString(),
         } as any,

@@ -29,7 +29,7 @@ export const handler: Handler = async (event) => {
 
     const { data, error } = await supabaseAdmin
       .from('establishment_billing_payments')
-      .select('establishment_id, paid_at, updated_at, status, payment_provider')
+      .select('establishment_id, paid_at, updated_at, status, payment_provider, metadata')
       .eq('status', 'paid')
       .order('updated_at', { ascending: false })
       .limit(1000);
@@ -38,7 +38,7 @@ export const handler: Handler = async (event) => {
       return json(500, { error: 'Erro ao buscar pagamentos automaticos', details: String(error.message || error) });
     }
 
-    const latestByEstablishment = new Map<string, { establishment_id: string; paid_at: string | null; updated_at: string | null; payment_provider: string }>();
+    const latestByEstablishment = new Map<string, { establishment_id: string; paid_at: string | null; updated_at: string | null; payment_provider: string; payment_method: string }>();
     (data || []).forEach((row: any) => {
       const establishmentId = String(row?.establishment_id || '').trim();
       if (!establishmentId) return;
@@ -54,6 +54,7 @@ export const handler: Handler = async (event) => {
           paid_at: row?.paid_at ? String(row.paid_at) : null,
           updated_at: row?.updated_at ? String(row.updated_at) : null,
           payment_provider: String(row?.payment_provider || 'mercadopago'),
+          payment_method: String(row?.metadata?.payment_method || ''),
         });
       }
     });
