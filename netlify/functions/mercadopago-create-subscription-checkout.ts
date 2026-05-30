@@ -1,5 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import axios from 'axios';
+import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { json, parseJsonBody } from './_utils';
@@ -15,6 +16,85 @@ const supabaseAdmin =
         auth: { persistSession: false, autoRefreshToken: false },
       })
     : null;
+
+const onlyDigits = (v: string) => String(v || '').replace(/\D/g, '');
+const toISODate = (d: Date) => d.toISOString().slice(0, 10);
+const addMonths = (date: Date, months: number) => {
+  const d = new Date(date);
+  const day = d.getDate();
+  d.setMonth(d.getMonth() + months);
+  if (d.getDate() < day) d.setDate(0);
+  return d;
+};
+
+async function upsertPendingClientSubscription(input: {
+  establishmentId: string;
+  subscriptionId: string;
+  preapprovalId: string;
+  customerName: string;
+  customerWhatsapp: string;
+  customerEmail: string | null;
+  durationMonths: number;
+}) {
+  if (!supabaseAdmin) throw new Error('Supabase admin não configurado');
+
+  const phone = onlyDigits(input.customerWhatsapp);
+  if (!input.establishmentId || !input.subscriptionId || !input.preapprovalId || !input.customerName || !phone) {
+    throw new Error('Dados insuficientes para criar assinante pendente');
+  }
+
+  const today = new Date();
+  const startDate = toISODate(today);
+  const endDate = toISODate(addMonths(today, Number.isFinite(input.durationMonths) && input.durationMonths > 0 ? input.durationMonths : 1));
+
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from('client_subscriptions')
+    .select('id')
+    .eq('establishment_id', input.establishmentId)
+    .eq('subscription_id', input.subscriptionId)
+    .eq('subscriber_whatsapp', phone)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    console.warn('[MP subscription checkout] Não foi possível procurar assinante pendente existente:', existingError);
+  }
+
+  const payload: any = {
+    subscription_id: input.subscriptionId,
+    establishment_id: input.establishmentId,
+    start_date: startDate,
+    end_date: endDate,
+    payment_status: 'unpaid',
+    last_payment_date: null,
+    subscriber_name: input.customerName,
+    subscriber_whatsapp: phone,
+    subscriber_email: input.customerEmail,
+    subscriber_payment_method: 'credito',
+    subscription_payment_provider: 'mercadopago_card_recurring',
+    subscription_payment_order_id: input.preapprovalId,
+  };
+
+  if (existing?.id) {
+    const { data, error } = await supabaseAdmin
+      .from('client_subscriptions')
+      .update(payload)
+      .eq('id', String(existing.id))
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('client_subscriptions')
+    .insert([{ client_id: randomUUID(), ...payload }])
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
 
 async function getValidMercadoPagoAccessToken(establishmentId: string): Promise<string> {
   if (!supabaseAdmin) throw new Error('Supabase admin não configurado');
@@ -75,6 +155,9 @@ export const handler: Handler = async (event) => {
     const payerEmail = String(body?.payer?.email || '').trim();
     const payerName = String(body?.payer?.name || '').trim();
     const cardTokenId = String(body?.card_token_id || body?.cardTokenId || '').trim();
+    const customerName = String(body?.customer?.name || payerName || '').trim();
+    const customerWhatsapp = onlyDigits(String(body?.customer?.whatsapp || body?.customer?.phone || ''));
+    const customerEmail = String(body?.customer?.email || payerEmail || '').trim() || null;
     const backUrlRaw = String(body?.backUrl || '').trim();
 
     if (!establishmentId || !subscriptionId || !payerEmail) {
@@ -86,7 +169,7 @@ export const handler: Handler = async (event) => {
 
     const { data: subscriptionRow, error: subError } = await supabaseAdmin
       .from('subscriptions')
-      .select('id, name, value')
+      .select('id, name, value, duration_months')
       .eq('id', subscriptionId)
       .single();
 
@@ -149,6 +232,28 @@ export const handler: Handler = async (event) => {
       return json(500, { error: 'Mercado Pago não retornou init_point' });
     }
 
+    let pendingSubscriber: any = null;
+    if (cardTokenId) {
+      try {
+        pendingSubscriber = await upsertPendingClientSubscription({
+          establishmentId,
+          subscriptionId,
+          preapprovalId: String(preapproval?.id || ''),
+          customerName,
+          customerWhatsapp,
+          customerEmail,
+          durationMonths: Number((subscriptionRow as any)?.duration_months || 1),
+        });
+      } catch (pendingError: any) {
+        return json(500, {
+          error: 'Recorrência criada no Mercado Pago, mas falhou ao criar o assinante como Não Pago no sistema',
+          details: pendingError?.message || pendingError,
+          preapproval_id: String(preapproval?.id || ''),
+          subscription_status: String(preapproval?.status || 'pending'),
+        });
+      }
+    }
+
     return json(200, {
       preapproval_id: String(preapproval?.id || ''),
       init_point: initPoint,
@@ -162,6 +267,8 @@ export const handler: Handler = async (event) => {
       application_fee_brl_used: 0,
       application_fee_cents_used: 0,
       application_fee_applied: false,
+      pending_subscriber_created: Boolean(pendingSubscriber?.id),
+      pending_subscriber_id: pendingSubscriber?.id || null,
     });
   } catch (error: any) {
     const message =

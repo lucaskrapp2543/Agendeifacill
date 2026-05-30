@@ -7,6 +7,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { Request, Response, Router } from 'express';
 import axios from 'axios';
+import { randomUUID } from 'crypto';
 // Importar de src/lib para compatibilidade (também funciona em server local)
 import { exchangeCodeForToken, getAuthorizationUrl } from '../../src/lib/mercadopago/mp-oauth';
 import { recordAdminMpCommission } from '../../src/lib/mercadopago/adminMpCommission';
@@ -16,6 +17,8 @@ import { checkMPPaymentStatus, createMPPayment, CreateMPPaymentRequest } from '.
 import { convertSiteRegistrationCheckoutIfPaid } from '../../src/lib/siteRegistrationCheckoutConversion';
 
 const router = Router();
+
+const onlyDigits = (v: string) => String(v || '').replace(/\D/g, '');
 
 // Função para obter Supabase Admin (carrega variáveis dinamicamente)
 function getSupabaseAdmin() {
@@ -68,6 +71,76 @@ const getNextDueDate = (planTypeRaw: unknown): string => {
   if (planType === 'trial') return toISODate(new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000));
   return toISODate(addMonths(today, 1));
 };
+
+async function upsertPendingClientSubscription(
+  supabaseAdmin: any,
+  input: {
+    establishmentId: string;
+    subscriptionId: string;
+    preapprovalId: string;
+    customerName: string;
+    customerWhatsapp: string;
+    customerEmail: string | null;
+    durationMonths: number;
+  }
+) {
+  const phone = onlyDigits(input.customerWhatsapp);
+  if (!supabaseAdmin || !input.establishmentId || !input.subscriptionId || !input.preapprovalId || !input.customerName || !phone) {
+    throw new Error('Dados insuficientes para criar assinante pendente');
+  }
+
+  const today = new Date();
+  const startDate = toISODate(today);
+  const endDate = toISODate(addMonths(today, Number.isFinite(input.durationMonths) && input.durationMonths > 0 ? input.durationMonths : 1));
+
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from('client_subscriptions')
+    .select('id')
+    .eq('establishment_id', input.establishmentId)
+    .eq('subscription_id', input.subscriptionId)
+    .eq('subscriber_whatsapp', phone)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    console.warn('[MP subscription checkout local] Não foi possível procurar assinante pendente existente:', existingError);
+  }
+
+  const payload: any = {
+    subscription_id: input.subscriptionId,
+    establishment_id: input.establishmentId,
+    start_date: startDate,
+    end_date: endDate,
+    payment_status: 'unpaid',
+    last_payment_date: null,
+    subscriber_name: input.customerName,
+    subscriber_whatsapp: phone,
+    subscriber_email: input.customerEmail,
+    subscriber_payment_method: 'credito',
+    subscription_payment_provider: 'mercadopago_card_recurring',
+    subscription_payment_order_id: input.preapprovalId,
+  };
+
+  if (existing?.id) {
+    const { data, error } = await supabaseAdmin
+      .from('client_subscriptions')
+      .update(payload)
+      .eq('id', String(existing.id))
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('client_subscriptions')
+    .insert([{ client_id: randomUUID(), ...payload }])
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
 
 const SITE_PLAN_CONFIG = {
   prata: { label: 'PRATA', amountCents: 3790 },
@@ -1232,6 +1305,9 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
     const payerEmail = String(payer?.email || '').trim();
     const payerName = String(payer?.name || '').trim();
     const cardTokenId = String(req.body?.card_token_id || req.body?.cardTokenId || '').trim();
+    const customerName = String(req.body?.customer?.name || payerName || '').trim();
+    const customerWhatsapp = onlyDigits(String(req.body?.customer?.whatsapp || req.body?.customer?.phone || ''));
+    const customerEmail = String(req.body?.customer?.email || payerEmail || '').trim() || null;
     const SUBSCRIPTION_BACK_URL = String(process.env.MERCADOPAGO_SUBSCRIPTION_BACK_URL || '').trim();
     const backUrlCandidate = String(backUrl || SUBSCRIPTION_BACK_URL || '').trim();
 
@@ -1263,7 +1339,7 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
 
     const { data: subscription, error: subError } = await supabaseAdmin
       .from('subscriptions')
-      .select('id, name, value')
+      .select('id, name, value, duration_months')
       .eq('id', String(subscriptionId))
       .single();
     if (subError || !subscription) {
@@ -1323,6 +1399,27 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
     if (!cardTokenId && !initPoint) {
       return res.status(500).json({ error: 'Mercado Pago não retornou init_point' });
     }
+    let pendingSubscriber: any = null;
+    if (cardTokenId) {
+      try {
+        pendingSubscriber = await upsertPendingClientSubscription(supabaseAdmin, {
+          establishmentId: String(establishmentId),
+          subscriptionId: String(subscriptionId),
+          preapprovalId: String(preapproval?.id || ''),
+          customerName,
+          customerWhatsapp,
+          customerEmail,
+          durationMonths: Number((subscription as any)?.duration_months || 1),
+        });
+      } catch (pendingError: any) {
+        return res.status(500).json({
+          error: 'Recorrência criada no Mercado Pago, mas falhou ao criar o assinante como Não Pago no sistema',
+          details: pendingError?.message || pendingError,
+          preapproval_id: String(preapproval?.id || ''),
+          subscription_status: String(preapproval?.status || 'pending'),
+        });
+      }
+    }
     return res.status(200).json({
       preapproval_id: String(preapproval?.id || ''),
       init_point: initPoint || null,
@@ -1336,6 +1433,8 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
       application_fee_brl_used: 0,
       application_fee_cents_used: 0,
       application_fee_applied: false,
+      pending_subscriber_created: Boolean(pendingSubscriber?.id),
+      pending_subscriber_id: pendingSubscriber?.id || null,
     });
   } catch (error: any) {
     const message =

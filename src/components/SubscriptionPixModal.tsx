@@ -973,6 +973,12 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
               number: onlyDigits(cpf),
             },
           },
+          customer: {
+            name: nome.trim(),
+            whatsapp,
+            email: customer.email,
+            document: onlyDigits(cpf),
+          },
           backUrl: typeof window !== 'undefined' ? window.location.href : undefined,
         }),
       });
@@ -993,13 +999,15 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
       setCurrentPaymentId(preapprovalId);
       setCurrentPaymentProvider('mercadopago_card_recurring');
-      await createPendingSubscription(preapprovalId, 'mercadopago_card_recurring');
+      if (!(result as any)?.pending_subscriber_created) {
+        await createPendingSubscription(preapprovalId, 'mercadopago_card_recurring');
+      }
 
       if (statusRaw === 'authorized') {
         setShowCreditInstructions(false);
         setHasOpenedCreditLink(false);
         setIsCheckingPayment(false);
-        toast.success('Recorrência criada! A assinatura ficará paga quando a primeira cobrança for aprovada pelo Mercado Pago.');
+        toast.success('Recorrência criada e assinante salvo como Não Pago. Vai virar Pago quando a cobrança for aprovada pelo Mercado Pago.');
         return;
       }
 
@@ -1041,7 +1049,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       : '/api/subscribers/create-pending-subscription';
 
     try {
-      await fetch(url, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1057,9 +1065,22 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           },
         }),
       });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.ok) {
+        const errorText = String(
+          data?.error ||
+          data?.message ||
+          data?.details?.message ||
+          `Erro ${response.status}`
+        );
+        throw new Error(errorText);
+      }
+      return data;
     } catch (e) {
-      // não travar o fluxo — só garantir que o assinante apareça quando possível
       console.warn('⚠️ Falha ao pré-criar assinatura pendente:', e);
+      throw new Error(
+        `Recorrência criada no Mercado Pago, mas falhou ao criar o assinante como Não Pago no sistema: ${(e as any)?.message || 'erro desconhecido'}`
+      );
     }
   };
 
