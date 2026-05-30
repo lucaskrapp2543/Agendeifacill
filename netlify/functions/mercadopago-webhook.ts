@@ -460,68 +460,12 @@ export const handler: Handler = async (event) => {
 
       const preapproval = preapprovalResp.data || {};
       const status = String(preapproval?.status || '').toLowerCase().trim();
-      if (status !== 'authorized') {
-        return json(200, {
-          message: 'Webhook preapproval recebido (status ainda não autorizado)',
-          preapprovalId,
-          status,
-        });
-      }
-
-      const subscriptionIds = Array.from(new Set(rows.map((r: any) => String(r.subscription_id || '').trim()).filter(Boolean)));
-      const { data: subscriptionRows } = await supabaseAdmin
-        .from('subscriptions')
-        .select('id, duration_months')
-        .in('id', subscriptionIds);
-      const durationBySubscription = new Map<string, number>();
-      (subscriptionRows || []).forEach((s: any) => {
-        durationBySubscription.set(String(s?.id || ''), Number(s?.duration_months || 1));
-      });
-
-      const now = new Date();
-      for (const row of rows as any[]) {
-        const sid = String(row?.subscription_id || '').trim();
-        const durationMonths = durationBySubscription.get(sid) || 1;
-        const startDate = toISODate(now);
-        const endDate = toISODate(addMonths(now, Number.isFinite(durationMonths) && durationMonths > 0 ? durationMonths : 1));
-
-        const { error: updErr } = await supabaseAdmin
-          .from('client_subscriptions')
-          .update({
-            payment_status: 'paid',
-            last_payment_date: startDate,
-            start_date: startDate,
-            end_date: endDate,
-            subscriber_payment_method: 'credito',
-            subscription_payment_provider: 'mercadopago_card_recurring',
-            subscription_payment_order_id: preapprovalId,
-          } as any)
-          .eq('id', String(row.id));
-
-        if (updErr) {
-          console.error('❌ [MP Webhook] Erro ao ativar assinante por preapproval:', updErr);
-        }
-      }
-
-      await recordAdminMpCommission(supabaseAdmin, {
-        establishmentId,
-        sourceType: 'subscription',
-        sourceId: String((rows[0] as any)?.id || ''),
-        paymentId: preapprovalId,
-        externalReference: String(preapproval?.external_reference || '') || null,
-        paymentMethod: 'credito',
-        paidAt: new Date().toISOString(),
-        metadata: {
-          origin: 'mercadopago_webhook_subscription_preapproval',
-          preapproval_status: status,
-          updated_subscribers: rows.length,
-        },
-      });
 
       return json(200, {
-        message: 'Webhook de assinatura recorrente processado automaticamente',
+        message: 'Webhook preapproval recebido; aguardando webhook de pagamento aprovado para liberar assinatura',
         preapprovalId,
-        updatedSubscribers: rows.length,
+        status,
+        linkedSubscribers: rows.length,
       });
     } else if (webhookData.type === 'payment') {
       const paymentId = webhookData.data?.id || webhookData.id;
@@ -597,6 +541,82 @@ export const handler: Handler = async (event) => {
                 paymentId: String(paymentId),
                 result,
               });
+            }
+
+            const subscriptionPreapprovalPrefix = 'subscription_preapproval:';
+            if (externalReference.startsWith(subscriptionPreapprovalPrefix)) {
+              const parts = externalReference.split(':');
+              const establishmentId = String(parts[1] || '').trim();
+              const subscriptionId = String(parts[2] || '').trim();
+              const subscriptionStatus = normalizeSubscriptionPaymentStatus((payment as any)?.status);
+              const payerEmail = String((payment as any)?.payer?.email || '').trim().toLowerCase();
+
+              if (establishmentId && subscriptionId) {
+                let subscriberQuery = supabaseAdmin
+                  .from('client_subscriptions')
+                  .select('id, payment_status, subscription_payment_order_id')
+                  .eq('establishment_id', establishmentId)
+                  .eq('subscription_id', subscriptionId)
+                  .eq('subscription_payment_provider', 'mercadopago_card_recurring')
+                  .order('created_at', { ascending: false })
+                  .limit(20);
+
+                if (payerEmail) {
+                  subscriberQuery = subscriberQuery.eq('subscriber_email', payerEmail);
+                }
+
+                const { data: subscriberRows, error: subscriberFetchError } = await subscriberQuery;
+                if (subscriberFetchError) {
+                  console.error('❌ [MP Webhook] Erro ao buscar assinatura recorrente de cliente:', subscriberFetchError);
+                } else if (Array.isArray(subscriberRows) && subscriberRows.length > 0) {
+                  const ids = subscriberRows.map((r: any) => String(r.id)).filter(Boolean);
+                  if (ids.length > 0 && subscriptionStatus === 'paid') {
+                    const { data: subData } = await supabaseAdmin
+                      .from('subscriptions')
+                      .select('duration_months')
+                      .eq('id', subscriptionId)
+                      .single();
+                    const durationMonths = Number((subData as any)?.duration_months || 1);
+                    const now = new Date();
+                    const startDate = toISODate(now);
+                    const endDate = toISODate(addMonths(now, Number.isFinite(durationMonths) && durationMonths > 0 ? durationMonths : 1));
+
+                    const { error: subscriberUpdateError } = await supabaseAdmin
+                      .from('client_subscriptions')
+                      .update({
+                        payment_status: 'paid',
+                        last_payment_date: startDate,
+                        start_date: startDate,
+                        end_date: endDate,
+                        subscriber_payment_method: 'credito',
+                        subscription_payment_provider: 'mercadopago_card_recurring',
+                      } as any)
+                      .in('id', ids);
+
+                    if (subscriberUpdateError) {
+                      console.error('❌ [MP Webhook] Erro ao liberar assinatura recorrente aprovada:', subscriberUpdateError);
+                    } else {
+                      return json(200, {
+                        message: 'Webhook de cobrança recorrente de assinatura aprovado',
+                        establishmentId,
+                        subscriptionId,
+                        paymentId: String(paymentId),
+                        updatedSubscribers: ids.length,
+                      });
+                    }
+                  }
+
+                  return json(200, {
+                    message: 'Webhook de cobrança recorrente recebido sem aprovação; assinatura permanece pendente',
+                    establishmentId,
+                    subscriptionId,
+                    paymentId: String(paymentId),
+                    paymentStatus: String((payment as any)?.status || ''),
+                    subscriptionStatus,
+                    matchedSubscribers: ids.length,
+                  });
+                }
+              }
             }
 
             const recurringPrefix = 'establishment_billing_subscription:';

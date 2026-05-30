@@ -252,14 +252,16 @@ export const handler: Handler = async (event) => {
         ? providerNormalized
         : 'pagarme_pix';
     const subscriberPaymentMethod = getSubscriberPaymentMethodFromProvider(providerFinal);
+    const isRecurringCardProvider = providerFinal === 'mercadopago_card_recurring';
+    const shouldMarkAsPaid = !isRecurringCardProvider;
 
     const payload: any = {
       subscription_id: String(subscriptionId),
       establishment_id: String(establishmentId),
       start_date: startDate,
       end_date: endDate,
-      payment_status: 'paid',
-      last_payment_date: startDate,
+      payment_status: shouldMarkAsPaid ? 'paid' : 'unpaid',
+      last_payment_date: shouldMarkAsPaid ? startDate : null,
       subscriber_name: customerName,
       subscriber_whatsapp: customerWhatsapp,
       subscriber_email: customerEmail,
@@ -288,7 +290,7 @@ export const handler: Handler = async (event) => {
       resultRow = ins;
     }
 
-    if (providerFinal.startsWith('mercadopago')) {
+    if (providerFinal.startsWith('mercadopago') && !isRecurringCardProvider) {
       await recordAdminMpCommission(supabaseAdmin, {
         establishmentId: String(establishmentId),
         sourceType: 'subscription',
@@ -312,6 +314,8 @@ export const handler: Handler = async (event) => {
       body: JSON.stringify({
         ok: true,
         status: normalizedStatus,
+        payment_confirmed: shouldMarkAsPaid,
+        requires_payment_approval: isRecurringCardProvider,
         subscription: resultRow,
         /** `updated` = mesmo registro em client_subscriptions (renovação do contato existente); `created` = novo assinante */
         operation: existing?.id ? 'updated' : 'created',

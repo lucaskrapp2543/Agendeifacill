@@ -427,6 +427,8 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
         ? providerNormalized
         : 'pagarme_pix';
     const subscriberPaymentMethod = getSubscriberPaymentMethodFromProvider(providerFinal);
+    const isRecurringCardProvider = providerFinal === 'mercadopago_card_recurring';
+    const shouldMarkAsPaid = !isRecurringCardProvider;
 
     // Validar pagamento no gateway correto
     let normalizedStatus = '';
@@ -533,8 +535,8 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
       establishment_id: String(establishmentId),
       start_date: startDate,
       end_date: endDate,
-      payment_status: 'paid',
-      last_payment_date: startDate,
+      payment_status: shouldMarkAsPaid ? 'paid' : 'unpaid',
+      last_payment_date: shouldMarkAsPaid ? startDate : null,
       // dados do assinante
       subscriber_name: customerName,
       subscriber_whatsapp: customerWhatsapp,
@@ -570,7 +572,7 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
       resultRow = ins;
     }
 
-    if (providerFinal.startsWith('mercadopago')) {
+    if (providerFinal.startsWith('mercadopago') && !isRecurringCardProvider) {
       await recordAdminMpCommission(supabaseAdmin, {
         establishmentId: String(establishmentId),
         sourceType: 'subscription',
@@ -592,6 +594,8 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
     return res.status(200).json({
       ok: true,
       status: normalizedStatus,
+      payment_confirmed: shouldMarkAsPaid,
+      requires_payment_approval: isRecurringCardProvider,
       subscription: resultRow,
       /** `updated` = mesmo registro em client_subscriptions (renovação); `created` = novo assinante */
       operation: existing?.id ? 'updated' : 'created',

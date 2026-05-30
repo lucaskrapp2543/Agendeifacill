@@ -460,7 +460,22 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         const { normalized, reason } = await checkPaymentStatusOnce(orderId, provider);
         setLastCheckError('');
 
-        if (normalized === 'paid' || normalized === 'authorized' || normalized === 'approved') {
+        const isConfirmedPayment =
+          normalized === 'paid' ||
+          normalized === 'approved' ||
+          (normalized === 'authorized' && provider !== 'mercadopago_card_recurring');
+
+        if (normalized === 'authorized' && provider === 'mercadopago_card_recurring') {
+          if (statusIntervalRef.current) {
+            window.clearInterval(statusIntervalRef.current);
+            statusIntervalRef.current = null;
+          }
+          setIsCheckingPayment(false);
+          toast.success('Recorrência ativa. A assinatura será liberada quando a cobrança for aprovada pelo Mercado Pago.');
+          return;
+        }
+
+        if (isConfirmedPayment) {
           if (statusIntervalRef.current) {
             window.clearInterval(statusIntervalRef.current);
             statusIntervalRef.current = null;
@@ -472,7 +487,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
             toastAfterSubscriptionConfirm(successData);
           } catch (e: any) {
             console.error('❌ Erro ao registrar assinatura:', e);
-            // ✅ NÃO prender o usuário: marcar como pago e permitir fechar/reverificar depois.
+            // ✅ NÃO prender o usuário em pagamento avulso já aprovado.
             toast.error(`Pagamento confirmado, mas falhou registrar no sistema: ${e?.message || 'erro'}`);
           }
 
@@ -980,7 +995,15 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       setCurrentPaymentProvider('mercadopago_card_recurring');
       await createPendingSubscription(preapprovalId, 'mercadopago_card_recurring');
 
-      if (statusRaw === 'authorized' || statusRaw === 'approved') {
+      if (statusRaw === 'authorized') {
+        setShowCreditInstructions(false);
+        setHasOpenedCreditLink(false);
+        setIsCheckingPayment(false);
+        toast.success('Recorrência criada! A assinatura ficará paga quando a primeira cobrança for aprovada pelo Mercado Pago.');
+        return;
+      }
+
+      if (statusRaw === 'approved' || statusRaw === 'paid') {
         const successData = await confirmSubscription(preapprovalId, 'mercadopago_card_recurring');
         setIsPaid(true);
         setShowCreditInstructions(false);
@@ -1151,7 +1174,12 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       try {
         const mpProvider = isMonthlySubscription ? 'mercadopago_card_recurring' : 'mercadopago_card';
         const { normalized, reason } = await checkPaymentStatusOnce(pid, mpProvider);
-        if (normalized === 'paid' || normalized === 'authorized' || normalized === 'approved') {
+        const isConfirmedPayment =
+          normalized === 'paid' ||
+          normalized === 'approved' ||
+          (normalized === 'authorized' && mpProvider !== 'mercadopago_card_recurring');
+
+        if (isConfirmedPayment) {
           const successData = await confirmSubscription(pid, mpProvider);
           setIsPaid(true);
           setCurrentPaymentProvider(mpProvider);
@@ -1159,6 +1187,10 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           setHasOpenedCreditLink(false);
           setIsCheckingPayment(false);
           toastAfterSubscriptionConfirm(successData);
+          return;
+        }
+        if (normalized === 'authorized' && mpProvider === 'mercadopago_card_recurring') {
+          toast.success('Recorrência ativa. A assinatura será liberada quando a cobrança aparecer aprovada no Mercado Pago.');
           return;
         }
         if (
