@@ -678,7 +678,9 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     if (initPoint) {
       const w = window.open(initPoint, '_blank', 'noopener,noreferrer');
       if (!w) {
-        toast.error('Pagamento aprovado, mas o navegador bloqueou a nova aba para finalizar a renovação automática.');
+        // Fallback sem popup: segue no mesmo separador para não perder a ativação da recorrência.
+        toast.success('Pagamento aprovado. Redirecionando para finalizar a renovação automática no Mercado Pago...');
+        window.location.assign(initPoint);
       } else {
         setHasOpenedCreditLink(true);
       }
