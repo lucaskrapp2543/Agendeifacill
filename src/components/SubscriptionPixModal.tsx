@@ -68,6 +68,39 @@ type SubscriptionPixModalProps = {
   allowedCard?: boolean;
 };
 
+type RecurringSetupDraft = {
+  token?: string;
+  deviceSessionId?: string;
+  payer: {
+    email: string;
+    name: string;
+    first_name: string;
+    last_name: string;
+    identification: { type: 'CPF' | 'CNPJ'; number: string };
+    phone: { area_code: string; number: string };
+    address: {
+      zip_code: string;
+      street_name: string;
+      street_number: number;
+      neighborhood?: string;
+      city: string;
+      federal_unit: string;
+    };
+  };
+  customer: {
+    name: string;
+    whatsapp: string;
+    email: string;
+    document: string;
+  };
+  card: {
+    payment_method_id: string;
+    issuer_id: string;
+    bin?: string;
+    last_four_digits?: string;
+  };
+};
+
 export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   isOpen,
   onClose,
@@ -131,6 +164,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const creditActionsRef = useRef<HTMLDivElement | null>(null);
   const externalSectionRef = useRef<HTMLDivElement | null>(null);
   const externalActionsRef = useRef<HTMLDivElement | null>(null);
+  const recurringSetupRef = useRef<RecurringSetupDraft | null>(null);
 
   const scrollToEl = (el: HTMLElement | null) => {
     if (!el) return;
@@ -239,6 +273,7 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setShowExternalInstructions(false);
     setHasOpenedExternalLink(false);
     setIsExternalClaimed(false);
+    recurringSetupRef.current = null;
   }, [isOpen]);
 
   // Buscar o link de cartão (externo) configurado para esta assinatura
@@ -483,8 +518,23 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           setIsCheckingPayment(false);
           try {
             const successData = await confirmSubscription(orderId, provider);
+            let recurringActivated = false;
+            if (provider === 'mercadopago_card' && isMonthlySubscription) {
+              try {
+                const recurringResult = await createRecurringAfterApprovedCardPayment(orderId);
+                recurringActivated = recurringResult.ok;
+              } catch (recurringError: any) {
+                console.error('❌ [MP recurring] falha pós-pagamento aprovado:', recurringError);
+                toast.error(
+                  `Pagamento aprovado, mas não foi possível ativar a renovação automática: ${String(recurringError?.message || 'erro desconhecido')}`
+                );
+              }
+            }
             console.log('✅ Assinatura registrada com sucesso:', successData);
             toastAfterSubscriptionConfirm(successData);
+            if (provider === 'mercadopago_card' && isMonthlySubscription && recurringActivated) {
+              toast.success('Renovação automática ativada para a próxima cobrança mensal.');
+            }
           } catch (e: any) {
             console.error('❌ Erro ao registrar assinatura:', e);
             // ✅ NÃO prender o usuário em pagamento avulso já aprovado.
@@ -550,6 +600,92 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         }
       }
     }, 5000);
+  };
+
+  const createRecurringAfterApprovedCardPayment = async (firstPaymentOrderId: string): Promise<{
+    ok: boolean;
+    requiresAction: boolean;
+  }> => {
+    if (!isMonthlySubscription) return { ok: false, requiresAction: false };
+
+    const setup = recurringSetupRef.current;
+    if (!setup) {
+      throw new Error('Pagamento aprovado, mas faltaram dados para ativar a renovação automática.');
+    }
+
+    const createSubscriptionUrl = import.meta.env.PROD
+      ? '/.netlify/functions/mercadopago-create-subscription-checkout'
+      : '/api/mercadopago/create-subscription-checkout';
+
+    const requestBodyBase = {
+      establishmentId,
+      subscriptionId: subscription.id,
+      payer: setup.payer,
+      customer: setup.customer,
+      card: setup.card,
+      device_session_id: setup.deviceSessionId || undefined,
+      first_payment_already_captured: true,
+      first_payment_order_id: String(firstPaymentOrderId || '').trim(),
+      backUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+    };
+
+    const attemptCreateRecurring = async (withCardToken: boolean) => {
+      const body = withCardToken && setup.token
+        ? { ...requestBodyBase, card_token_id: setup.token }
+        : requestBodyBase;
+
+      const response = await fetch(createSubscriptionUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const userMessage = String((result as any)?.userMessage || '').trim();
+        throw new Error(
+          userMessage || String((result as any)?.message || (result as any)?.error || `Erro ${response.status}`)
+        );
+      }
+
+      return result as any;
+    };
+
+    let result: any;
+    try {
+      result = await attemptCreateRecurring(true);
+    } catch (firstError: any) {
+      // Se o token do cartão tiver expirado, tenta criar recorrência via checkout hospedado.
+      result = await attemptCreateRecurring(false);
+      console.warn('⚠️ [MP recurring] fallback para checkout hospedado:', firstError);
+    }
+
+    const preapprovalId = String(result?.preapproval_id || '').trim();
+    const statusRaw = String(result?.subscription_status || result?.status || '').toLowerCase();
+    const initPoint = String(result?.init_point || result?.sandbox_init_point || '').trim();
+
+    if (!preapprovalId) {
+      throw new Error('Mercado Pago não retornou ID da recorrência.');
+    }
+
+    setCurrentPaymentId(preapprovalId);
+    setCurrentPaymentProvider('mercadopago_card_recurring');
+
+    if (statusRaw === 'authorized' || statusRaw === 'approved' || statusRaw === 'paid') {
+      return { ok: true, requiresAction: false };
+    }
+
+    if (initPoint) {
+      const w = window.open(initPoint, '_blank', 'noopener,noreferrer');
+      if (!w) {
+        toast.error('Pagamento aprovado, mas o navegador bloqueou a nova aba para finalizar a renovação automática.');
+      } else {
+        setHasOpenedCreditLink(true);
+      }
+      return { ok: false, requiresAction: true };
+    }
+
+    return { ok: false, requiresAction: false };
   };
 
   // Limpar intervalos ao fechar/desmontar
@@ -881,187 +1017,139 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setSelectedMethod('credit_card');
     setIsProcessing(true);
     setCardRefusedReason('');
+    recurringSetupRef.current = {
+      token: brickData.token,
+      deviceSessionId: mpDeviceSessionId || undefined,
+      payer: {
+        email: customer.email,
+        name: `${firstName} ${lastName}`.trim(),
+        first_name: firstName,
+        last_name: lastName,
+        identification: {
+          type: onlyDigits(cpf).length === 11 ? 'CPF' : 'CNPJ',
+          number: onlyDigits(cpf),
+        },
+        phone: {
+          area_code: customer.whatsapp.slice(0, 2),
+          number: customer.whatsapp.slice(2),
+        },
+        address: {
+          zip_code: cepDigits,
+          street_name: rua,
+          street_number: Number(numero) || 0,
+          neighborhood: String(billingBairro || '').trim() || undefined,
+          city: cidade,
+          federal_unit: uf,
+        },
+      },
+      customer: {
+        name: nome.trim(),
+        whatsapp,
+        email: customer.email,
+        document: onlyDigits(cpf),
+      },
+      card: {
+        payment_method_id: brickData.payment_method_id,
+        issuer_id: brickData.issuer_id,
+        bin: brickData.bin,
+        last_four_digits: brickData.lastFourDigits,
+      },
+    };
 
     try {
-      if (!isMonthlySubscription) {
-        const createPaymentUrl = import.meta.env.PROD
-          ? '/.netlify/functions/mercadopago-create-payment'
-          : '/api/mercadopago/create-payment';
+      const createPaymentUrl = import.meta.env.PROD
+        ? '/.netlify/functions/mercadopago-create-payment'
+        : '/api/mercadopago/create-payment';
 
-        const legacyResponse = await fetch(createPaymentUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            establishmentId,
-            amount: amountInCents,
-            description: `Assinatura ${subscription.name} (pagamento por período)`,
-            payment_method_id: brickData.payment_method_id,
-            token: brickData.token,
-            issuer_id: brickData.issuer_id,
-            installments: brickData.installments,
-            payer: {
-              email: customer.email,
-              identification: {
-                type: onlyDigits(cpf).length === 11 ? 'CPF' : 'CNPJ',
-                number: onlyDigits(cpf),
-              },
-              first_name: firstName,
-              last_name: lastName,
-              address: {
-                zip_code: cepDigits,
-                street_name: rua,
-                street_number: Number(numero) || 0,
-                neighborhood: String(billingBairro || '').trim() || '—',
-                city: cidade,
-                federal_unit: uf,
-              },
-            },
-            metadata: {
-              establishment_id: establishmentId,
-              subscription_id: subscription.id,
-              subscription_name: subscription.name,
-              subscription_oneoff_card: true,
-            },
-          }),
-        });
-
-        if (!legacyResponse.ok) {
-          const legacyErrorData = await legacyResponse.json().catch(() => ({}));
-          throw new Error(
-            String(legacyErrorData.message || legacyErrorData.error || `Erro ${legacyResponse.status}`)
-          );
-        }
-
-        const legacyResult = await legacyResponse.json();
-        const pid = String((legacyResult as any)?.id || '').trim();
-        const st = String((legacyResult as any)?.status || '').toLowerCase();
-
-        if (!pid) {
-          throw new Error('Mercado Pago não retornou ID do pagamento.');
-        }
-
-        setCurrentPaymentId(pid);
-        setCurrentPaymentProvider('mercadopago_card');
-        setHasOpenedCreditLink(true);
-
-        if (st === 'approved' || st === 'authorized') {
-          const successData = await confirmSubscription(pid, 'mercadopago_card');
-          setIsPaid(true);
-          setShowCreditInstructions(false);
-          setHasOpenedCreditLink(false);
-          setIsCheckingPayment(false);
-          toastAfterSubscriptionConfirm(successData);
-          return;
-        }
-
-        await createPendingSubscription(pid, 'mercadopago_card');
-        setIsCheckingPayment(true);
-        checkPaymentStatusPeriodically(pid, 'mercadopago_card');
-        return;
-      }
-
-      const createSubscriptionUrl = import.meta.env.PROD
-        ? '/.netlify/functions/mercadopago-create-subscription-checkout'
-        : '/api/mercadopago/create-subscription-checkout';
-
-      const response = await fetch(createSubscriptionUrl, {
+      const paymentResponse = await fetch(createPaymentUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           establishmentId,
-          subscriptionId: subscription.id,
-          card_token_id: brickData.token,
-          device_session_id: mpDeviceSessionId || undefined,
+          amount: amountInCents,
+          description: isMonthlySubscription
+            ? `Assinatura ${subscription.name} (primeira cobrança do plano mensal)`
+            : `Assinatura ${subscription.name} (pagamento por período)`,
+          payment_method_id: brickData.payment_method_id,
+          token: brickData.token,
+          issuer_id: brickData.issuer_id,
+          installments: brickData.installments,
           payer: {
             email: customer.email,
-            name: `${firstName} ${lastName}`.trim(),
-            first_name: firstName,
-            last_name: lastName,
             identification: {
               type: onlyDigits(cpf).length === 11 ? 'CPF' : 'CNPJ',
               number: onlyDigits(cpf),
             },
-            phone: {
-              area_code: customer.whatsapp.slice(0, 2),
-              number: customer.whatsapp.slice(2),
-            },
+            first_name: firstName,
+            last_name: lastName,
             address: {
               zip_code: cepDigits,
               street_name: rua,
               street_number: Number(numero) || 0,
-              neighborhood: String(billingBairro || '').trim() || undefined,
+              neighborhood: String(billingBairro || '').trim() || '—',
               city: cidade,
               federal_unit: uf,
             },
           },
-          customer: {
-            name: nome.trim(),
-            whatsapp,
-            email: customer.email,
-            document: onlyDigits(cpf),
+          metadata: {
+            establishment_id: establishmentId,
+            subscription_id: subscription.id,
+            subscription_name: subscription.name,
+            subscription_oneoff_card: true,
+            subscription_monthly_first_charge: isMonthlySubscription,
           },
-          card: {
-            payment_method_id: brickData.payment_method_id,
-            issuer_id: brickData.issuer_id,
-            bin: brickData.bin,
-            last_four_digits: brickData.lastFourDigits,
-          },
-          backUrl: typeof window !== 'undefined' ? window.location.href : undefined,
         }),
       });
 
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        const userMessage = String((result as any)?.userMessage || '').trim();
-        throw new Error(userMessage || String((result as any)?.message || (result as any)?.error || `Erro ${response.status}`));
+      if (!paymentResponse.ok) {
+        const paymentErrorData = await paymentResponse.json().catch(() => ({}));
+        throw new Error(
+          String(paymentErrorData.message || paymentErrorData.error || `Erro ${paymentResponse.status}`)
+        );
       }
 
-      const preapprovalId = String((result as any)?.preapproval_id || '').trim();
-      const statusRaw = String((result as any)?.subscription_status || (result as any)?.status || '').toLowerCase();
-      const initPoint = String((result as any)?.init_point || (result as any)?.sandbox_init_point || '').trim();
+      const paymentResult = await paymentResponse.json();
+      const pid = String((paymentResult as any)?.id || '').trim();
+      const st = String((paymentResult as any)?.status || '').toLowerCase();
 
-      if (!preapprovalId) {
-        throw new Error('Mercado Pago não retornou ID da recorrência.');
+      if (!pid) {
+        throw new Error('Mercado Pago não retornou ID do pagamento.');
       }
 
-      setCurrentPaymentId(preapprovalId);
-      setCurrentPaymentProvider('mercadopago_card_recurring');
-      if (!(result as any)?.pending_subscriber_created) {
-        await createPendingSubscription(preapprovalId, 'mercadopago_card_recurring');
-      }
+      setCurrentPaymentId(pid);
+      setCurrentPaymentProvider('mercadopago_card');
+      setHasOpenedCreditLink(true);
 
-      if (statusRaw === 'authorized') {
-        setShowCreditInstructions(false);
-        setHasOpenedCreditLink(false);
-        setIsCheckingPayment(false);
-        toast.success('Recorrência criada e assinante salvo como Não Pago. Vai virar Pago quando a cobrança for aprovada pelo Mercado Pago.');
-        return;
-      }
-
-      if (statusRaw === 'approved' || statusRaw === 'paid') {
-        const successData = await confirmSubscription(preapprovalId, 'mercadopago_card_recurring');
+      if (st === 'approved' || st === 'authorized') {
+        const successData = await confirmSubscription(pid, 'mercadopago_card');
+        let recurringActivated = false;
+        if (isMonthlySubscription) {
+          try {
+            const recurringResult = await createRecurringAfterApprovedCardPayment(pid);
+            recurringActivated = recurringResult.ok;
+          } catch (recurringError: any) {
+            console.error('❌ [MP recurring] falha ao ativar renovação automática:', recurringError);
+            toast.error(
+              `Pagamento aprovado, mas não foi possível ativar a renovação automática: ${String(recurringError?.message || 'erro desconhecido')}`
+            );
+          }
+        }
         setIsPaid(true);
         setShowCreditInstructions(false);
         setHasOpenedCreditLink(false);
         setIsCheckingPayment(false);
         toastAfterSubscriptionConfirm(successData);
+        if (isMonthlySubscription && recurringActivated) {
+          toast.success('Renovação automática ativada para a próxima cobrança mensal.');
+        }
         return;
       }
 
-      // Alguns cenários podem exigir ação do cliente no init_point.
-      if (initPoint) {
-        const w = window.open(initPoint, '_blank', 'noopener,noreferrer');
-        if (!w) {
-          toast.error('Seu navegador bloqueou a nova aba. Permita pop-ups para continuar a autorização da assinatura.');
-        } else {
-          setHasOpenedCreditLink(true);
-        }
-      }
-
+      await createPendingSubscription(pid, 'mercadopago_card');
       setIsCheckingPayment(true);
-      checkPaymentStatusPeriodically(preapprovalId, 'mercadopago_card_recurring');
+      checkPaymentStatusPeriodically(pid, 'mercadopago_card');
     } catch (err: any) {
-      toast.error(String(err?.message || 'Erro ao criar assinatura recorrente no cartão'));
+      toast.error(String(err?.message || 'Erro ao processar pagamento no cartão'));
     } finally {
       setIsProcessing(false);
     }
@@ -1220,7 +1308,10 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       }
       setIsProcessing(true);
       try {
-        const mpProvider = isMonthlySubscription ? 'mercadopago_card_recurring' : 'mercadopago_card';
+        const mpProvider =
+          currentPaymentProvider === 'mercadopago_card_recurring'
+            ? 'mercadopago_card_recurring'
+            : 'mercadopago_card';
         const { normalized, reason } = await checkPaymentStatusOnce(pid, mpProvider);
         const isConfirmedPayment =
           normalized === 'paid' ||
@@ -1229,12 +1320,26 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
         if (isConfirmedPayment) {
           const successData = await confirmSubscription(pid, mpProvider);
+          let recurringActivated = false;
+          if (mpProvider === 'mercadopago_card' && isMonthlySubscription) {
+            try {
+              const recurringResult = await createRecurringAfterApprovedCardPayment(pid);
+              recurringActivated = recurringResult.ok;
+            } catch (recurringError: any) {
+              toast.error(
+                `Pagamento aprovado, mas não foi possível ativar a renovação automática: ${String(recurringError?.message || 'erro desconhecido')}`
+              );
+            }
+          }
           setIsPaid(true);
           setCurrentPaymentProvider(mpProvider);
           setShowCreditInstructions(false);
           setHasOpenedCreditLink(false);
           setIsCheckingPayment(false);
           toastAfterSubscriptionConfirm(successData);
+          if (mpProvider === 'mercadopago_card' && isMonthlySubscription && recurringActivated) {
+            toast.success('Renovação automática ativada para a próxima cobrança mensal.');
+          }
           return;
         }
         if (normalized === 'authorized' && mpProvider === 'mercadopago_card_recurring') {

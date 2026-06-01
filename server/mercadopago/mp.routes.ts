@@ -56,6 +56,7 @@ const normalizeBillingStatus = (raw: unknown): 'pending' | 'paid' | 'failed' | '
 };
 
 const toISODate = (d: Date): string => d.toISOString().slice(0, 10);
+const toISODateTime = (d: Date): string => d.toISOString();
 const addMonths = (date: Date, months: number): Date => {
   const d = new Date(date);
   const day = d.getDate();
@@ -95,7 +96,7 @@ async function upsertPendingClientSubscription(
 
   const { data: existing, error: existingError } = await supabaseAdmin
     .from('client_subscriptions')
-    .select('id')
+    .select('id, payment_status, last_payment_date, start_date, end_date')
     .eq('establishment_id', input.establishmentId)
     .eq('subscription_id', input.subscriptionId)
     .eq('subscriber_whatsapp', phone)
@@ -107,13 +108,14 @@ async function upsertPendingClientSubscription(
     console.warn('[MP subscription checkout local] Não foi possível procurar assinante pendente existente:', existingError);
   }
 
+  const isAlreadyPaid = String((existing as any)?.payment_status || '').toLowerCase() === 'paid';
   const payload: any = {
     subscription_id: input.subscriptionId,
     establishment_id: input.establishmentId,
-    start_date: startDate,
-    end_date: endDate,
-    payment_status: 'unpaid',
-    last_payment_date: null,
+    start_date: isAlreadyPaid ? ((existing as any)?.start_date || startDate) : startDate,
+    end_date: isAlreadyPaid ? ((existing as any)?.end_date || endDate) : endDate,
+    payment_status: isAlreadyPaid ? 'paid' : 'unpaid',
+    last_payment_date: isAlreadyPaid ? ((existing as any)?.last_payment_date || startDate) : null,
     subscriber_name: input.customerName,
     subscriber_whatsapp: phone,
     subscriber_email: input.customerEmail,
@@ -1309,6 +1311,9 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
     const customerName = String(req.body?.customer?.name || payerName || '').trim();
     const customerWhatsapp = onlyDigits(String(req.body?.customer?.whatsapp || req.body?.customer?.phone || ''));
     const customerEmail = String(req.body?.customer?.email || payerEmail || '').trim() || null;
+    const firstPaymentAlreadyCaptured =
+      req.body?.first_payment_already_captured === true ||
+      req.body?.firstPaymentAlreadyCaptured === true;
     const payerFirstName = String(payer?.first_name || payer?.firstName || '').trim();
     const payerLastName = String(payer?.last_name || payer?.lastName || '').trim();
     const payerDocumentType = String(payer?.identification?.type || '').trim().toUpperCase();
@@ -1358,6 +1363,7 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
       return res.status(400).json({ error: 'Valor da assinatura inválido' });
     }
     const txAmountBrl = Number(amount.toFixed(2));
+    const recurringStartDate = firstPaymentAlreadyCaptured ? toISODateTime(addMonths(new Date(), 1)) : null;
 
     const externalReference = `subscription_preapproval:${String(establishmentId)}:${String(subscriptionId)}:${Date.now()}`;
     const title = String((subscription as any)?.name || 'Assinatura').trim();
@@ -1372,6 +1378,7 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
         frequency_type: 'months',
         transaction_amount: txAmountBrl,
         currency_id: 'BRL',
+        ...(recurringStartDate ? { start_date: recurringStartDate } : {}),
       },
       metadata: {
         type: 'subscription_preapproval',
@@ -1391,6 +1398,7 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
         card_bin: String(cardInfo?.bin || '').trim().slice(0, 6) || null,
         card_last4: String(cardInfo?.last_four_digits || cardInfo?.lastFourDigits || '').trim().slice(-4) || null,
         has_device_session_id: Boolean(deviceSessionId),
+        first_payment_already_captured: firstPaymentAlreadyCaptured,
       },
       status: cardTokenId ? 'authorized' : 'pending',
     };

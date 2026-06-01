@@ -19,6 +19,7 @@ const supabaseAdmin =
 
 const onlyDigits = (v: string) => String(v || '').replace(/\D/g, '');
 const toISODate = (d: Date) => d.toISOString().slice(0, 10);
+const toISODateTime = (d: Date) => d.toISOString();
 const addMonths = (date: Date, months: number) => {
   const d = new Date(date);
   const day = d.getDate();
@@ -49,7 +50,7 @@ async function upsertPendingClientSubscription(input: {
 
   const { data: existing, error: existingError } = await supabaseAdmin
     .from('client_subscriptions')
-    .select('id')
+    .select('id, payment_status, last_payment_date, start_date, end_date')
     .eq('establishment_id', input.establishmentId)
     .eq('subscription_id', input.subscriptionId)
     .eq('subscriber_whatsapp', phone)
@@ -61,13 +62,14 @@ async function upsertPendingClientSubscription(input: {
     console.warn('[MP subscription checkout] Não foi possível procurar assinante pendente existente:', existingError);
   }
 
+  const isAlreadyPaid = String((existing as any)?.payment_status || '').toLowerCase() === 'paid';
   const payload: any = {
     subscription_id: input.subscriptionId,
     establishment_id: input.establishmentId,
-    start_date: startDate,
-    end_date: endDate,
-    payment_status: 'unpaid',
-    last_payment_date: null,
+    start_date: isAlreadyPaid ? ((existing as any)?.start_date || startDate) : startDate,
+    end_date: isAlreadyPaid ? ((existing as any)?.end_date || endDate) : endDate,
+    payment_status: isAlreadyPaid ? 'paid' : 'unpaid',
+    last_payment_date: isAlreadyPaid ? ((existing as any)?.last_payment_date || startDate) : null,
     subscriber_name: input.customerName,
     subscriber_whatsapp: phone,
     subscriber_email: input.customerEmail,
@@ -159,6 +161,9 @@ export const handler: Handler = async (event) => {
     const customerName = String(body?.customer?.name || payerName || '').trim();
     const customerWhatsapp = onlyDigits(String(body?.customer?.whatsapp || body?.customer?.phone || ''));
     const customerEmail = String(body?.customer?.email || payerEmail || '').trim() || null;
+    const firstPaymentAlreadyCaptured =
+      body?.first_payment_already_captured === true ||
+      body?.firstPaymentAlreadyCaptured === true;
     const payerFirstName = String(body?.payer?.first_name || body?.payer?.firstName || '').trim();
     const payerLastName = String(body?.payer?.last_name || body?.payer?.lastName || '').trim();
     const payerDocumentType = String(body?.payer?.identification?.type || '').trim().toUpperCase();
@@ -189,6 +194,7 @@ export const handler: Handler = async (event) => {
       return json(400, { error: 'Valor da assinatura inválido' });
     }
     const txAmountBrl = Number(amount.toFixed(2));
+    const recurringStartDate = firstPaymentAlreadyCaptured ? toISODateTime(addMonths(new Date(), 1)) : null;
 
     const accessToken = await getValidMercadoPagoAccessToken(establishmentId);
     const now = Date.now();
@@ -206,6 +212,7 @@ export const handler: Handler = async (event) => {
         frequency_type: 'months',
         transaction_amount: txAmountBrl,
         currency_id: 'BRL',
+        ...(recurringStartDate ? { start_date: recurringStartDate } : {}),
       },
       metadata: {
         type: 'subscription_preapproval',
@@ -225,6 +232,7 @@ export const handler: Handler = async (event) => {
         card_bin: String(cardInfo?.bin || '').trim().slice(0, 6) || null,
         card_last4: String(cardInfo?.last_four_digits || cardInfo?.lastFourDigits || '').trim().slice(-4) || null,
         has_device_session_id: Boolean(deviceSessionId),
+        first_payment_already_captured: firstPaymentAlreadyCaptured,
       },
       status: cardTokenId ? 'authorized' : 'pending',
     };
