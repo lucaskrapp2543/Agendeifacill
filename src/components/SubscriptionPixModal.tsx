@@ -1113,16 +1113,16 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
       const paymentResult = await paymentResponse.json();
       const pid = String((paymentResult as any)?.id || '').trim();
       const st = String((paymentResult as any)?.status || '').toLowerCase();
+      const statusDetail = String((paymentResult as any)?.status_detail || '').trim();
 
       if (!pid) {
         throw new Error('Mercado Pago não retornou ID do pagamento.');
       }
 
-      setCurrentPaymentId(pid);
-      setCurrentPaymentProvider('mercadopago_card');
-      setHasOpenedCreditLink(true);
-
       if (st === 'approved' || st === 'authorized') {
+        setCurrentPaymentId(pid);
+        setCurrentPaymentProvider('mercadopago_card');
+        setHasOpenedCreditLink(true);
         const successData = await confirmSubscription(pid, 'mercadopago_card');
         let recurringActivated = false;
         if (isMonthlySubscription) {
@@ -1147,6 +1147,34 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
         return;
       }
 
+      if (
+        st === 'rejected' ||
+        st === 'refused' ||
+        st === 'cancelled' ||
+        st === 'canceled' ||
+        st === 'failed' ||
+        st === 'charged_back'
+      ) {
+        const reasonText = statusDetail || 'Pagamento no cartão recusado';
+        setCurrentPaymentId('');
+        setCurrentPaymentProvider('');
+        setHasOpenedCreditLink(false);
+        setIsCheckingPayment(false);
+        setSelectedMethod(null);
+        setCardRefusedReason(reasonText);
+        if (reasonText.toLowerCase() === 'cc_rejected_high_risk') {
+          toast.error(
+            'Pagamento não aprovado: cc_rejected_high_risk. Tente outro cartão/dispositivo ou pague via PIX.'
+          );
+        } else {
+          toast.error(`Pagamento não aprovado: ${reasonText}`);
+        }
+        return;
+      }
+
+      setCurrentPaymentId(pid);
+      setCurrentPaymentProvider('mercadopago_card');
+      setHasOpenedCreditLink(true);
       await createPendingSubscription(pid, 'mercadopago_card');
       setIsCheckingPayment(true);
       checkPaymentStatusPeriodically(pid, 'mercadopago_card');
