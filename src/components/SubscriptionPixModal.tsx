@@ -844,6 +844,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     payment_method_id: string;
     issuer_id: string;
     installments: number;
+    bin?: string;
+    lastFourDigits?: string;
   }) => {
     const customer = getCustomerForManualCredit();
     if (!customer) return;
@@ -871,6 +873,10 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     const parts = String(nome || '').trim().split(/\s+/).filter(Boolean);
     const firstName = parts[0] || 'Cliente';
     const lastName = parts.slice(1).join(' ') || firstName;
+    const mpDeviceSessionId =
+      typeof window !== 'undefined'
+        ? String((window as any)?.MP_DEVICE_SESSION_ID || '').trim()
+        : '';
 
     setSelectedMethod('credit_card');
     setIsProcessing(true);
@@ -965,12 +971,27 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
           establishmentId,
           subscriptionId: subscription.id,
           card_token_id: brickData.token,
+          device_session_id: mpDeviceSessionId || undefined,
           payer: {
             email: customer.email,
             name: `${firstName} ${lastName}`.trim(),
+            first_name: firstName,
+            last_name: lastName,
             identification: {
               type: onlyDigits(cpf).length === 11 ? 'CPF' : 'CNPJ',
               number: onlyDigits(cpf),
+            },
+            phone: {
+              area_code: customer.whatsapp.slice(0, 2),
+              number: customer.whatsapp.slice(2),
+            },
+            address: {
+              zip_code: cepDigits,
+              street_name: rua,
+              street_number: Number(numero) || 0,
+              neighborhood: String(billingBairro || '').trim() || undefined,
+              city: cidade,
+              federal_unit: uf,
             },
           },
           customer: {
@@ -978,6 +999,12 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
             whatsapp,
             email: customer.email,
             document: onlyDigits(cpf),
+          },
+          card: {
+            payment_method_id: brickData.payment_method_id,
+            issuer_id: brickData.issuer_id,
+            bin: brickData.bin,
+            last_four_digits: brickData.lastFourDigits,
           },
           backUrl: typeof window !== 'undefined' ? window.location.href : undefined,
         }),

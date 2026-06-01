@@ -1305,9 +1305,16 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
     const payerEmail = String(payer?.email || '').trim();
     const payerName = String(payer?.name || '').trim();
     const cardTokenId = String(req.body?.card_token_id || req.body?.cardTokenId || '').trim();
+    const deviceSessionId = String(req.body?.device_session_id || req.body?.deviceSessionId || '').trim();
     const customerName = String(req.body?.customer?.name || payerName || '').trim();
     const customerWhatsapp = onlyDigits(String(req.body?.customer?.whatsapp || req.body?.customer?.phone || ''));
     const customerEmail = String(req.body?.customer?.email || payerEmail || '').trim() || null;
+    const payerFirstName = String(payer?.first_name || payer?.firstName || '').trim();
+    const payerLastName = String(payer?.last_name || payer?.lastName || '').trim();
+    const payerDocumentType = String(payer?.identification?.type || '').trim().toUpperCase();
+    const payerDocumentNumber = onlyDigits(String(payer?.identification?.number || ''));
+    const payerAddress = payer?.address || {};
+    const cardInfo = req.body?.card || {};
     const SUBSCRIPTION_BACK_URL = String(process.env.MERCADOPAGO_SUBSCRIPTION_BACK_URL || '').trim();
     const backUrlCandidate = String(backUrl || SUBSCRIPTION_BACK_URL || '').trim();
 
@@ -1371,6 +1378,19 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
         establishment_id: String(establishmentId),
         subscription_id: String(subscriptionId),
         payer_name: payerName || null,
+        payer_first_name: payerFirstName || null,
+        payer_last_name: payerLastName || null,
+        payer_document_type: payerDocumentType || null,
+        payer_document_last4: payerDocumentNumber ? payerDocumentNumber.slice(-4) : null,
+        payer_phone_last4: customerWhatsapp ? customerWhatsapp.slice(-4) : null,
+        billing_zip_code: String(payerAddress?.zip_code || '').trim() || null,
+        billing_city: String(payerAddress?.city || '').trim() || null,
+        billing_federal_unit: String(payerAddress?.federal_unit || '').trim() || null,
+        card_payment_method_id: String(cardInfo?.payment_method_id || '').trim() || null,
+        card_issuer_id: String(cardInfo?.issuer_id || '').trim() || null,
+        card_bin: String(cardInfo?.bin || '').trim().slice(0, 6) || null,
+        card_last4: String(cardInfo?.last_four_digits || cardInfo?.lastFourDigits || '').trim().slice(-4) || null,
+        has_device_session_id: Boolean(deviceSessionId),
       },
       status: cardTokenId ? 'authorized' : 'pending',
     };
@@ -1386,11 +1406,18 @@ router.post('/create-subscription-checkout', async (req: Request, res: Response)
       payload.back_url = backUrlCandidate;
     }
 
+    const mpHeaders: Record<string, string> = {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'X-Idempotency-Key': `sub_preapproval_${externalReference}`,
+    };
+    if (deviceSessionId) {
+      mpHeaders['X-meli-session-id'] = deviceSessionId;
+    }
+
     const mpResponse = await axios.post(`${MP_API_BASE_URL}/preapproval`, payload, {
       headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'X-Idempotency-Key': `sub_preapproval_${externalReference}`,
+        ...mpHeaders,
       },
     });
 

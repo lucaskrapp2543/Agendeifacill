@@ -155,9 +155,16 @@ export const handler: Handler = async (event) => {
     const payerEmail = String(body?.payer?.email || '').trim();
     const payerName = String(body?.payer?.name || '').trim();
     const cardTokenId = String(body?.card_token_id || body?.cardTokenId || '').trim();
+    const deviceSessionId = String(body?.device_session_id || body?.deviceSessionId || '').trim();
     const customerName = String(body?.customer?.name || payerName || '').trim();
     const customerWhatsapp = onlyDigits(String(body?.customer?.whatsapp || body?.customer?.phone || ''));
     const customerEmail = String(body?.customer?.email || payerEmail || '').trim() || null;
+    const payerFirstName = String(body?.payer?.first_name || body?.payer?.firstName || '').trim();
+    const payerLastName = String(body?.payer?.last_name || body?.payer?.lastName || '').trim();
+    const payerDocumentType = String(body?.payer?.identification?.type || '').trim().toUpperCase();
+    const payerDocumentNumber = onlyDigits(String(body?.payer?.identification?.number || ''));
+    const payerAddress = body?.payer?.address || {};
+    const cardInfo = body?.card || {};
     const backUrlRaw = String(body?.backUrl || '').trim();
 
     if (!establishmentId || !subscriptionId || !payerEmail) {
@@ -205,6 +212,19 @@ export const handler: Handler = async (event) => {
         establishment_id: establishmentId,
         subscription_id: subscriptionId,
         payer_name: payerName || null,
+        payer_first_name: payerFirstName || null,
+        payer_last_name: payerLastName || null,
+        payer_document_type: payerDocumentType || null,
+        payer_document_last4: payerDocumentNumber ? payerDocumentNumber.slice(-4) : null,
+        payer_phone_last4: customerWhatsapp ? customerWhatsapp.slice(-4) : null,
+        billing_zip_code: String(payerAddress?.zip_code || '').trim() || null,
+        billing_city: String(payerAddress?.city || '').trim() || null,
+        billing_federal_unit: String(payerAddress?.federal_unit || '').trim() || null,
+        card_payment_method_id: String(cardInfo?.payment_method_id || '').trim() || null,
+        card_issuer_id: String(cardInfo?.issuer_id || '').trim() || null,
+        card_bin: String(cardInfo?.bin || '').trim().slice(0, 6) || null,
+        card_last4: String(cardInfo?.last_four_digits || cardInfo?.lastFourDigits || '').trim().slice(-4) || null,
+        has_device_session_id: Boolean(deviceSessionId),
       },
       status: cardTokenId ? 'authorized' : 'pending',
     };
@@ -218,11 +238,18 @@ export const handler: Handler = async (event) => {
     }
     if (backUrl) payload.back_url = backUrl;
 
+    const mpHeaders: Record<string, string> = {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'X-Idempotency-Key': `sub_preapproval_${externalReference}`,
+    };
+    if (deviceSessionId) {
+      mpHeaders['X-meli-session-id'] = deviceSessionId;
+    }
+
     const response = await axios.post(`${MP_API_BASE_URL}/preapproval`, payload, {
       headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'X-Idempotency-Key': `sub_preapproval_${externalReference}`,
+        ...mpHeaders,
       },
     });
 
