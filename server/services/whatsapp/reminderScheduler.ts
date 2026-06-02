@@ -375,9 +375,29 @@ export class WhatsAppReminderScheduler {
       return query.limit(500);
     };
 
+    const mergeUniqueById = (rows: AppointmentRow[]): AppointmentRow[] => {
+      const map = new Map<string, AppointmentRow>();
+      for (const row of rows) {
+        const id = String((row as any)?.id || '').trim();
+        if (!id) continue;
+        if (!map.has(id)) map.set(id, row);
+      }
+      return Array.from(map.values());
+    };
+
     // Caminho principal: usa updated_at (mais preciso para "cancelou agora").
     let result = await run(selectWithMetaAndUpdatedAt, 'updated_at');
-    if (!result.error) return (result.data || []) as AppointmentRow[];
+    if (!result.error) {
+      const primaryRows = (result.data || []) as AppointmentRow[];
+      // Fallback complementar: bases sem trigger de updated_at podem manter esse campo nulo.
+      // Nesses casos, "cancelou agora" não aparece no filtro por updated_at.
+      const fallbackByDate = await run(selectWithMetaNoUpdatedAt, 'appointment_date');
+      if (!fallbackByDate.error) {
+        const fallbackRows = (fallbackByDate.data || []) as AppointmentRow[];
+        return mergeUniqueById([...primaryRows, ...fallbackRows]);
+      }
+      return primaryRows;
+    }
 
     if (isMissingColumn(result.error, 'professional_id')) {
       const fallbackByProfessionalId = await run(selectFallbackNoProfessionalIdAndUpdatedAt, 'updated_at');
