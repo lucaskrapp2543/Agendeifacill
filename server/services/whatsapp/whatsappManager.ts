@@ -266,6 +266,7 @@ export class WhatsAppManager {
       msg === '1006' ||
       msg.includes('1006') ||
       msg.includes('connection closed') ||
+      (msg.includes('closed') && msg.includes('connection')) ||
       msg.includes('timed out waiting for message') ||
       msg.includes('not connected') ||
       msg.includes('stream errored out') ||
@@ -280,11 +281,21 @@ export class WhatsAppManager {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  private async waitUntilConnected(userId: string, timeoutMs = 30_000): Promise<any | null> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const socket = this.sessionManager.getSocket(userId);
+      if (socket?.user) return socket;
+      await this.sleep(400);
+    }
+    return this.sessionManager.getSocket(userId);
+  }
+
   private async getConnectedSocket(userId: string): Promise<any | null> {
     let socket = this.sessionManager.getSocket(userId);
     if (!socket || !socket?.user) {
       await this.connect(userId);
-      socket = this.sessionManager.getSocket(userId);
+      socket = await this.waitUntilConnected(userId);
     }
     return socket || null;
   }

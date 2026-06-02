@@ -701,6 +701,26 @@ export class WhatsAppReminderScheduler {
     return false;
   }
 
+  private async releaseMessageLogReservation(appointmentId: string, messageType: string) {
+    const aptId = String(appointmentId || '').trim();
+    const type = String(messageType || '').trim();
+    if (!aptId || !type) return;
+    const { error } = await this.supabase
+      .from('whatsapp_message_logs')
+      .delete()
+      .eq('provider', 'baileys')
+      .eq('appointment_id', aptId)
+      .eq('message_type', type)
+      .eq('status', 'queued');
+    if (error) {
+      console.warn('[whatsapp/scheduler] Falha ao liberar reserva de log:', {
+        appointmentId: aptId,
+        messageType: type,
+        error: String(error?.message || error),
+      });
+    }
+  }
+
   private async updateMessageLogStatus(payload: {
     appointmentId: string;
     messageType: string;
@@ -1027,12 +1047,17 @@ export class WhatsAppReminderScheduler {
                   messageType: scheduledReminderType,
                 },
               });
-              await this.updateMessageLogStatus({
-                appointmentId: appointment.id,
-                messageType: scheduledReminderType,
-                status: resolveLogStatus(reminderRes),
-                error: reminderRes.error || null,
-              });
+              if (reminderRes.ok) {
+                await this.updateMessageLogStatus({
+                  appointmentId: appointment.id,
+                  messageType: scheduledReminderType,
+                  status: resolveLogStatus(reminderRes),
+                  error: reminderRes.error || null,
+                });
+              } else {
+                await this.releaseMessageLogReservation(appointment.id, scheduledReminderType);
+                existingLogSet.delete(scheduledReminderKey);
+              }
               console.info('[whatsapp/scheduler] reminder_scheduled', {
                 appointmentId: appointment.id,
                 reminderType: scheduledReminderType,
