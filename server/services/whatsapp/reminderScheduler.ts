@@ -336,31 +336,67 @@ export class WhatsAppReminderScheduler {
   }
 
   private async fetchCancelledAppointmentsSince(updatedAfterIso: string): Promise<AppointmentRow[]> {
-    const selectWithMeta =
+    const selectWithMetaAndUpdatedAt =
       'id,establishment_id,professional_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,updated_at,cancellation_source,cancellation_detail';
-    const selectFallback =
+    const selectWithMetaNoUpdatedAt =
+      'id,establishment_id,professional_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,cancellation_source,cancellation_detail';
+    const selectFallbackNoProfessionalIdAndUpdatedAt =
       'id,establishment_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,updated_at,cancellation_source,cancellation_detail';
+    const selectFallbackNoProfessionalIdNoUpdatedAt =
+      'id,establishment_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,cancellation_source,cancellation_detail';
 
-    const run = async (selectClause: string) => {
-      return this.supabase
-        .from('appointments')
-        .select(selectClause)
-        .eq('status', 'cancelled')
-        .gte('updated_at', updatedAfterIso)
-        .order('updated_at', { ascending: false })
-        .limit(500);
+    const oneDayAgoDate = new Date(Date.now() - 24 * 60 * 60_000).toISOString().slice(0, 10);
+    const isMissingColumn = (error: any, column: string) => {
+      const msg = String(error?.message || '').toLowerCase();
+      return msg.includes(column.toLowerCase()) && msg.includes('does not exist');
     };
 
-    let result = await run(selectWithMeta);
+    const run = async (
+      selectClause: string,
+      strategy: 'updated_at' | 'appointment_date'
+    ) => {
+      let query = this.supabase
+        .from('appointments')
+        .select(selectClause)
+        .eq('status', 'cancelled');
+
+      if (strategy === 'updated_at') {
+        query = query
+          .gte('updated_at', updatedAfterIso)
+          .order('updated_at', { ascending: false });
+      } else {
+        // Fallback compatível para bancos sem coluna/trigger de updated_at em appointments.
+        // Mantém escopo recente para não varrer histórico inteiro.
+        query = query
+          .gte('appointment_date', oneDayAgoDate)
+          .order('created_at', { ascending: false });
+      }
+
+      return query.limit(500);
+    };
+
+    // Caminho principal: usa updated_at (mais preciso para "cancelou agora").
+    let result = await run(selectWithMetaAndUpdatedAt, 'updated_at');
     if (!result.error) return (result.data || []) as AppointmentRow[];
 
-    const msg = String(result.error?.message || '').toLowerCase();
-    const missingProfessionalId = msg.includes('professional_id') && msg.includes('does not exist');
-    if (!missingProfessionalId) throw result.error;
+    if (isMissingColumn(result.error, 'professional_id')) {
+      const fallbackByProfessionalId = await run(selectFallbackNoProfessionalIdAndUpdatedAt, 'updated_at');
+      if (!fallbackByProfessionalId.error) return (fallbackByProfessionalId.data || []) as AppointmentRow[];
+      result = fallbackByProfessionalId;
+    }
 
-    result = await run(selectFallback);
-    if (result.error) throw result.error;
-    return (result.data || []) as AppointmentRow[];
+    // Compatibilidade: caso a base ainda não tenha updated_at em appointments.
+    if (isMissingColumn(result.error, 'updated_at')) {
+      result = await run(selectWithMetaNoUpdatedAt, 'appointment_date');
+      if (!result.error) return (result.data || []) as AppointmentRow[];
+
+      if (isMissingColumn(result.error, 'professional_id')) {
+        result = await run(selectFallbackNoProfessionalIdNoUpdatedAt, 'appointment_date');
+        if (!result.error) return (result.data || []) as AppointmentRow[];
+      }
+    }
+
+    throw result.error;
   }
 
   private safeProfessionalLabel(value: unknown): string {
