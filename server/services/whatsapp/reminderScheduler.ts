@@ -22,6 +22,11 @@ type AppointmentRow = {
   cancellation_source?: string | null;
   cancellation_detail?: string | null;
 };
+
+type CancellationNotificationRow = {
+  appointment_id?: string | null;
+  created_at?: string | null;
+};
 const ACTIVE_APPOINTMENT_STATUSES = ['pending', 'confirmed', 'completed', 'waiting', 'pending_payment'];
 const SAFE_APPOINTMENT_STATUSES = ['pending', 'confirmed', 'completed'];
 
@@ -283,10 +288,12 @@ export class WhatsAppReminderScheduler {
     createdAfterIso?: string;
     includeNonCancelledAnyStatus?: boolean;
   }): Promise<AppointmentRow[]> {
-    const selectWithProfessional =
-      'id,establishment_id,professional_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at';
-    const selectFallback =
-      'id,establishment_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at';
+    const selectCandidates = [
+      'id,establishment_id,professional_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
+      'id,establishment_id,professional_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
+      'id,establishment_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
+      'id,establishment_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
+    ];
 
     const buildQuery = (selectClause: string, statuses: string[]) => {
       let query = this.supabase
@@ -303,47 +310,48 @@ export class WhatsAppReminderScheduler {
       return query;
     };
 
-    let query = buildQuery(selectWithProfessional, ACTIVE_APPOINTMENT_STATUSES);
+    const isMissingColumnError = (error: any) => {
+      const code = String(error?.code || '').trim().toUpperCase();
+      const msg = String(error?.message || '').toLowerCase();
+      return code === '42703' || msg.includes('does not exist');
+    };
 
-    let result = await query;
-    if (!result.error) return (result.data || []) as AppointmentRow[];
+    const runSelectCandidates = async (statuses: string[]) => {
+      let lastMissingColumnError: any = null;
+      for (const selectClause of selectCandidates) {
+        const result = await buildQuery(selectClause, statuses);
+        if (!result.error) return (result.data || []) as AppointmentRow[];
+        if (isMissingColumnError(result.error)) {
+          lastMissingColumnError = result.error;
+          continue;
+        }
+        throw result.error;
+      }
+      if (lastMissingColumnError) throw lastMissingColumnError;
+      return [] as AppointmentRow[];
+    };
 
-    const invalidEnum =
-      !params.includeNonCancelledAnyStatus &&
-      String(result.error?.code || '').trim().toUpperCase() === '22P02' &&
-      String(result.error?.message || '').toLowerCase().includes('appointment_status');
-    if (invalidEnum) {
-      result = await buildQuery(selectWithProfessional, SAFE_APPOINTMENT_STATUSES);
-      if (!result.error) return (result.data || []) as AppointmentRow[];
+    try {
+      return await runSelectCandidates(ACTIVE_APPOINTMENT_STATUSES);
+    } catch (error: any) {
+      const invalidEnum =
+        !params.includeNonCancelledAnyStatus &&
+        String(error?.code || '').trim().toUpperCase() === '22P02' &&
+        String(error?.message || '').toLowerCase().includes('appointment_status');
+      if (!invalidEnum) throw error;
+      return runSelectCandidates(SAFE_APPOINTMENT_STATUSES);
     }
-
-    const msg = String(result.error?.message || '').toLowerCase();
-    const missingProfessionalId = msg.includes('professional_id') && msg.includes('does not exist');
-    if (!missingProfessionalId) throw result.error;
-
-    let fallbackQuery = buildQuery(selectFallback, ACTIVE_APPOINTMENT_STATUSES);
-    result = await fallbackQuery;
-    const fallbackInvalidEnum =
-      !params.includeNonCancelledAnyStatus &&
-      String(result.error?.code || '').trim().toUpperCase() === '22P02' &&
-      String(result.error?.message || '').toLowerCase().includes('appointment_status');
-    if (fallbackInvalidEnum) {
-      fallbackQuery = buildQuery(selectFallback, SAFE_APPOINTMENT_STATUSES);
-      result = await fallbackQuery;
-    }
-    if (result.error) throw result.error;
-    return (result.data || []) as AppointmentRow[];
   }
 
   private async fetchCancelledAppointmentsSince(updatedAfterIso: string): Promise<AppointmentRow[]> {
     const selectWithMetaAndUpdatedAt =
-      'id,establishment_id,professional_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,updated_at,cancellation_source,cancellation_detail';
+      'id,establishment_id,professional_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,updated_at,cancellation_source,cancellation_detail';
     const selectWithMetaNoUpdatedAt =
-      'id,establishment_id,professional_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,cancellation_source,cancellation_detail';
+      'id,establishment_id,professional_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,cancellation_source,cancellation_detail';
     const selectFallbackNoProfessionalIdAndUpdatedAt =
-      'id,establishment_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,updated_at,cancellation_source,cancellation_detail';
+      'id,establishment_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,updated_at,cancellation_source,cancellation_detail';
     const selectFallbackNoProfessionalIdNoUpdatedAt =
-      'id,establishment_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,cancellation_source,cancellation_detail';
+      'id,establishment_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,cancellation_source,cancellation_detail';
 
     const oneDayAgoDate = new Date(Date.now() - 24 * 60 * 60_000).toISOString().slice(0, 10);
     const isMissingColumn = (error: any, column: string) => {
@@ -420,11 +428,143 @@ export class WhatsAppReminderScheduler {
     throw byUpdatedAt.error;
   }
 
+  private async fetchAppointmentsByIds(ids: string[]): Promise<AppointmentRow[]> {
+    const normalizedIds = Array.from(new Set(ids.map((id) => String(id || '').trim()).filter(Boolean)));
+    if (normalizedIds.length === 0) return [];
+
+    const selectCandidates = [
+      'id,establishment_id,professional_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,updated_at,cancellation_source,cancellation_detail',
+      'id,establishment_id,professional_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,updated_at,cancellation_source,cancellation_detail',
+      'id,establishment_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,updated_at,cancellation_source,cancellation_detail',
+      'id,establishment_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,updated_at,cancellation_source,cancellation_detail',
+      'id,establishment_id,professional_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,cancellation_source,cancellation_detail',
+      'id,establishment_id,professional_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,cancellation_source,cancellation_detail',
+      'id,establishment_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,cancellation_source,cancellation_detail',
+      'id,establishment_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,cancellation_source,cancellation_detail',
+    ];
+
+    const isMissingColumnError = (error: any) => {
+      const code = String(error?.code || '').trim().toUpperCase();
+      const msg = String(error?.message || '').toLowerCase();
+      return code === '42703' || msg.includes('does not exist');
+    };
+
+    let lastMissingColumnError: any = null;
+    for (const selectClause of selectCandidates) {
+      const result = await this.supabase
+        .from('appointments')
+        .select(selectClause)
+        .in('id', normalizedIds)
+        .eq('status', 'cancelled')
+        .limit(1000);
+
+      if (!result.error) return (result.data || []) as AppointmentRow[];
+      if (isMissingColumnError(result.error)) {
+        lastMissingColumnError = result.error;
+        continue;
+      }
+      throw result.error;
+    }
+
+    if (lastMissingColumnError) throw lastMissingColumnError;
+    return [];
+  }
+
+  private async fetchCancelledAppointmentsFromNotifications(createdAfterIso: string): Promise<AppointmentRow[]> {
+    const { data: notificationRows, error: notificationError } = await this.supabase
+      .from('establishment_notifications')
+      .select('appointment_id,created_at,type')
+      .eq('type', 'cancelled_appointment')
+      .gte('created_at', createdAfterIso)
+      .not('appointment_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(500);
+
+    if (notificationError) throw notificationError;
+
+    const notifications = (notificationRows || []) as CancellationNotificationRow[];
+    const appointmentIds = notifications
+      .map((row) => String(row.appointment_id || '').trim())
+      .filter(Boolean);
+    if (appointmentIds.length === 0) return [];
+
+    const notificationCreatedAtByAppointmentId = new Map<string, string>();
+    for (const row of notifications) {
+      const appointmentId = String(row.appointment_id || '').trim();
+      if (!appointmentId) continue;
+      const createdAt = String(row.created_at || '').trim();
+      if (!createdAt) continue;
+      if (!notificationCreatedAtByAppointmentId.has(appointmentId)) {
+        notificationCreatedAtByAppointmentId.set(appointmentId, createdAt);
+      }
+    }
+
+    const appointments = await this.fetchAppointmentsByIds(appointmentIds);
+    return appointments.map((appointment) => {
+      const appointmentId = String(appointment.id || '').trim();
+      if (!appointmentId) return appointment;
+      if (String(appointment.updated_at || '').trim()) return appointment;
+      const notificationCreatedAt = notificationCreatedAtByAppointmentId.get(appointmentId);
+      if (!notificationCreatedAt) return appointment;
+      return {
+        ...appointment,
+        // fallback de "momento do cancelamento" quando a linha não possui updated_at confiável
+        updated_at: notificationCreatedAt,
+      };
+    });
+  }
+
   private safeProfessionalLabel(value: unknown): string {
     const normalized = String(value || '').trim();
     if (!normalized) return '';
     if (UUID_REGEX.test(normalized)) return '';
+    if (/^\d+$/.test(normalized)) return '';
+    if (/^profissional\s*\d+$/i.test(normalized)) return '';
     return normalized;
+  }
+
+  private findProfessionalInEstablishment(professionals: any[], professionalRef: string): any | null {
+    const reference = String(professionalRef || '').trim();
+    if (!reference || professionals.length === 0) return null;
+    const referenceLower = reference.toLowerCase();
+
+    const byId = professionals.find((item: any) => {
+      const ids = [
+        item?.id,
+        item?.professional_id,
+        item?.user_id,
+        item?.value,
+        item?.uuid,
+      ]
+        .map((v) => String(v || '').trim())
+        .filter(Boolean);
+      return ids.includes(reference);
+    });
+    if (byId) return byId;
+
+    const numericIndexMatch = reference.match(/^\d+$/) || reference.match(/^profissional\s*(\d+)$/i);
+    const numericIndexRaw = numericIndexMatch
+      ? Number(numericIndexMatch[0].replace(/[^\d]/g, ''))
+      : Number.NaN;
+    if (Number.isInteger(numericIndexRaw) && numericIndexRaw > 0) {
+      const oneBasedIndex = numericIndexRaw - 1;
+      if (oneBasedIndex >= 0 && oneBasedIndex < professionals.length) {
+        return professionals[oneBasedIndex];
+      }
+    }
+
+    const byName = professionals.find((item: any) => {
+      const names = [
+        item?.name,
+        item?.professional_name,
+        item?.nome,
+        item?.full_name,
+      ]
+        .map((v) => String(v || '').trim().toLowerCase())
+        .filter(Boolean);
+      return names.includes(referenceLower);
+    });
+    return byName || null;
   }
 
   private resolveProfessionalName(
@@ -434,27 +574,31 @@ export class WhatsAppReminderScheduler {
     const explicitName = this.safeProfessionalLabel(appointment.professional_name);
     if (explicitName) return explicitName;
 
-    const directName = this.safeProfessionalLabel(appointment.professional);
-    if (directName) return directName;
-
-    const professionalId =
-      String(appointment.professional_id || '').trim() ||
-      String(appointment.professional || '').trim();
-    if (!professionalId) return 'Profissional não informado';
-
     const establishment = establishmentById.get(String(appointment.establishment_id || '').trim());
     const professionals = Array.isArray(establishment?.professionals)
       ? establishment?.professionals || []
       : [];
-    const match = professionals.find((item: any) => String(item?.id || '').trim() === professionalId);
-    if (!match) return 'Profissional não informado';
 
-    const name =
-      this.safeProfessionalLabel(match?.name) ||
-      this.safeProfessionalLabel(match?.professional_name) ||
-      this.safeProfessionalLabel(match?.nome) ||
-      this.safeProfessionalLabel(match?.full_name);
-    return name || 'Profissional não informado';
+    const candidateRefs = [
+      String(appointment.professional_id || '').trim(),
+      String(appointment.professional || '').trim(),
+    ].filter(Boolean);
+
+    for (const ref of candidateRefs) {
+      const match = this.findProfessionalInEstablishment(professionals, ref);
+      if (!match) continue;
+      const resolvedName =
+        this.safeProfessionalLabel(match?.name) ||
+        this.safeProfessionalLabel(match?.professional_name) ||
+        this.safeProfessionalLabel(match?.nome) ||
+        this.safeProfessionalLabel(match?.full_name);
+      if (resolvedName) return resolvedName;
+    }
+
+    const directName = this.safeProfessionalLabel(appointment.professional);
+    if (directName) return directName;
+
+    return 'Profissional não informado';
   }
 
   private buildBookingUrl(establishment: EstablishmentRow | undefined): string {
@@ -636,7 +780,7 @@ export class WhatsAppReminderScheduler {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const createdAfter = new Date(now.getTime() - 120 * 60_000).toISOString();
       const cancelledAfter = new Date(now.getTime() - 24 * 60 * 60_000).toISOString();
-      const [reminderCandidates, recentCandidates, cancelledCandidatesRaw] = await Promise.all([
+      const [reminderCandidates, recentCandidates, cancelledCandidatesRaw, cancelledByNotificationsRaw] = await Promise.all([
         this.fetchAppointmentsByWindow({
           dateFrom: today.toISOString().slice(0, 10),
           dateTo: tomorrow.toISOString().slice(0, 10),
@@ -647,6 +791,10 @@ export class WhatsAppReminderScheduler {
         }),
         this.fetchCancelledAppointmentsSince(cancelledAfter).catch((error) => {
           console.warn('[whatsapp/scheduler] Falha ao buscar cancelamentos recentes:', error);
+          return [] as AppointmentRow[];
+        }),
+        this.fetchCancelledAppointmentsFromNotifications(cancelledAfter).catch((error) => {
+          console.warn('[whatsapp/scheduler] Falha ao buscar cancelamentos via establishment_notifications:', error);
           return [] as AppointmentRow[];
         }),
       ]);
@@ -663,7 +811,25 @@ export class WhatsAppReminderScheduler {
         const establishmentId = String(apt.establishment_id || '').trim();
         return Boolean(phone) && Boolean(establishmentId) && this.belongsToThisWorker(establishmentId);
       });
-      const cancelledAppointments = (cancelledCandidatesRaw || []).filter((apt) => {
+      const cancelledCandidatesMergedMap = new Map<string, AppointmentRow>();
+      [...(cancelledCandidatesRaw || []), ...(cancelledByNotificationsRaw || [])].forEach((apt) => {
+        const id = String(apt.id || '').trim();
+        if (!id) return;
+        const existing = cancelledCandidatesMergedMap.get(id);
+        if (!existing) {
+          cancelledCandidatesMergedMap.set(id, apt);
+          return;
+        }
+        // mantém o registro com melhor informação temporal
+        const existingUpdatedAt = new Date(String(existing.updated_at || existing.created_at || ''));
+        const nextUpdatedAt = new Date(String(apt.updated_at || apt.created_at || ''));
+        const shouldReplace =
+          Number.isFinite(nextUpdatedAt.getTime()) &&
+          (!Number.isFinite(existingUpdatedAt.getTime()) || nextUpdatedAt.getTime() > existingUpdatedAt.getTime());
+        if (shouldReplace) cancelledCandidatesMergedMap.set(id, apt);
+      });
+
+      const cancelledAppointments = Array.from(cancelledCandidatesMergedMap.values()).filter((apt) => {
         const phone = normalizePhone(String(apt.client_whatsapp || ''));
         const establishmentId = String(apt.establishment_id || '').trim();
         return Boolean(phone) && Boolean(establishmentId) && this.belongsToThisWorker(establishmentId);
