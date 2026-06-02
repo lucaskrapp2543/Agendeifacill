@@ -445,6 +445,7 @@ export class WhatsAppManager {
         await this.disconnect(userId, false);
         await this.sleep(Math.min(10_000, 1_500 * attempt));
         await this.connect(userId);
+        await this.waitUntilConnected(userId, 20_000);
       } catch {
         // A próxima iteração tentará obter/conectar o socket novamente.
       }
