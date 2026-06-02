@@ -165,6 +165,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
   const externalSectionRef = useRef<HTMLDivElement | null>(null);
   const externalActionsRef = useRef<HTMLDivElement | null>(null);
   const recurringSetupRef = useRef<RecurringSetupDraft | null>(null);
+  const [recurringSetupUrl, setRecurringSetupUrl] = useState('');
+  const [recurringSetupRequired, setRecurringSetupRequired] = useState(false);
 
   const scrollToEl = (el: HTMLElement | null) => {
     if (!el) return;
@@ -274,6 +276,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setHasOpenedExternalLink(false);
     setIsExternalClaimed(false);
     recurringSetupRef.current = null;
+    setRecurringSetupUrl('');
+    setRecurringSetupRequired(false);
   }, [isOpen]);
 
   // Buscar o link de cartão (externo) configurado para esta assinatura
@@ -607,6 +611,8 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     requiresAction: boolean;
   }> => {
     if (!isMonthlySubscription) return { ok: false, requiresAction: false };
+    setRecurringSetupUrl('');
+    setRecurringSetupRequired(false);
 
     const setup = recurringSetupRef.current;
     if (!setup) {
@@ -672,22 +678,34 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     setCurrentPaymentProvider('mercadopago_card_recurring');
 
     if (statusRaw === 'authorized' || statusRaw === 'approved' || statusRaw === 'paid') {
+      setRecurringSetupUrl('');
+      setRecurringSetupRequired(false);
       return { ok: true, requiresAction: false };
     }
 
     if (initPoint) {
-      const w = window.open(initPoint, '_blank', 'noopener,noreferrer');
-      if (!w) {
-        // Fallback sem popup: segue no mesmo separador para não perder a ativação da recorrência.
-        toast.success('Pagamento aprovado. Redirecionando para finalizar a renovação automática no Mercado Pago...');
-        window.location.assign(initPoint);
-      } else {
-        setHasOpenedCreditLink(true);
-      }
+      setRecurringSetupUrl(initPoint);
+      setRecurringSetupRequired(true);
+      toast.success(
+        'Pagamento aprovado! Agora finalize o cadastro da recorrência automática no botão abaixo. Não se preocupe: você não vai pagar 2 vezes.'
+      );
       return { ok: false, requiresAction: true };
     }
 
     return { ok: false, requiresAction: false };
+  };
+
+  const handleOpenRecurringSetup = () => {
+    const url = String(recurringSetupUrl || '').trim();
+    if (!url) {
+      toast.error('Não foi possível encontrar o link para finalizar a recorrência automática.');
+      return;
+    }
+    const w = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!w) {
+      // Se o navegador bloquear popup, segue na mesma aba por clique explícito do usuário.
+      window.location.assign(url);
+    }
   };
 
   // Limpar intervalos ao fechar/desmontar
@@ -1638,7 +1656,11 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                   <CheckCircle2 className="h-6 w-6 text-green-300 mt-0.5" />
                   <div>
                     <p className="text-green-200 font-extrabold text-base">
-                      {(isCreditClaimed || isExternalClaimed) ? 'Solicitação enviada ✅' : 'Parabéns! Você assinou ✅'}
+                      {(isCreditClaimed || isExternalClaimed)
+                        ? 'Solicitação enviada ✅'
+                        : recurringSetupRequired
+                          ? 'Parabéns! Você assinou no cartão ✅'
+                          : 'Parabéns! Você assinou ✅'}
                     </p>
                     <p className="text-sm text-gray-200 mt-1">
                       Plano: <span className="font-semibold">{subscription.name}</span> da barbearia{' '}
@@ -1647,11 +1669,23 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
                     <p className="text-sm text-gray-300 mt-2">
                       {(isCreditClaimed || isExternalClaimed)
                         ? 'Pagamento externo. Agora peça para o barbeiro confirmar no sistema para liberar seu uso.'
-                        : 'Agora avise seu barbeiro e pronto.'}
+                        : recurringSetupRequired
+                          ? 'Sua cobrança de hoje já foi aprovada. Agora finalize o cadastro da recorrência automática para as próximas mensalidades. Fique tranquilo: isso não cobra 2 vezes, é apenas para o sistema cobrar nos próximos meses. Você não será cobrado novamente agora.'
+                          : 'Agora avise seu barbeiro e pronto.'}
                     </p>
                   </div>
                 </div>
               </div>
+
+              {recurringSetupRequired ? (
+                <button
+                  type="button"
+                  onClick={handleOpenRecurringSetup}
+                  className="w-full px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors"
+                >
+                  Finalizar cadastro da recorrência automática
+                </button>
+              ) : null}
 
               <button
                 type="button"

@@ -10,6 +10,7 @@ type AppointmentRow = {
   id: string;
   establishment_id: string;
   professional_id?: string | null;
+  professional_name?: string | null;
   professional?: string | null;
   client_name?: string | null;
   client_whatsapp?: string | null;
@@ -17,6 +18,9 @@ type AppointmentRow = {
   appointment_time: string;
   status?: string | null;
   created_at?: string | null;
+  updated_at?: string | null;
+  cancellation_source?: string | null;
+  cancellation_detail?: string | null;
 };
 const ACTIVE_APPOINTMENT_STATUSES = ['pending', 'confirmed', 'completed', 'waiting', 'pending_payment'];
 const SAFE_APPOINTMENT_STATUSES = ['pending', 'confirmed', 'completed'];
@@ -25,6 +29,8 @@ type EstablishmentRow = {
   id: string;
   owner_id: string;
   name?: string | null;
+  code?: string | null;
+  professionals?: any[] | null;
 };
 
 type AutomationSettings = {
@@ -52,6 +58,26 @@ const DEFAULT_GREETING_TEMPLATE =
   '⏰ Horário: {{horario}}\n' +
   '💈 Profissional: {{profissional_nome}}\n\n' +
   'Qualquer dúvida, estamos por aqui no WhatsApp 💬';
+const DEFAULT_CANCELLATION_TEMPLATE =
+  'Poxa, {{cliente_nome}}! 😕\n' +
+  'Seu agendamento foi cancelado na {{barbearia_nome}}.\n' +
+  'Uma pena não poder te atender desta vez.\n\n' +
+  '📅 Data: {{data}}\n' +
+  '⏰ Horário: {{horario}}\n' +
+  '💈 Profissional: {{profissional_nome}}\n\n' +
+  'Se quiser, você pode agendar novamente quando preferir.';
+const DEFAULT_PAYMENT_FAILURE_CANCELLATION_TEMPLATE =
+  'Poxa, {{cliente_nome}}! 😕\n' +
+  'Infelizmente não recebemos seu pagamento e o agendamento foi cancelado.\n\n' +
+  '📅 Data: {{data}}\n' +
+  '⏰ Horário: {{horario}}\n' +
+  '💈 Profissional: {{profissional_nome}}\n\n' +
+  'Caso queira tentar novamente, acesse: {{booking_link}}';
+const PAYMENT_FAILURE_SOURCES = new Set([
+  'system_abandoned_checkout',
+  'system_payment_timeout',
+  'payment_rejected',
+]);
 
 const toDateTime = (dateStr: string, timeStr: string): Date | null => {
   const date = String(dateStr || '').trim();
@@ -309,10 +335,131 @@ export class WhatsAppReminderScheduler {
     return (result.data || []) as AppointmentRow[];
   }
 
-  private buildTemplateVars(appointment: AppointmentRow, establishmentName: string, reminderOffsetMinutes: number) {
+  private async fetchCancelledAppointmentsSince(updatedAfterIso: string): Promise<AppointmentRow[]> {
+    const selectWithMeta =
+      'id,establishment_id,professional_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,updated_at,cancellation_source,cancellation_detail';
+    const selectFallback =
+      'id,establishment_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,updated_at,cancellation_source,cancellation_detail';
+
+    const run = async (selectClause: string) => {
+      return this.supabase
+        .from('appointments')
+        .select(selectClause)
+        .eq('status', 'cancelled')
+        .gte('updated_at', updatedAfterIso)
+        .order('updated_at', { ascending: false })
+        .limit(500);
+    };
+
+    let result = await run(selectWithMeta);
+    if (!result.error) return (result.data || []) as AppointmentRow[];
+
+    const msg = String(result.error?.message || '').toLowerCase();
+    const missingProfessionalId = msg.includes('professional_id') && msg.includes('does not exist');
+    if (!missingProfessionalId) throw result.error;
+
+    result = await run(selectFallback);
+    if (result.error) throw result.error;
+    return (result.data || []) as AppointmentRow[];
+  }
+
+  private safeProfessionalLabel(value: unknown): string {
+    const normalized = String(value || '').trim();
+    if (!normalized) return '';
+    if (UUID_REGEX.test(normalized)) return '';
+    return normalized;
+  }
+
+  private resolveProfessionalName(
+    appointment: AppointmentRow,
+    establishmentById: Map<string, EstablishmentRow>
+  ): string {
+    const explicitName = this.safeProfessionalLabel(appointment.professional_name);
+    if (explicitName) return explicitName;
+
+    const directName = this.safeProfessionalLabel(appointment.professional);
+    if (directName) return directName;
+
+    const professionalId =
+      String(appointment.professional_id || '').trim() ||
+      String(appointment.professional || '').trim();
+    if (!professionalId) return 'Profissional não informado';
+
+    const establishment = establishmentById.get(String(appointment.establishment_id || '').trim());
+    const professionals = Array.isArray(establishment?.professionals)
+      ? establishment?.professionals || []
+      : [];
+    const match = professionals.find((item: any) => String(item?.id || '').trim() === professionalId);
+    if (!match) return 'Profissional não informado';
+
+    const name =
+      this.safeProfessionalLabel(match?.name) ||
+      this.safeProfessionalLabel(match?.professional_name) ||
+      this.safeProfessionalLabel(match?.nome) ||
+      this.safeProfessionalLabel(match?.full_name);
+    return name || 'Profissional não informado';
+  }
+
+  private buildBookingUrl(establishment: EstablishmentRow | undefined): string {
+    const code = String(establishment?.code || '').trim();
+    if (!code) return '';
+    const baseUrl = String(process.env.WHATSAPP_BOOKING_BASE_URL || 'https://agendeifacil.com')
+      .trim()
+      .replace(/\/+$/, '');
+    return `${baseUrl}/booking/${encodeURIComponent(code)}`;
+  }
+
+  private buildCancellationPayload(
+    appointment: AppointmentRow,
+    establishment: EstablishmentRow | undefined,
+    vars: Record<string, string>
+  ): { messageType: string; message: string } {
+    const source = String(appointment.cancellation_source || '').trim().toLowerCase();
+    const detail = String(appointment.cancellation_detail || '').trim().toLowerCase();
+
+    const isPaymentFailure =
+      PAYMENT_FAILURE_SOURCES.has(source) ||
+      detail.includes('pagamento obrigatório') ||
+      detail.includes('pagamento nao') ||
+      detail.includes('pagamento não');
+
+    if (isPaymentFailure) {
+      const bookingLink = this.buildBookingUrl(establishment);
+      const message = formatTemplate(DEFAULT_PAYMENT_FAILURE_CANCELLATION_TEMPLATE, {
+        ...vars,
+        booking_link: bookingLink || 'link de agendamento da barbearia',
+      });
+      return { messageType: 'booking_cancelled_payment_failure', message };
+    }
+
+    if (source === 'client') {
+      return {
+        messageType: 'booking_cancelled_client',
+        message: formatTemplate(DEFAULT_CANCELLATION_TEMPLATE, vars),
+      };
+    }
+
+    if (source === 'establishment_staff') {
+      return {
+        messageType: 'booking_cancelled_establishment',
+        message: formatTemplate(DEFAULT_CANCELLATION_TEMPLATE, vars),
+      };
+    }
+
+    return {
+      messageType: 'booking_cancelled',
+      message: formatTemplate(DEFAULT_CANCELLATION_TEMPLATE, vars),
+    };
+  }
+
+  private buildTemplateVars(
+    appointment: AppointmentRow,
+    establishmentName: string,
+    reminderOffsetMinutes: number,
+    establishmentById: Map<string, EstablishmentRow>
+  ) {
     const clientName = String(appointment.client_name || 'Cliente').trim() || 'Cliente';
-    const professionalRaw = String(appointment.professional || '').trim();
-    const professionalName = UUID_REGEX.test(professionalRaw) || !professionalRaw ? 'seu barbeiro' : professionalRaw;
+    const professionalName = this.resolveProfessionalName(appointment, establishmentById);
     return {
       cliente_nome: clientName,
       barbearia_nome: establishmentName || 'nossa barbearia',
@@ -431,14 +578,21 @@ export class WhatsAppReminderScheduler {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
       const createdAfter = new Date(now.getTime() - 120 * 60_000).toISOString();
-      const reminderCandidates = await this.fetchAppointmentsByWindow({
-        dateFrom: today.toISOString().slice(0, 10),
-        dateTo: tomorrow.toISOString().slice(0, 10),
-      });
-      const recentCandidates = await this.fetchAppointmentsByWindow({
-        createdAfterIso: createdAfter,
-        includeNonCancelledAnyStatus: true,
-      });
+      const cancelledAfter = new Date(now.getTime() - 24 * 60 * 60_000).toISOString();
+      const [reminderCandidates, recentCandidates, cancelledCandidatesRaw] = await Promise.all([
+        this.fetchAppointmentsByWindow({
+          dateFrom: today.toISOString().slice(0, 10),
+          dateTo: tomorrow.toISOString().slice(0, 10),
+        }),
+        this.fetchAppointmentsByWindow({
+          createdAfterIso: createdAfter,
+          includeNonCancelledAnyStatus: true,
+        }),
+        this.fetchCancelledAppointmentsSince(cancelledAfter).catch((error) => {
+          console.warn('[whatsapp/scheduler] Falha ao buscar cancelamentos recentes:', error);
+          return [] as AppointmentRow[];
+        }),
+      ]);
 
       const recentIdSet = new Set(recentCandidates.map((apt) => String(apt.id || '').trim()).filter(Boolean));
       const mergedMap = new Map<string, AppointmentRow>();
@@ -452,16 +606,25 @@ export class WhatsAppReminderScheduler {
         const establishmentId = String(apt.establishment_id || '').trim();
         return Boolean(phone) && Boolean(establishmentId) && this.belongsToThisWorker(establishmentId);
       });
+      const cancelledAppointments = (cancelledCandidatesRaw || []).filter((apt) => {
+        const phone = normalizePhone(String(apt.client_whatsapp || ''));
+        const establishmentId = String(apt.establishment_id || '').trim();
+        return Boolean(phone) && Boolean(establishmentId) && this.belongsToThisWorker(establishmentId);
+      });
 
-      if (appointments.length === 0) return;
+      if (appointments.length === 0 && cancelledAppointments.length === 0) return;
 
       const establishmentIds = Array.from(
-        new Set(appointments.map((apt) => String(apt.establishment_id || '').trim()).filter(Boolean))
+        new Set(
+          [...appointments, ...cancelledAppointments]
+            .map((apt) => String(apt.establishment_id || '').trim())
+            .filter(Boolean)
+        )
       );
 
       const { data: establishmentsData } = await this.supabase
         .from('establishments')
-        .select('id,owner_id,name')
+        .select('id,owner_id,name,code,professionals')
         .in('id', establishmentIds);
 
       const establishmentById = new Map<string, EstablishmentRow>();
@@ -469,7 +632,13 @@ export class WhatsAppReminderScheduler {
         establishmentById.set(String(row.id), row);
       });
 
-      const appointmentIds = appointments.map((apt) => apt.id);
+      const appointmentIds = Array.from(
+        new Set(
+          [...appointments, ...cancelledAppointments]
+            .map((apt) => String(apt.id || '').trim())
+            .filter(Boolean)
+        )
+      );
       const { data: existingLogsData } = await this.supabase
         .from('whatsapp_message_logs')
         .select('appointment_id,message_type,provider,status')
@@ -498,13 +667,20 @@ export class WhatsAppReminderScheduler {
         const diffMs = appointmentAt.getTime() - nowMs;
         return diffMs >= 0 && diffMs <= maxReminderMs;
       });
+      const scopedCancelledAppointments = cancelledAppointments.filter((appointment) => {
+        const appointmentId = String(appointment.id || '').trim();
+        if (!appointmentId) return false;
+        const changedAt = new Date(String(appointment.updated_at || appointment.created_at || ''));
+        if (!Number.isFinite(changedAt.getTime())) return true;
+        return now.getTime() - changedAt.getTime() <= 24 * 60 * 60_000;
+      });
 
-      if (scopedAppointments.length === 0) return;
+      if (scopedAppointments.length === 0 && scopedCancelledAppointments.length === 0) return;
 
       // Busca status de sessão em lote para evitar N+1 e reduzir latência.
       const senderCandidateSet = new Set<string>();
       const senderCandidatesByAppointmentId = new Map<string, { candidates: string[]; ownerId: string }>();
-      for (const appointment of scopedAppointments) {
+      for (const appointment of [...scopedAppointments, ...scopedCancelledAppointments]) {
         const resolved = this.resolveSenderCandidates(appointment, establishmentById);
         senderCandidatesByAppointmentId.set(String(appointment.id || '').trim(), resolved);
         resolved.candidates.forEach((id) => senderCandidateSet.add(id));
@@ -557,7 +733,12 @@ export class WhatsAppReminderScheduler {
           now.getTime() - createdAt.getTime() <= 120 * 60_000;
 
         if (shouldSendConfirmation) {
-          const vars = this.buildTemplateVars(appointment, establishmentName, settings.reminderOffsetMinutes);
+          const vars = this.buildTemplateVars(
+            appointment,
+            establishmentName,
+            settings.reminderOffsetMinutes,
+            establishmentById
+          );
           const reserved = await this.reserveMessageLog({
             appointmentId: appointment.id,
             establishmentId: appointment.establishment_id,
@@ -653,7 +834,12 @@ export class WhatsAppReminderScheduler {
         // Não perde o lembrete: após bater o tempo alvo, envia em qualquer ciclo até o início do agendamento.
         const isDue = diffMs <= targetMs && diffMs >= 0;
         if (settings.reminderEnabled && !guardedReminder && !alreadyLoggedReminder && isDue) {
-          const vars = this.buildTemplateVars(appointment, establishmentName, settings.reminderOffsetMinutes);
+          const vars = this.buildTemplateVars(
+            appointment,
+            establishmentName,
+            settings.reminderOffsetMinutes,
+            establishmentById
+          );
           const reserved = await this.reserveMessageLog({
             appointmentId: appointment.id,
             establishmentId: appointment.establishment_id,
@@ -693,6 +879,75 @@ export class WhatsAppReminderScheduler {
             error: res.error || null,
           });
         }
+      }
+
+      // 3) cancelamento de agendamento (cliente, estabelecimento e falha de pagamento obrigatório)
+      for (const appointment of scopedCancelledAppointments) {
+        const recipientPhone = normalizePhone(String(appointment.client_whatsapp || ''));
+        if (!recipientPhone) continue;
+
+        const senderResolution = senderCandidatesByAppointmentId.get(String(appointment.id || '').trim());
+        const senderUserId = this.findSenderUserIdFromCandidates(
+          senderResolution?.candidates || [],
+          senderResolution?.ownerId || '',
+          activeUserIds
+        );
+        if (!senderUserId) continue;
+
+        const settings = await this.getAutomationSettings(senderUserId);
+        const establishment = establishmentById.get(String(appointment.establishment_id || '').trim());
+        const establishmentName = String(establishment?.name || '').trim() || 'nossa barbearia';
+        const vars = this.buildTemplateVars(
+          appointment,
+          establishmentName,
+          settings.reminderOffsetMinutes,
+          establishmentById
+        );
+        const cancellationPayload = this.buildCancellationPayload(appointment, establishment, vars);
+        const cancellationKey = `${appointment.id}::${cancellationPayload.messageType}`;
+        const guardedCancellation = this.isGuarded(cancellationKey, now.getTime());
+        const alreadyLoggedCancellation = existingLogSet.has(cancellationKey);
+        if (guardedCancellation || alreadyLoggedCancellation) continue;
+
+        const reserved = await this.reserveMessageLog({
+          appointmentId: appointment.id,
+          establishmentId: appointment.establishment_id,
+          senderUserId,
+          recipientPhone,
+          messageType: cancellationPayload.messageType,
+        });
+        if (!reserved) {
+          existingLogSet.add(cancellationKey);
+          continue;
+        }
+
+        existingLogSet.add(cancellationKey);
+        this.markGuard(cancellationKey, now.getTime());
+        const res = await this.deps.enqueueOrSend({
+          userId: senderUserId,
+          phone: recipientPhone,
+          message: cancellationPayload.message,
+          idempotencyKey: `${cancellationPayload.messageType}:${appointment.id}`,
+          automationLog: {
+            appointmentId: appointment.id,
+            messageType: cancellationPayload.messageType,
+          },
+        });
+        await this.updateMessageLogStatus({
+          appointmentId: appointment.id,
+          messageType: cancellationPayload.messageType,
+          status: resolveLogStatus(res),
+          error: res.error || null,
+        });
+        console.info('[whatsapp/scheduler] cancellation', {
+          appointmentId: appointment.id,
+          messageType: cancellationPayload.messageType,
+          userId: senderUserId,
+          phone: recipientPhone,
+          ok: res.ok,
+          deliveryMode: res.deliveryMode || 'direct',
+          error: res.error || null,
+        });
       }
     } catch (error) {
       console.error('❌ Erro no scheduler de WhatsApp (Baileys):', error);

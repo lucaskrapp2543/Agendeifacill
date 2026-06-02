@@ -56,6 +56,48 @@ const resolveLogStatus = (result: SendMessageResult): 'queued' | 'sent' | 'accep
   return String(result.deliveryMode || '').toLowerCase() === 'queued' ? 'queued' : 'sent';
 };
 
+const isScheduleSensitiveMessageType = (messageTypeRaw: string): boolean => {
+  const messageType = String(messageTypeRaw || '').trim().toLowerCase();
+  if (!messageType) return false;
+  if (messageType === 'booking_confirmation') return true;
+  return /^reminder_\d+m$/.test(messageType);
+};
+
+const shouldSkipAutomationSend = async (
+  log: { appointmentId: string; messageType: string } | undefined
+): Promise<string | null> => {
+  if (!log?.appointmentId || !log?.messageType) return null;
+  if (!isScheduleSensitiveMessageType(log.messageType)) return null;
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) return null;
+
+  const appointmentId = String(log.appointmentId || '').trim();
+  if (!appointmentId) return null;
+
+  const { data, error } = await supabaseAdmin
+    .from('appointments')
+    .select('status')
+    .eq('id', appointmentId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[whatsapp/queue] Falha ao validar status do agendamento antes de enviar automação:', {
+      appointmentId,
+      messageType: log.messageType,
+      error: String(error?.message || error),
+    });
+    // Em caso de erro de consulta, mantém o comportamento antigo (não bloqueia envio).
+    return null;
+  }
+
+  const status = String((data as any)?.status || '').trim().toLowerCase();
+  if (status === 'cancelled') {
+    return `Envio automático ignorado: agendamento ${appointmentId} já está cancelado.`;
+  }
+
+  return null;
+};
+
 const persistAutomationMessageResult = async (
   log: { appointmentId: string; messageType: string } | undefined,
   result: SendMessageResult
@@ -89,6 +131,18 @@ const manager = new WhatsAppManager({
 });
 
 const queue = new WhatsAppMessageQueue(async (job) => {
+  const skipReason = await shouldSkipAutomationSend(job.automationLog);
+  if (skipReason) {
+    const skippedResult: SendMessageResult = {
+      ok: false,
+      provider: 'baileys',
+      deliveryMode: 'direct',
+      error: skipReason,
+    };
+    await persistAutomationMessageResult(job.automationLog, skippedResult);
+    return skippedResult;
+  }
+
   const result = await manager.sendMessage(job);
   await persistAutomationMessageResult(job.automationLog, result);
   return result;
