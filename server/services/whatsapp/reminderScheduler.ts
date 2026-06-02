@@ -351,10 +351,7 @@ export class WhatsAppReminderScheduler {
       return msg.includes(column.toLowerCase()) && msg.includes('does not exist');
     };
 
-    const run = async (
-      selectClause: string,
-      strategy: 'updated_at' | 'appointment_date'
-    ) => {
+    const run = async (selectClause: string, strategy: 'updated_at' | 'appointment_date') => {
       let query = this.supabase
         .from('appointments')
         .select(selectClause)
@@ -385,38 +382,42 @@ export class WhatsAppReminderScheduler {
       return Array.from(map.values());
     };
 
-    // Caminho principal: usa updated_at (mais preciso para "cancelou agora").
-    let result = await run(selectWithMetaAndUpdatedAt, 'updated_at');
-    if (!result.error) {
-      const primaryRows = (result.data || []) as AppointmentRow[];
-      // Fallback complementar: bases sem trigger de updated_at podem manter esse campo nulo.
-      // Nesses casos, "cancelou agora" não aparece no filtro por updated_at.
-      const fallbackByDate = await run(selectWithMetaNoUpdatedAt, 'appointment_date');
-      if (!fallbackByDate.error) {
-        const fallbackRows = (fallbackByDate.data || []) as AppointmentRow[];
-        return mergeUniqueById([...primaryRows, ...fallbackRows]);
-      }
-      return primaryRows;
-    }
+    const runWithColumnFallback = async (strategy: 'updated_at' | 'appointment_date') => {
+      const selectPreferred =
+        strategy === 'updated_at' ? selectWithMetaAndUpdatedAt : selectWithMetaNoUpdatedAt;
+      const selectWithoutProfessionalId =
+        strategy === 'updated_at'
+          ? selectFallbackNoProfessionalIdAndUpdatedAt
+          : selectFallbackNoProfessionalIdNoUpdatedAt;
 
-    if (isMissingColumn(result.error, 'professional_id')) {
-      const fallbackByProfessionalId = await run(selectFallbackNoProfessionalIdAndUpdatedAt, 'updated_at');
-      if (!fallbackByProfessionalId.error) return (fallbackByProfessionalId.data || []) as AppointmentRow[];
-      result = fallbackByProfessionalId;
-    }
-
-    // Compatibilidade: caso a base ainda não tenha updated_at em appointments.
-    if (isMissingColumn(result.error, 'updated_at')) {
-      result = await run(selectWithMetaNoUpdatedAt, 'appointment_date');
-      if (!result.error) return (result.data || []) as AppointmentRow[];
+      let result = await run(selectPreferred, strategy);
+      if (!result.error) return result;
 
       if (isMissingColumn(result.error, 'professional_id')) {
-        result = await run(selectFallbackNoProfessionalIdNoUpdatedAt, 'appointment_date');
-        if (!result.error) return (result.data || []) as AppointmentRow[];
+        result = await run(selectWithoutProfessionalId, strategy);
       }
-    }
+      return result;
+    };
 
-    throw result.error;
+    // 1) Captura por "cancelou agora" (updated_at), quando disponível.
+    const byUpdatedAt = await runWithColumnFallback('updated_at');
+    // 2) Captura por data do agendamento (fallback robusto para bases sem updated_at confiável).
+    const byAppointmentDate = await runWithColumnFallback('appointment_date');
+
+    if (!byUpdatedAt.error && !byAppointmentDate.error) {
+      return mergeUniqueById([
+        ...((byUpdatedAt.data || []) as AppointmentRow[]),
+        ...((byAppointmentDate.data || []) as AppointmentRow[]),
+      ]);
+    }
+    if (!byUpdatedAt.error) return (byUpdatedAt.data || []) as AppointmentRow[];
+    if (!byAppointmentDate.error) return (byAppointmentDate.data || []) as AppointmentRow[];
+
+    // Caso ambos falhem, expõe o erro mais relevante.
+    if (isMissingColumn(byUpdatedAt.error, 'updated_at')) {
+      throw byAppointmentDate.error;
+    }
+    throw byUpdatedAt.error;
   }
 
   private safeProfessionalLabel(value: unknown): string {
