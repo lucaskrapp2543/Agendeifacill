@@ -197,6 +197,9 @@ export const initializeWhatsAppServices = () => {
   console.log(`📮 WhatsApp queue mode: ${queueMode}`);
   console.log(`⏱️ WhatsApp scheduler: ${schedulerEnabled ? 'enabled' : 'disabled'}`);
   console.log(`📦 WhatsApp scale profile: worker ${workerId + 1}/${Math.max(1, workerCount)}`);
+
+  // Após deploy/restart, religa sessões salvas no disco persistente (Render /var/data).
+  manager.startSessionMaintenance();
 };
 
 export const getWhatsAppManager = () => manager;

@@ -1,3 +1,4 @@
+import { createClient } from '@supabase/supabase-js';
 import path from 'path';
 import { WhatsAppSessionManager } from './sessionManager';
 import type { SendMessageInput, SendMessageResult, SessionStatusPayload } from './types';
@@ -10,6 +11,9 @@ type WhatsAppManagerOptions = {
 export class WhatsAppManager {
   private readonly sessionManager: WhatsAppSessionManager;
   private readonly sendChains = new Map<string, Promise<SendMessageResult>>();
+  private restoreInProgress = false;
+  private restoreTimer: NodeJS.Timeout | null = null;
+  private sweepTimer: NodeJS.Timeout | null = null;
 
   constructor(options?: WhatsAppManagerOptions) {
     const configuredSessionsDir = String(process.env.WHATSAPP_SESSIONS_DIR || '').trim();
@@ -46,6 +50,159 @@ export class WhatsAppManager {
 
   isConnected(userId: string) {
     return this.sessionManager.isConnected(userId);
+  }
+
+  private hashStable(value: string): number {
+    let hash = 0;
+    const text = String(value || '');
+    for (let i = 0; i < text.length; i++) {
+      hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+    }
+    return hash;
+  }
+
+  private belongsToThisWorker(userId: string): boolean {
+    const workerCount = Math.max(1, Number(process.env.WHATSAPP_WORKER_COUNT || 1) || 1);
+    if (workerCount <= 1) return true;
+    const workerId = Math.max(0, Number(process.env.WHATSAPP_WORKER_ID || 0) || 0);
+    return this.hashStable(userId) % workerCount === workerId;
+  }
+
+  private parseBoolEnv(key: string, fallback: boolean): boolean {
+    const raw = String(process.env[key] || '').trim().toLowerCase();
+    if (!raw) return fallback;
+    return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+  }
+
+  private async listRestorableUserIds(): Promise<string[]> {
+    const fromDisk = await this.sessionManager.listSessionUserIdsFromDisk();
+    const merged = new Set(fromDisk);
+
+    const supabaseUrl = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+    const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+    if (supabaseUrl && serviceRoleKey) {
+      try {
+        const supabase = createClient(supabaseUrl, serviceRoleKey, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+        const { data } = await supabase
+          .from('whatsapp_sessions')
+          .select('user_id,status')
+          .in('status', ['connected', 'reconnecting', 'connecting', 'error']);
+        for (const row of data || []) {
+          const userId = String((row as any)?.user_id || '').trim();
+          if (userId) merged.add(userId);
+        }
+      } catch (error) {
+        console.warn('[whatsapp/restore] Falha ao listar sessões no banco:', error);
+      }
+    }
+
+    return Array.from(merged).filter((userId) => this.belongsToThisWorker(userId));
+  }
+
+  /** Reconecta sessões salvas no disco após restart/deploy (em lotes para não sobrecarregar). */
+  async restorePersistedSessions(reason: 'startup' | 'sweep' = 'startup'): Promise<void> {
+    if (this.restoreInProgress) return;
+    this.restoreInProgress = true;
+
+    try {
+      const userIds = await this.listRestorableUserIds();
+      if (userIds.length === 0) {
+        console.log(`[whatsapp/restore] Nenhuma sessão para restaurar (${reason}).`);
+        return;
+      }
+
+      const batchSize = Math.min(
+        Math.max(Number(process.env.WHATSAPP_RESTORE_BATCH_SIZE || 2) || 2, 1),
+        10
+      );
+      const batchDelayMs = Math.min(
+        Math.max(Number(process.env.WHATSAPP_RESTORE_BATCH_DELAY_MS || 2500) || 2500, 500),
+        15_000
+      );
+
+      const pending = userIds.filter((userId) => !this.isConnected(userId));
+      console.log(
+        `[whatsapp/restore] Iniciando ${reason}: ${pending.length}/${userIds.length} sessão(ões) pendente(s).`
+      );
+
+      let restored = 0;
+      let failed = 0;
+      for (let i = 0; i < pending.length; i += batchSize) {
+        const batch = pending.slice(i, i + batchSize);
+        await Promise.all(
+          batch.map(async (userId) => {
+            if (this.sessionManager.getSocket(userId)) return;
+            try {
+              await this.connect(userId);
+              restored += 1;
+            } catch (error) {
+              failed += 1;
+              console.warn('[whatsapp/restore] Falha ao restaurar sessão:', {
+                userId,
+                reason,
+                error: String((error as any)?.message || error),
+              });
+            }
+          })
+        );
+        if (i + batchSize < pending.length) {
+          await this.sleep(batchDelayMs);
+        }
+      }
+
+      console.log(`[whatsapp/restore] ${reason} concluído: ok=${restored}, falhas=${failed}.`);
+    } finally {
+      this.restoreInProgress = false;
+    }
+  }
+
+  /** Dispara restore na subida e sweep periódico para sessões que caíram sem restart. */
+  startSessionMaintenance() {
+    const nodeEnv = String(process.env.NODE_ENV || '').trim().toLowerCase();
+    const defaultEnabled = nodeEnv === 'production';
+    const autoRestore = this.parseBoolEnv('WHATSAPP_AUTO_RESTORE_SESSIONS', defaultEnabled);
+    if (!autoRestore) {
+      console.log('ℹ️ Restore automático de sessões WhatsApp desativado.');
+      return;
+    }
+
+    const startupDelayMs = Math.min(
+      Math.max(Number(process.env.WHATSAPP_RESTORE_STARTUP_DELAY_MS || 8000) || 8000, 2000),
+      120_000
+    );
+    const sweepIntervalMs = Math.max(
+      Number(process.env.WHATSAPP_RESTORE_SWEEP_INTERVAL_MS || 300_000) || 300_000,
+      0
+    );
+
+    if (this.restoreTimer) clearTimeout(this.restoreTimer);
+    this.restoreTimer = setTimeout(() => {
+      void this.restorePersistedSessions('startup');
+    }, startupDelayMs);
+
+    console.log(
+      `[whatsapp/restore] Auto-restore ativo: startup em ${startupDelayMs}ms` +
+        (sweepIntervalMs > 0 ? `, sweep a cada ${sweepIntervalMs}ms.` : ', sweep desativado.')
+    );
+
+    if (sweepIntervalMs <= 0) return;
+    if (this.sweepTimer) clearInterval(this.sweepTimer);
+    this.sweepTimer = setInterval(() => {
+      void this.restorePersistedSessions('sweep');
+    }, sweepIntervalMs);
+  }
+
+  stopSessionMaintenance() {
+    if (this.restoreTimer) {
+      clearTimeout(this.restoreTimer);
+      this.restoreTimer = null;
+    }
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
   }
 
   private normalizePhone(phoneRaw: string): string {

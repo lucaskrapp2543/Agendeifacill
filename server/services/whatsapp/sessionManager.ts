@@ -37,6 +37,35 @@ export class WhatsAppSessionManager {
     return path.join(this.sessionsRootDir, `user_${this.sanitizeUserId(userId)}`);
   }
 
+  getSessionsRootDir(): string {
+    return this.sessionsRootDir;
+  }
+
+  /** Lista userIds com credenciais salvas no disco (pastas user_* com creds.json). */
+  async listSessionUserIdsFromDisk(): Promise<string[]> {
+    const userIds: string[] = [];
+    let entries: Array<{ name: string; isDirectory: () => boolean }> = [];
+    try {
+      entries = (await fs.readdir(this.sessionsRootDir, { withFileTypes: true })) as any[];
+    } catch {
+      return userIds;
+    }
+
+    for (const entry of entries) {
+      if (!entry?.isDirectory?.()) continue;
+      const folderName = String(entry.name || '').trim();
+      if (!folderName.startsWith('user_')) continue;
+      const sessionPath = path.join(this.sessionsRootDir, folderName);
+      try {
+        await fs.access(path.join(sessionPath, 'creds.json'));
+      } catch {
+        continue;
+      }
+      userIds.push(folderName.slice('user_'.length));
+    }
+    return userIds;
+  }
+
   getQr(userId: string): string | null {
     return this.qrCache.get(String(userId || '').trim()) || null;
   }
