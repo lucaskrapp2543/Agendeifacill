@@ -152,24 +152,35 @@ const Login = () => {
   const handleUpdateSystem = async () => {
     try {
       setIsLoading(true);
-      toast.loading('Limpando tudo deste aparelho para o Agendei Fácil...', { id: 'cleanup' });
+      toast.loading('Limpando dados locais deste aparelho...', { id: 'cleanup' });
 
-      // Salvar versão atual ANTES de limpar
-      const currentVersion = getCurrentVersion();
-      setStoredVersion(currentVersion);
+      // Limpa apenas dados locais de acesso rápido (inclui profissional salvo),
+      // sem tocar em configurações salvas no banco.
+      const localKeysToRemove = [
+        'saved_email',
+        'saved_password',
+        'save_credentials',
+      ];
+      localKeysToRemove.forEach((key) => localStorage.removeItem(key));
 
-      // Aguardar para garantir que versão foi salva
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const allLocalKeys = Object.keys(localStorage);
+      allLocalKeys
+        .filter((key) => key.startsWith('agendeifacil:unique-professional-access:'))
+        .forEach((key) => localStorage.removeItem(key));
 
-      // Limpeza manual: remove TUDO local deste domínio (fica como navegador novo para o app)
-      await forceCompleteCleanup({ preserveLoginData: false, preserveVersion: false });
+      sessionStorage.removeItem('admin_login_email');
+      sessionStorage.removeItem('admin_login_password');
+      sessionStorage.removeItem('admin_login_flag');
+      sessionStorage.removeItem('other_unit_login_email');
+      sessionStorage.removeItem('other_unit_login_password');
+      sessionStorage.removeItem('other_unit_login_flag');
 
       // Garantir UI limpa antes do reload
       setEmail('');
       setPassword('');
       setSaveCredentials(false);
 
-      toast.success('Limpeza total local concluída! Recarregando...', { id: 'cleanup' });
+      toast.success('Acesso rápido limpo neste aparelho! Recarregando...', { id: 'cleanup' });
 
       // Recarregar a página após um pequeno delay
       setTimeout(() => {

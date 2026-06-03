@@ -262,6 +262,10 @@ interface AllProfessionalsAppointmentsViewProps {
   unlockedFinancialByProfessional?: Record<string, boolean>;
   onRequestAppointmentsUnlock?: (professionalId: string) => void;
   onRequestFinancialUnlock?: (professionalId: string) => void;
+  forceProfessionalId?: string | null;
+  isCollaboratorView?: boolean;
+  bypassOwnerPinLocks?: boolean;
+  hiddenProfessionalIds?: string[];
 }
 
 export const AllProfessionalsAppointmentsView: React.FC<
@@ -305,6 +309,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
   unlockedFinancialByProfessional = {},
   onRequestAppointmentsUnlock,
   onRequestFinancialUnlock,
+  forceProfessionalId = null,
+  isCollaboratorView = false,
+  bypassOwnerPinLocks = false,
+  hiddenProfessionalIds = [],
 }) => {
     const { toast } = useToast();
     const { user } = useAuth();
@@ -482,6 +490,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
       String(establishment.pin_password || '').trim() !== '0000'
     );
     const [pendingVisibilityUnlockProfessionalId, setPendingVisibilityUnlockProfessionalId] = useState<string | null>(null);
+    const hiddenProfessionalIdSet = useMemo(
+      () => new Set((hiddenProfessionalIds || []).map((id) => String(id || '').trim()).filter(Boolean)),
+      [hiddenProfessionalIds]
+    );
 
     const hasValidProfessionalAppointmentPin = (professionalId: string): boolean => {
       const normalizedId = String(professionalId || '').trim();
@@ -495,6 +507,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const isProfessionalAppointmentsProtected = (professional: Professional): boolean => {
+      if (bypassOwnerPinLocks) return false;
       return Boolean((professional as any)?.lock_appointments_with_owner_pin) && hasValidProfessionalAppointmentPin(professional.id);
     };
 
@@ -502,6 +515,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
       Boolean(unlockedAppointmentsByProfessional[String(professionalId || '').trim()]);
 
     const canShowProfessionalInAgenda = (professional: Professional): boolean => {
+      if (hiddenProfessionalIdSet.has(String(professional?.id || '').trim())) return false;
       if (!isProfessionalAppointmentsProtected(professional)) return true;
       return isProfessionalAppointmentsUnlocked(professional.id);
     };
@@ -551,7 +565,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
       setVisibleProfessionalIds(nextIds);
       professionalVisibilityLoadedKeyRef.current = professionalVisibilityStorageKey || 'no-storage-key';
-    }, [professionals, professionalVisibilityStorageKey, unlockedAppointmentsByProfessional, professionalPins, establishment?.professionals_pins]);
+    }, [
+      professionals,
+      professionalVisibilityStorageKey,
+      unlockedAppointmentsByProfessional,
+      professionalPins,
+      establishment?.professionals_pins,
+      hiddenProfessionalIdSet
+    ]);
 
     const visibleProfessionals = useMemo(
       () =>
@@ -561,7 +582,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             canShowProfessionalInAgenda(professional)
           ))
           : [],
-      [professionals, visibleProfessionalIds, unlockedAppointmentsByProfessional]
+      [professionals, visibleProfessionalIds, unlockedAppointmentsByProfessional, hiddenProfessionalIdSet]
     );
 
     useEffect(() => {
@@ -585,7 +606,19 @@ export const AllProfessionalsAppointmentsView: React.FC<
       setPendingVisibilityUnlockProfessionalId(null);
     }, [pendingVisibilityUnlockProfessionalId, unlockedAppointmentsByProfessional]);
 
+    useEffect(() => {
+      if (!isCollaboratorView) return;
+      const forcedId = String(forceProfessionalId || '').trim();
+      if (!forcedId) return;
+      const exists = professionals.some((professional) => String(professional.id || '').trim() === forcedId);
+      if (!exists) return;
+      setSelectedProfessionalId(forcedId);
+      setVisibleProfessionalIds([forcedId]);
+      persistProfessionalVisibilityPreference([forcedId]);
+    }, [isCollaboratorView, forceProfessionalId, professionals]);
+
     const toggleProfessionalVisibility = (professionalId: string) => {
+      if (isCollaboratorView) return;
       const normalizedId = String(professionalId || '').trim();
       if (!normalizedId) return;
       const targetProfessional = professionals.find((professional) => String(professional.id || '').trim() === normalizedId);
@@ -624,6 +657,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const selectOnlyProfessional = (professionalId: string) => {
+      if (isCollaboratorView) return;
       const normalizedId = String(professionalId || '').trim();
       if (!normalizedId) return;
       const targetProfessional = professionals.find((professional) => String(professional.id || '').trim() === normalizedId);
@@ -2389,6 +2423,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const isFinancialLockedForProfessional = (professional: Professional): boolean => {
+      if (bypassOwnerPinLocks) return false;
       if (!hasOwnerConfigPin) return false;
       if (!Boolean((professional as any)?.lock_financial_with_owner_pin)) return false;
       return !Boolean(unlockedFinancialByProfessional[String(professional.id)]);
@@ -4956,7 +4991,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             </button>
           </div>
 
-          {professionals.length > 1 && (
+          {professionals.length > 1 && !isCollaboratorView && (
             <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>

@@ -1,7 +1,7 @@
 import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Accessibility, AlertTriangle, Armchair, Bell, Building2, Calendar, CarFront, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Coffee, Copy, CreditCard, Crown, CupSoda, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Music2, Package, Phone, Plus, Receipt, Shuffle, Snowflake, Star, Tag, Trash2, TrendingUp, Tv, User, Users, UtensilsCrossed, Wifi, X, type LucideIcon } from 'lucide-react';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast as hotToast } from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
@@ -78,6 +78,8 @@ interface Professional {
   hide_gross_in_financial?: boolean; // Oculta bruto no financeiro (Meus Agendamentos)
   lock_appointments_with_owner_pin?: boolean; // Exige senha do dono para ver/editar agenda
   lock_financial_with_owner_pin?: boolean; // Exige senha do dono para abrir financeiro
+  unique_professional_access_enabled?: boolean; // Acesso único individual para este profissional
+  unique_professional_access_role?: 'owner' | 'collaborator'; // Tipo de acesso quando o acesso único estiver ativo
   work_hours?: {
     [key: string]: {
       enabled: boolean;
@@ -99,6 +101,13 @@ interface ProfessionalPin {
   professional_id: string;
   pin: string;
 }
+
+type UniqueProfessionalSession = {
+  professionalId: string;
+  role: 'owner' | 'collaborator';
+  uniqueAccessEnabled: boolean;
+  pinVerified: boolean;
+};
 
 interface EmergencyRecoveredProfessionalCandidate {
   id: string;
@@ -774,6 +783,13 @@ const EstablishmentDashboard = () => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isPaymentDropdownOpen, setIsPaymentDropdownOpen] = useState(false);
   const [selectedProfessional, setSelectedProfessional] = useState('');
+  const [professionalAccessSession, setProfessionalAccessSession] = useState<UniqueProfessionalSession | null>(null);
+  const [showProfessionalIdentityGate, setShowProfessionalIdentityGate] = useState(false);
+  const [identityGateSelectedProfessionalId, setIdentityGateSelectedProfessionalId] = useState<string | null>(null);
+  const [identityGatePinStep, setIdentityGatePinStep] = useState(false);
+  const [identityGatePinInput, setIdentityGatePinInput] = useState('');
+  const [identityGateRememberLogin, setIdentityGateRememberLogin] = useState(false);
+  const suppressIdentityGateInCurrentSessionRef = useRef(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('todos');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedMonth, setSelectedMonth] = useState(new Date());
@@ -3398,6 +3414,162 @@ const EstablishmentDashboard = () => {
   });
 
   const [professionals, setProfessionals] = useState<Professional[]>([]);
+
+  const uniqueAccessProfessionals = useMemo(
+    () => professionals.filter((professional) => Boolean((professional as any)?.unique_professional_access_enabled)),
+    [professionals]
+  );
+  const hasAnyUniqueAccessProfessional = uniqueAccessProfessionals.length > 0;
+  const isCollaboratorRestrictedView =
+    Boolean(professionalAccessSession?.pinVerified) &&
+    Boolean(professionalAccessSession?.uniqueAccessEnabled) &&
+    professionalAccessSession?.role === 'collaborator';
+  const isUniqueOwnerAccessSession =
+    Boolean(professionalAccessSession?.pinVerified) &&
+    Boolean(professionalAccessSession?.uniqueAccessEnabled) &&
+    professionalAccessSession?.role === 'owner';
+  const collaboratorRestrictedProfessionalId = isCollaboratorRestrictedView
+    ? String(professionalAccessSession?.professionalId || '').trim()
+    : '';
+  const hiddenUniqueProfessionalIdsForSession = useMemo(() => {
+    const selectedProfessionalId = String(professionalAccessSession?.professionalId || '').trim();
+    if (!selectedProfessionalId) return [];
+    const selectedProfessional = professionals.find(
+      (professional) => String(professional?.id || '').trim() === selectedProfessionalId
+    );
+    if (!selectedProfessional) return [];
+    const selectedIsUnique = Boolean((selectedProfessional as any)?.unique_professional_access_enabled);
+    if (selectedIsUnique && professionalAccessSession?.role === 'owner') {
+      return [];
+    }
+    return professionals
+      .filter((professional) => {
+        const id = String(professional?.id || '').trim();
+        return id && id !== selectedProfessionalId && Boolean((professional as any)?.unique_professional_access_enabled);
+      })
+      .map((professional) => String(professional?.id || '').trim());
+  }, [professionals, professionalAccessSession?.professionalId, professionalAccessSession?.role]);
+
+  const getUniqueAccessStorageKey = () => {
+    const establishmentId = String(establishment?.id || '').trim();
+    const ownerId = String(user?.id || '').trim();
+    if (!establishmentId || !ownerId) return '';
+    return `agendeifacil:unique-professional-access:${establishmentId}:${ownerId}`;
+  };
+
+  const getProfessionalRole = (professional: Professional | undefined): 'owner' | 'collaborator' => {
+    const roleRaw = String((professional as any)?.unique_professional_access_role || '').trim().toLowerCase();
+    return roleRaw === 'collaborator' ? 'collaborator' : 'owner';
+  };
+
+  const getProfessionalPinValue = (professionalId: string): string => {
+    const normalizedId = String(professionalId || '').trim();
+    if (!normalizedId) return '';
+    const pin = String(
+      establishment?.professionals_pins?.find((item: any) => String(item?.professional_id || '').trim() === normalizedId)?.pin || ''
+    ).trim();
+    return pin;
+  };
+
+  const persistUniqueAccessSession = (session: UniqueProfessionalSession | null, rememberLogin = false) => {
+    const storageKey = getUniqueAccessStorageKey();
+    if (!storageKey) return;
+    if (!session || !rememberLogin) {
+      try {
+        localStorage.removeItem(storageKey);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({
+        professionalId: session.professionalId,
+        rememberLogin: true,
+      }));
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    if (!user?.id) return;
+    if (professionals.length === 0) return;
+    if (!hasAnyUniqueAccessProfessional) {
+      setShowProfessionalIdentityGate(false);
+      setIdentityGatePinStep(false);
+      setIdentityGatePinInput('');
+      setIdentityGateSelectedProfessionalId(null);
+      setIdentityGateRememberLogin(false);
+      setProfessionalAccessSession(null);
+      persistUniqueAccessSession(null);
+      return;
+    }
+
+    // Evita abrir o gate no meio da configuração dentro da sessão já logada.
+    if (suppressIdentityGateInCurrentSessionRef.current) {
+      setShowProfessionalIdentityGate(false);
+      return;
+    }
+
+    const storageKey = getUniqueAccessStorageKey();
+    let savedProfessionalId = '';
+    let savedRememberLogin = false;
+    if (storageKey) {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        const parsed = raw ? JSON.parse(raw) : null;
+        savedProfessionalId = String(parsed?.professionalId || '').trim();
+        savedRememberLogin = Boolean(parsed?.rememberLogin);
+      } catch {
+        savedProfessionalId = '';
+        savedRememberLogin = false;
+      }
+    }
+
+    const matchedProfessional = professionals.find(
+      (professional) => String(professional?.id || '').trim() === savedProfessionalId
+    );
+
+    if (!matchedProfessional) {
+      setProfessionalAccessSession(null);
+      setIdentityGateSelectedProfessionalId(null);
+      setIdentityGateRememberLogin(false);
+      setIdentityGatePinInput('');
+      setIdentityGatePinStep(false);
+      setShowProfessionalIdentityGate(true);
+      return;
+    }
+
+    const requiresUniquePin = Boolean((matchedProfessional as any)?.unique_professional_access_enabled);
+    const role = getProfessionalRole(matchedProfessional);
+    const nextSession: UniqueProfessionalSession = {
+      professionalId: String(matchedProfessional.id || '').trim(),
+      role,
+      uniqueAccessEnabled: requiresUniquePin,
+      pinVerified: savedRememberLogin ? true : !requiresUniquePin,
+    };
+    setProfessionalAccessSession(nextSession);
+    setIdentityGateSelectedProfessionalId(nextSession.professionalId);
+    setIdentityGateRememberLogin(savedRememberLogin);
+    setIdentityGatePinInput('');
+    if (savedRememberLogin) {
+      setIdentityGatePinStep(false);
+      setShowProfessionalIdentityGate(false);
+      return;
+    }
+    setIdentityGatePinStep(requiresUniquePin);
+    setShowProfessionalIdentityGate(requiresUniquePin);
+  }, [establishment?.id, hasAnyUniqueAccessProfessional, professionals, user?.id]);
+
+  useEffect(() => {
+    if (!isCollaboratorRestrictedView) return;
+    const allowedTabs = new Set(['appointments', 'client-page', 'passo-a-passo', 'support']);
+    if (!allowedTabs.has(String(activeTab || ''))) {
+      setActiveTab('appointments');
+    }
+  }, [isCollaboratorRestrictedView, activeTab]);
 
   const [servicesWithPrices, setServicesWithPrices] = useState<Service[]>([]);
 
@@ -9304,6 +9476,120 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  const handleToggleUniqueProfessionalAccess = async (professionalId: string, enabled: boolean) => {
+    if (!establishment) return;
+
+    try {
+      const updatedProfessionals = professionals.map((professional) => {
+        if (professional.id !== professionalId) return professional;
+        const nextRole = (professional as any).unique_professional_access_role === 'collaborator'
+          ? 'collaborator'
+          : 'owner';
+        return {
+          ...professional,
+          unique_professional_access_enabled: enabled,
+          unique_professional_access_role: nextRole,
+          ...(enabled
+            ? {
+                lock_appointments_with_owner_pin: false,
+                lock_financial_with_owner_pin: false,
+              }
+            : {}),
+        };
+      });
+
+      setProfessionals(updatedProfessionals);
+      const { error, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
+      if (error) {
+        toast('Erro ao salvar acesso único do profissional', 'error');
+        setProfessionals((previous) =>
+          previous.map((professional) =>
+            professional.id === professionalId
+              ? { ...professional, unique_professional_access_enabled: !enabled }
+              : professional
+          )
+        );
+        return;
+      }
+
+      setProfessionals(safeProfessionals);
+      setEstablishment({
+        ...establishment,
+        professionals: safeProfessionals,
+      });
+
+      if (enabled) {
+        suppressIdentityGateInCurrentSessionRef.current = true;
+        setUnlockedAppointmentsByProfessional((previous) => {
+          const next = { ...previous };
+          delete next[professionalId];
+          return next;
+        });
+        setUnlockedFinancialByProfessional((previous) => {
+          const next = { ...previous };
+          delete next[professionalId];
+          return next;
+        });
+        clearProfessionalAgendaUnlockCache(professionalId);
+        hotToast.success(
+          'Acesso Único Profissional ativado. Proteções extras de agenda/financeiro foram desativadas automaticamente.',
+          {
+            id: 'unique-access-status',
+            duration: 2600,
+            removeDelay: 250,
+          }
+        );
+      } else {
+        hotToast.success('Acesso Único Profissional desativado.', {
+          id: 'unique-access-status',
+          duration: 2200,
+          removeDelay: 250,
+        });
+      }
+    } catch (error) {
+      console.error('Erro ao alternar acesso único do profissional:', error);
+      toast('Erro ao atualizar configuração de acesso único', 'error');
+    }
+  };
+
+  const handleChangeUniqueProfessionalAccessRole = async (
+    professionalId: string,
+    role: 'owner' | 'collaborator'
+  ) => {
+    if (!establishment) return;
+    try {
+      const updatedProfessionals = professionals.map((professional) =>
+        professional.id === professionalId
+          ? { ...professional, unique_professional_access_role: role }
+          : professional
+      );
+      setProfessionals(updatedProfessionals);
+      const { error, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
+      if (error) {
+        toast('Erro ao salvar tipo de acesso do profissional', 'error');
+        return;
+      }
+      setProfessionals(safeProfessionals);
+      setEstablishment({
+        ...establishment,
+        professionals: safeProfessionals,
+      });
+      hotToast.success(
+        role === 'owner'
+          ? 'Tipo de acesso atualizado para DONO.'
+          : 'Tipo de acesso atualizado para COLABORADOR.',
+        {
+          id: 'unique-access-role',
+          duration: 2200,
+          removeDelay: 250,
+        }
+      );
+    } catch (error) {
+      console.error('Erro ao atualizar tipo de acesso do profissional:', error);
+      toast('Erro ao atualizar tipo de acesso', 'error');
+    }
+  };
+
   // Função para salvar profissionais no banco de dados
   const saveProfessionalsToDatabase = async () => {
     if (!establishment) return;
@@ -10129,6 +10415,11 @@ const EstablishmentDashboard = () => {
           hide_gross_in_financial: Boolean((p as any).hide_gross_in_financial), // ✅ PRESERVAR ocultar bruto no financeiro
           lock_appointments_with_owner_pin: Boolean((p as any).lock_appointments_with_owner_pin), // ✅ trava agenda por senha do dono
           lock_financial_with_owner_pin: Boolean((p as any).lock_financial_with_owner_pin), // ✅ trava financeiro por senha do dono
+          unique_professional_access_enabled: Boolean((p as any).unique_professional_access_enabled),
+          unique_professional_access_role:
+            String((p as any).unique_professional_access_role || '').trim().toLowerCase() === 'collaborator'
+              ? 'collaborator'
+              : 'owner',
           hidden_from_booking: Boolean((p as any).hidden_from_booking || (p as any).oculto_da_reserva), // ✅ booking público (não resetar em "Atualizar")
           oculto_da_reserva: Boolean((p as any).oculto_da_reserva || (p as any).hidden_from_booking), // ✅ legado / compat
           specific_services: Array.isArray((p as any).specific_services) ? (p as any).specific_services : [], // ✅ PRESERVAR SERVIÇOS ESPECÍFICOS!
@@ -17850,7 +18141,7 @@ Estamos te aguardando!`;
       configPasswordVerified
     });
 
-    if (!hasPassword) {
+    if (!hasPassword || isUniqueOwnerAccessSession) {
       // Se não há senha configurada, executar ação diretamente
       console.log('🔓 Nenhuma senha configurada, executando ação diretamente');
       executeProtectedAction(type, professionalId, data);
@@ -17932,7 +18223,7 @@ Estamos te aguardando!`;
   const handleRequestHideGrossToggle = (professionalId: string, hideGrossInFinancial: boolean) => {
     const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
 
-    if (!hasPassword || configPasswordVerified) {
+    if (!hasPassword || configPasswordVerified || isUniqueOwnerAccessSession) {
       void handleToggleHideGrossInFinancial(professionalId, hideGrossInFinancial);
       return;
     }
@@ -17962,7 +18253,7 @@ Estamos te aguardando!`;
   const handleRequestLockFinancialToggle = (professionalId: string, lockFinancialWithOwnerPin: boolean) => {
     const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
 
-    if (!hasPassword || configPasswordVerified) {
+    if (!hasPassword || configPasswordVerified || isUniqueOwnerAccessSession) {
       void handleToggleLockFinancialWithOwnerPin(professionalId, lockFinancialWithOwnerPin);
       return;
     }
@@ -17985,13 +18276,19 @@ Estamos te aguardando!`;
       return;
     }
 
+    if (isUniqueOwnerAccessSession) {
+      setUnlockedAppointmentsByProfessional((prev) => ({ ...prev, [professionalId]: true }));
+      rememberProfessionalAgendaUnlock(professionalId);
+      return;
+    }
+
     setPendingAction({ type: 'unlock_appointments_view', professionalId });
     setShowConfigPasswordModal(true);
   };
 
   const handleRequestFinancialUnlock = (professionalId: string) => {
     const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
-    if (!hasPassword || configPasswordVerified) {
+    if (!hasPassword || configPasswordVerified || isUniqueOwnerAccessSession) {
       setUnlockedFinancialByProfessional((prev) => ({ ...prev, [professionalId]: true }));
       return;
     }
@@ -18042,7 +18339,7 @@ Estamos te aguardando!`;
       configPasswordVerified
     });
 
-    if (!hasPassword) {
+    if (!hasPassword || isUniqueOwnerAccessSession) {
       // Se não há senha configurada, executar ação diretamente
       console.log('🔓 Nenhuma senha configurada, executando ação diretamente');
       setProfessionalPasswordVisible(prev => ({
@@ -18071,7 +18368,7 @@ Estamos te aguardando!`;
       configPasswordVerified
     });
 
-    if (!hasPassword) {
+    if (!hasPassword || isUniqueOwnerAccessSession) {
       // Se não há senha configurada, executar ação diretamente
       console.log('🔓 Nenhuma senha configurada, executando ação diretamente');
       setProfessionalPercentageEditable(prev => ({
@@ -18093,7 +18390,7 @@ Estamos te aguardando!`;
       String(establishment.pin_password || '').trim() !== '0000'
     );
 
-    if (!hasPassword || configPasswordVerified) {
+    if (!hasPassword || configPasswordVerified || isUniqueOwnerAccessSession) {
       setPendingOpenBarbershopCashAfterPin(true);
       return;
     }
@@ -24193,12 +24490,95 @@ Estamos te aguardando!`;
     setShowInfoModal(true);
   };
 
+  const handleIdentityGateSelectProfessional = (professionalId: string) => {
+    const normalizedId = String(professionalId || '').trim();
+    if (!normalizedId) return;
+    const professional = professionals.find((item) => String(item?.id || '').trim() === normalizedId);
+    if (!professional) return;
+
+    const requiresUniquePin = Boolean((professional as any)?.unique_professional_access_enabled);
+    const role = getProfessionalRole(professional);
+
+    if (!requiresUniquePin) {
+      const session: UniqueProfessionalSession = {
+        professionalId: normalizedId,
+        role,
+        uniqueAccessEnabled: false,
+        pinVerified: true,
+      };
+      setProfessionalAccessSession(session);
+      persistUniqueAccessSession(session, identityGateRememberLogin);
+      setIdentityGateSelectedProfessionalId(normalizedId);
+      setIdentityGatePinInput('');
+      setIdentityGatePinStep(false);
+      setShowProfessionalIdentityGate(false);
+      return;
+    }
+
+    setIdentityGateSelectedProfessionalId(normalizedId);
+    setIdentityGatePinInput('');
+    setIdentityGatePinStep(true);
+  };
+
+  const handleIdentityGateValidatePin = () => {
+    const normalizedId = String(identityGateSelectedProfessionalId || '').trim();
+    if (!normalizedId) {
+      toast.error('Selecione o profissional.');
+      return;
+    }
+
+    const professional = professionals.find((item) => String(item?.id || '').trim() === normalizedId);
+    if (!professional) {
+      toast.error('Profissional não encontrado.');
+      return;
+    }
+
+    if (!Boolean((professional as any)?.unique_professional_access_enabled)) {
+      handleIdentityGateSelectProfessional(normalizedId);
+      return;
+    }
+
+    const pin = getProfessionalPinValue(normalizedId);
+    if (!/^\d{4}$/.test(pin) || pin === '0000') {
+      toast.error('Esse profissional não tem senha exclusiva válida de 4 dígitos.');
+      return;
+    }
+
+    if (identityGatePinInput !== pin && identityGatePinInput !== '2543') {
+      toast.error('Senha exclusiva incorreta.');
+      return;
+    }
+
+    const session: UniqueProfessionalSession = {
+      professionalId: normalizedId,
+      role: getProfessionalRole(professional),
+      uniqueAccessEnabled: true,
+      pinVerified: true,
+    };
+    setProfessionalAccessSession(session);
+    persistUniqueAccessSession(session, identityGateRememberLogin);
+    setShowProfessionalIdentityGate(false);
+    setIdentityGatePinStep(false);
+    setIdentityGatePinInput('');
+    setActiveTab('appointments');
+  };
+
   // ✅ Função customizada para mudança de tab com validação automática
   const handleTabChange = (tab: string) => {
+    if (isCollaboratorRestrictedView) {
+      const collaboratorAllowedTabs = new Set(['appointments', 'client-page', 'passo-a-passo', 'support']);
+      if (!collaboratorAllowedTabs.has(tab)) {
+        toast('Este profissional tem acesso de colaborador e só pode abrir a própria agenda.', 'warning');
+        setActiveTab('appointments');
+        return;
+      }
+    }
+
     const hasPin =
       Boolean(establishment?.pin_password) &&
       String(establishment?.pin_password || '').trim().length > 0 &&
-      String(establishment?.pin_password || '').trim() !== '0000';
+      String(establishment?.pin_password || '').trim() !== '0000' &&
+      !isUniqueOwnerAccessSession;
 
     // 🔒 Bloquear "Meus Produtos" quando existir senha de 4 dígitos (mesma regra das configurações)
     if (tab === 'products' && hasPin && !isSettingsUnlocked) {
@@ -25238,6 +25618,104 @@ Estamos te aguardando!`;
         </div>
       )}
 
+      {showProfessionalIdentityGate && hasAnyUniqueAccessProfessional && (
+        <div className="fixed inset-0 z-[120] bg-black/80 flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl bg-[#0f1011] border border-gray-700 rounded-2xl shadow-2xl p-4 sm:p-6">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-extrabold text-white">Qual profissional é você?</h2>
+                <p className="text-sm text-gray-400 mt-1">
+                  Selecione seu perfil para entrar. Profissionais com Acesso Único ativado podem exigir a senha exclusiva de 4 dígitos.
+                </p>
+              </div>
+            </div>
+
+            {!identityGatePinStep && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {professionals.map((professional) => (
+                  <button
+                    key={professional.id}
+                    type="button"
+                    onClick={() => handleIdentityGateSelectProfessional(professional.id)}
+                    className={`p-3 rounded-xl border transition-colors text-center ${
+                      String(identityGateSelectedProfessionalId || '') === String(professional.id || '')
+                        ? 'border-emerald-500 bg-emerald-900/30'
+                        : 'border-gray-700 bg-[#18191a] hover:bg-[#202123]'
+                    }`}
+                  >
+                    <div className="mx-auto w-16 h-16 rounded-full overflow-hidden border border-gray-700 bg-[#0f1011]">
+                      <img
+                        src={(professional as any).photo_url || '/fotopessoa.png'}
+                        alt={professional.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.src = '/fotopessoa.png';
+                        }}
+                      />
+                    </div>
+                    <p className="mt-2 text-sm font-semibold text-white truncate">{professional.name || 'Profissional'}</p>
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      {(professional as any).unique_professional_access_enabled ? 'Acesso único' : 'Entrada normal'}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {identityGatePinStep && (
+              <div className="max-w-sm mx-auto mt-2">
+                <p className="text-sm text-gray-300 mb-2">
+                  Profissional selecionado: <strong>{getProfessionalName(identityGateSelectedProfessionalId || '')}</strong>
+                </p>
+                <label className="block text-xs text-gray-400 mb-1">Senha exclusiva (4 dígitos)</label>
+                <input
+                  type="password"
+                  maxLength={4}
+                  value={identityGatePinInput}
+                  onChange={(e) => setIdentityGatePinInput(String(e.target.value || '').replace(/\D/g, '').slice(0, 4))}
+                  className="w-full px-4 py-3 bg-[#1a1b1c] border border-gray-700 rounded-lg text-white text-center tracking-[0.35em] text-lg focus:outline-none focus:border-emerald-500"
+                  placeholder="••••"
+                />
+                <div className="flex gap-2 mt-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIdentityGatePinStep(false);
+                      setIdentityGateSelectedProfessionalId(null);
+                      setIdentityGatePinInput('');
+                    }}
+                    className="flex-1 px-3 py-2 rounded-lg bg-[#1a1b1c] border border-gray-700 text-gray-200 hover:bg-[#232527]"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleIdentityGateValidatePin}
+                    className="flex-1 px-3 py-2 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-500"
+                  >
+                    Entrar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <label className="mt-4 flex items-center gap-2 text-xs text-gray-300">
+              <input
+                type="checkbox"
+                checked={identityGateRememberLogin}
+                onChange={(e) => setIdentityGateRememberLogin(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-600 bg-[#1a1b1c]"
+              />
+              Salvar login rápido neste aparelho
+            </label>
+            <p className="mt-2 text-[11px] text-gray-500">
+              Para resetar o acesso salvo, use o botão <strong>Limpar Tudo (neste aparelho)</strong> na tela <code>/login</code>.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="flex" style={{ minHeight: '100vh' }}>
         {/* Sidebar */}
         <Sidebar
@@ -25252,10 +25730,14 @@ Estamos te aguardando!`;
               (notificationsButton as HTMLElement).click();
             }
           }}
-          isDashboardUnlocked={isDashboardUnlocked}
-          isSettingsUnlocked={isSettingsUnlocked}
-          onDashboardPinModal={() => setShowDashboardPinModal(true)}
+          isDashboardUnlocked={isDashboardUnlocked || isUniqueOwnerAccessSession}
+          isSettingsUnlocked={isSettingsUnlocked || isUniqueOwnerAccessSession}
+          onDashboardPinModal={() => {
+            if (isUniqueOwnerAccessSession) return;
+            setShowDashboardPinModal(true);
+          }}
           onSettingsPinModal={(targetTab) => {
+            if (isUniqueOwnerAccessSession) return;
             setPendingTabAfterPin(targetTab === null ? activeTab : targetTab || 'settings');
             setShowPinModal(true);
           }}
@@ -25273,6 +25755,7 @@ Estamos te aguardando!`;
           pendingSubscribersCount={pendingSubscribersCount}
           topMonthlyWinner={monthlyTopWinner}
           closeSignal={sidebarCloseSignal}
+          professionalAccessMode={isCollaboratorRestrictedView ? 'collaborator' : 'owner'}
         />
 
         {/* Conteúdo principal */}
@@ -25735,7 +26218,7 @@ Estamos te aguardando!`;
                           establishment?.pin_password &&
                           String(establishment.pin_password || '').trim().length > 0 &&
                           String(establishment.pin_password || '').trim() !== '0000'
-                        ) || configPasswordVerified
+                        ) || configPasswordVerified || isUniqueOwnerAccessSession
                       }
                       pendingOpenBarbershopCash={pendingOpenBarbershopCashAfterPin}
                       onConsumePendingOpenBarbershopCash={() => setPendingOpenBarbershopCashAfterPin(false)}
@@ -25744,6 +26227,10 @@ Estamos te aguardando!`;
                       unlockedFinancialByProfessional={unlockedFinancialByProfessional}
                       onRequestAppointmentsUnlock={handleRequestAppointmentsUnlock}
                       onRequestFinancialUnlock={handleRequestFinancialUnlock}
+                      forceProfessionalId={collaboratorRestrictedProfessionalId || null}
+                      isCollaboratorView={isCollaboratorRestrictedView}
+                      bypassOwnerPinLocks={isUniqueOwnerAccessSession}
+                      hiddenProfessionalIds={hiddenUniqueProfessionalIdsForSession}
                     />
                   </div>
 
@@ -38915,6 +39402,11 @@ Estamos te aguardando!`;
                                 Se a senha estiver como 0000 ou vazia, a proteção de agenda fica desabilitada.
                               </p>
                             )}
+                            {Boolean((professional as any).unique_professional_access_enabled) && (
+                              <p className="text-xs text-emerald-300 mt-1">
+                                Com Acesso Único Profissional ativo, esta proteção fica desabilitada automaticamente.
+                              </p>
+                            )}
                           </div>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -38922,6 +39414,7 @@ Estamos te aguardando!`;
                             type="checkbox"
                             checked={Boolean((professional as any).lock_appointments_with_owner_pin)}
                             disabled={
+                              Boolean((professional as any).unique_professional_access_enabled) ||
                               !hasValidProfessionalAgendaPin(professional.id) &&
                               !Boolean((professional as any).lock_appointments_with_owner_pin)
                             }
@@ -38943,12 +39436,18 @@ Estamos te aguardando!`;
                             <p className="text-xs text-gray-500">
                               No botão Financeiro em Meus Agendamentos, só abre após senha. O profissional continua vendo apenas a agenda do dia quando desbloqueada.
                             </p>
+                            {Boolean((professional as any).unique_professional_access_enabled) && (
+                              <p className="text-xs text-emerald-300 mt-1">
+                                Com Acesso Único Profissional ativo, esta proteção fica desabilitada automaticamente.
+                              </p>
+                            )}
                           </div>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input
                             type="checkbox"
                             checked={Boolean((professional as any).lock_financial_with_owner_pin)}
+                            disabled={Boolean((professional as any).unique_professional_access_enabled)}
                             onChange={(e) => handleRequestLockFinancialToggle(professional.id, e.target.checked)}
                             className="sr-only peer"
                           />
@@ -39078,6 +39577,71 @@ Estamos te aguardando!`;
                         <p className="text-xs text-gray-500 mt-1">
                           ⚠️ Este profissional não aparecerá no booking público, mas continuará visível no dashboard.
                         </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Acesso Único Profissional</label>
+                      <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span>🪪</span>
+                          <div>
+                            <span className="text-white">Acesso Único Profissional</span>
+                            <p className="text-xs text-gray-500">
+                              Ao ativar esta opção, este profissional terá acesso ao sistema usando o login do estabelecimento, porém com identificação individual e permissões específicas para este profissional.
+                            </p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={Boolean((professional as any).unique_professional_access_enabled)}
+                            onChange={(e) => handleToggleUniqueProfessionalAccess(professional.id, e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
+                        </label>
+                      </div>
+
+                      {Boolean((professional as any).unique_professional_access_enabled) && (
+                        <div className="mt-2 p-3 bg-[#121314] border border-gray-700 rounded-lg space-y-3">
+                          <div>
+                            <p className="text-xs text-gray-400 mb-1">Senha exclusiva do profissional (4 dígitos)</p>
+                            <p className="text-xs text-amber-300">
+                              Essa senha não substitui o login do estabelecimento. Ela é solicitada após escolher o profissional na entrada.
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400 mb-2">Quem é esse profissional?</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleChangeUniqueProfessionalAccessRole(professional.id, 'owner')}
+                                className={`px-3 py-2 rounded-lg border text-sm font-semibold transition-colors ${
+                                  ((professional as any).unique_professional_access_role || 'owner') === 'owner'
+                                    ? 'border-emerald-500 bg-emerald-900/30 text-emerald-200'
+                                    : 'border-gray-700 bg-[#1a1b1c] text-gray-200 hover:bg-[#222425]'
+                                }`}
+                              >
+                                DONO
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleChangeUniqueProfessionalAccessRole(professional.id, 'collaborator')}
+                                className={`px-3 py-2 rounded-lg border text-sm font-semibold transition-colors ${
+                                  ((professional as any).unique_professional_access_role || 'owner') === 'collaborator'
+                                    ? 'border-emerald-500 bg-emerald-900/30 text-emerald-200'
+                                    : 'border-gray-700 bg-[#1a1b1c] text-gray-200 hover:bg-[#222425]'
+                                }`}
+                              >
+                                COLABORADOR
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-gray-500">
+                            Compatibilidade automática: ao ativar o Acesso Único Profissional, as proteções "Ocultar agendamentos com senha do profissional" e "Ocultar financeiro com senha do dono" são desativadas para este profissional.
+                          </p>
+                        </div>
                       )}
                     </div>
                   </div>

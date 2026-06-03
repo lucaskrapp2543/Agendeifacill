@@ -78,6 +78,7 @@ interface SidebarProps {
   pendingSubscribersCount?: number; // quantidade de assinantes não pagos para badge em Meus Assinantes
   topMonthlyWinner?: TopMonthlyWinnerCardData | null;
   closeSignal?: number; // força fechar menu mobile quando o pai precisar
+  professionalAccessMode?: 'owner' | 'collaborator' | null;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -102,7 +103,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   pendingReviewsCount = 0,
   pendingSubscribersCount = 0,
   topMonthlyWinner = null,
-  closeSignal = 0
+  closeSignal = 0,
+  professionalAccessMode = null,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false);
@@ -295,6 +297,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     String(establishment?.pin_password || '').trim() !== '0000';
 
   const openAdminMenu = () => {
+    if (professionalAccessMode === 'collaborator') return;
     if (onboardingStep < 4) {
       onBlockedItemClick?.();
       return;
@@ -600,14 +603,26 @@ const Sidebar: React.FC<SidebarProps> = ({
     'taxes',
     'config',
   ]);
-  const adminMenuItems = menuItems.filter((item) => adminMenuItemIds.has(item.id));
+  const collaboratorAllowedMenuIds = new Set([
+    'notifications',
+    'appointments',
+    'client-page',
+    'passo-a-passo',
+    'support',
+    'logout',
+  ]);
+  const isCollaboratorView = professionalAccessMode === 'collaborator';
+  const adminMenuItems = isCollaboratorView
+    ? []
+    : menuItems.filter((item) => adminMenuItemIds.has(item.id));
   const mainSidebarItemOrder = new Map(
     ['notifications', 'top10-clientes', 'appointments', 'client-page', 'admin-menu', 'support', 'passo-a-passo', 'logout'].map((id, index) => [id, index])
   );
   const sidebarMenuItems = menuItems
     .filter((item) => !adminMenuItemIds.has(item.id) && mainSidebarItemOrder.has(item.id))
+    .filter((item) => !isCollaboratorView || collaboratorAllowedMenuIds.has(item.id))
     .sort((a, b) => (mainSidebarItemOrder.get(a.id) ?? 999) - (mainSidebarItemOrder.get(b.id) ?? 999));
-  const isAdminTabActive =
+  const isAdminTabActive = !isCollaboratorView && (
     activeTab === 'whatsapp-reminders' ||
     activeTab === 'indication' ||
     activeTab === 'subscribers' ||
@@ -618,7 +633,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     activeTab === 'financial-dashboard' ||
     activeTab === 'expenses' ||
     activeTab === 'taxes' ||
-    activeTab === 'settings';
+    activeTab === 'settings'
+  );
 
   const adminShortcutItems: Array<{
     id: string;
