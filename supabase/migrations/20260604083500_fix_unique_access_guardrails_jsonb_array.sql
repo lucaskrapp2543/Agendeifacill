@@ -1,6 +1,7 @@
--- Guardrails de segurança para Acesso Único Profissional.
--- 1) Não permite Acesso Único ativo sem senha válida de 4 dígitos (e diferente de 0000)
--- 2) Garante que exista ao menos 1 profissional do tipo DONO por estabelecimento
+-- Hotfix: compatibiliza o trigger com bancos que têm professionals/professionals_pins
+-- como jsonb[] (array SQL) ou jsonb (JSON).
+-- Evita erro: "COALESCE types jsonb[] and jsonb cannot be matched" (42804)
+-- durante updates de blocked_hours e demais gravações em establishments.
 
 CREATE OR REPLACE FUNCTION public.validate_unique_access_guardrails()
 RETURNS TRIGGER
