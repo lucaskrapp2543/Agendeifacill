@@ -36530,6 +36530,8 @@ Estamos te aguardando!`;
             }}
             intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
             maxDurationMinutes={120}
+            serviceCategories={serviceCategories}
+            serviceSubcategories={serviceSubcategories}
             onAdd={async (product: AdditionalProduct) => {
               if (!selectedAppointmentForProduct) return false;
 

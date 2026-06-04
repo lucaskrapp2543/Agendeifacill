@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 
 interface AdditionalProduct {
@@ -14,6 +14,18 @@ interface AdditionalProductModalProps {
   onAdd: (product: AdditionalProduct) => boolean | Promise<boolean>;
   intervalMinutes?: number; // intervalo configurado (15/20/30...)
   maxDurationMinutes?: number; // padrão: 120
+  serviceCategories?: Array<{
+    id: string;
+    name: string;
+    is_active?: boolean;
+  }>;
+  serviceSubcategories?: Array<{
+    id: string;
+    category_id: string;
+    name: string;
+    price: number;
+    is_active?: boolean;
+  }>;
 }
 
 const AdditionalProductModal = ({
@@ -21,13 +33,16 @@ const AdditionalProductModal = ({
   onClose,
   onAdd,
   intervalMinutes = 15,
-  maxDurationMinutes = 120
+  maxDurationMinutes = 120,
+  serviceCategories = [],
+  serviceSubcategories = [],
 }: AdditionalProductModalProps) => {
   const [productName, setProductName] = useState('');
   const [productPrice, setProductPrice] = useState('');
   const [extraDuration, setExtraDuration] = useState<string>(String(intervalMinutes));
-
-  if (!isOpen) return null;
+  const [showMyServicesPicker, setShowMyServicesPicker] = useState(false);
+  const [selectedCatalogCategoryId, setSelectedCatalogCategoryId] = useState('');
+  const [selectedCatalogServiceId, setSelectedCatalogServiceId] = useState('');
 
   const safeInterval = Number.isFinite(intervalMinutes) && intervalMinutes > 0 ? intervalMinutes : 15;
   const safeMax = Number.isFinite(maxDurationMinutes) && maxDurationMinutes > 0 ? maxDurationMinutes : 120;
@@ -42,6 +57,35 @@ const AdditionalProductModal = ({
   }
 
   const durationOptions = Array.from(durationOptionsSet).sort((a, b) => a - b);
+  const categoriesWithServices = useMemo(() => {
+    const activeCategories = (serviceCategories || []).filter((category) => category && category.id && category.name && category.is_active !== false);
+    const activeServices = (serviceSubcategories || []).filter((service) => service && service.id && service.category_id && service.name && Number.isFinite(Number(service.price)) && service.is_active !== false);
+    return activeCategories
+      .map((category) => ({
+        id: String(category.id),
+        name: String(category.name),
+        services: activeServices
+          .filter((service) => String(service.category_id) === String(category.id))
+          .map((service) => ({
+            id: String(service.id),
+            name: String(service.name),
+            price: Number(service.price || 0),
+          })),
+      }))
+      .filter((category) => category.services.length > 0);
+  }, [serviceCategories, serviceSubcategories]);
+  const selectedCategoryServices = useMemo(() => {
+    if (!selectedCatalogCategoryId) return [];
+    const found = categoriesWithServices.find((category) => String(category.id) === String(selectedCatalogCategoryId));
+    return found?.services || [];
+  }, [categoriesWithServices, selectedCatalogCategoryId]);
+
+  const formatPriceInput = (value: number): string => {
+    const safe = Number(value || 0);
+    return safe.toFixed(2).replace('.', ',');
+  };
+
+  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,6 +114,9 @@ const AdditionalProductModal = ({
     setProductName('');
     setProductPrice('');
     setExtraDuration(String(safeInterval));
+    setShowMyServicesPicker(false);
+    setSelectedCatalogCategoryId('');
+    setSelectedCatalogServiceId('');
     onClose();
   };
 
@@ -100,6 +147,77 @@ const AdditionalProductModal = ({
               placeholder="Ex: Sombrancelhas\Pézinho"
               required
             />
+          </div>
+
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowMyServicesPicker((prev) => !prev)}
+              className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white text-sm hover:border-gray-500 transition-colors"
+            >
+              Meus Serviços
+            </button>
+
+            {showMyServicesPicker && (
+              <div className="mt-3 space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">
+                    Categoria
+                  </label>
+                  <select
+                    value={selectedCatalogCategoryId}
+                    onChange={(e) => {
+                      setSelectedCatalogCategoryId(e.target.value);
+                      setSelectedCatalogServiceId('');
+                    }}
+                    className="w-full px-3 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="">Selecione uma categoria</option>
+                    {categoriesWithServices.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">
+                    Serviço
+                  </label>
+                  <select
+                    value={selectedCatalogServiceId}
+                    onChange={(e) => {
+                      const serviceId = e.target.value;
+                      setSelectedCatalogServiceId(serviceId);
+                      const selectedService = selectedCategoryServices.find((service) => String(service.id) === String(serviceId));
+                      if (selectedService) {
+                        // Regra: preencher apenas nome e valor; tempo permanece manual.
+                        setProductName(selectedService.name);
+                        setProductPrice(formatPriceInput(selectedService.price));
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    disabled={!selectedCatalogCategoryId}
+                  >
+                    <option value="">
+                      {selectedCatalogCategoryId ? 'Selecione um serviço' : 'Escolha a categoria primeiro'}
+                    </option>
+                    {selectedCategoryServices.map((service) => (
+                      <option key={service.id} value={service.id}>
+                        {service.name} — R$ {service.price.toFixed(2).replace('.', ',')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {categoriesWithServices.length === 0 && (
+                  <p className="text-xs text-gray-400">
+                    Nenhum serviço encontrado em Meus Serviços.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div>
