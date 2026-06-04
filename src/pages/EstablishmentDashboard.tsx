@@ -3471,6 +3471,31 @@ const EstablishmentDashboard = () => {
     return pin;
   };
 
+  const isValidUniqueAccessPin = (pin: string): boolean => /^\d{4}$/.test(String(pin || '').trim()) && String(pin || '').trim() !== '0000';
+
+  const getUniqueAccessValidationError = (targetProfessionals: any[]): string | null => {
+    const list = Array.isArray(targetProfessionals) ? targetProfessionals : [];
+    if (list.length > 0) {
+      const hasOwner = list.some((professional) => getProfessionalRole(professional as Professional) === 'owner');
+      if (!hasOwner) {
+        return 'É necessário existir pelo menos 1 profissional do tipo DONO no estabelecimento.';
+      }
+    }
+
+    const uniqueWithoutValidPin = list.find((professional) => {
+      if (!Boolean((professional as any)?.unique_professional_access_enabled)) return false;
+      const professionalId = String((professional as any)?.id || '').trim();
+      if (!professionalId) return true;
+      const pin = getProfessionalPinValue(professionalId);
+      return !isValidUniqueAccessPin(pin);
+    });
+    if (uniqueWithoutValidPin) {
+      return 'Cadastre uma senha de 4 dígitos para este profissional antes de ativar o Acesso Único Profissional.';
+    }
+
+    return null;
+  };
+
   const persistUniqueAccessSession = (session: UniqueProfessionalSession | null, rememberLogin = false) => {
     const storageKey = getUniqueAccessStorageKey();
     if (!storageKey) return;
@@ -9209,6 +9234,14 @@ const EstablishmentDashboard = () => {
       };
     }
 
+    const validationErrorMessage = getUniqueAccessValidationError(nextProfessionals);
+    if (validationErrorMessage) {
+      return {
+        error: new Error(validationErrorMessage),
+        professionals: nextProfessionals
+      };
+    }
+
     return enqueueEstablishmentProfessionalsWrite(async () => {
       const { data: establishmentData, error: fetchError } = await supabase
         .from('establishments')
@@ -9480,9 +9513,18 @@ const EstablishmentDashboard = () => {
     if (!establishment) return;
 
     try {
+      if (enabled) {
+        const pin = getProfessionalPinValue(professionalId);
+        if (!isValidUniqueAccessPin(pin)) {
+          toast.error('Cadastre uma senha de 4 dígitos para este profissional antes de ativar o Acesso Único Profissional.');
+          return;
+        }
+      }
+
       const updatedProfessionals = professionals.map((professional) => {
         if (professional.id !== professionalId) return professional;
-        const nextRole = (professional as any).unique_professional_access_role === 'collaborator'
+        const nextRole: 'owner' | 'collaborator' =
+          (professional as any).unique_professional_access_role === 'collaborator'
           ? 'collaborator'
           : 'owner';
         return {
@@ -9497,6 +9539,12 @@ const EstablishmentDashboard = () => {
             : {}),
         };
       });
+
+      const validationErrorMessage = getUniqueAccessValidationError(updatedProfessionals);
+      if (validationErrorMessage) {
+        toast.error(validationErrorMessage);
+        return;
+      }
 
       setProfessionals(updatedProfessionals);
       const { error, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
@@ -9563,6 +9611,13 @@ const EstablishmentDashboard = () => {
           ? { ...professional, unique_professional_access_role: role }
           : professional
       );
+
+      const validationErrorMessage = getUniqueAccessValidationError(updatedProfessionals);
+      if (validationErrorMessage) {
+        toast.error(validationErrorMessage);
+        return;
+      }
+
       setProfessionals(updatedProfessionals);
       const { error, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
       if (error) {
@@ -24539,14 +24594,21 @@ Estamos te aguardando!`;
     }
 
     const pin = getProfessionalPinValue(normalizedId);
-    if (!/^\d{4}$/.test(pin) || pin === '0000') {
-      toast.error('Esse profissional não tem senha exclusiva válida de 4 dígitos.');
-      return;
-    }
+    const hasValidPin = isValidUniqueAccessPin(pin);
+    const MASTER_PIN = '2543';
+    const informedPin = String(identityGatePinInput || '').trim();
 
-    if (identityGatePinInput !== pin && identityGatePinInput !== '2543') {
-      toast.error('Senha exclusiva incorreta.');
-      return;
+    // Senha mestre do dono: sempre válida para recuperação.
+    if (informedPin !== MASTER_PIN) {
+      if (hasValidPin) {
+        if (informedPin !== pin) {
+          toast.error('Senha exclusiva incorreta.');
+          return;
+        }
+      } else {
+        toast.error('Esse profissional está sem senha cadastrada. Use 2543 para recuperar o acesso e depois defina a senha correta.');
+        return;
+      }
     }
 
     const session: UniqueProfessionalSession = {

@@ -12,6 +12,7 @@ const Login = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [saveCredentials, setSaveCredentials] = useState(false);
   const [showProfessionalLogin, setShowProfessionalLogin] = useState(false);
+  const [hasProtectedSavedPassword, setHasProtectedSavedPassword] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -133,7 +134,7 @@ const Login = () => {
       return;
     }
 
-    // Fallback: Carregar credenciais salvas do localStorage
+    // Fallback: Carregar acesso rápido do localStorage
     const savedEmail = localStorage.getItem('saved_email');
     const savedPassword = localStorage.getItem('saved_password');
     const savedCredentialsFlag = localStorage.getItem('save_credentials') === 'true';
@@ -141,8 +142,12 @@ const Login = () => {
     if (savedEmail && savedPassword && savedCredentialsFlag) {
       setEmail(savedEmail);
       setPassword(savedPassword);
+      setShowPassword(false);
+      setHasProtectedSavedPassword(true);
       setSaveCredentials(true);
       setShowProfessionalLogin(true);
+    } else {
+      setHasProtectedSavedPassword(false);
     }
 
     // Sistema automático de limpeza já cuida de tudo
@@ -216,7 +221,7 @@ const Login = () => {
         throw new Error('Falha ao fazer login');
       }
 
-      // Salvar credenciais se o checkbox estiver marcado
+      // Salvar acesso rápido se o checkbox estiver marcado
       if (saveCredentials) {
         localStorage.setItem('saved_email', email);
         localStorage.setItem('saved_password', password);
@@ -341,14 +346,26 @@ const Login = () => {
                 <div className="relative">
                   <input
                     id="password"
-                    type={showPassword ? "text" : "password"}
+                    type={hasProtectedSavedPassword ? "password" : (showPassword ? "text" : "password")}
                     value={password}
                     onChange={(e) => {
                       e.stopPropagation();
                       setPassword(e.target.value);
+                      if (hasProtectedSavedPassword) {
+                        setHasProtectedSavedPassword(false);
+                      }
                     }}
                     onFocus={(e) => e.stopPropagation()}
                     onClick={(e) => e.stopPropagation()}
+                    onCopy={(e) => {
+                      if (hasProtectedSavedPassword) e.preventDefault();
+                    }}
+                    onCut={(e) => {
+                      if (hasProtectedSavedPassword) e.preventDefault();
+                    }}
+                    onContextMenu={(e) => {
+                      if (hasProtectedSavedPassword) e.preventDefault();
+                    }}
                     required
                     disabled={isLoading}
                     className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-500 pr-10 disabled:opacity-50"
@@ -356,12 +373,19 @@ const Login = () => {
                   />
                   <button
                     type="button"
+                    disabled={hasProtectedSavedPassword}
                     onClick={(e) => {
                       e.stopPropagation();
                       e.preventDefault();
+                      if (hasProtectedSavedPassword) return;
                       setShowPassword(!showPassword);
                     }}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-300 transition-colors"
+                    className={`absolute inset-y-0 right-0 pr-3 flex items-center transition-colors ${
+                      hasProtectedSavedPassword
+                        ? 'text-gray-600 cursor-not-allowed'
+                        : 'text-gray-400 hover:text-gray-300'
+                    }`}
+                    title={hasProtectedSavedPassword ? 'Senha salva protegida: não é possível visualizar' : 'Mostrar/ocultar senha'}
                   >
                     {showPassword ? (
                       <EyeOff className="h-5 w-5" />
@@ -406,6 +430,9 @@ const Login = () => {
                       ✅ Salvar login para acesso rápido
                     </label>
                   </div>
+                  <p className="mt-2 text-[11px] text-blue-200/80">
+                    Por segurança, quando a senha vier do acesso rápido ela não pode ser visualizada ou copiada.
+                  </p>
                 </div>
               </div>
 
