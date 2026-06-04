@@ -39,7 +39,8 @@ import { ValidityDisplay } from '../components/ValidityDisplay';
 import { ValidityHeader } from '../components/ValidityHeader';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../hooks/useNotifications';
-import { addExpense, createEstablishment, deleteExpense, getEstablishmentGoals, getEstablishmentPremiumSubscribers, getExpensesByMonth, getProfessionalGoal, isNewClient, setProfessionalGoal, supabase, updateEstablishment } from '../lib/supabase';
+import { addExpense, createEstablishment, deleteExpense, getEstablishmentGoals, getEstablishmentPremiumSubscribers, getExpensesByMonth, getProfessionalGoal, getSubscriptions, isNewClient, setProfessionalGoal, supabase, updateEstablishment } from '../lib/supabase';
+import { createIndependentSubscriber } from '../lib/subscriberSystem';
 import {
   buildStalePaymentDetail,
   CANCELLATION_SOURCE,
@@ -994,6 +995,20 @@ const EstablishmentDashboard = () => {
     time: string;
     maxDurationMinutes: number;
   } | null>(null);
+  const [showQuickSubscriberModal, setShowQuickSubscriberModal] = useState(false);
+  const [quickSubscriberPlans, setQuickSubscriberPlans] = useState<Array<Pick<Subscription, 'id' | 'name' | 'value'>>>([]);
+  const [isLoadingQuickSubscriberPlans, setIsLoadingQuickSubscriberPlans] = useState(false);
+  const [quickSelectedSubscriptionId, setQuickSelectedSubscriptionId] = useState('');
+  const [quickClientName, setQuickClientName] = useState('');
+  const [quickClientPhone, setQuickClientPhone] = useState('');
+  const [quickClientEmail, setQuickClientEmail] = useState('');
+  const [quickPaymentMethod, setQuickPaymentMethod] = useState('');
+  const [quickSubscriberProfessionalId, setQuickSubscriberProfessionalId] = useState('');
+  const [quickObservation, setQuickObservation] = useState('');
+  const [quickStartDate, setQuickStartDate] = useState('');
+  const [quickEndDate, setQuickEndDate] = useState('');
+  const [quickPaymentStatus, setQuickPaymentStatus] = useState<'paid' | 'unpaid'>('unpaid');
+  const [isSavingQuickSubscriber, setIsSavingQuickSubscriber] = useState(false);
 
   // Estados para Clientes Fiéis
   const [showLoyalForm, setShowLoyalForm] = useState(false);
@@ -1638,12 +1653,147 @@ const EstablishmentDashboard = () => {
   const [filaQueuePositionSupported, setFilaQueuePositionSupported] = useState<boolean | null>(null);
 
   const normalizePhoneDigits = (phone: string) => String(phone || '').replace(/\D/g, '');
+  const getPaymentMethodLabel = (method: string) => {
+    const key = String(method || '').trim().toLowerCase();
+    switch (key) {
+      case 'pix':
+        return 'PIX';
+      case 'credito':
+        return 'Cartão de Crédito';
+      case 'debito':
+        return 'Cartão de Débito';
+      case 'dinheiro':
+        return 'Dinheiro';
+      case 'pagar_local':
+        return 'Pagar no Local';
+      case 'transferencia':
+        return 'Transferência';
+      default:
+        return method;
+    }
+  };
   const normalizeWhatsappForStorage = (input: string) => {
     const digits = String(input || '').replace(/\D/g, '');
     if (!digits) return '';
     if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) return digits;
     if (digits.length >= 10 && digits.length <= 11) return `55${digits}`;
     return digits;
+  };
+
+  const resetQuickSubscriberForm = useCallback(() => {
+    const start = format(new Date(), 'yyyy-MM-dd');
+    const end = format(addMonths(new Date(), 1), 'yyyy-MM-dd');
+    setQuickSelectedSubscriptionId('');
+    setQuickClientName('');
+    setQuickClientPhone('');
+    setQuickClientEmail('');
+    setQuickPaymentMethod('');
+    setQuickSubscriberProfessionalId('');
+    setQuickObservation('');
+    setQuickStartDate(start);
+    setQuickEndDate(end);
+    setQuickPaymentStatus('unpaid');
+  }, []);
+
+  const openQuickSubscriberModal = useCallback((_professionalId?: string) => {
+    resetQuickSubscriberForm();
+    setShowQuickSubscriberModal(true);
+  }, [resetQuickSubscriberForm]);
+
+  useEffect(() => {
+    if (!showQuickSubscriberModal || !establishment?.id) return;
+    let mounted = true;
+
+    const loadPlans = async () => {
+      setIsLoadingQuickSubscriberPlans(true);
+      try {
+        const { data, error } = await getSubscriptions(establishment.id);
+        if (error) throw error;
+
+        if (!mounted) return;
+        const visiblePlans = ((data as any[]) || [])
+          .filter((row) => !Boolean(row?.is_hidden))
+          .map((row) => ({
+            id: String(row?.id || ''),
+            name: String(row?.name || ''),
+            value: Number(row?.value || 0),
+          }))
+          .filter((row) => row.id && row.name);
+
+        setQuickSubscriberPlans(visiblePlans);
+        if (!quickSelectedSubscriptionId && visiblePlans.length === 1) {
+          setQuickSelectedSubscriptionId(visiblePlans[0].id);
+        }
+      } catch (error: any) {
+        console.error('Erro ao carregar planos para cadastro rápido de assinante:', error);
+        toast(error?.message || 'Não foi possível carregar as assinaturas agora.', 'error');
+      } finally {
+        if (mounted) {
+          setIsLoadingQuickSubscriberPlans(false);
+        }
+      }
+    };
+
+    loadPlans();
+    return () => {
+      mounted = false;
+    };
+  }, [showQuickSubscriberModal, establishment?.id]);
+
+  const handleQuickSubscriberSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!establishment?.id) {
+      toast('Estabelecimento não encontrado para cadastrar assinante.', 'error');
+      return;
+    }
+
+    if (!quickSelectedSubscriptionId || !quickClientName.trim() || !quickClientPhone.trim() || !quickStartDate || !quickEndDate) {
+      toast('Preencha todos os campos obrigatórios do assinante.', 'error');
+      return;
+    }
+
+    setIsSavingQuickSubscriber(true);
+    try {
+      const normalizedPhone = normalizePhoneDigits(quickClientPhone);
+      if (!normalizedPhone) {
+        toast('Digite um WhatsApp válido.', 'error');
+        return;
+      }
+
+      const { error } = await createIndependentSubscriber({
+        name: quickClientName.trim(),
+        whatsapp: normalizedPhone,
+        email: quickClientEmail.trim() || undefined,
+        payment_method: quickPaymentMethod || undefined,
+        professional_id: quickSubscriberProfessionalId || undefined,
+        professional_name: quickSubscriberProfessionalId
+          ? (professionals.find((item) => String(item?.id || '') === String(quickSubscriberProfessionalId))?.name || undefined)
+          : undefined,
+        observation: quickObservation.trim().slice(0, 150) || undefined,
+        subscription_id: quickSelectedSubscriptionId,
+        establishment_id: establishment.id,
+        start_date: quickStartDate,
+        end_date: quickEndDate,
+        payment_status: quickPaymentStatus,
+      });
+
+      if (error) throw error;
+
+      toast(
+        quickPaymentStatus === 'paid'
+          ? 'Assinante cadastrado com status Pago.'
+          : 'Assinante cadastrado com status Não pago.',
+        'success'
+      );
+      setShowQuickSubscriberModal(false);
+      resetQuickSubscriberForm();
+      fetchClients();
+    } catch (error: any) {
+      console.error('Erro ao cadastrar assinante no modal rápido:', error);
+      toast(error?.message || 'Erro ao cadastrar assinante.', 'error');
+    } finally {
+      setIsSavingQuickSubscriber(false);
+    }
   };
 
   const getBaileysConnectedOnceKey = () =>
@@ -26253,6 +26403,7 @@ Estamos te aguardando!`;
                       onGoToClients={handleGoToClients}
                       onOpenReserveFromSlot={handleOpenReserveFromSlot}
                       onCancelAppointment={handleCancelClick}
+                      onOpenQuickSubscriberModal={openQuickSubscriberModal}
                       onClientNoShow={handleClientNoShowFromAppointment}
                       onAppointmentDetailsOpen={() => {
                         lastAppointmentDetailsInteractionAtRef.current = Date.now();
@@ -41791,6 +41942,213 @@ Estamos te aguardando!`;
         )
       }
 
+
+      {showQuickSubscriberModal && establishment && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3 sm:p-6">
+          <div className="w-full max-w-3xl bg-[#121314] border border-gray-700 rounded-xl shadow-2xl max-h-[92vh] overflow-y-auto">
+            <div className="sticky top-0 z-10 bg-[#121314] border-b border-gray-800 px-4 py-3 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg sm:text-xl font-semibold text-white">Cadastrar Assinante</h2>
+                <p className="text-xs text-gray-400">
+                  Atalho de Meus Agendamentos para salvar direto em Meus Assinantes.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowQuickSubscriberModal(false);
+                  resetQuickSubscriberForm();
+                }}
+                className="px-3 py-1.5 rounded-md bg-gray-800 text-gray-200 hover:bg-gray-700 transition-colors text-sm"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <form onSubmit={handleQuickSubscriberSubmit} className="p-4 space-y-4 text-white">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Selecione a assinatura</label>
+                <select
+                  value={quickSelectedSubscriptionId}
+                  onChange={(e) => setQuickSelectedSubscriptionId(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#1f2022] rounded-lg border border-gray-600 text-white focus:outline-none focus:border-gray-400"
+                  required
+                  disabled={isLoadingQuickSubscriberPlans || quickSubscriberPlans.length === 0}
+                >
+                  <option value="">
+                    {isLoadingQuickSubscriberPlans
+                      ? 'Carregando assinaturas...'
+                      : quickSubscriberPlans.length === 0
+                        ? 'Nenhuma assinatura cadastrada'
+                        : 'Selecione a assinatura'}
+                  </option>
+                  {quickSubscriberPlans.map((plan) => (
+                    <option key={plan.id} value={plan.id}>
+                      {plan.name} ({new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(plan.value || 0))})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Nome do Cliente</label>
+                  <input
+                    type="text"
+                    value={quickClientName}
+                    onChange={(e) => setQuickClientName(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#1f2022] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-400"
+                    placeholder="Digite o nome do cliente"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Número de Telefone</label>
+                  <input
+                    type="tel"
+                    value={quickClientPhone}
+                    onChange={(e) => setQuickClientPhone(e.target.value)}
+                    onBlur={(e) => setQuickClientPhone(normalizePhoneDigits(e.target.value))}
+                    className="w-full px-3 py-2 bg-[#1f2022] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-400"
+                    placeholder="Digite o número de telefone"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">E-mail (opcional)</label>
+                  <input
+                    type="email"
+                    value={quickClientEmail}
+                    onChange={(e) => setQuickClientEmail(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#1f2022] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-400"
+                    placeholder="Digite o e-mail do cliente (opcional)"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Forma de Pagamento (opcional)</label>
+                  <select
+                    value={quickPaymentMethod}
+                    onChange={(e) => setQuickPaymentMethod(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#1f2022] rounded-lg border border-gray-600 text-white focus:outline-none focus:border-gray-400"
+                  >
+                    <option value="">Selecione (opcional)</option>
+                    {(paymentMethodsEnabled || []).map((method) => (
+                      <option key={method} value={method}>
+                        {getPaymentMethodLabel(method)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Qual profissional vai atender esse cliente?
+                </label>
+                <select
+                  value={quickSubscriberProfessionalId}
+                  onChange={(e) => setQuickSubscriberProfessionalId(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#1f2022] rounded-lg border border-gray-600 text-white focus:outline-none focus:border-gray-400"
+                >
+                  <option value="">Todos</option>
+                  {(professionals || []).map((professional) => (
+                    <option key={professional.id} value={professional.id}>
+                      {professional.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Observação (opcional)</label>
+                <textarea
+                  value={quickObservation}
+                  onChange={(e) => setQuickObservation(e.target.value.slice(0, 150))}
+                  className="w-full px-3 py-2 bg-[#1f2022] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-400 text-white resize-none"
+                  placeholder="Escreva uma observação (até 150 caracteres)"
+                  rows={3}
+                  maxLength={150}
+                />
+                <p className="text-xs text-gray-500 mt-1">{quickObservation.length}/150</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Data de Início</label>
+                  <input
+                    type="date"
+                    value={quickStartDate}
+                    onChange={(e) => setQuickStartDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#1f2022] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-400"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Data de Término</label>
+                  <input
+                    type="date"
+                    value={quickEndDate}
+                    onChange={(e) => setQuickEndDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#1f2022] rounded-lg border border-gray-600 focus:outline-none focus:border-gray-400"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-gray-700 bg-[#18191b] p-3">
+                <p className="text-sm font-semibold text-white mb-2">Status do pagamento *</p>
+                <div className="flex flex-wrap gap-4">
+                  <label className="inline-flex items-center gap-2 text-sm text-gray-200">
+                    <input
+                      type="radio"
+                      name="quick-subscriber-payment-status"
+                      value="paid"
+                      checked={quickPaymentStatus === 'paid'}
+                      onChange={() => setQuickPaymentStatus('paid')}
+                      required
+                    />
+                    Pago
+                  </label>
+                  <label className="inline-flex items-center gap-2 text-sm text-gray-200">
+                    <input
+                      type="radio"
+                      name="quick-subscriber-payment-status"
+                      value="unpaid"
+                      checked={quickPaymentStatus === 'unpaid'}
+                      onChange={() => setQuickPaymentStatus('unpaid')}
+                      required
+                    />
+                    Não pago
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowQuickSubscriberModal(false);
+                    resetQuickSubscriberForm();
+                  }}
+                  className="w-full sm:w-auto px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingQuickSubscriber || isLoadingQuickSubscriberPlans}
+                  className="w-full sm:flex-1 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-900 transition-colors font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {isSavingQuickSubscriber ? 'Salvando assinante...' : 'Adicionar Assinante'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal "Terminei Antes" */}
       {showFinishEarlyModal && selectedAppointmentForFinishEarly && (

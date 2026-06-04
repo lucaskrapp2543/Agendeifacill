@@ -28,6 +28,9 @@ export interface CreateSubscriberData {
   end_date: string;
   payment_method?: string;
   observation?: string;
+  payment_status?: 'paid' | 'unpaid';
+  professional_id?: string | null;
+  professional_name?: string | null;
 }
 
 const normalizeSubscriberWhatsapp = (value: string): string => {
@@ -77,20 +80,23 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
     console.log('🆕 Criando assinante independente:', data);
     const normalizedWhatsapp = normalizeSubscriberWhatsapp(data.whatsapp);
     const normalizedObservation = String(data.observation || '').trim().slice(0, 150);
+    const paymentStatus: 'paid' | 'unpaid' = data.payment_status === 'paid' ? 'paid' : 'unpaid';
     const basePayload: any = {
       client_id: uuidv4(), // Gerar UUID válido para assinantes
       subscription_id: data.subscription_id,
       establishment_id: data.establishment_id,
       start_date: data.start_date,
       end_date: data.end_date,
-      payment_status: 'unpaid',
-      last_payment_date: null,
+      payment_status: paymentStatus,
+      last_payment_date: paymentStatus === 'paid' ? new Date().toISOString().split('T')[0] : null,
       // Novos campos para dados completos do assinante
       subscriber_name: data.name,
       subscriber_whatsapp: normalizedWhatsapp,
       subscriber_email: data.email || null,
       subscriber_payment_method: String(data.payment_method || '').trim() || null,
       subscriber_observation: normalizedObservation || null,
+      subscriber_professional_id: String(data.professional_id || '').trim() || null,
+      subscriber_professional_name: String(data.professional_name || '').trim() || null,
     };
     const updatePayload: any = { ...basePayload };
     delete updatePayload.client_id;
@@ -128,13 +134,25 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
     }
 
     const errMsg = String(error?.message || '').toLowerCase();
-    if (error && (errMsg.includes('subscriber_payment_method') || errMsg.includes('subscriber_observation'))) {
+    if (
+      error &&
+      (
+        errMsg.includes('subscriber_payment_method') ||
+        errMsg.includes('subscriber_observation') ||
+        errMsg.includes('subscriber_professional_id') ||
+        errMsg.includes('subscriber_professional_name')
+      )
+    ) {
       const fallbackBasePayload: any = { ...basePayload };
       const fallbackUpdatePayload: any = { ...updatePayload };
       delete fallbackBasePayload.subscriber_payment_method;
       delete fallbackBasePayload.subscriber_observation;
+      delete fallbackBasePayload.subscriber_professional_id;
+      delete fallbackBasePayload.subscriber_professional_name;
       delete fallbackUpdatePayload.subscriber_payment_method;
       delete fallbackUpdatePayload.subscriber_observation;
+      delete fallbackUpdatePayload.subscriber_professional_id;
+      delete fallbackUpdatePayload.subscriber_professional_name;
       if (existing?.id) {
         ({ data: result, error } = await supabase
           .from('client_subscriptions')

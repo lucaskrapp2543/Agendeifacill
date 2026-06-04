@@ -247,15 +247,27 @@ export function BookingChatFlow({
   const [publicLoyaltyLoading, setPublicLoyaltyLoading] = useState(false);
   const [publicLoyaltyRedeemApplied, setPublicLoyaltyRedeemApplied] = useState(false);
 
-  const professionals = useMemo(
-    () => (Array.isArray(establishment?.professionals) ? establishment.professionals.filter((p: any) => !p?.hidden_from_booking) : []),
-    [establishment?.professionals]
-  );
+  const professionals = useMemo(() => {
+    const visibleProfessionals = Array.isArray(establishment?.professionals)
+      ? establishment.professionals.filter((p: any) => !p?.hidden_from_booking)
+      : [];
+    const lockedProfessionalId = String((detectedSubscriber as any)?.subscriber_professional_id || '').trim();
+    if (!isSubscriberFlow || !lockedProfessionalId) return visibleProfessionals;
+    const lockedList = visibleProfessionals.filter((p: any) => String(p?.id || '').trim() === lockedProfessionalId);
+    return lockedList.length > 0 ? lockedList : visibleProfessionals;
+  }, [detectedSubscriber, establishment?.professionals, isSubscriberFlow]);
 
   const selectedProfessional = useMemo(
     () => professionals.find((professional: any) => String(professional?.id || '') === String(selectedProfessionalId || '')),
     [professionals, selectedProfessionalId]
   );
+  useEffect(() => {
+    if (!selectedProfessionalId) return;
+    const stillAvailable = professionals.some((professional: any) => String(professional?.id || '') === String(selectedProfessionalId || ''));
+    if (!stillAvailable) {
+      setSelectedProfessionalId('');
+    }
+  }, [professionals, selectedProfessionalId]);
 
   const enabledPaymentMethods = useMemo(() => {
     const defaults = ['pix', 'credito', 'debito', 'dinheiro', 'pagar_local'];

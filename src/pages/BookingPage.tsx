@@ -295,6 +295,8 @@ export default function BookingPage() {
         duration: Number(singleService.duration || 30),
         weekdays: selectedSubscriberService?.weekdays || [],
         subscription_id: selectedSubscriberService?.id,
+        professional_id: selectedSubscriberService?.professional_id || null,
+        professional_name: selectedSubscriberService?.professional_name || null,
         service_id: singleService.id,
         service_limit: Number(singleService.limit || 0),
         divided_services_selected: selectedServices,
@@ -313,6 +315,8 @@ export default function BookingPage() {
       duration: Number(totalDuration || 30),
       weekdays: selectedSubscriberService?.weekdays || [],
       subscription_id: selectedSubscriberService?.id,
+      professional_id: selectedSubscriberService?.professional_id || null,
+      professional_name: selectedSubscriberService?.professional_name || null,
       // Em seleção múltipla, mantemos por nome (compatível com bancos sem novas colunas).
       service_id: '',
       service_limit: null,
@@ -476,7 +480,9 @@ export default function BookingPage() {
         subscriberData.subscriptions?.service_duration ??
         matchedSubscription?.service_duration ??
         30,
-      weekdays: subscriberData.weekdays || subscriberData.subscriptions?.weekdays || matchedSubscription?.weekdays || []
+      weekdays: subscriberData.weekdays || subscriberData.subscriptions?.weekdays || matchedSubscription?.weekdays || [],
+      professional_id: String(subscriberData?.subscriber_professional_id || '').trim() || null,
+      professional_name: String(subscriberData?.subscriber_professional_name || '').trim() || null,
     };
 
     console.log('🔧 Serviço de assinante configurado:', subscriberService);

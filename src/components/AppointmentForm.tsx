@@ -1,7 +1,7 @@
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Phone } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
@@ -937,6 +937,12 @@ export function AppointmentForm({
   const isServiceSpecificLimitError = /limite do servi[cç]o/i.test(String(monthlyLimitError || ''));
   const [isValidatingOneWeek, setIsValidatingOneWeek] = useState(false);
   const [isValidatingPendingClientBooking, setIsValidatingPendingClientBooking] = useState(false);
+  const availableProfessionalsForSubscriberBooking = useMemo(() => {
+    const visibleProfessionals = (establishment.professionals || []).filter((professional: any) => !professional.hidden_from_booking);
+    const forcedProfessionalId = String((subscriberService as any)?.professional_id || '').trim();
+    if (!isSubscriberBooking || !forcedProfessionalId) return visibleProfessionals;
+    return visibleProfessionals.filter((professional: any) => String(professional?.id || '').trim() === forcedProfessionalId);
+  }, [establishment.professionals, isSubscriberBooking, subscriberService]);
 
   function getResolvedSubscriberDuration(): number {
     const raw = (subscriberService as any)?.service_duration ?? (subscriberService as any)?.duration;
@@ -2725,10 +2731,10 @@ export function AppointmentForm({
               1. Escolha o Profissional
             </label>
             <ProfessionalSelector
-              professionals={establishment.professionals.filter((p: any) => !p.hidden_from_booking)}
+              professionals={availableProfessionalsForSubscriberBooking}
               selectedProfessional={selectedProfessional?.id || null}
               onSelectProfessional={(professionalId) => {
-                const professional = establishment.professionals.filter((p: any) => !p.hidden_from_booking).find(p => p.id === professionalId);
+                const professional = availableProfessionalsForSubscriberBooking.find((p: any) => p.id === professionalId);
 
                 // ✅ LIMPAR APENAS A SELEÇÃO ATUAL (não os modos)
                 // Isso evita que serviços específicos de um profissional apareçam com outro

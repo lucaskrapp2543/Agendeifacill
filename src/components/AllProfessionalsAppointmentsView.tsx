@@ -247,6 +247,7 @@ interface AllProfessionalsAppointmentsViewProps {
     maxDurationMinutes: number;
   }) => void;
   onCancelAppointment?: (appointmentId: string) => void;
+  onOpenQuickSubscriberModal?: (professionalId?: string) => void;
   onClientNoShow?: (appointment: Appointment) => void;
   onAppointmentDetailsOpen?: () => void;
   use15MinuteInterval?: boolean;
@@ -294,6 +295,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onGoToClients,
   onOpenReserveFromSlot,
   onCancelAppointment,
+  onOpenQuickSubscriberModal,
   onClientNoShow,
   onAppointmentDetailsOpen,
   use15MinuteInterval,
@@ -5954,6 +5956,26 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           >
                             {appointmentsLocked ? '🔒 Agenda protegida' : '🟣 Criar Encaixe'}
                           </button>
+
+                          {onOpenQuickSubscriberModal && (
+                            <button
+                              onClick={() => {
+                                if (appointmentsLocked) {
+                                  onRequestAppointmentsUnlock?.(professional.id);
+                                  return;
+                                }
+                                onOpenQuickSubscriberModal(professional.id);
+                              }}
+                              className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
+                                ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
+                                : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
+                                }`}
+                              title="Cadastrar Assinante"
+                              disabled={appointmentsLocked}
+                            >
+                              {appointmentsLocked ? '🔒 Agenda protegida' : '👥 Cadastrar Assinante'}
+                            </button>
+                          )}
 
                           <button
                             onClick={() => {

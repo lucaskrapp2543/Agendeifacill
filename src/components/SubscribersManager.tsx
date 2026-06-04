@@ -381,6 +381,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [newClientPhone, setNewClientPhone] = useState('');
   const [newClientEmail, setNewClientEmail] = useState('');
   const [newSubscriberPaymentMethod, setNewSubscriberPaymentMethod] = useState('');
+  const [newSubscriberProfessionalId, setNewSubscriberProfessionalId] = useState('');
   const [newSubscriberObservation, setNewSubscriberObservation] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -404,6 +405,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       return digits.slice(2);
     }
     return digits;
+  };
+  const getProfessionalNameById = (professionalId: string): string => {
+    const targetId = String(professionalId || '').trim();
+    if (!targetId) return '';
+    const professional = (professionals || []).find((item) => String(item?.id || '').trim() === targetId);
+    return String(professional?.full_name || '').trim();
   };
 
   const toTime = (value: unknown): number => {
@@ -940,6 +947,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [editSubscriberEmail, setEditSubscriberEmail] = useState('');
   const [editSubscriberSubscriptionId, setEditSubscriberSubscriptionId] = useState('');
   const [editSubscriberPaymentMethod, setEditSubscriberPaymentMethod] = useState('');
+  const [editSubscriberProfessionalId, setEditSubscriberProfessionalId] = useState('');
   const [editSubscriberObservation, setEditSubscriberObservation] = useState('');
   const [isSavingEndDate, setIsSavingEndDate] = useState(false);
 
@@ -2508,6 +2516,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         whatsapp: normalizedPhone,
         email: newClientEmail || undefined,
         payment_method: newSubscriberPaymentMethod || undefined,
+        professional_id: newSubscriberProfessionalId || undefined,
+        professional_name: newSubscriberProfessionalId ? getProfessionalNameById(newSubscriberProfessionalId) || undefined : undefined,
         observation: newSubscriberObservation.trim().slice(0, 150) || undefined,
         subscription_id: selectedSubscriptionToAdd,
         establishment_id: establishmentId,
@@ -2528,6 +2538,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setNewClientPhone('');
       setNewClientEmail('');
       setNewSubscriberPaymentMethod('');
+      setNewSubscriberProfessionalId('');
       setNewSubscriberObservation('');
       setStartDate('');
       setEndDate('');
@@ -3040,6 +3051,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         subscriber_email: String(editSubscriberEmail || '').trim() || null,
         payment_status: newStatus,
         subscriber_payment_method: editSubscriberPaymentMethod || null,
+        subscriber_professional_id: editSubscriberProfessionalId || null,
+        subscriber_professional_name: editSubscriberProfessionalId ? getProfessionalNameById(editSubscriberProfessionalId) || null : null,
         subscriber_observation: editSubscriberObservation.trim().slice(0, 150) || null,
         updated_at: new Date().toISOString()
       };
@@ -3060,6 +3073,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           errMsg.includes('subscriber_whatsapp') ||
           errMsg.includes('subscriber_email') ||
           errMsg.includes('subscriber_payment_method') ||
+          errMsg.includes('subscriber_professional_id') ||
+          errMsg.includes('subscriber_professional_name') ||
           errMsg.includes('subscriber_observation') ||
           errMsg.includes('last_payment_date')
         )
@@ -3119,6 +3134,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setEditSubscriberEmail('');
       setEditSubscriberSubscriptionId('');
       setEditSubscriberPaymentMethod('');
+      setEditSubscriberProfessionalId('');
       setEditSubscriberObservation('');
 
       // Recarregar dados
@@ -3142,6 +3158,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     setEditSubscriberEmail(String((clientSubscription as any)?.subscriber_email || clientSubscription.profiles?.email || ''));
     setEditSubscriberSubscriptionId(String(clientSubscription.subscription_id || ''));
     setEditSubscriberPaymentMethod(String((clientSubscription as any)?.subscriber_payment_method || ''));
+    setEditSubscriberProfessionalId(String((clientSubscription as any)?.subscriber_professional_id || ''));
     setEditSubscriberObservation(String((clientSubscription as any)?.subscriber_observation || ''));
     setShowEditEndDateModal(true);
   };
@@ -5502,6 +5519,24 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             </select>
           </div>
           <div>
+            <label htmlFor="newSubscriberProfessionalId" className="block text-sm font-medium text-gray-400 mb-1">
+              Qual profissional vai atender esse cliente?
+            </label>
+            <select
+              id="newSubscriberProfessionalId"
+              value={newSubscriberProfessionalId}
+              onChange={(e) => setNewSubscriberProfessionalId(e.target.value)}
+              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 text-white focus:outline-none focus:border-gray-500"
+            >
+              <option value="">Todos</option>
+              {(professionals || []).map((professional) => (
+                <option key={professional.id} value={professional.id}>
+                  {professional.full_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
             <label htmlFor="newSubscriberObservation" className="block text-sm font-medium text-gray-400 mb-1">Observação (opcional)</label>
             <textarea
               id="newSubscriberObservation"
@@ -5708,6 +5743,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         {getPaymentMethodLabel(String((cs as any).subscriber_payment_method))}
                       </div>
                     )}
+                    <div className={`text-xs sm:text-sm ${textColor}/90`}>
+                      <span className="font-medium">Profissional para agendamento:</span>{' '}
+                      {String((cs as any)?.subscriber_professional_name || '').trim() || 'Todos'}
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs sm:text-sm">
                       <div className={`${textColor}/90`}>
                         <span className="font-medium">Início:</span><br />
@@ -6162,6 +6201,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   setEditSubscriberEmail('');
                   setEditSubscriberSubscriptionId('');
                   setEditSubscriberPaymentMethod('');
+                  setEditSubscriberProfessionalId('');
                   setEditSubscriberObservation('');
                 }}
                 className="text-gray-400 hover:text-white transition-colors"
@@ -6292,6 +6332,25 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               </div>
 
               <div>
+                <label htmlFor="editSubscriberProfessionalId" className="block text-sm font-medium text-gray-400 mb-1">
+                  Qual profissional vai atender esse cliente?
+                </label>
+                <select
+                  id="editSubscriberProfessionalId"
+                  value={editSubscriberProfessionalId}
+                  onChange={(e) => setEditSubscriberProfessionalId(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
+                >
+                  <option value="">Todos</option>
+                  {(professionals || []).map((professional) => (
+                    <option key={professional.id} value={professional.id}>
+                      {professional.full_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
                 <label htmlFor="editSubscriberObservation" className="block text-sm font-medium text-gray-400 mb-1">
                   Observação (opcional)
                 </label>
@@ -6355,6 +6414,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     setEditSubscriberEmail('');
                     setEditSubscriberSubscriptionId('');
                     setEditSubscriberPaymentMethod('');
+                    setEditSubscriberProfessionalId('');
                     setEditSubscriberObservation('');
                   }}
                   className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
