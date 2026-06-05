@@ -426,8 +426,21 @@ interface Client {
   forceAdvancePayment?: boolean; // Se true, este cliente precisa pagar antes de agendar
   /** Timestamp (ms) do último agendamento não cancelado — usado em Clientes Sumidos */
   lastAppointmentAt?: number;
+  /** Último profissional vinculado ao último agendamento não cancelado */
+  lastAppointmentProfessionalId?: string;
+  lastAppointmentProfessionalName?: string;
   /** Exibição em Meus Clientes: pago ou vencido */
   subscriberPaymentStatus?: 'paid' | 'expired' | null;
+}
+
+interface ProfessionalDormantClient {
+  name: string;
+  whatsapp: string;
+  lastVisitDate: string;
+  daysWithoutBooking: number;
+  favoriteService: string;
+  totalSpent: number;
+  appointmentCount: number;
 }
 
 interface ClientInsightsLast60d {
@@ -839,6 +852,7 @@ const EstablishmentDashboard = () => {
   const APPOINTMENTS_MAINTENANCE_COOLDOWN_MS = 90_000;
   const DASHBOARD_AUX_FETCH_DEDUPE_MS = 5000;
   const [clients, setClients] = useState<Client[]>([]);
+  const [dormantClientsByProfessional, setDormantClientsByProfessional] = useState<Record<string, ProfessionalDormantClient[]>>({});
   const [clientInsightsLast60d, setClientInsightsLast60d] = useState<ClientInsightsLast60d>({
     singleVisitClients: 0,
   });
@@ -3581,6 +3595,10 @@ const EstablishmentDashboard = () => {
   const collaboratorRestrictedProfessionalId = isCollaboratorRestrictedView
     ? String(professionalAccessSession?.professionalId || '').trim()
     : '';
+  const uniqueAccessAuthenticatedProfessionalId =
+    Boolean(professionalAccessSession?.pinVerified) && Boolean(professionalAccessSession?.uniqueAccessEnabled)
+      ? String(professionalAccessSession?.professionalId || '').trim()
+      : '';
   const hiddenUniqueProfessionalIdsForSession = useMemo(() => {
     const selectedProfessionalId = String(professionalAccessSession?.professionalId || '').trim();
     if (!selectedProfessionalId) return [];
@@ -18069,7 +18087,7 @@ Estamos te aguardando!`;
 
   // Clientes sumidos: usa lastAppointmentAt (histórico completo em fetchClients), não o array `appointments` do dia.
   const SUMIDO_MIN_DAYS = 30; // a partir de 30 dias sem agendar entra na lista
-  const missingClients = (() => {
+  const missingClientsBase = (() => {
     const MS_DAY = 86400000;
     const now = Date.now();
 
@@ -18086,12 +18104,85 @@ Estamos te aguardando!`;
           daysSince,
           monthsInactive,
           isOver2Months,
+          lastProfessionalId: String(c.lastAppointmentProfessionalId || '').trim(),
+          lastProfessionalName: String(c.lastAppointmentProfessionalName || '').trim() || 'Profissional não identificado',
         };
       })
       .filter((c) => c.daysSince >= SUMIDO_MIN_DAYS)
-      .sort((a, b) => b.daysSince - a.daysSince)
-      .slice(0, 10);
+      .sort((a, b) => b.daysSince - a.daysSince);
   })();
+  const missingClients = missingClientsBase.slice(0, 10);
+  const dormantClientsByProfessionalFromMissingClients = useMemo(() => {
+    const output: Record<string, ProfessionalDormantClient[]> = {};
+    const pushUnique = (professionalKey: string, row: ProfessionalDormantClient) => {
+      const safeKey = String(professionalKey || '').trim();
+      if (!safeKey) return;
+      const list = output[safeKey] || [];
+      const dedupeKey = `${row.whatsapp}|${row.lastVisitDate}|${row.name}`;
+      const alreadyExists = list.some((item) => `${item.whatsapp}|${item.lastVisitDate}|${item.name}` === dedupeKey);
+      if (!alreadyExists) {
+        list.push(row);
+      }
+      output[safeKey] = list;
+    };
+
+    missingClientsBase.forEach((client) => {
+      const row: ProfessionalDormantClient = {
+        name: String(client?.name || '').trim() || 'Cliente sem nome',
+        whatsapp: String(client?.whatsapp || '').trim(),
+        lastVisitDate: format(client.lastAppointmentDate, 'yyyy-MM-dd'),
+        daysWithoutBooking: Number(client.daysSince || 0),
+        favoriteService: 'Sem serviço recorrente',
+        totalSpent: Number(client.totalSpent || 0),
+        appointmentCount: Number(client.appointmentCount || 0),
+      };
+      pushUnique(String(client.lastProfessionalId || '').trim(), row);
+      pushUnique(String(client.lastProfessionalName || '').trim(), row);
+    });
+
+    Object.keys(output).forEach((key) => {
+      output[key] = output[key]
+        .sort((a, b) => {
+          if (b.daysWithoutBooking !== a.daysWithoutBooking) return b.daysWithoutBooking - a.daysWithoutBooking;
+          return b.totalSpent - a.totalSpent;
+        })
+        .slice(0, 50);
+    });
+
+    return output;
+  }, [missingClientsBase]);
+  const mergedDormantClientsByProfessional = useMemo(() => {
+    const output: Record<string, ProfessionalDormantClient[]> = {};
+    const mergeSource = (source?: Record<string, ProfessionalDormantClient[]>) => {
+      if (!source) return;
+      Object.entries(source).forEach(([professionalKey, rows]) => {
+        const safeKey = String(professionalKey || '').trim();
+        if (!safeKey) return;
+        const current = output[safeKey] || [];
+        const currentDedupe = new Set(current.map((item) => `${item.whatsapp}|${item.lastVisitDate}|${item.name}`));
+        (rows || []).forEach((row) => {
+          const dedupeKey = `${row.whatsapp}|${row.lastVisitDate}|${row.name}`;
+          if (currentDedupe.has(dedupeKey)) return;
+          currentDedupe.add(dedupeKey);
+          current.push(row);
+        });
+        output[safeKey] = current;
+      });
+    };
+
+    mergeSource(dormantClientsByProfessional);
+    mergeSource(dormantClientsByProfessionalFromMissingClients);
+
+    Object.keys(output).forEach((key) => {
+      output[key] = output[key]
+        .sort((a, b) => {
+          if (b.daysWithoutBooking !== a.daysWithoutBooking) return b.daysWithoutBooking - a.daysWithoutBooking;
+          return b.totalSpent - a.totalSpent;
+        })
+        .slice(0, 60);
+    });
+    return output;
+  }, [dormantClientsByProfessional, dormantClientsByProfessionalFromMissingClients]);
 
   // Função para remover cliente da lista de sumidos
   const removeFromMissingList = (clientWhatsapp: string) => {
@@ -18955,14 +19046,40 @@ Estamos te aguardando!`;
 
     try {
       // Busca todos os agendamentos do estabelecimento para obter os clientes + estatísticas.
-      const baseAppointmentsSelect =
-        'client_id, client_name, client_whatsapp, status, price, total_price, appointment_date, appointment_time';
-      const { data: appointmentsData, error: appointmentsError } = await supabase
-        .from('appointments')
-        .select(baseAppointmentsSelect)
-        .eq('establishment_id', establishment.id)
-        .not('client_whatsapp', 'is', null) // Apenas agendamentos com WhatsApp
-        .order('created_at', { ascending: false });
+      const appointmentsSelectVariants = [
+        'client_id, client_name, client_whatsapp, status, service, price, total_price, appointment_date, appointment_time, professional, professional_id, professional_name',
+        'client_id, client_name, client_whatsapp, status, service, price, total_price, appointment_date, appointment_time, professional, professional_id',
+        'client_id, client_name, client_whatsapp, status, service, price, total_price, appointment_date, appointment_time, professional, professional_name',
+        'client_id, client_name, client_whatsapp, status, service, price, total_price, appointment_date, appointment_time, professional',
+      ] as const;
+      let appointmentsData: any[] | null = null;
+      let appointmentsError: any = null;
+
+      for (const selectClause of appointmentsSelectVariants) {
+        const attempt = await supabase
+          .from('appointments')
+          .select(selectClause)
+          .eq('establishment_id', establishment.id)
+          .not('client_whatsapp', 'is', null) // Apenas agendamentos com WhatsApp
+          .order('created_at', { ascending: false });
+
+        if (!attempt.error) {
+          appointmentsData = (attempt.data || []) as any[];
+          appointmentsError = null;
+          break;
+        }
+
+        appointmentsError = attempt.error;
+        const msg = String((attempt.error as any)?.message || '').toLowerCase();
+        const isMissingColumnError =
+          (msg.includes('column') && msg.includes('does not exist')) ||
+          msg.includes('could not find the') ||
+          msg.includes('schema cache');
+        if (!isMissingColumnError) {
+          break;
+        }
+      }
+
       if (appointmentsError) throw appointmentsError;
 
       const appointmentDateTimeToTs = (dateStr: string, timeRaw: unknown): number | null => {
@@ -19018,11 +19135,87 @@ Estamos te aguardando!`;
         return Array.from(keys).filter(Boolean);
       };
 
+      const normalizeProfessionalToken = (value: any): string =>
+        String(value || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toLowerCase();
+
+      const professionalIdByNormalizedName = new Map<string, string>();
+      const professionalNameById = new Map<string, string>();
+      professionals.forEach((pro) => {
+        const proId = String((pro as any)?.id || '').trim();
+        const proName = String((pro as any)?.name || '').trim();
+        const normalizedName = normalizeProfessionalToken((pro as any)?.name || '');
+        if (proId && normalizedName) {
+          professionalIdByNormalizedName.set(normalizedName, proId);
+        }
+        if (proId && proName) {
+          professionalNameById.set(proId, proName);
+        }
+      });
+
+      const resolveLastAppointmentProfessional = (raw: any): { professionalId: string; professionalName: string } => {
+        const rawProfessionalId = String(raw?.professional_id || '').trim();
+        const rawProfessional = String(raw?.professional || '').trim();
+        const rawProfessionalName = String(raw?.professional_name || '').trim();
+
+        const normalizedProfessional = normalizeProfessionalToken(rawProfessional);
+        const normalizedProfessionalName = normalizeProfessionalToken(rawProfessionalName);
+        const fromRawProfessional = professionalIdByNormalizedName.get(normalizedProfessional) || '';
+        const fromRawProfessionalName = professionalIdByNormalizedName.get(normalizedProfessionalName) || '';
+
+        const professionalIdCandidate = rawProfessionalId || fromRawProfessional || fromRawProfessionalName;
+        const professionalNameCandidate = professionalNameById.get(professionalIdCandidate)
+          || rawProfessionalName
+          || rawProfessional
+          || '';
+
+        return {
+          professionalId: String(professionalIdCandidate || '').trim(),
+          professionalName: String(professionalNameCandidate || '').trim(),
+        };
+      };
+
+      const resolveProfessionalKeysForDormant = (raw: any): string[] => {
+        const keys = new Set<string>();
+        const professionalId = String(raw?.professional_id || '').trim();
+        const professionalLegacy = String(raw?.professional || '').trim();
+        const professionalName = String(raw?.professional_name || '').trim();
+        if (professionalId) keys.add(professionalId);
+        if (professionalLegacy) keys.add(professionalLegacy);
+        if (professionalName) keys.add(professionalName);
+
+        const normalizedLegacy = normalizeProfessionalToken(professionalLegacy);
+        const normalizedName = normalizeProfessionalToken(professionalName);
+        const fromLegacy = professionalIdByNormalizedName.get(normalizedLegacy);
+        const fromName = professionalIdByNormalizedName.get(normalizedName);
+        if (fromLegacy) keys.add(fromLegacy);
+        if (fromName) keys.add(fromName);
+        return Array.from(keys).filter(Boolean);
+      };
+
       const lastVisitByWhatsapp = new Map<string, number>();
+      const lastVisitProfessionalByWhatsapp = new Map<string, { professionalId: string; professionalName: string }>();
       const completedVisitsInWindowByWhatsapp = new Map<string, number>();
       const completedClientInfoByWhatsapp = new Map<
         string,
         { name: string; whatsapp: string; latestCompletedTs: number }
+      >();
+      const dormantAggregationByProfessional = new Map<
+        string,
+        Map<
+          string,
+          {
+            name: string;
+            whatsapp: string;
+            lastVisitTs: number;
+            totalSpent: number;
+            appointmentCount: number;
+            serviceCounter: Map<string, number>;
+          }
+        >
       >();
       const nowTs = Date.now();
       const sixtyDaysAgoTs = nowTs - (60 * 24 * 60 * 60 * 1000);
@@ -19052,9 +19245,84 @@ Estamos te aguardando!`;
             });
           }
         }
+        const resolvedProfessional = resolveLastAppointmentProfessional(raw);
         const prev = lastVisitByWhatsapp.get(key);
-        if (prev == null || ts > prev) lastVisitByWhatsapp.set(key, ts);
+        if (prev == null || ts > prev) {
+          lastVisitByWhatsapp.set(key, ts);
+          if (resolvedProfessional.professionalId || resolvedProfessional.professionalName) {
+            lastVisitProfessionalByWhatsapp.set(key, resolvedProfessional);
+          }
+        }
+
+        const professionalKeys = resolveProfessionalKeysForDormant(raw);
+        if (professionalKeys.length === 0) return;
+
+        const rawClientName = String(raw?.client_name || '').trim();
+        const displayName = rawClientName || 'Cliente sem nome';
+        const displayWhatsapp = String(raw?.client_whatsapp || '').replace(/\D/g, '') || key;
+        const serviceName = String(raw?.service || '').trim() || 'Serviço sem nome';
+        const baseValue = Number(raw?.total_price ?? raw?.price ?? 0);
+        const safeValue = Number.isFinite(baseValue) ? baseValue : 0;
+
+        professionalKeys.forEach((professionalKey) => {
+          let clientsByWhatsapp = dormantAggregationByProfessional.get(professionalKey);
+          if (!clientsByWhatsapp) {
+            clientsByWhatsapp = new Map();
+            dormantAggregationByProfessional.set(professionalKey, clientsByWhatsapp);
+          }
+
+          const existing = clientsByWhatsapp.get(key) || {
+            name: displayName,
+            whatsapp: displayWhatsapp,
+            lastVisitTs: ts,
+            totalSpent: 0,
+            appointmentCount: 0,
+            serviceCounter: new Map<string, number>(),
+          };
+
+          existing.name = displayName || existing.name;
+          existing.whatsapp = displayWhatsapp || existing.whatsapp;
+          existing.appointmentCount += 1;
+          if (!existing.lastVisitTs || ts > existing.lastVisitTs) {
+            existing.lastVisitTs = ts;
+          }
+          if (st === 'completed') {
+            existing.totalSpent += safeValue;
+            existing.serviceCounter.set(serviceName, Number(existing.serviceCounter.get(serviceName) || 0) + 1);
+          }
+
+          clientsByWhatsapp.set(key, existing);
+        });
       });
+
+      const SUMIDO_MIN_DAYS_FETCH = 30;
+      const MS_DAY_FETCH = 86400000;
+      const dormantByProfessionalNext: Record<string, ProfessionalDormantClient[]> = {};
+      dormantAggregationByProfessional.forEach((clientsByWhatsapp, professionalKey) => {
+        const rows = Array.from(clientsByWhatsapp.values())
+          .map((client) => {
+            const daysWithoutBooking = Math.floor((nowTs - Number(client.lastVisitTs || 0)) / MS_DAY_FETCH);
+            const favoriteService =
+              Array.from(client.serviceCounter.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Sem serviço recorrente';
+            return {
+              name: client.name,
+              whatsapp: client.whatsapp,
+              lastVisitDate: format(new Date(client.lastVisitTs), 'yyyy-MM-dd'),
+              daysWithoutBooking,
+              favoriteService,
+              totalSpent: Number(client.totalSpent || 0),
+              appointmentCount: Number(client.appointmentCount || 0),
+            };
+          })
+          .filter((row) => Number.isFinite(row.daysWithoutBooking) && row.daysWithoutBooking >= SUMIDO_MIN_DAYS_FETCH)
+          .sort((a, b) => {
+            if (b.daysWithoutBooking !== a.daysWithoutBooking) return b.daysWithoutBooking - a.daysWithoutBooking;
+            return b.totalSpent - a.totalSpent;
+          })
+          .slice(0, 30);
+        dormantByProfessionalNext[String(professionalKey)] = rows;
+      });
+      setDormantClientsByProfessional(dormantByProfessionalNext);
 
       const singleVisitClientList: ClientInsightListItem[] = Array.from(completedVisitsInWindowByWhatsapp.entries())
         .filter(([, completedVisits]) => completedVisits === 1)
@@ -19075,6 +19343,7 @@ Estamos te aguardando!`;
       setSingleVisitClientListLast60d(singleVisitClientList);
 
       if (!appointmentsData || appointmentsData.length === 0) {
+        setDormantClientsByProfessional({});
         setClientInsightsLast60d({
           singleVisitClients: 0,
         });
@@ -19301,7 +19570,9 @@ Estamos te aguardando!`;
       // Converte o mapa de clientes para um array e atualiza o estado
       const uniqueClients: Client[] = Array.from(
         clientsMap,
-        ([key, { id, name, count, completed, spent, isSubscriber, birthday, whatsapp, subscriberPaymentStatus }]) => ({
+        ([key, { id, name, count, completed, spent, isSubscriber, birthday, whatsapp, subscriberPaymentStatus }]) => {
+        const lastProfessional = lastVisitProfessionalByWhatsapp.get(key);
+        return ({
         id, // Adicionar o ID
         whatsapp: whatsapp || key,
         name,
@@ -19312,8 +19583,11 @@ Estamos te aguardando!`;
         birthday: birthday,
         forceAdvancePayment: false,
         lastAppointmentAt: lastVisitByWhatsapp.get(key),
+        lastAppointmentProfessionalId: String(lastProfessional?.professionalId || '').trim() || undefined,
+        lastAppointmentProfessionalName: String(lastProfessional?.professionalName || '').trim() || undefined,
         subscriberPaymentStatus: isSubscriber ? subscriberPaymentStatus || 'expired' : null,
-      })
+      });
+      }
       );
 
       // Carregar clientes manuais do Supabase
@@ -19422,6 +19696,7 @@ Estamos te aguardando!`;
       setClients(uniqueClients);
     } catch (error: any) {
       console.error('Erro ao buscar clientes:', error);
+      setDormantClientsByProfessional({});
       toast(error.message || 'Erro ao carregar clientes', 'error');
     }
   };
@@ -26440,9 +26715,12 @@ Estamos te aguardando!`;
                       unlockedFinancialByProfessional={unlockedFinancialByProfessional}
                       onRequestAppointmentsUnlock={handleRequestAppointmentsUnlock}
                       onRequestFinancialUnlock={handleRequestFinancialUnlock}
+                      onRefreshDormantClientsSource={fetchClients}
+                      dormantClientsByProfessional={mergedDormantClientsByProfessional}
                       forceProfessionalId={collaboratorRestrictedProfessionalId || null}
                       isCollaboratorView={isCollaboratorRestrictedView}
                       bypassOwnerPinLocks={isUniqueOwnerAccessSession}
+                      bypassFinancialPinForProfessionalId={uniqueAccessAuthenticatedProfessionalId || null}
                       hiddenProfessionalIds={hiddenUniqueProfessionalIdsForSession}
                     />
                   </div>
@@ -33736,6 +34014,7 @@ Estamos te aguardando!`;
                       const visibleCancelledProfessionalRows = cancelledLossByProfessional.slice(0, cancelledProfessionalsVisibleCount);
                       const visibleCancelledServiceRows = cancelledLossByService.slice(0, cancelledServicesVisibleCount);
                       const visibleServiceRankingRows = serviceRanking.slice(0, serviceRankingVisibleCount);
+                      const detailedAverageTicket = filteredRows.length > 0 ? detailedGross / filteredRows.length : 0;
 
                       return (
                         <div className="mb-6 rounded-2xl border border-gray-700 bg-gradient-to-br from-[#0f1115] via-[#12151c] to-[#171b24] p-5 shadow-2xl">
@@ -33884,7 +34163,7 @@ Estamos te aguardando!`;
                             ))}
                           </div>
 
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
                             <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4">
                               <p className="text-xs text-emerald-300">
                                 {isCancelledView ? 'Perda bruta por cancelamentos' : 'Bruto dos atendimentos'}
@@ -33902,6 +34181,15 @@ Estamos te aguardando!`;
                                 {isCancelledView ? 'Atendimentos cancelados no período' : 'Atendimentos concluídos no período'}
                               </p>
                               <p className="text-2xl font-extrabold text-violet-100 mt-1">{filteredRows.length}</p>
+                            </div>
+                            <div className="rounded-xl border border-fuchsia-500/40 bg-fuchsia-500/10 p-4">
+                              <p className="text-xs text-fuchsia-300">
+                                {isCancelledView ? 'Ticket médio perdido por cancelamento' : 'Ticket médio por atendimento'}
+                              </p>
+                              <p className="text-2xl font-extrabold text-fuchsia-100 mt-1">{formatCurrency(detailedAverageTicket)}</p>
+                              <p className="text-[11px] text-fuchsia-200/90 mt-1">
+                                Base: {formatCurrency(detailedGross)} / {filteredRows.length} {filteredRows.length === 1 ? 'atendimento' : 'atendimentos'}
+                              </p>
                             </div>
                           </div>
 
@@ -37178,6 +37466,9 @@ Estamos te aguardando!`;
                             <p className="text-sm text-gray-500">
                               Último agendamento: {client!.lastAppointmentDate.toLocaleDateString('pt-BR')}
                             </p>
+                            <p className="text-sm text-gray-500">
+                              Profissional do último atendimento: {client!.lastProfessionalName}
+                            </p>
                             <p className="text-sm text-blue-600 font-medium">
                               Total: {client!.appointmentCount} agendamento{client!.appointmentCount !== 1 ? 's' : ''}
                             </p>
@@ -37616,6 +37907,9 @@ Estamos te aguardando!`;
                           <p className="text-sm text-gray-600">{client!.whatsapp}</p>
                           <p className="text-sm text-gray-500">
                             Último agendamento: {client!.lastAppointmentDate.toLocaleDateString('pt-BR')}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            Profissional do último atendimento: {client!.lastProfessionalName}
                           </p>
                           <p className="text-sm text-gray-700 font-medium">
                             Total: {client!.appointmentCount} agendamento{client!.appointmentCount !== 1 ? 's' : ''}

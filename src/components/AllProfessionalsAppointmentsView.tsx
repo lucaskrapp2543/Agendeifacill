@@ -1,5 +1,5 @@
 import { format, parse } from 'date-fns';
-import { Calendar, ChevronLeft, ChevronRight, Clock, Coins, Crown, Package, Phone, Plus, Trash2, User, X } from 'lucide-react';
+import { Calendar, CheckCircle2, ChevronLeft, ChevronRight, Clock, Coins, Crown, Lock, Package, Phone, Plus, Trash2, User, UserPlus, Users, X } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -90,6 +90,27 @@ interface Appointment {
   manual_status_override?: boolean | null;
   cancellation_source?: string | null;
   cancellation_detail?: string | null;
+}
+
+interface ProfessionalServiceInsight {
+  name: string;
+  count: number;
+  gross: number;
+  sharePercent: number;
+}
+
+interface ProfessionalCancelledInsight {
+  totalCancelled: number;
+  lostGross: number;
+  lostNet: number;
+  byService: ProfessionalServiceInsight[];
+}
+
+interface ProfessionalTopClientInsight {
+  name: string;
+  count: number;
+  gross: number;
+  lastAppointmentDate: string;
 }
 
 interface ServiceSubcategoryLabel {
@@ -263,9 +284,20 @@ interface AllProfessionalsAppointmentsViewProps {
   unlockedFinancialByProfessional?: Record<string, boolean>;
   onRequestAppointmentsUnlock?: (professionalId: string) => void;
   onRequestFinancialUnlock?: (professionalId: string) => void;
+  onRefreshDormantClientsSource?: () => Promise<void> | void;
+  dormantClientsByProfessional?: Record<string, Array<{
+    name: string;
+    whatsapp: string;
+    lastVisitDate: string;
+    daysWithoutBooking: number;
+    favoriteService: string;
+    totalSpent: number;
+    appointmentCount: number;
+  }>>;
   forceProfessionalId?: string | null;
   isCollaboratorView?: boolean;
   bypassOwnerPinLocks?: boolean;
+  bypassFinancialPinForProfessionalId?: string | null;
   hiddenProfessionalIds?: string[];
 }
 
@@ -311,9 +343,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
   unlockedFinancialByProfessional = {},
   onRequestAppointmentsUnlock,
   onRequestFinancialUnlock,
+  onRefreshDormantClientsSource,
+  dormantClientsByProfessional = {},
   forceProfessionalId = null,
   isCollaboratorView = false,
   bypassOwnerPinLocks = false,
+  bypassFinancialPinForProfessionalId = null,
   hiddenProfessionalIds = [],
 }) => {
     const { toast } = useToast();
@@ -442,6 +477,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [subscriberSearch, setSubscriberSearch] = useState('');
     const [selectedSubscriberOptionId, setSelectedSubscriberOptionId] = useState<string>('');
     const [slotBlockBusyKey, setSlotBlockBusyKey] = useState<string | null>(null);
+    const [quickSlotActionModal, setQuickSlotActionModal] = useState<{
+      professionalId: string;
+      professionalName: string;
+      time: string;
+      dateKey: string;
+      maxReserveMinutes: number;
+      canReserve: boolean;
+      canBlock: boolean;
+      isPast: boolean;
+    } | null>(null);
     const [selectedAppointmentForSubscriberAttendance, setSelectedAppointmentForSubscriberAttendance] = useState<Appointment | null>(null);
     const [isSavingSubscriberAttendance, setIsSavingSubscriberAttendance] = useState(false);
     const [showBarbershopCashModal, setShowBarbershopCashModal] = useState(false);
@@ -2426,6 +2471,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     const isFinancialLockedForProfessional = (professional: Professional): boolean => {
       if (bypassOwnerPinLocks) return false;
+      const bypassFinancialProfessionalId = String(bypassFinancialPinForProfessionalId || '').trim();
+      if (bypassFinancialProfessionalId && String(professional?.id || '').trim() === bypassFinancialProfessionalId) {
+        return false;
+      }
       if (!hasOwnerConfigPin) return false;
       if (!Boolean((professional as any)?.lock_financial_with_owner_pin)) return false;
       return !Boolean(unlockedFinancialByProfessional[String(professional.id)]);
@@ -4082,7 +4131,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
           case 'cancelled':
             return 'bg-red-800/60 border-red-700';
           case 'completed':
-            return 'bg-green-600/60 border-green-700';
+            return 'bg-green-700/90 border-green-800';
           case 'pending':
           case 'confirmed':
             return 'bg-yellow-600/60 border-yellow-700';
@@ -4095,7 +4144,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         case 'cancelled':
           return 'bg-red-800/90 border-red-700';
         case 'completed':
-          return 'bg-green-600 border-green-700';
+          return 'bg-green-700 border-green-800';
         case 'pending':
         case 'confirmed':
           return 'bg-yellow-600 border-yellow-700';
@@ -4279,6 +4328,106 @@ export const AllProfessionalsAppointmentsView: React.FC<
         return total + (baseAfterTax * effectivePercentage) / 100 + tip;
       }, 0);
 
+      const professionalMonthAppointments = mergedMonthAppointments.filter((apt) =>
+        appointmentBelongsToProfessionalColumn(apt, professionalRef)
+      );
+
+      const serviceInsightsRaw = Array.from(
+        monthlyCompletedAppointmentsForPro.reduce((acc, apt) => {
+          const name = String(apt.service || '').trim() || 'Serviço sem nome';
+          const current = acc.get(name) || { count: 0, gross: 0 };
+          current.count += 1;
+          current.gross += calculateServiceTotal(apt);
+          acc.set(name, current);
+          return acc;
+        }, new Map<string, { count: number; gross: number }>())
+      )
+        .map(([name, stats]) => ({ name, ...stats }))
+        .sort((a, b) => {
+          if (b.count !== a.count) return b.count - a.count;
+          return b.gross - a.gross;
+        });
+      const totalCompletedForInsight = serviceInsightsRaw.reduce((sum, item) => sum + item.count, 0);
+      const serviceInsights: ProfessionalServiceInsight[] = serviceInsightsRaw.map((item) => ({
+        ...item,
+        sharePercent: totalCompletedForInsight > 0 ? (item.count / totalCompletedForInsight) * 100 : 0,
+      }));
+
+      const cancelledRowsForPro = mergedMonthAppointments.filter((apt) => {
+        const status = getAppointmentStatus(apt.status);
+        return (
+          appointmentBelongsToProfessionalColumn(apt, professionalRef) &&
+          status === 'cancelled' &&
+          !isSubscriberFinancialAppointment(apt)
+        );
+      });
+      const cancelledByServiceRaw = Array.from(
+        cancelledRowsForPro.reduce((acc, apt) => {
+          const name = String(apt.service || '').trim() || 'Serviço sem nome';
+          const current = acc.get(name) || { count: 0, gross: 0 };
+          current.count += 1;
+          current.gross += calculateServiceTotal(apt);
+          acc.set(name, current);
+          return acc;
+        }, new Map<string, { count: number; gross: number }>())
+      )
+        .map(([name, stats]) => ({ name, ...stats }))
+        .sort((a, b) => {
+          if (b.gross !== a.gross) return b.gross - a.gross;
+          return b.count - a.count;
+        });
+      const totalCancelledForInsight = cancelledByServiceRaw.reduce((sum, item) => sum + item.count, 0);
+      const cancelledInsightsByService: ProfessionalServiceInsight[] = cancelledByServiceRaw.map((item) => ({
+        ...item,
+        sharePercent: totalCancelledForInsight > 0 ? (item.count / totalCancelledForInsight) * 100 : 0,
+      }));
+      const cancelledLostGross = cancelledRowsForPro.reduce((sum, apt) => sum + calculateServiceTotal(apt), 0);
+      const cancelledLostNet = cancelledRowsForPro.reduce((sum, apt) => {
+        const baseValue = calculateServiceTotal(apt);
+        const cardTaxAmount = getCardTaxAmountForServiceBase(apt, baseValue);
+        const baseAfterTax = establishment?.tax_deducted_by_establishment
+          ? baseValue
+          : Math.max(0, baseValue - cardTaxAmount);
+        const effectivePercentage = getEffectiveProfessionalPercentageForAppointment(apt, professional);
+        return sum + (baseAfterTax * effectivePercentage) / 100;
+      }, 0);
+      const cancelledInsights: ProfessionalCancelledInsight = {
+        totalCancelled: cancelledRowsForPro.length,
+        lostGross: cancelledLostGross,
+        lostNet: cancelledLostNet,
+        byService: cancelledInsightsByService,
+      };
+
+      const topClientRaw = Array.from(
+        monthlyCompletedAppointmentsForPro.reduce((acc, apt) => {
+          const clientName = String((apt as any)?.client_name || '').trim() || 'Cliente sem nome';
+          const clientId = String((apt as any)?.client_id || '').trim();
+          const key = clientId || clientName.toLowerCase();
+          const current = acc.get(key) || {
+            name: clientName,
+            count: 0,
+            gross: 0,
+            lastAppointmentDate: '',
+          };
+          current.count += 1;
+          current.gross += calculateServiceTotal(apt);
+          const aptDate = String(apt.appointment_date || '').slice(0, 10);
+          if (aptDate && (!current.lastAppointmentDate || aptDate > current.lastAppointmentDate)) {
+            current.lastAppointmentDate = aptDate;
+          }
+          acc.set(key, current);
+          return acc;
+        }, new Map<string, ProfessionalTopClientInsight>())
+      )
+        .map(([, value]) => value)
+        .filter((item) => item.count > 1)
+        .sort((a, b) => {
+          if (b.count !== a.count) return b.count - a.count;
+          if (b.gross !== a.gross) return b.gross - a.gross;
+          return String(b.lastAppointmentDate || '').localeCompare(String(a.lastAppointmentDate || ''));
+        });
+      const topClientInsight: ProfessionalTopClientInsight | null = topClientRaw[0] || null;
+
       return {
         dailyGross,
         dailyNet,
@@ -4296,6 +4445,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
         subscriberAttendanceCount: subscriberFinancial.attendanceCount,
         subscriberClientsCount: subscriberFinancial.uniqueClientsCount,
         subscriberSalesCount: subscriberFinancial.saleCommissionCount,
+        serviceInsights,
+        cancelledInsights,
+        topClientInsight,
+        financialAppointments: professionalMonthAppointments,
       };
     };
 
@@ -5033,13 +5186,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
                       type="button"
                       onClick={() => toggleProfessionalVisibility(professional.id)}
                       onDoubleClick={() => selectOnlyProfessional(professional.id)}
-                      className={`flex-shrink-0 rounded-full border px-3 py-2 text-xs font-extrabold transition-colors ${
-                        isVisible
+                      className={`flex-shrink-0 rounded-full border px-3 py-2 text-xs font-extrabold transition-colors ${isVisible
                           ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm'
                           : isProtectedAndLocked
                             ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
-                          : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-100'
-                      }`}
+                            : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-100'
+                        }`}
                       title={
                         isProtectedAndLocked
                           ? 'Agenda protegida. Clique para digitar a senha e exibir este profissional.'
@@ -5171,7 +5323,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                         : barbershopCashDifference > 0
                           ? 'bg-blue-500/15 text-blue-200'
                           : 'bg-red-500/15 text-red-200'
-                    }`}>
+                      }`}>
                       {!hasBarbershopCashRealAmount
                         ? 'Digite o valor real para ver a diferença.'
                         : barbershopCashDifference === 0
@@ -5222,23 +5374,23 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             const serviceLabel = getCashAppointmentServiceLabel(apt);
                             const professionalLabel = getCashAppointmentProfessionalLabel(apt);
                             return (
-                          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                            <div>
-                              <p className="text-sm font-extrabold text-white">{apt.client_name || 'Cliente sem nome'}</p>
-                              <p className="text-xs text-white/55">{apt.appointment_time} • {serviceLabel} • {professionalLabel}</p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${apt.status === 'completed' ? 'bg-emerald-500/20 text-emerald-200' : apt.status === 'cancelled' ? 'bg-red-500/20 text-red-200' : 'bg-amber-500/20 text-amber-200'}`}>
-                                {getStatusLabel(apt.status)}
-                              </span>
-                              <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${apt.payment_method ? 'bg-blue-500/20 text-blue-200' : 'bg-red-500/20 text-red-200'}`}>
-                                {getPaymentMethodLabel(apt.payment_method)}
-                              </span>
-                              <span className="rounded-full px-2 py-1 text-[11px] font-black bg-white/10 text-white">
-                                {formatCurrency(calculateTotalPrice(apt))}
-                              </span>
-                            </div>
-                          </div>
+                              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                                <div>
+                                  <p className="text-sm font-extrabold text-white">{apt.client_name || 'Cliente sem nome'}</p>
+                                  <p className="text-xs text-white/55">{apt.appointment_time} • {serviceLabel} • {professionalLabel}</p>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${apt.status === 'completed' ? 'bg-emerald-500/20 text-emerald-200' : apt.status === 'cancelled' ? 'bg-red-500/20 text-red-200' : 'bg-amber-500/20 text-amber-200'}`}>
+                                    {getStatusLabel(apt.status)}
+                                  </span>
+                                  <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${apt.payment_method ? 'bg-blue-500/20 text-blue-200' : 'bg-red-500/20 text-red-200'}`}>
+                                    {getPaymentMethodLabel(apt.payment_method)}
+                                  </span>
+                                  <span className="rounded-full px-2 py-1 text-[11px] font-black bg-white/10 text-white">
+                                    {formatCurrency(calculateTotalPrice(apt))}
+                                  </span>
+                                </div>
+                              </div>
                             );
                           })()}
                         </div>
@@ -5684,14 +5836,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 Agendado em: {formatAppointmentCreatedAt((apt as any)?.created_at)}
                               </div>
                               {apt.client_whatsapp && (
-                              <div className="text-[11px] text-gray-700">
-                                WhatsApp: {apt.client_whatsapp}
-                              </div>
+                                <div className="text-[11px] text-gray-700">
+                                  WhatsApp: {apt.client_whatsapp}
+                                </div>
                               )}
                               {apt.payment_method && (
-                              <div className="text-[11px] text-gray-700">
-                                Forma de PG: {String(apt.payment_method)}
-                              </div>
+                                <div className="text-[11px] text-gray-700">
+                                  Forma de PG: {String(apt.payment_method)}
+                                </div>
                               )}
                             </div>
                             <div className="shrink-0 text-right">
@@ -5738,10 +5890,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
         `}</style>
           <div className="scroll-container-top mobile-scroll-container">
             <div
-              className="grid gap-0 scroll-content-flip"
+              className="grid gap-3 scroll-content-flip"
               style={{
                 gridTemplateColumns: `repeat(${Math.max(visibleProfessionals.length, 1)}, minmax(280px, 1fr))`,
-                minWidth: `${Math.max(visibleProfessionals.length, 1) * 280}px`,
+                minWidth: `${Math.max(visibleProfessionals.length, 1) * 292}px`,
                 width: '100%',
               }}
             >
@@ -5819,6 +5971,30 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   );
 
                 const cancelledCount = cancelledAppointments.length;
+                const openFinancialModal = () => {
+                  if (financialLocked) {
+                    onRequestFinancialUnlock?.(professional.id);
+                    return;
+                  }
+                  setSelectedProfessionalForInfo(professional.id);
+                };
+                const openAvailabilityModal = () => {
+                  if (appointmentsLocked) {
+                    onRequestAppointmentsUnlock?.(professional.id);
+                    return;
+                  }
+                  setAvailabilityProfessionalId(professional.id);
+                  setAvailabilityProfessionalName(professional.name);
+                  setAvailabilitySlots(timeSlots);
+                  setShowAvailabilityModal(true);
+                };
+                const sideActionButtonClass = useLightLayout
+                  ? 'w-full min-h-[78px] px-2.5 py-2 text-xs sm:text-sm font-bold rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10'
+                  : 'w-full min-h-[78px] px-2.5 py-2 text-xs sm:text-sm font-bold rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10';
+                const actionCardButtonClass = useLightLayout
+                  ? 'w-full min-h-[78px] px-3 py-2 rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10 active:scale-[0.98]'
+                  : 'w-full min-h-[78px] px-3 py-2 rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10 active:scale-[0.98]';
+                const statusCardButtonClass = 'w-full min-h-[58px] px-2 py-2 rounded-xl border text-white transition-colors';
 
                 const hiddenOpen =
                   hiddenAppointments.length > 0 &&
@@ -5829,112 +6005,64 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     key={professional.id}
                     data-professional-column-id={professional.id}
                     data-tutorial-id="appointments-professional-area"
-                    className={`${index !== 0
-                      ? useLightLayout
-                        ? 'border-l border-black/20'
-                        : 'border-l-4 border-gray-400'
-                      : ''
-                      }`}
+                    className="px-1.5 pb-3"
                   >
                     {/* Cabeçalho do Profissional */}
                     <div className={`p-2 sticky top-0 z-10 ${useLightLayout
-                      ? 'bg-gray-100 border-b-2 border-gray-300'
-                      : 'bg-gradient-to-r from-gray-900 to-black border-b-2 border-gray-700'
+                      ? 'bg-white border border-gray-300 border-b-0 rounded-t-xl'
+                      : 'bg-[#121419] border border-white/10 border-b-0 rounded-t-xl'
                       }`}>
-                      <div className="flex flex-col items-center">
-                        <button
-                          onClick={() => setSelectedProfessionalForInfo(professional.id)}
-                          className="group relative"
-                        >
-                          {professional.photo_url ? (
-                            <img
-                              src={professional.photo_url}
-                              alt={professional.name}
-                              className={`w-14 h-14 rounded-full object-cover border-2 shadow-md group-hover:scale-110 transition-transform cursor-pointer ${useLightLayout ? 'border-gray-300' : 'border-white'
-                                }`}
-                            />
-                          ) : (
-                            <div className={`w-14 h-14 rounded-full bg-white flex items-center justify-center text-2xl border-2 shadow-md group-hover:scale-110 transition-transform cursor-pointer ${useLightLayout ? 'border-gray-300' : 'border-white'
+                      <div className="flex flex-col items-center w-full">
+                        <div className="w-full flex items-center gap-3">
+                          <button
+                            onClick={() => setSelectedProfessionalForInfo(professional.id)}
+                            className="group relative shrink-0"
+                            title="Abrir informações do profissional"
+                          >
+                            {professional.photo_url ? (
+                              <img
+                                src={professional.photo_url}
+                                alt={professional.name}
+                                className={`w-14 h-14 rounded-full object-cover border-2 group-hover:scale-105 transition-transform cursor-pointer ${useLightLayout ? 'border-gray-300' : 'border-slate-500'
+                                  }`}
+                              />
+                            ) : (
+                              <div className={`w-14 h-14 rounded-full bg-white flex items-center justify-center text-2xl border-2 group-hover:scale-105 transition-transform cursor-pointer ${useLightLayout ? 'border-gray-300' : 'border-slate-500'
+                                }`}>
+                                👤
+                              </div>
+                            )}
+                            <div className={`absolute inset-0 rounded-full transition-colors flex items-center justify-center ${useLightLayout
+                              ? 'bg-black/0 group-hover:bg-gray-300/20'
+                              : 'bg-black/0 group-hover:bg-white/20'
                               }`}>
-                              👤
+                              <span className={`opacity-0 group-hover:opacity-100 transition-opacity text-xs font-semibold ${useLightLayout ? 'text-gray-900' : 'text-white'
+                                }`}>
+                                abrir
+                              </span>
                             </div>
-                          )}
-                          <div className={`absolute inset-0 rounded-full transition-colors flex items-center justify-center ${useLightLayout
-                            ? 'bg-black/0 group-hover:bg-gray-300/20'
-                            : 'bg-black/0 group-hover:bg-white/20'
-                            }`}>
-                            <span className={`opacity-0 group-hover:opacity-100 transition-opacity text-xs font-semibold ${useLightLayout ? 'text-gray-900' : 'text-white'
-                              }`}>
-                              💰
-                            </span>
+                          </button>
+                          <div className="flex-1 px-3 py-2 text-center">
+                            <h3 className={`font-bold text-base leading-tight ${useLightLayout ? 'text-gray-900' : 'text-white'}`}>
+                              {professional.name}
+                            </h3>
+                            <p className={`text-xs mt-1 ${useLightLayout ? 'text-gray-600' : 'text-gray-300'}`}>
+                              {appointmentsLocked ? 'agenda protegida' : `${professionalAppointmentsCount} agendamentos`}
+                            </p>
                           </div>
-                        </button>
-                        <h3 className={`font-bold text-sm mt-1 text-center ${useLightLayout ? 'text-gray-900' : 'text-white'
-                          }`}>
-                          {professional.name}
-                        </h3>
-                        <p className={`text-xs ${useLightLayout ? 'text-gray-600' : 'text-gray-300'
-                          }`}>
-                          {appointmentsLocked ? '🔒 agenda protegida' : `${professionalAppointmentsCount} agend.`}
-                        </p>
-                        <div className="space-y-1 mt-1">
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => {
-                                if (financialLocked) {
-                                  onRequestFinancialUnlock?.(professional.id);
-                                  return;
-                                }
-                                setSelectedProfessionalForInfo(professional.id);
-                              }}
-                              data-tutorial-id="appointments-financeiro"
-                              className={`flex-1 px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
-                                ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
-                                : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
-                                }`}
-                            >
-                              {financialLocked ? '🔒 Financeiro' : '💰 Financeiro'}
-                            </button>
-                          </div>
-                          {onOpenBlockHoursModal && (
-                            <button
-                              onClick={() => onOpenBlockHoursModal(professional.id)}
-                              data-tutorial-id="appointments-bloquear-horarios"
-                              className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
-                                ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
-                                : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
-                                }`}
-                              title="Bloquear horários deste profissional"
-                              disabled={appointmentsLocked}
-                            >
-                              {appointmentsLocked ? '🔒 Agenda protegida' : '🔒 Bloquear horários'}
-                            </button>
-                          )}
-                          {onOpenAbsenceModal && (
-                            <button
-                              onClick={() => onOpenAbsenceModal(professional.id)}
-                              data-tutorial-id="appointments-ausencia"
-                              className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
-                                ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
-                                : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
-                                }`}
-                              title="Configurar dias de ausência deste profissional"
-                              disabled={appointmentsLocked}
-                            >
-                              {appointmentsLocked ? '🔒 Agenda protegida' : '📅 Bloquear dia todo'}
-                            </button>
-                          )}
+                        </div>
+                        <div className="w-full grid grid-cols-2 gap-2 mt-2">
                           {onGoToClients && (
                             <button
                               onClick={() => onGoToClients(professional.id)}
                               data-tutorial-id="appointments-criar-reserva"
-                              className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
-                                ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
-                                : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
-                                }`}
+                              className={sideActionButtonClass}
                               title="Ir para Meus Clientes"
                             >
-                              📅 Agendar cliente
+                              <span className="flex flex-col items-center justify-center leading-tight">
+                                <UserPlus className="w-4 h-4 text-white/90" />
+                                <span className="text-xs font-bold mt-1">Agendar cliente</span>
+                              </span>
                             </button>
                           )}
                           <button
@@ -5947,15 +6075,54 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               setShowSqueezeServiceModal(true);
                             }}
                             data-tutorial-id="appointments-criar-encaixe"
-                            className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
-                              ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
-                              : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
-                              }`}
+                            className={sideActionButtonClass}
                             title="Criar Encaixe"
                             disabled={appointmentsLocked}
                           >
-                            {appointmentsLocked ? '🔒 Agenda protegida' : '🟣 Criar Encaixe'}
+                            <span className="flex flex-col items-center justify-center leading-tight">
+                              {appointmentsLocked ? (
+                                <Lock className="w-4 h-4 text-white/90" />
+                              ) : (
+                                <Plus className="w-4 h-4 text-white/90" />
+                              )}
+                              <span className="text-xs font-bold mt-1">
+                                {appointmentsLocked ? 'Agenda protegida' : 'Criar encaixe'}
+                              </span>
+                            </span>
                           </button>
+
+                          {onOpenBlockHoursModal && (
+                            <button
+                              onClick={() => onOpenBlockHoursModal(professional.id)}
+                              data-tutorial-id="appointments-bloquear-horarios"
+                              className={`${actionCardButtonClass}`}
+                              title="Bloquear horários deste profissional"
+                              disabled={appointmentsLocked}
+                            >
+                              <span className="flex flex-col items-center justify-center leading-tight">
+                                <Lock className="w-4 h-4 text-white/90" />
+                                <span className="text-xs font-bold mt-1">
+                                  {appointmentsLocked ? 'Agenda protegida' : 'Bloquear horários'}
+                                </span>
+                              </span>
+                            </button>
+                          )}
+                          {onOpenAbsenceModal && (
+                            <button
+                              onClick={() => onOpenAbsenceModal(professional.id)}
+                              data-tutorial-id="appointments-ausencia"
+                              className={`${actionCardButtonClass}`}
+                              title="Configurar dias de ausência deste profissional"
+                              disabled={appointmentsLocked}
+                            >
+                              <span className="flex flex-col items-center justify-center leading-tight">
+                                <Calendar className="w-4 h-4 text-white/90" />
+                                <span className="text-xs font-bold mt-1">
+                                  {appointmentsLocked ? 'Agenda protegida' : 'Bloquear dia inteiro'}
+                                </span>
+                              </span>
+                            </button>
+                          )}
 
                           {onOpenQuickSubscriberModal && (
                             <button
@@ -5966,44 +6133,53 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 }
                                 onOpenQuickSubscriberModal(professional.id);
                               }}
-                              className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
-                                ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
-                                : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
-                                }`}
+                              className={`${actionCardButtonClass}`}
                               title="Cadastrar Assinante"
                               disabled={appointmentsLocked}
                             >
-                              {appointmentsLocked ? '🔒 Agenda protegida' : '👥 Cadastrar Assinante'}
+                              <span className="flex flex-col items-center justify-center leading-tight">
+                                {appointmentsLocked ? (
+                                  <Lock className="w-4 h-4 text-white/90" />
+                                ) : (
+                                  <Users className="w-4 h-4 text-white/90" />
+                                )}
+                                <span className="text-xs font-bold mt-1">
+                                  {appointmentsLocked ? 'Agenda protegida' : 'Cadastrar assinante'}
+                                </span>
+                              </span>
                             </button>
                           )}
 
                           <button
-                            onClick={() => {
-                              if (appointmentsLocked) {
-                                onRequestAppointmentsUnlock?.(professional.id);
-                                return;
-                              }
-                              setAvailabilityProfessionalId(professional.id);
-                              setAvailabilityProfessionalName(professional.name);
-                              setAvailabilitySlots(timeSlots);
-                              setShowAvailabilityModal(true);
-                            }}
-                            className={`w-full px-2 py-1 text-xs rounded transition-colors text-white ${useLightLayout
-                              ? 'bg-gradient-to-r from-gray-800 via-gray-900 to-black hover:from-gray-700 hover:via-gray-800 hover:to-gray-900 border border-gray-700'
-                              : 'bg-gradient-to-r from-gray-900 via-black to-black hover:from-gray-800 hover:via-gray-900 hover:to-black border border-gray-700'
-                              }`}
+                            onClick={openAvailabilityModal}
+                            className={`${actionCardButtonClass}`}
                             title="Ver horários disponíveis (somente visualização)"
                             disabled={appointmentsLocked}
                           >
-                            <span className="inline-flex items-center justify-center gap-2">
-                              <Calendar className="h-4 w-4" />
-                              {appointmentsLocked ? 'Agenda protegida' : 'Horários disponíveis'}
+                            <span className="flex flex-col items-center justify-center leading-tight">
+                              <Calendar className="w-4 h-4 text-white/90" />
+                              <span className="text-xs font-bold mt-1">
+                                {appointmentsLocked ? 'Agenda protegida' : 'Horários disponíveis'}
+                              </span>
+                            </span>
+                          </button>
+
+                          <button
+                            onClick={openFinancialModal}
+                            data-tutorial-id="appointments-financeiro"
+                            className={`${actionCardButtonClass} col-span-2`}
+                            title="Abrir financeiro do profissional"
+                          >
+                            <span className="flex flex-col items-center justify-center leading-tight">
+                              <Coins className="w-4 h-4 mb-1 text-white/90" />
+                              <span>Financeiro / desempenho</span>
+                              {financialLocked && <span className="text-[10px] opacity-90">desbloquear</span>}
                             </span>
                           </button>
                         </div>
 
                         {/* Contadores de Status por Profissional */}
-                        <div className="mt-2 flex gap-1 text-xs">
+                        <div className="mt-3 grid grid-cols-3 gap-2 text-xs w-full">
                           <button
                             type="button"
                             onClick={() => {
@@ -6016,10 +6192,18 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               setCancelledHistoryDate(selectedDateStr);
                               setShowCancelledHistoryModal(true);
                             }}
-                            className="px-2 py-1 bg-red-600/80 text-white rounded border border-red-700 hover:bg-red-700 transition-colors"
+                            className={`${statusCardButtonClass} bg-red-700/90 border-red-800 hover:bg-red-700`}
                             title="Ver histórico de cancelados deste profissional no dia"
                           >
-                            {appointmentsLocked ? '🔒' : `❌ ${cancelledCount}`}
+                            <span className="flex flex-col items-center justify-center leading-tight">
+                              {appointmentsLocked ? (
+                                <Lock className="w-4 h-4 text-white/95" />
+                              ) : (
+                                <X className="w-4 h-4 text-white/95" />
+                              )}
+                              <span className="text-[11px] font-bold mt-0.5">{appointmentsLocked ? '-' : cancelledCount}</span>
+                              <span className="text-[10px] opacity-90">Cancelados</span>
+                            </span>
                           </button>
                           <button
                             type="button"
@@ -6034,10 +6218,18 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               setStatusDetailsDate(selectedDateStr);
                               setShowStatusDetailsModal(true);
                             }}
-                            className="px-2 py-1 bg-yellow-600/80 text-white rounded border border-yellow-700 hover:bg-yellow-700 transition-colors"
+                            className={`${statusCardButtonClass} bg-yellow-700/90 border-yellow-800 hover:bg-yellow-700`}
                             title="Ver agendamentos pendentes deste profissional no dia"
                           >
-                            {appointmentsLocked ? '🔒' : `⏳ ${pendingCount}`}
+                            <span className="flex flex-col items-center justify-center leading-tight">
+                              {appointmentsLocked ? (
+                                <Lock className="w-4 h-4 text-white/95" />
+                              ) : (
+                                <Clock className="w-4 h-4 text-white/95" />
+                              )}
+                              <span className="text-[11px] font-bold mt-0.5">{appointmentsLocked ? '-' : pendingCount}</span>
+                              <span className="text-[10px] opacity-90">Pendentes</span>
+                            </span>
                           </button>
                           <button
                             type="button"
@@ -6052,11 +6244,24 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               setStatusDetailsDate(selectedDateStr);
                               setShowStatusDetailsModal(true);
                             }}
-                            className="px-2 py-1 bg-green-600/80 text-white rounded border border-green-700 hover:bg-green-700 transition-colors"
+                            className={`${statusCardButtonClass} bg-green-700/90 border-green-800 hover:bg-green-700`}
                             title="Ver agendamentos concluídos deste profissional no dia"
                           >
-                            {appointmentsLocked ? '🔒' : `✅ ${completedCount}`}
+                            <span className="flex flex-col items-center justify-center leading-tight">
+                              {appointmentsLocked ? (
+                                <Lock className="w-4 h-4 text-white/95" />
+                              ) : (
+                                <CheckCircle2 className="w-4 h-4 text-white/95" />
+                              )}
+                              <span className="text-[11px] font-bold mt-0.5">{appointmentsLocked ? '-' : completedCount}</span>
+                              <span className="text-[10px] opacity-90">Realizados</span>
+                            </span>
                           </button>
+                        </div>
+                        <div className={`mt-2 w-full rounded-lg border px-3 py-1.5 text-center ${useLightLayout ? 'bg-gray-100 border-gray-300 text-gray-700' : 'bg-white/5 border-white/10 text-white/75'}`}>
+                          <p className="text-[11px] font-semibold">
+                            Clique no horário desejado, para interagir.
+                          </p>
                         </div>
 
                         {/* Meta do Profissional */}
@@ -6072,7 +6277,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     </div>
 
                     {/* Todos os Horários (Livres e Ocupados) */}
-                    <div className={`p-2 min-h-[500px] ${useLightLayout ? 'bg-gray-100' : 'bg-gray-100'
+                    <div className={`p-2 min-h-[500px] rounded-b-xl border border-t-0 ${useLightLayout ? 'bg-gray-100 border-gray-300' : 'bg-[#121419] border-white/10'
                       }`}>
                       {appointmentsLocked ? (
                         <div className="rounded-lg border-2 border-amber-500/60 bg-amber-100 p-3 mb-2">
@@ -6102,10 +6307,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               return (
                                 <div
                                   key={`${slot.time}-${slotIndex}`}
-                                  className={`rounded-xl border-2 shadow-sm overflow-hidden ${useLightLayout
-                                    ? 'bg-gradient-to-br from-slate-400 to-slate-500 border-slate-600'
-                                    : 'bg-gradient-to-br from-gray-500 to-gray-600 border-gray-700'
-                                    }`}
+                                  className="rounded-xl border-2 shadow-sm overflow-hidden bg-red-700/90 border-red-800"
                                 >
                                   <div className="flex items-stretch gap-0 min-h-[48px]">
                                     <div className="flex-1 flex flex-col justify-center px-3 py-2.5 min-w-0">
@@ -6121,10 +6323,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         type="button"
                                         disabled={!!slotBlockBusyKey}
                                         onClick={() => runToggleSlotBlock(professional.id, slot.time, false)}
-                                        className={`shrink-0 px-3 py-2 text-xs font-bold text-white border-l border-white/25 transition-colors disabled:opacity-50 ${useLightLayout
-                                          ? 'bg-emerald-700 hover:bg-emerald-800'
-                                          : 'bg-emerald-600 hover:bg-emerald-700'
-                                          }`}
+                                        className="shrink-0 px-3 py-2 text-xs font-bold text-white border-l border-white/25 transition-colors disabled:opacity-50 bg-red-700 hover:bg-red-800"
                                       >
                                         {blockBusy ? '…' : 'Desbloquear'}
                                       </button>
@@ -6137,10 +6336,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               const squeezes = (slot as any).squeezes || [];
                               const isAbsentSlot = isProfessionalAbsentOnSelectedDate;
                               const isPastSlot = !isAbsentSlot && !!slot.isPast;
-                              const blockBusy =
-                                slotBlockBusyKey === `${professional.id}__${slot.time}`;
-                              const canQuickBlock =
-                                !!onToggleProfessionalSlotBlocked && !slot.isPast;
+                              const canQuickBlock = !!onToggleProfessionalSlotBlocked;
                               const dayBounds = getProfessionalDayEndAndBreak(
                                 professional,
                                 businessHours,
@@ -6156,93 +6352,65 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                   )
                                   : 0;
                               const dateKey = format(selectedDate, 'yyyy-MM-dd');
-                              const showReservePill =
-                                canQuickBlock &&
-                                !!onOpenReserveFromSlot &&
-                                maxReserveMinutes > 0;
+                              const showReservePill = !!onOpenReserveFromSlot;
+                              const canOpenQuickAction =
+                                (Boolean(canQuickBlock) || Boolean(showReservePill)) && !isAbsentSlot;
                               return (
                                 <div key={`${slot.time}-${slotIndex}`}>
                                   <div
+                                    onClick={() => {
+                                      if (!canOpenQuickAction) return;
+                                      setQuickSlotActionModal({
+                                        professionalId: professional.id,
+                                        professionalName: professional.name,
+                                        time: slot.time,
+                                        dateKey,
+                                        maxReserveMinutes: Math.max(maxReserveMinutes, intervaloAgendaMinutos),
+                                        canReserve: Boolean(showReservePill),
+                                        canBlock: Boolean(canQuickBlock),
+                                        isPast: Boolean(isPastSlot),
+                                      });
+                                    }}
                                     className={`rounded-xl border-2 shadow-sm overflow-hidden flex items-stretch min-h-[52px] ${isAbsentSlot
                                       ? 'bg-gradient-to-br from-amber-50 to-amber-100/90 border-amber-400'
                                       : isPastSlot
-                                        ? 'bg-gradient-to-br from-gray-100 to-gray-200 border-gray-400'
-                                        : useLightLayout
-                                          ? 'bg-gradient-to-br from-white to-emerald-50/80 border-emerald-300'
-                                          : 'bg-gradient-to-br from-white to-emerald-50 border-emerald-400/90'
-                                      }`}
+                                        ? 'bg-gray-300 border-gray-400'
+                                        : 'bg-emerald-50 border-emerald-300'
+                                      } ${canOpenQuickAction ? 'cursor-pointer' : ''}`}
                                   >
-                                    <div className="flex-1 flex flex-col justify-center px-3 py-2.5 min-w-0">
-                                      <span
-                                        className={`font-extrabold text-base tracking-tight ${isAbsentSlot ? 'text-amber-900' : isPastSlot ? 'text-gray-700' : 'text-gray-900'
-                                          }`}
-                                      >
-                                        {slot.time}
-                                      </span>
-                                      <span
-                                        className={`text-[11px] font-bold mt-0.5 ${isAbsentSlot ? 'text-amber-800' : isPastSlot ? 'text-gray-600' : 'text-emerald-700'
-                                          }`}
-                                      >
-                                        {isAbsentSlot
-                                          ? '📅 Ausência neste dia'
-                                          : isPastSlot
-                                            ? '⏰ Horário encerrado'
-                                            : '✓ Livre para agendar'}
-                                      </span>
-                                    </div>
-                                    {canQuickBlock ? (
-                                      showReservePill ? (
-                                        <div className="flex shrink-0 items-stretch self-stretch rounded-r-[10px] overflow-hidden border-l border-white/20">
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              onOpenReserveFromSlot?.({
-                                                professionalId: professional.id,
-                                                dateKey,
-                                                time: slot.time,
-                                                maxDurationMinutes: maxReserveMinutes,
-                                              })
-                                            }
-                                            className={`px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wide text-white transition-colors ${useLightLayout
-                                              ? 'bg-emerald-700 hover:bg-emerald-800'
-                                              : 'bg-emerald-600 hover:bg-emerald-700'
-                                              }`}
-                                            title="Reservar cliente neste horário (mesmo fluxo de Agendar cliente), com limite até o próximo horário ocupado ou fim do expediente"
-                                          >
-                                            Reservar
-                                          </button>
-                                          <button
-                                            type="button"
-                                            disabled={!!slotBlockBusyKey}
-                                            onClick={() =>
-                                              runToggleSlotBlock(professional.id, slot.time, true)
-                                            }
-                                            className={`px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wide text-white border-l border-white/25 transition-colors disabled:opacity-50 ${useLightLayout
-                                              ? 'bg-slate-800 hover:bg-slate-900'
-                                              : 'bg-slate-700 hover:bg-slate-800'
-                                              }`}
-                                            title="Bloqueia só este horário neste dia (igual ao menu Bloquear horários)"
-                                          >
-                                            {blockBusy ? '…' : 'Bloquear'}
-                                          </button>
-                                        </div>
+                                    <div className="flex-1 flex flex-col items-center justify-center text-center px-3 py-2.5 min-w-0">
+                                      {isAbsentSlot ? (
+                                        <>
+                                          <span className="font-extrabold text-base tracking-tight text-amber-900">
+                                            {slot.time}
+                                          </span>
+                                          <span className="text-[11px] font-bold mt-0.5 text-amber-800">
+                                            📅 Ausência neste dia
+                                          </span>
+                                        </>
+                                      ) : isPastSlot ? (
+                                        <>
+                                          <span className="font-extrabold text-base tracking-tight text-gray-800">
+                                            {slot.time}
+                                          </span>
+                                          <span className="text-[11px] font-bold mt-0.5 text-gray-700">
+                                            ⏰ Horário encerrado (clique para ações)
+                                          </span>
+                                        </>
                                       ) : (
-                                        <button
-                                          type="button"
-                                          disabled={!!slotBlockBusyKey}
-                                          onClick={() =>
-                                            runToggleSlotBlock(professional.id, slot.time, true)
-                                          }
-                                          className={`shrink-0 px-3 py-2 text-xs font-bold text-white border-l border-white/20 transition-colors disabled:opacity-50 ${useLightLayout
-                                            ? 'bg-slate-800 hover:bg-slate-900'
-                                            : 'bg-slate-700 hover:bg-slate-800'
-                                            }`}
-                                          title="Bloqueia só este horário neste dia (igual ao menu Bloquear horários)"
-                                        >
-                                          {blockBusy ? '…' : 'Bloquear'}
-                                        </button>
-                                      )
-                                    ) : null}
+                                        <>
+                                          <span className="font-extrabold text-[23px] leading-tight tracking-tight text-emerald-800">
+                                            {slot.time}
+                                          </span>
+                                          <span className="text-[12px] font-extrabold mt-0.5 text-emerald-800 uppercase">
+                                            HORARIO LIVRE
+                                          </span>
+                                          <span className="text-[10px] font-semibold mt-0.5 text-emerald-700/80">
+                                            Clique aqui
+                                          </span>
+                                        </>
+                                      )}
+                                    </div>
                                   </div>
                                   {/* Exibir encaixes abaixo do horário */}
                                   {squeezes.map((squeeze: Appointment) => {
@@ -7253,6 +7421,77 @@ export const AllProfessionalsAppointmentsView: React.FC<
           </div>
         </div>
 
+        {quickSlotActionModal && (
+          <div
+            className="fixed inset-0 z-[9998] bg-black/55 flex items-center justify-center p-4"
+            onClick={() => setQuickSlotActionModal(null)}
+          >
+            <div
+              className="w-full max-w-xs rounded-2xl border border-white/15 bg-[#111827] text-white overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-4 py-3 border-b border-white/10">
+                <p className="text-xs text-white/70">
+                  {quickSlotActionModal.professionalName} • {quickSlotActionModal.time}
+                </p>
+                <p className="text-sm font-bold mt-0.5">Escolha uma ação rápida</p>
+                {quickSlotActionModal.isPast && (
+                  <p className="text-[11px] text-amber-300 mt-1">
+                    Horário encerrado. Você ainda pode interagir por aqui.
+                  </p>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2 p-3">
+                <button
+                  type="button"
+                  disabled={!quickSlotActionModal.canReserve}
+                  onClick={() => {
+                    if (!quickSlotActionModal.canReserve) return;
+                    onOpenReserveFromSlot?.({
+                      professionalId: quickSlotActionModal.professionalId,
+                      dateKey: quickSlotActionModal.dateKey,
+                      time: quickSlotActionModal.time,
+                      maxDurationMinutes: quickSlotActionModal.maxReserveMinutes,
+                    });
+                    setQuickSlotActionModal(null);
+                  }}
+                  className="px-3 py-2 rounded-lg bg-yellow-500 hover:bg-yellow-400 disabled:bg-yellow-700/40 disabled:text-white/50 text-black text-xs font-extrabold uppercase tracking-wide transition-colors"
+                >
+                  Reservar
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    !quickSlotActionModal.canBlock ||
+                    slotBlockBusyKey === `${quickSlotActionModal.professionalId}__${quickSlotActionModal.time}`
+                  }
+                  onClick={async () => {
+                    if (!quickSlotActionModal.canBlock) return;
+                    await runToggleSlotBlock(
+                      quickSlotActionModal.professionalId,
+                      quickSlotActionModal.time,
+                      true
+                    );
+                    setQuickSlotActionModal(null);
+                  }}
+                  className="px-3 py-2 rounded-lg bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white text-xs font-extrabold uppercase tracking-wide transition-colors"
+                >
+                  Bloquear
+                </button>
+              </div>
+              <div className="px-3 pb-3">
+                <button
+                  type="button"
+                  onClick={() => setQuickSlotActionModal(null)}
+                  className="w-full px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs font-semibold"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Modal: Horários disponíveis (somente leitura) */}
         {showAvailabilityModal && (
           <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
@@ -7857,12 +8096,46 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 }
               }
               professionalPin={
-                professionalPins.find((pin) => pin.professional_id === selectedProfessionalForInfo)
-                  ?.pin
+                String(bypassFinancialPinForProfessionalId || '').trim() === String(selectedProfessionalForInfo || '').trim()
+                  ? undefined
+                  : professionalPins.find((pin) => pin.professional_id === selectedProfessionalForInfo)?.pin
               }
               establishmentId={establishment?.id}
               selectedMonth={selectedDate}
               {...calculateProfessionalValues(selectedProfessionalForInfo)}
+              onRefreshDormantClientsSource={onRefreshDormantClientsSource}
+              dormantClientsSource={(() => {
+                const selected = professionals.find((p) => String(p.id || '') === String(selectedProfessionalForInfo || ''));
+                const selectedIdKey = String(selectedProfessionalForInfo || '').trim();
+                const selectedNameKey = String(selected?.name || '').trim();
+                const normalizeToken = (value: unknown): string =>
+                  String(value || '')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .trim()
+                    .toLowerCase();
+                const selectedIdToken = normalizeToken(selectedIdKey);
+                const selectedNameToken = normalizeToken(selectedNameKey);
+                const listById = selectedIdKey ? (dormantClientsByProfessional[selectedIdKey] || []) : [];
+                const listByName = selectedNameKey ? (dormantClientsByProfessional[selectedNameKey] || []) : [];
+                const listByNormalizedKey = Object.entries(dormantClientsByProfessional).flatMap(([key, rows]) => {
+                  const keyToken = normalizeToken(key);
+                  if (!keyToken) return [];
+                  if (
+                    (selectedIdToken && keyToken === selectedIdToken) ||
+                    (selectedNameToken && keyToken === selectedNameToken)
+                  ) {
+                    return rows || [];
+                  }
+                  return [];
+                });
+                const merged = new Map<string, any>();
+                [...listById, ...listByName, ...listByNormalizedKey].forEach((item) => {
+                  const key = `${String(item?.whatsapp || '').trim()}|${String(item?.lastVisitDate || '').trim()}|${String(item?.name || '').trim()}`;
+                  if (!merged.has(key)) merged.set(key, item);
+                });
+                return Array.from(merged.values());
+              })()}
               onClose={() => setSelectedProfessionalForInfo(null)}
             />
           )}
