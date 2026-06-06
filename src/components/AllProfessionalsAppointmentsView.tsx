@@ -246,6 +246,8 @@ interface AllProfessionalsAppointmentsViewProps {
   onOpenObservationModal?: (appointmentId: string, currentObservation?: string) => void;
   onOpenAdditionalProductModal?: (appointmentId: string) => void;
   onOpenProductV2Modal?: (appointmentId: string) => void;
+  onProfessionalPhotoChange?: (professionalId: string, file: File | undefined) => Promise<void> | void;
+  onProfessionalPhotoRemove?: (professionalId: string) => Promise<void> | void;
   onGenerateNF?: (appointment: Appointment) => void;
   onOpenReminderModal?: (appointment: Appointment) => void;
   onOpenFinishEarlyModal?: (appointment: Appointment) => void;
@@ -317,6 +319,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onOpenObservationModal,
   onOpenAdditionalProductModal,
   onOpenProductV2Modal,
+  onProfessionalPhotoChange,
+  onProfessionalPhotoRemove,
   onGenerateNF,
   onOpenReminderModal,
   onOpenFinishEarlyModal,
@@ -427,6 +431,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
     );
     const [visibleProfessionalIds, setVisibleProfessionalIds] = useState<string[]>([]);
     const [selectedProfessionalForInfo, setSelectedProfessionalForInfo] = useState<string | null>(null);
+    const [selectedProfessionalForPhotoModal, setSelectedProfessionalForPhotoModal] = useState<string | null>(null);
+    const [isUpdatingProfessionalPhoto, setIsUpdatingProfessionalPhoto] = useState(false);
     const [showColorLegend, setShowColorLegend] = useState<'red' | 'yellow' | 'green' | null>(null);
     const [showReminderInfo, setShowReminderInfo] = useState(false);
     const [showPendingWarning, setShowPendingWarning] = useState(false);
@@ -4398,11 +4404,56 @@ export const AllProfessionalsAppointmentsView: React.FC<
         byService: cancelledInsightsByService,
       };
 
+      const isPlaceholderTopClientName = (name: string): boolean => {
+        const normalized = String(name || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toLowerCase();
+        if (!normalized) return true;
+        return (
+          normalized === 'cliente' ||
+          normalized === 'cliente sem nome' ||
+          normalized === 'cliente avulso' ||
+          normalized.startsWith('cliente avulso -') ||
+          normalized === 'encaixe' ||
+          normalized.includes('horario bloqueado') ||
+          normalized.includes('horario livre')
+        );
+      };
+
+      // Top cliente = quem mais RETORNOU no mês com o profissional
+      // (apenas atendimentos concluídos), ignorando placeholders.
+      const topClientBaseRowsRaw = mergedMonthAppointments.filter((apt) => {
+        const status = getAppointmentStatus(apt.status);
+        if (!appointmentBelongsToProfessionalColumn(apt, professionalRef)) return false;
+        if (status !== 'completed') return false;
+        if (Boolean((apt as any)?.is_avulso) || Boolean((apt as any)?.is_squeeze)) return false;
+        const clientName = String((apt as any)?.client_name || '').trim();
+        return !isPlaceholderTopClientName(clientName);
+      });
+
+      // Deduplicação defensiva para evitar contagem inflada quando a mesma visita
+      // aparece em fontes diferentes com id ausente em uma delas.
+      const topClientRowsMap = new Map<string, Appointment>();
+      topClientBaseRowsRaw.forEach((apt) => {
+        const date = String((apt as any)?.appointment_date || '').slice(0, 10);
+        const time = String((apt as any)?.appointment_time || '').slice(0, 5);
+        const clientId = String((apt as any)?.client_id || '').trim();
+        const whatsapp = String((apt as any)?.client_whatsapp || '').replace(/\D/g, '');
+        const clientName = String((apt as any)?.client_name || '').trim().toLowerCase();
+        const service = String((apt as any)?.service || '').trim().toLowerCase();
+        const signature = `${date}|${time}|${clientId || whatsapp || clientName}|${service}`;
+        topClientRowsMap.set(signature, apt);
+      });
+      const topClientBaseRows = Array.from(topClientRowsMap.values());
+
       const topClientRaw = Array.from(
-        monthlyCompletedAppointmentsForPro.reduce((acc, apt) => {
+        topClientBaseRows.reduce((acc, apt) => {
           const clientName = String((apt as any)?.client_name || '').trim() || 'Cliente sem nome';
           const clientId = String((apt as any)?.client_id || '').trim();
-          const key = clientId || clientName.toLowerCase();
+          const clientWhatsapp = String((apt as any)?.client_whatsapp || '').replace(/\D/g, '');
+          const key = clientId || clientWhatsapp || clientName.toLowerCase();
           const current = acc.get(key) || {
             name: clientName,
             count: 0,
@@ -6015,9 +6066,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                       <div className="flex flex-col items-center w-full">
                         <div className="w-full flex items-center gap-3">
                           <button
-                            onClick={() => setSelectedProfessionalForInfo(professional.id)}
+                            onClick={() => setSelectedProfessionalForPhotoModal(professional.id)}
                             className="group relative shrink-0"
-                            title="Abrir informações do profissional"
+                            title="Ver e alterar foto do profissional"
                           >
                             {professional.photo_url ? (
                               <img
@@ -7590,6 +7641,114 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 >
                   Fechar
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {selectedProfessionalForPhotoModal && (
+          <div
+            className="fixed inset-0 z-[9999] bg-black/65 flex items-center justify-center p-4"
+            onClick={() => {
+              if (isUpdatingProfessionalPhoto) return;
+              setSelectedProfessionalForPhotoModal(null);
+            }}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#111827] text-white overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-bold">Foto do profissional</p>
+                  <p className="text-xs text-white/70">
+                    {(professionals.find((p) => p.id === selectedProfessionalForPhotoModal)?.name) || 'Profissional'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isUpdatingProfessionalPhoto) return;
+                    setSelectedProfessionalForPhotoModal(null);
+                  }}
+                  className="h-8 w-8 rounded-lg bg-white/10 hover:bg-white/15 flex items-center justify-center"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="px-4 py-5 flex flex-col items-center">
+                <div className="w-36 h-36 rounded-full overflow-hidden border-4 border-white/20 bg-black mb-4">
+                  <img
+                    src={(professionals.find((p) => p.id === selectedProfessionalForPhotoModal) as any)?.photo_url || '/fotopessoa.png'}
+                    alt={(professionals.find((p) => p.id === selectedProfessionalForPhotoModal)?.name) || 'Profissional'}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.src = '/fotopessoa.png';
+                    }}
+                  />
+                </div>
+
+                <div className="w-full space-y-2">
+                  <input
+                    type="file"
+                    accept="image/*,image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,image/gif,image/bmp,image/jfif"
+                    id="professional-photo-inline-upload"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (!file || !selectedProfessionalForPhotoModal || !onProfessionalPhotoChange) return;
+                      try {
+                        setIsUpdatingProfessionalPhoto(true);
+                        await onProfessionalPhotoChange(selectedProfessionalForPhotoModal, file);
+                      } catch (error: any) {
+                        const msg = String(error?.message || '').trim() || 'Erro ao alterar foto do profissional.';
+                        toast.error(msg);
+                      } finally {
+                        setIsUpdatingProfessionalPhoto(false);
+                      }
+                    }}
+                    disabled={isUpdatingProfessionalPhoto}
+                  />
+                  <label
+                    htmlFor="professional-photo-inline-upload"
+                    className={`w-full px-3 py-2 rounded-lg text-sm font-semibold text-center cursor-pointer block transition-colors ${
+                      isUpdatingProfessionalPhoto
+                        ? 'bg-white/10 text-white/60 cursor-not-allowed'
+                        : 'bg-white text-gray-900 hover:bg-gray-100'
+                    }`}
+                  >
+                    {isUpdatingProfessionalPhoto ? 'Enviando...' : 'Alterar foto'}
+                  </label>
+
+                  {Boolean((professionals.find((p) => p.id === selectedProfessionalForPhotoModal) as any)?.photo_url) && (
+                    <button
+                      type="button"
+                      disabled={isUpdatingProfessionalPhoto || !onProfessionalPhotoRemove}
+                      onClick={async () => {
+                        if (!selectedProfessionalForPhotoModal || !onProfessionalPhotoRemove) return;
+                        try {
+                          setIsUpdatingProfessionalPhoto(true);
+                          await onProfessionalPhotoRemove(selectedProfessionalForPhotoModal);
+                        } catch (error: any) {
+                          const msg = String(error?.message || '').trim() || 'Erro ao remover foto do profissional.';
+                          toast.error(msg);
+                        } finally {
+                          setIsUpdatingProfessionalPhoto(false);
+                        }
+                      }}
+                      className={`w-full px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                        isUpdatingProfessionalPhoto
+                          ? 'bg-red-700/40 text-white/60 cursor-not-allowed'
+                          : 'bg-red-700 text-white hover:bg-red-800'
+                      }`}
+                    >
+                      Apagar foto
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>

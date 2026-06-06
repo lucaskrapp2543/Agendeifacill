@@ -26668,6 +26668,8 @@ Estamos te aguardando!`;
                         setAddProductSearchQuery('');
                         setShowAddProductToAppointmentModal(true);
                       }}
+                      onProfessionalPhotoChange={handleProfessionalPhotoChange}
+                      onProfessionalPhotoRemove={handleRemoveProfessionalPhoto}
                       onGenerateNF={handleGenerateNF as any}
                       onOpenReminderModal={handleOpenReminderModal as any}
                       onOpenFinishEarlyModal={handleOpenFinishEarlyModal as any}

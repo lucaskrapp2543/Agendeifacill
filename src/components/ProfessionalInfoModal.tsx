@@ -177,7 +177,6 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   metaGoalReached = false,
   metaServiceCount = 0,
   serviceInsights = [],
-  topClientInsight = null,
   financialAppointments = [],
   dormantClientsSource,
   onRefreshDormantClientsSource,
@@ -192,7 +191,6 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   const [showPerformanceInsights, setShowPerformanceInsights] = useState(false);
   const [showServiceInsights, setShowServiceInsights] = useState(true);
   const [showCancelledInsights, setShowCancelledInsights] = useState(true);
-  const [showTopClientInsight, setShowTopClientInsight] = useState(true);
   const [showDormantClients, setShowDormantClients] = useState(false);
   const [cancelStartDate, setCancelStartDate] = useState(() => {
     const base = selectedMonth || new Date();
@@ -1565,39 +1563,6 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                   </div>
                 ) : (
                   <p className="text-sm text-gray-600">Sem cancelamentos no período.</p>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* Top cliente do profissional */}
-          <div className="bg-gradient-to-r from-amber-50 to-yellow-50 p-3 sm:p-5 rounded-xl border-2 border-amber-200">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <h3 className="text-base sm:text-lg font-semibold text-amber-900">Top cliente do mês</h3>
-              <button
-                type="button"
-                onClick={() => setShowTopClientInsight((prev) => !prev)}
-                className="px-3 py-1.5 rounded-lg bg-white/90 text-amber-700 text-xs font-semibold border border-amber-200 hover:bg-white"
-              >
-                {showTopClientInsight ? 'Ocultar' : 'Mostrar'}
-              </button>
-            </div>
-            {showTopClientInsight && (
-              <>
-                {topClientInsight ? (
-                  <div className="rounded-lg border border-amber-200 bg-white p-3 sm:p-4">
-                    <p className="text-sm font-bold text-amber-700">🏆 Cliente fiel</p>
-                    <p className="text-base sm:text-lg font-extrabold text-gray-900 mt-1">{topClientInsight.name}</p>
-                    <p className="text-sm text-gray-700 mt-1">{topClientInsight.count} atendimento(s) no mês</p>
-                    <p className="text-sm text-gray-700">
-                      Gastou: <strong>{showValues ? formatCurrency(topClientInsight.gross) : '••••••'}</strong>
-                    </p>
-                    <p className="text-xs text-gray-600 mt-1">
-                      Último atendimento: {formatDateOnly(topClientInsight.lastAppointmentDate)}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-600">Nenhum cliente com mais de 1 atendimento no mês.</p>
                 )}
               </>
             )}
