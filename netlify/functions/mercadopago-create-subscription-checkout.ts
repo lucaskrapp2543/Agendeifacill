@@ -32,6 +32,7 @@ async function upsertPendingClientSubscription(input: {
   establishmentId: string;
   subscriptionId: string;
   preapprovalId: string;
+  recurringProvider: 'mercadopago_card_recurring' | 'mercadopago_card_recurring_pending';
   customerName: string;
   customerWhatsapp: string;
   customerEmail: string | null;
@@ -74,7 +75,7 @@ async function upsertPendingClientSubscription(input: {
     subscriber_whatsapp: phone,
     subscriber_email: input.customerEmail,
     subscriber_payment_method: 'credito',
-    subscription_payment_provider: 'mercadopago_card_recurring',
+    subscription_payment_provider: input.recurringProvider,
     subscription_payment_order_id: input.preapprovalId,
   };
 
@@ -161,6 +162,7 @@ export const handler: Handler = async (event) => {
     const customerName = String(body?.customer?.name || payerName || '').trim();
     const customerWhatsapp = onlyDigits(String(body?.customer?.whatsapp || body?.customer?.phone || ''));
     const customerEmail = String(body?.customer?.email || payerEmail || '').trim() || null;
+    const existingClientSubscriptionId = String(body?.existingClientSubscriptionId || '').trim();
     const firstPaymentAlreadyCaptured =
       body?.first_payment_already_captured === true ||
       body?.firstPaymentAlreadyCaptured === true;
@@ -267,13 +269,70 @@ export const handler: Handler = async (event) => {
       return json(500, { error: 'Mercado Pago não retornou init_point' });
     }
 
+    const preapprovalId = String(preapproval?.id || '').trim();
+    const preapprovalStatus = String(preapproval?.status || '').toLowerCase().trim();
+    const isRecurringActive =
+      preapprovalStatus === 'authorized' ||
+      preapprovalStatus === 'approved' ||
+      preapprovalStatus === 'active' ||
+      preapprovalStatus === 'paid';
+    const recurringProvider: 'mercadopago_card_recurring' | 'mercadopago_card_recurring_pending' =
+      isRecurringActive ? 'mercadopago_card_recurring' : 'mercadopago_card_recurring_pending';
     let pendingSubscriber: any = null;
-    if (cardTokenId) {
+    let boundExistingSubscription: any = null;
+
+    if (existingClientSubscriptionId) {
+      const { data: existingRow, error: existingRowError } = await supabaseAdmin
+        .from('client_subscriptions')
+        .select('id, payment_status')
+        .eq('id', existingClientSubscriptionId)
+        .eq('establishment_id', establishmentId)
+        .maybeSingle();
+
+      if (existingRowError || !existingRow?.id) {
+        return json(404, {
+          error: 'Assinante não encontrado para vincular recorrência',
+          preapproval_id: preapprovalId,
+        });
+      }
+
+      const currentStatus = String((existingRow as any)?.payment_status || '').toLowerCase();
+      const updatePayload: any = {
+        subscription_payment_provider: recurringProvider,
+        subscription_payment_order_id: preapprovalId,
+        subscriber_payment_method: 'credito',
+      };
+      if (customerName) updatePayload.subscriber_name = customerName;
+      if (customerEmail) updatePayload.subscriber_email = customerEmail;
+      if (customerWhatsapp) updatePayload.subscriber_whatsapp = customerWhatsapp;
+      if (currentStatus !== 'paid') {
+        updatePayload.payment_status = 'unpaid';
+      }
+
+      const { data: updatedBound, error: updateBoundError } = await supabaseAdmin
+        .from('client_subscriptions')
+        .update(updatePayload)
+        .eq('id', existingClientSubscriptionId)
+        .eq('establishment_id', establishmentId)
+        .select('id, payment_status, subscription_payment_provider, subscription_payment_order_id')
+        .maybeSingle();
+
+      if (updateBoundError) {
+        return json(500, {
+          error: 'Recorrência criada no Mercado Pago, mas falhou ao vincular ao assinante existente',
+          details: updateBoundError?.message || updateBoundError,
+          preapproval_id: preapprovalId,
+          subscription_status: String(preapproval?.status || 'pending'),
+        });
+      }
+      boundExistingSubscription = updatedBound || null;
+    } else if (cardTokenId) {
       try {
         pendingSubscriber = await upsertPendingClientSubscription({
           establishmentId,
           subscriptionId,
-          preapprovalId: String(preapproval?.id || ''),
+          preapprovalId,
+          recurringProvider,
           customerName,
           customerWhatsapp,
           customerEmail,
@@ -283,14 +342,14 @@ export const handler: Handler = async (event) => {
         return json(500, {
           error: 'Recorrência criada no Mercado Pago, mas falhou ao criar o assinante como Não Pago no sistema',
           details: pendingError?.message || pendingError,
-          preapproval_id: String(preapproval?.id || ''),
+          preapproval_id: preapprovalId,
           subscription_status: String(preapproval?.status || 'pending'),
         });
       }
     }
 
     return json(200, {
-      preapproval_id: String(preapproval?.id || ''),
+      preapproval_id: preapprovalId,
       init_point: initPoint,
       sandbox_init_point: String(preapproval?.sandbox_init_point || ''),
       external_reference: externalReference,
@@ -304,6 +363,7 @@ export const handler: Handler = async (event) => {
       application_fee_applied: false,
       pending_subscriber_created: Boolean(pendingSubscriber?.id),
       pending_subscriber_id: pendingSubscriber?.id || null,
+      bound_existing_subscription_id: boundExistingSubscription?.id || null,
     });
   } catch (error: any) {
     const message =

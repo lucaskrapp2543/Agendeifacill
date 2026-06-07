@@ -691,14 +691,16 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   // Elegível para "reativar recorrência":
   // - já pagou a mensalidade
-  // - fluxo foi cartão Mercado Pago sem recorrência oficial
+  // - fluxo foi cartão Mercado Pago sem recorrência ativa
   // - plano mensal
   const isRecurringActivationCandidate = (clientSubscription: ClientSubscription): boolean => {
     const paymentStatus = String(clientSubscription?.payment_status || '').toLowerCase().trim();
     if (paymentStatus !== 'paid') return false;
 
     const provider = String((clientSubscription as any)?.subscription_payment_provider || '').toLowerCase().trim();
-    if (provider !== 'mercadopago_card') return false;
+    const isPendingProvider =
+      provider === 'mercadopago_card' || provider === 'mercadopago_card_recurring_pending';
+    if (!isPendingProvider) return false;
 
     const method = String((clientSubscription as any)?.subscriber_payment_method || '').toLowerCase().trim();
     if (method && method !== 'credito' && method !== 'credit_card') return false;
@@ -762,6 +764,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         body: JSON.stringify({
           establishmentId: String(establishmentId),
           subscriptionId: String(clientSubscription.subscription_id || ''),
+          existingClientSubscriptionId: clientId,
           payer: {
             email: subscriberEmail,
             name: subscriberName,
@@ -791,6 +794,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       }
 
       setRecurringActivationLinkByClientId((prev) => ({ ...prev, [clientId]: link }));
+      await fetchClientSubscriptions();
+      if (onClientUpdated) onClientUpdated();
       toast.success('Link de ativação da recorrência gerado com sucesso.');
       return link;
     } catch (error: any) {

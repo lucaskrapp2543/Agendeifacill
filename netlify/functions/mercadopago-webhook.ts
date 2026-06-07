@@ -460,11 +460,29 @@ export const handler: Handler = async (event) => {
 
       const preapproval = preapprovalResp.data || {};
       const status = String(preapproval?.status || '').toLowerCase().trim();
+      const preapprovalProviderStatus =
+        status === 'authorized' || status === 'approved' || status === 'active' || status === 'paid'
+          ? 'mercadopago_card_recurring'
+          : 'mercadopago_card_recurring_pending';
+      const linkedIds = (rows || []).map((r: any) => String(r?.id || '')).filter(Boolean);
+      if (linkedIds.length > 0) {
+        const { error: preapprovalBindError } = await supabaseAdmin
+          .from('client_subscriptions')
+          .update({
+            subscription_payment_provider: preapprovalProviderStatus,
+            updated_at: new Date().toISOString(),
+          } as any)
+          .in('id', linkedIds);
+        if (preapprovalBindError) {
+          console.error('❌ [MP Webhook] Erro ao atualizar vínculo de recorrência pelo preapproval:', preapprovalBindError);
+        }
+      }
 
       return json(200, {
-        message: 'Webhook preapproval recebido; aguardando webhook de pagamento aprovado para liberar assinatura',
+        message: 'Webhook preapproval recebido e vínculo de recorrência atualizado',
         preapprovalId,
         status,
+        providerApplied: preapprovalProviderStatus,
         linkedSubscribers: rows.length,
       });
     } else if (webhookData.type === 'payment') {
