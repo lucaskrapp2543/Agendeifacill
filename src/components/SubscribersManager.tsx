@@ -1,6 +1,6 @@
 import { addMonths, endOfMonth, format, isPast, parse, parseISO, startOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronDown, ChevronUp, Edit, Eye, EyeOff, History, Plus, Trash2, Users, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Edit, Eye, EyeOff, History, Link2, Plus, Send, Trash2, Users, X } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -390,6 +390,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [showLiquidoAtivoBreakdown, setShowLiquidoAtivoBreakdown] = useState(false);
   const [showTotalAtivosBreakdown, setShowTotalAtivosBreakdown] = useState(false);
   const [showNaoPagosBreakdown, setShowNaoPagosBreakdown] = useState(false);
+  const [isCreatingRecurringLinkByClientId, setIsCreatingRecurringLinkByClientId] = useState<Record<string, boolean>>({});
+  const [recurringActivationLinkByClientId, setRecurringActivationLinkByClientId] = useState<Record<string, string>>({});
 
   const normalizeNameKey = (value: string): string =>
     String(value || '')
@@ -664,6 +666,160 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
     openWhatsAppWithBusinessPriority(whatsappNumber, message);
     void incrementBillingReminderCount(clientSubscription);
+  };
+
+  const getSubscriberDisplayName = (clientSubscription: ClientSubscription): string => {
+    return String(
+      (clientSubscription as any)?.subscriber_name ||
+      clientSubscription?.profiles?.full_name ||
+      'Cliente'
+    ).trim() || 'Cliente';
+  };
+
+  const getSubscriberEmailForRecurring = (clientSubscription: ClientSubscription): string => {
+    return String(
+      (clientSubscription as any)?.subscriber_email ||
+      clientSubscription?.profiles?.email ||
+      ''
+    ).trim().toLowerCase();
+  };
+
+  const isMonthlySubscriptionPlan = (clientSubscription: ClientSubscription): boolean => {
+    const months = Number((clientSubscription as any)?.subscriptions?.duration_months || 1);
+    return Number.isFinite(months) && months === 1;
+  };
+
+  // Elegível para "reativar recorrência":
+  // - já pagou a mensalidade
+  // - fluxo foi cartão Mercado Pago sem recorrência oficial
+  // - plano mensal
+  const isRecurringActivationCandidate = (clientSubscription: ClientSubscription): boolean => {
+    const paymentStatus = String(clientSubscription?.payment_status || '').toLowerCase().trim();
+    if (paymentStatus !== 'paid') return false;
+
+    const provider = String((clientSubscription as any)?.subscription_payment_provider || '').toLowerCase().trim();
+    if (provider !== 'mercadopago_card') return false;
+
+    const method = String((clientSubscription as any)?.subscriber_payment_method || '').toLowerCase().trim();
+    if (method && method !== 'credito' && method !== 'credit_card') return false;
+
+    return isMonthlySubscriptionPlan(clientSubscription);
+  };
+
+  const recurringActivationCandidates = useMemo(() => {
+    return clientSubscriptions
+      .filter((cs) => isRecurringActivationCandidate(cs))
+      .sort((a, b) => {
+        const aTs = new Date(String((a as any)?.last_payment_date || (a as any)?.updated_at || (a as any)?.created_at || '')).getTime() || 0;
+        const bTs = new Date(String((b as any)?.last_payment_date || (b as any)?.updated_at || (b as any)?.created_at || '')).getTime() || 0;
+        return bTs - aTs;
+      });
+  }, [clientSubscriptions]);
+
+  const createRecurringActivationLink = async (clientSubscription: ClientSubscription): Promise<string | null> => {
+    if (!establishmentId) {
+      toast.error('Estabelecimento inválido para gerar o link.');
+      return null;
+    }
+    if (!isRecurringActivationCandidate(clientSubscription)) {
+      toast.error('Esse assinante não está elegível para ativação de recorrência.');
+      return null;
+    }
+
+    const clientId = String(clientSubscription.id || '').trim();
+    if (!clientId) {
+      toast.error('Assinante inválido.');
+      return null;
+    }
+
+    const subscriberEmail = getSubscriberEmailForRecurring(clientSubscription);
+    if (!subscriberEmail) {
+      toast.error('Esse assinante está sem e-mail. Edite o assinante e preencha o e-mail para ativar recorrência.');
+      return null;
+    }
+
+    const subscriberName = getSubscriberDisplayName(clientSubscription);
+    const subscriberWhatsapp = String(
+      (clientSubscription as any)?.subscriber_whatsapp ||
+      clientSubscription?.client_whatsapp ||
+      ''
+    ).trim();
+    const whatsappDigits = subscriberWhatsapp.replace(/\D/g, '');
+    if (!whatsappDigits) {
+      toast.error('Esse assinante está sem WhatsApp válido para ativação de recorrência.');
+      return null;
+    }
+
+    const endpoint = import.meta.env.PROD
+      ? '/.netlify/functions/mercadopago-create-subscription-checkout'
+      : '/api/mercadopago/create-subscription-checkout';
+
+    setIsCreatingRecurringLinkByClientId((prev) => ({ ...prev, [clientId]: true }));
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          establishmentId: String(establishmentId),
+          subscriptionId: String(clientSubscription.subscription_id || ''),
+          payer: {
+            email: subscriberEmail,
+            name: subscriberName,
+          },
+          customer: {
+            name: subscriberName,
+            whatsapp: whatsappDigits,
+            email: subscriberEmail,
+          },
+          first_payment_already_captured: true,
+          backUrl:
+            typeof window !== 'undefined' && /^https:\/\//i.test(window.location.href)
+              ? window.location.href
+              : undefined,
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const msg = String((payload as any)?.userMessage || (payload as any)?.error || `Erro ${response.status}`).trim();
+        throw new Error(msg || 'Não foi possível gerar o link de recorrência.');
+      }
+
+      const link = String((payload as any)?.init_point || (payload as any)?.sandbox_init_point || '').trim();
+      if (!link) {
+        throw new Error('Mercado Pago não retornou o link de ativação da recorrência.');
+      }
+
+      setRecurringActivationLinkByClientId((prev) => ({ ...prev, [clientId]: link }));
+      toast.success('Link de ativação da recorrência gerado com sucesso.');
+      return link;
+    } catch (error: any) {
+      toast.error(String(error?.message || 'Erro ao gerar link de recorrência.'));
+      return null;
+    } finally {
+      setIsCreatingRecurringLinkByClientId((prev) => ({ ...prev, [clientId]: false }));
+    }
+  };
+
+  const handleSendRecurringActivationOnWhatsApp = async (clientSubscription: ClientSubscription) => {
+    const whatsappNumber = getSubscriberWhatsappForLink(clientSubscription as any);
+    if (!whatsappNumber) {
+      toast.error('Esse assinante não possui WhatsApp válido para envio.');
+      return;
+    }
+
+    const clientId = String(clientSubscription.id || '').trim();
+    const existingLink = String(recurringActivationLinkByClientId[clientId] || '').trim();
+    const activationLink = existingLink || (await createRecurringActivationLink(clientSubscription));
+    if (!activationLink) return;
+
+    const planName = getSubscriberPlanName(clientSubscription as any);
+    const message =
+      `Olá! Seu pagamento da assinatura (${planName}) já foi aprovado.\n\n` +
+      `Para ativar a renovação automática mensal, finalize neste link:\n${activationLink}\n\n` +
+      `Importante: isso NÃO cobra em dobro agora; serve para automatizar as próximas mensalidades.`;
+
+    openWhatsAppWithBusinessPriority(whatsappNumber, message);
   };
 
   const createEmptyDividedService = (): DividedSubscriptionService => ({
@@ -5615,6 +5771,93 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             </p>
           )}
         </div>
+        {recurringActivationCandidates.length > 0 && (
+          <div className="mb-4 sm:mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 sm:p-4">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <h3 className="text-sm sm:text-base font-bold text-amber-200">
+                  Ativação de recorrência pendente (Mercado Pago)
+                </h3>
+                <p className="text-xs sm:text-sm text-amber-100/90 mt-1">
+                  Clientes que já pagaram no cartão, mas ainda não ativaram renovação automática.
+                </p>
+              </div>
+              <span className="px-2 py-1 rounded-full bg-amber-400/20 border border-amber-300/40 text-amber-100 text-xs font-bold">
+                {recurringActivationCandidates.length}
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {recurringActivationCandidates.map((cs) => {
+                const id = String(cs.id || '');
+                const generatedLink = String(recurringActivationLinkByClientId[id] || '').trim();
+                const isGeneratingLink = Boolean(isCreatingRecurringLinkByClientId[id]);
+
+                return (
+                  <div
+                    key={`pending-recurring-${id}`}
+                    className="rounded-lg border border-amber-300/30 bg-black/20 p-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-bold text-white">
+                          {getSubscriberDisplayName(cs)}
+                        </p>
+                        <p className="text-xs text-gray-200">
+                          Plano: {getSubscriberPlanName(cs as any)} • Último pagamento: {formatIsoDateSafe((cs as any)?.last_payment_date || (cs as any)?.start_date)}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { void createRecurringActivationLink(cs); }}
+                          disabled={isGeneratingLink}
+                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                            isGeneratingLink
+                              ? 'bg-amber-200/20 text-amber-100/70 cursor-not-allowed'
+                              : 'bg-amber-500 text-black hover:bg-amber-400'
+                          }`}
+                        >
+                          <Link2 className="h-3 w-3" />
+                          {isGeneratingLink ? 'Gerando...' : generatedLink ? 'Regenerar link' : 'Gerar link'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { void handleSendRecurringActivationOnWhatsApp(cs); }}
+                          disabled={isGeneratingLink}
+                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                            isGeneratingLink
+                              ? 'bg-emerald-200/20 text-emerald-100/70 cursor-not-allowed'
+                              : 'bg-emerald-600 text-white hover:bg-emerald-500'
+                          }`}
+                        >
+                          <Send className="h-3 w-3" />
+                          Enviar no WhatsApp
+                        </button>
+                        {generatedLink && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(generatedLink);
+                                toast.success('Link copiado!');
+                              } catch {
+                                toast.error('Não foi possível copiar automaticamente.');
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/10 text-white hover:bg-white/20 transition-colors"
+                          >
+                            Copiar link
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {clientSubscriptions.length === 0 ? (
           <p className="text-gray-400 text-center">Nenhum assinante cadastrado ainda.</p>
         ) : filteredClientSubscriptions.length === 0 ? (
