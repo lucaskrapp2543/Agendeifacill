@@ -293,7 +293,7 @@ const Login = () => {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6" onClick={(e) => e.stopPropagation()}>
+        <form onSubmit={handleSubmit} className="space-y-5" onClick={(e) => e.stopPropagation()}>
           {/* Botões lado a lado */}
           <div className="flex flex-row gap-2 sm:gap-3">
             <button
@@ -449,30 +449,27 @@ const Login = () => {
           )}
         </form>
 
-        <div className="text-center mt-4 space-y-3">
+        <div className="mt-8 pt-2 space-y-3">
+          <button
+            type="button"
+            onClick={handleUpdateSystem}
+            disabled={isLoading}
+            className="w-full px-4 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors font-semibold text-sm flex justify-center items-center gap-2 disabled:opacity-50 border border-red-500/40"
+          >
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {isLoading ? 'Limpando...' : 'Limpar Tudo (neste aparelho)'}
+          </button>
+
           <Link
             to="/app"
             onClick={(e) => e.stopPropagation()}
-            className="group flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-300/60 bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 px-4 py-3 text-sm font-black text-white shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.01] hover:from-emerald-400 hover:to-teal-400"
+            className="group flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-300/60 bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.01] hover:from-emerald-400 hover:to-teal-400"
           >
-            <Download className="h-5 w-5 transition-transform group-hover:-translate-y-0.5" />
+            <Download className="h-5 w-5 shrink-0 transition-transform group-hover:-translate-y-0.5" />
             Baixar App
           </Link>
-
-          {/* Botão de Emergência - Limpeza Completa */}
-          <div className="p-3 bg-red-900/30 border border-red-500/50 rounded-lg">
-            <button
-              type="button"
-              onClick={handleUpdateSystem}
-              disabled={isLoading}
-              className="w-full px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium text-sm flex justify-center items-center gap-2 disabled:opacity-50"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              {isLoading ? 'Limpando...' : 'Limpar Tudo (neste aparelho)'}
-            </button>
-          </div>
         </div>
 
       </div>

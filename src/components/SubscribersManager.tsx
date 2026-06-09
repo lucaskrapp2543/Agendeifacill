@@ -4,9 +4,12 @@ import { ChevronDown, ChevronUp, Edit, Eye, EyeOff, History, Link2, Plus, Send, 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
+  buildSubscriberAttendanceSnapshotFields,
   createIndependentSubscriber,
   getEstablishmentSubscribers,
-  removeSubscriber
+  insertSubscriberAttendance,
+  isArchivedSubscriber,
+  removeSubscriber,
 } from '../lib/subscriberSystem';
 import { createSubscription, deleteSubscription, getClientSubscriptions, getSubscriptions, supabase } from '../lib/supabase'; // Adicionar esta importação
 import { Database } from '../types/supabase';
@@ -983,17 +986,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return !cfg.divide && !(cfg.fixed > 0);
   };
 
-  const clientNameBySubIdMap = useMemo(() => {
-    const m = new Map<string, string>();
-    (clientSubscriptions || []).forEach((cs: any) => {
-      const id = String(cs?.id || '');
-      if (!id) return;
-      const name = String(cs?.profiles?.full_name || cs?.client_name || 'Cliente').trim() || 'Cliente';
-      m.set(id, name);
-    });
-    return m;
-  }, [clientSubscriptions]);
-
   const getAttendanceEffectiveRepass = (attendance: any): number => {
     const clientSubId = String(attendance?.client_subscription_id || '').trim();
     // Modo pontos: não soma valor financeiro no controle (mesmo se registro antigo tiver repasse cheio por bug).
@@ -1037,6 +1029,22 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [professionalPayments, setProfessionalPayments] = useState<any[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedProfessionalForHistory, setSelectedProfessionalForHistory] = useState<string>('');
+
+  const clientNameBySubIdMap = useMemo(() => {
+    const m = new Map<string, string>();
+    (clientSubscriptions || []).forEach((cs: any) => {
+      const id = String(cs?.id || '');
+      if (!id) return;
+      const name = String(cs?.profiles?.full_name || cs?.client_name || cs?.subscriber_name || 'Cliente').trim() || 'Cliente';
+      m.set(id, name);
+    });
+    (subscriberAttendances || []).forEach((attendance: any) => {
+      const id = String(attendance?.client_subscription_id || '').trim();
+      const snapshot = String(attendance?.client_name_snapshot || '').trim();
+      if (id && snapshot) m.set(id, snapshot);
+    });
+    return m;
+  }, [clientSubscriptions, subscriberAttendances]);
 
   const isOwnerProfessionalByName = (professionalNameRaw: string): boolean => {
     const key = normalizeNameKey(professionalNameRaw);
@@ -2360,15 +2368,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         repassValueToSave = Math.round((repassValueToSave / divideCount) * 100) / 100;
       }
 
-      const { error } = await supabase
-        .from('subscriber_attendances')
-        .insert({
+      const { error } = await insertSubscriberAttendance({
           establishment_id: establishmentId,
           client_subscription_id: selectedClientForAttendance.id,
           professional_name: attendanceProfessionalToSave,
           attendance_date: attendanceDateToSave,
           repass_value: repassValueToSave,
-          created_by: user?.id
+          created_by: user?.id,
+          ...buildSubscriberAttendanceSnapshotFields(selectedClientForAttendance),
         });
 
       if (error) {
@@ -3142,7 +3149,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           throw error;
         }
 
-        toast('Assinante removido com sucesso!', 'success');
+        toast('Assinante removido. O histórico dos meses anteriores foi preservado.', 'success');
         fetchClientSubscriptions();
       } catch (error: any) {
         console.error('Erro ao remover assinante:', error);
@@ -4053,11 +4060,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   // Contar assinantes não pagos (ativos e vencidos)
   const assinantesNaoPagos = clientSubscriptions.filter(cs => {
+    if (isArchivedSubscriber(cs)) return false;
     return cs.payment_status === 'unpaid'; // Todos os não pagos, independente da data
   }).length;
 
   // Filtrar assinantes pela pesquisa
   const filteredClientSubscriptions = clientSubscriptions.filter(cs => {
+    if (isArchivedSubscriber(cs)) return false;
     if (!searchTerm.trim()) return true;
 
     const searchLower = searchTerm.toLowerCase();
@@ -4533,9 +4542,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     acc[professional].attendanceCount += 1;
 
                     const clientSubId = String(attendance.client_subscription_id || '');
-                    if (clientSubId) {
-                      acc[professional].uniqueClientIds.add(clientSubId);
-                      if (isClientSubscriptionPointsMode(clientSubId)) {
+                    const snapshotName = String(attendance.client_name_snapshot || '').trim();
+                    const clientKey = clientSubId || (snapshotName ? `snap:${snapshotName}` : '');
+                    if (clientKey) {
+                      acc[professional].uniqueClientIds.add(clientKey);
+                      if (clientSubId && isClientSubscriptionPointsMode(clientSubId)) {
                         acc[professional].pointsFromAttendances += 1;
                       }
                     }
@@ -4569,6 +4580,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 const saleCommissionCount = (info as any)?.saleCommissionCount || 0;
                 const clientIdsForLabels = Array.from((info as any)?.uniqueClientIds || []) as string[];
                 const clientRowsForList = clientIdsForLabels.map((cid) => {
+                  if (cid.startsWith('snap:')) {
+                    return { cid, label: cid.slice(5) };
+                  }
                   const name = clientNameBySubIdMap.get(cid) || 'Cliente';
                   if (!isClientSubscriptionPointsMode(cid)) return { cid, label: name };
                   const cs = (clientSubscriptions || []).find((c: any) => String(c?.id) === String(cid));

@@ -3,6 +3,7 @@ import { Calendar, CheckCircle2, ChevronLeft, ChevronRight, Clock, Coins, Crown,
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { buildSubscriberAttendanceSnapshotFields, insertSubscriberAttendance } from '../lib/subscriberSystem';
 import { CANCELLATION_SOURCE, describeCancellationSourcePt } from '../utils/appointmentCancellationMeta';
 import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
 import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
@@ -1871,12 +1872,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
           professional_name: professionalName,
           attendance_date: attendanceDate,
           repass_value: repassValue,
+          client_name_snapshot: context.subscriberName || 'Cliente',
+          subscription_name_snapshot: String(context.subscription?.name || 'Plano').trim() || 'Plano',
         };
         if (user?.id) payload.created_by = user.id;
 
-        const { error: insertError } = await (supabase as any)
-          .from('subscriber_attendances')
-          .insert(payload);
+        const { error: insertError } = await insertSubscriberAttendance(payload);
         if (insertError) throw insertError;
 
         await writeAutoSubscriberLog(
@@ -2120,12 +2121,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
           professional_name: professionalName,
           attendance_date: attendanceDateStr,
           repass_value: repassValue,
+          ...buildSubscriberAttendanceSnapshotFields({
+            subscriber_name: selectedSub?.display_name,
+            subscriptions: { name: selectedSub?.plan_name },
+          }),
         };
         if (user?.id) payload.created_by = user.id;
 
-        const { error: insErr } = await (supabase as any)
-          .from('subscriber_attendances')
-          .insert(payload);
+        const { error: insErr } = await insertSubscriberAttendance(payload);
         if (insErr) throw insErr;
 
         const subscriberPointsModeSuccess = !divideEnabled && !(Number(configuredFixed) > 0);
@@ -7221,22 +7224,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               </button>
                                             </div>
                                           </div>
-
-                                          {/* Botões secundários */}
-                                          {!shouldAutoRegisterSubscriberAttendance(apt) && (
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                void logAppointmentCardActionClick(apt, 'atendimento_assinatura_click', 'Clique em Atendimento assinatura.');
-                                                handleOpenSubscriberAttendanceModal(apt);
-                                              }}
-                                              data-tutorial-id="appointments-detalhes-assinatura"
-                                              className="w-full px-2 py-1.5 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700 font-extrabold"
-                                              title="Selecionar um assinante e registrar 1 atendimento concluído"
-                                            >
-                                              ✅ Atendimento assinatura
-                                            </button>
-                                          )}
 
                                           <button
                                             onClick={(e) => {

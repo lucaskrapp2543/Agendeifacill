@@ -348,15 +348,117 @@ export const updateSubscriberPaymentStatus = async (
 
 /**
  * Remover assinante
+ * Se houver histórico de atendimentos, arquiva em vez de apagar (preserva meses anteriores).
  */
+export const getSubscriberDisplayName = (subscriber: any): string => {
+  return (
+    String(
+      subscriber?.client_name_override ||
+        subscriber?.subscriber_name ||
+        subscriber?.profiles?.full_name ||
+        subscriber?.name ||
+        ''
+    ).trim() || 'Cliente'
+  );
+};
+
+export const getSubscriberPlanName = (subscriber: any): string => {
+  return String(subscriber?.subscriptions?.name || subscriber?.subscription_name || 'Plano').trim() || 'Plano';
+};
+
+export const buildSubscriberAttendanceSnapshotFields = (subscriber: any) => ({
+  client_name_snapshot: getSubscriberDisplayName(subscriber),
+  subscription_name_snapshot: getSubscriberPlanName(subscriber),
+});
+
+export function isMissingSubscriberSnapshotColumnsError(error: unknown): boolean {
+  const msg = String((error as any)?.message || '').toLowerCase();
+  return (
+    msg.includes('client_name_snapshot') ||
+    msg.includes('subscription_name_snapshot') ||
+    (msg.includes('schema cache') && msg.includes('subscriber_attendances'))
+  );
+}
+
+/** Insert compatível: tenta com snapshot; se coluna ainda não existir no banco, grava só campos legados. */
+export async function insertSubscriberAttendance(payload: Record<string, unknown>) {
+  const legacyPayload = { ...payload };
+  delete legacyPayload.client_name_snapshot;
+  delete legacyPayload.subscription_name_snapshot;
+
+  const { error: fullError } = await supabase.from('subscriber_attendances').insert(payload as any);
+  if (!fullError) return { error: null as any };
+
+  if (isMissingSubscriberSnapshotColumnsError(fullError)) {
+    const { error: legacyError } = await supabase.from('subscriber_attendances').insert(legacyPayload as any);
+    return { error: legacyError };
+  }
+
+  return { error: fullError };
+}
+
+export const isArchivedSubscriber = (subscriber: any): boolean =>
+  Boolean(String(subscriber?.archived_at || '').trim());
+
 export const removeSubscriber = async (subscriberId: string) => {
   try {
-    console.log('🗑️ Removendo assinante:', subscriberId);
+    console.log('🗑️ Removendo/arquivando assinante:', subscriberId);
 
-    const { error } = await supabase
-      .from('client_subscriptions')
-      .delete()
-      .eq('id', subscriberId);
+    const { count, error: countError } = await supabase
+      .from('subscriber_attendances')
+      .select('id', { count: 'exact', head: true })
+      .eq('client_subscription_id', subscriberId);
+
+    if (countError) {
+      console.warn('⚠️ Não foi possível verificar histórico de atendimentos:', countError.message);
+    }
+
+    const hasAttendanceHistory = Number(count || 0) > 0;
+    const todayIso = new Date().toISOString().split('T')[0];
+
+    if (hasAttendanceHistory) {
+      const { data: existing, error: fetchError } = await supabase
+        .from('client_subscriptions')
+        .select('id, end_date, subscriber_name, subscriptions(name)')
+        .eq('id', subscriberId)
+        .maybeSingle();
+
+      if (fetchError) throw fetchError;
+
+      const currentEndDate = String((existing as any)?.end_date || '').trim().slice(0, 10);
+      const archivePayload: Record<string, unknown> = {
+        archived_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      if (!currentEndDate || currentEndDate > todayIso) {
+        archivePayload.end_date = todayIso;
+      }
+
+      const { error: archiveError } = await supabase
+        .from('client_subscriptions')
+        .update(archivePayload)
+        .eq('id', subscriberId);
+
+      if (archiveError) {
+        const msg = String(archiveError.message || '').toLowerCase();
+        if (msg.includes('archived_at')) {
+          const { end_date, updated_at } = archivePayload;
+          const { error: legacyArchiveError } = await supabase
+            .from('client_subscriptions')
+            .update({ end_date, updated_at })
+            .eq('id', subscriberId);
+          if (legacyArchiveError) throw legacyArchiveError;
+        } else {
+          throw archiveError;
+        }
+      }
+
+      console.log('✅ Assinante arquivado (histórico preservado)');
+      return { data: { archived: true }, error: null };
+    }
+
+    const { error } = await supabase.from('client_subscriptions').delete().eq('id', subscriberId);
 
     if (error) {
       console.error('❌ Erro ao remover assinante:', error);
@@ -364,7 +466,7 @@ export const removeSubscriber = async (subscriberId: string) => {
     }
 
     console.log('✅ Assinante removido com sucesso');
-    return { data: true, error: null };
+    return { data: { archived: false }, error: null };
   } catch (error) {
     console.error('❌ Erro ao remover assinante:', error);
     return { data: null, error };
