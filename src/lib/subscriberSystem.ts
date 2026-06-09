@@ -88,7 +88,9 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
       start_date: data.start_date,
       end_date: data.end_date,
       payment_status: paymentStatus,
-      last_payment_date: paymentStatus === 'paid' ? new Date().toISOString().split('T')[0] : null,
+      last_payment_date: paymentStatus === 'paid'
+        ? String(data.start_date || '').trim().slice(0, 10) || new Date().toISOString().split('T')[0]
+        : null,
       // Novos campos para dados completos do assinante
       subscriber_name: data.name,
       subscriber_whatsapp: normalizedWhatsapp,
@@ -400,6 +402,76 @@ export async function insertSubscriberAttendance(payload: Record<string, unknown
 export const isArchivedSubscriber = (subscriber: any): boolean =>
   Boolean(String(subscriber?.archived_at || '').trim());
 
+export const isDeactivatedSubscriber = (subscriber: any): boolean =>
+  Boolean(String(subscriber?.deactivated_at || '').trim());
+
+export const deactivateSubscriber = async (subscriberId: string) => {
+  try {
+    const todayIso = new Date().toISOString().split('T')[0];
+    const { data: existing, error: fetchError } = await supabase
+      .from('client_subscriptions')
+      .select('id, end_date')
+      .eq('id', subscriberId)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+
+    const currentEndDate = String((existing as any)?.end_date || '').trim().slice(0, 10);
+    const payload: Record<string, unknown> = {
+      deactivated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (!currentEndDate || currentEndDate > todayIso) {
+      payload.end_date = todayIso;
+    }
+
+    let { error } = await supabase.from('client_subscriptions').update(payload).eq('id', subscriberId);
+
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      if (msg.includes('deactivated_at')) {
+        const { deactivated_at, ...legacyPayload } = payload;
+        ({ error } = await supabase.from('client_subscriptions').update(legacyPayload).eq('id', subscriberId));
+      }
+      if (error) throw error;
+    }
+
+    return { data: { deactivated: true }, error: null };
+  } catch (error) {
+    console.error('❌ Erro ao desativar assinante:', error);
+    return { data: null, error };
+  }
+};
+
+export const reactivateSubscriber = async (subscriberId: string) => {
+  try {
+    let { error } = await supabase
+      .from('client_subscriptions')
+      .update({
+        deactivated_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', subscriberId);
+
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      if (msg.includes('deactivated_at')) {
+        ({ error } = await supabase
+          .from('client_subscriptions')
+          .update({ updated_at: new Date().toISOString() })
+          .eq('id', subscriberId));
+      }
+      if (error) throw error;
+    }
+
+    return { data: { reactivated: true }, error: null };
+  } catch (error) {
+    console.error('❌ Erro ao reativar assinante:', error);
+    return { data: null, error };
+  }
+};
+
 export const removeSubscriber = async (subscriberId: string) => {
   try {
     console.log('🗑️ Removendo/arquivando assinante:', subscriberId);
@@ -428,6 +500,7 @@ export const removeSubscriber = async (subscriberId: string) => {
       const currentEndDate = String((existing as any)?.end_date || '').trim().slice(0, 10);
       const archivePayload: Record<string, unknown> = {
         archived_at: new Date().toISOString(),
+        deactivated_at: null,
         updated_at: new Date().toISOString(),
       };
 
@@ -442,7 +515,14 @@ export const removeSubscriber = async (subscriberId: string) => {
 
       if (archiveError) {
         const msg = String(archiveError.message || '').toLowerCase();
-        if (msg.includes('archived_at')) {
+        if (msg.includes('deactivated_at') && !msg.includes('archived_at')) {
+          const { deactivated_at, ...withoutDeactivated } = archivePayload;
+          const { error: retryError } = await supabase
+            .from('client_subscriptions')
+            .update(withoutDeactivated)
+            .eq('id', subscriberId);
+          if (retryError) throw retryError;
+        } else if (msg.includes('archived_at')) {
           const { end_date, updated_at } = archivePayload;
           const { error: legacyArchiveError } = await supabase
             .from('client_subscriptions')

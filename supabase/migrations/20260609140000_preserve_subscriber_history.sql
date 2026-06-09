@@ -2,10 +2,14 @@
 -- Antes: DELETE em client_subscriptions apagava subscriber_attendances (ON DELETE CASCADE).
 
 ALTER TABLE public.client_subscriptions
-  ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+  ADD COLUMN IF NOT EXISTS archived_at timestamptz,
+  ADD COLUMN IF NOT EXISTS deactivated_at timestamptz;
 
 COMMENT ON COLUMN public.client_subscriptions.archived_at IS
-  'Quando preenchido, assinante foi removido da lista ativa mas permanece no histórico mensal.';
+  'Quando preenchido, assinante foi removido da cotação financeira (histórico de atendimentos preservado).';
+
+COMMENT ON COLUMN public.client_subscriptions.deactivated_at IS
+  'Assinante desativado: já pagou, não quer continuar; fica em lista separada fora da contagem ativa.';
 
 ALTER TABLE public.subscriber_attendances
   ADD COLUMN IF NOT EXISTS client_name_snapshot text,

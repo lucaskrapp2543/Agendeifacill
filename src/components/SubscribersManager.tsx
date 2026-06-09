@@ -6,9 +6,12 @@ import { useAuth } from '../context/AuthContext';
 import {
   buildSubscriberAttendanceSnapshotFields,
   createIndependentSubscriber,
+  deactivateSubscriber,
   getEstablishmentSubscribers,
   insertSubscriberAttendance,
   isArchivedSubscriber,
+  isDeactivatedSubscriber,
+  reactivateSubscriber,
   removeSubscriber,
 } from '../lib/subscriberSystem';
 import { createSubscription, deleteSubscription, getClientSubscriptions, getSubscriptions, supabase } from '../lib/supabase'; // Adicionar esta importação
@@ -3135,26 +3138,64 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
+  // Handler para desativar assinante (lista separada, fora da contagem ativa)
+  const handleDeactivateClientSubscription = async (clientSubscriptionId: string, clientName: string) => {
+    if (
+      !window.confirm(
+        `Desativar ${clientName}?\n\nEle sairá da lista de assinantes ativos e irá para "Assinantes desativados". O histórico de atendimentos e pagamentos já registrados será preservado.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const { error } = await deactivateSubscriber(clientSubscriptionId);
+      if (error) throw error;
+      toast('Assinante desativado com sucesso.', 'success');
+      fetchClientSubscriptions();
+    } catch (error: any) {
+      console.error('Erro ao desativar assinante:', error);
+      toast(error?.message || 'Erro ao desativar assinante.', 'error');
+    }
+  };
+
+  const handleReactivateClientSubscription = async (clientSubscriptionId: string, clientName: string) => {
+    if (!window.confirm(`Reativar ${clientName} na lista de assinantes ativos?`)) {
+      return;
+    }
+
+    try {
+      const { error } = await reactivateSubscriber(clientSubscriptionId);
+      if (error) throw error;
+      toast('Assinante reativado com sucesso.', 'success');
+      fetchClientSubscriptions();
+    } catch (error: any) {
+      console.error('Erro ao reativar assinante:', error);
+      toast(error?.message || 'Erro ao reativar assinante.', 'error');
+    }
+  };
+
   // Handler para deletar assinante
   const handleDeleteClientSubscription = async (clientSubscriptionId: string, clientName: string) => {
-    if (window.confirm(`Tem certeza que deseja remover ${clientName} da lista de assinantes?`)) {
-      try {
-        // Buscar o client_id antes de deletar
-        const clientSub = clientSubscriptions.find(cs => cs.id === clientSubscriptionId);
-        const clientId = clientSub?.client_id;
+    if (
+      !window.confirm(
+        `ATENÇÃO: Remover ${clientName}?\n\nSe remover, este cliente será retirado da cotação financeira (Bruto, Líquido, Entradas do mês e contagem de assinantes), como se não tivesse pago.\n\nO histórico de atendimentos dos meses anteriores será preservado quando existir.`
+      )
+    ) {
+      return;
+    }
 
-        // Usar o novo sistema de assinantes
-        const { error } = await removeSubscriber(clientSubscriptionId);
-        if (error) {
-          throw error;
-        }
-
-        toast('Assinante removido. O histórico dos meses anteriores foi preservado.', 'success');
-        fetchClientSubscriptions();
-      } catch (error: any) {
-        console.error('Erro ao remover assinante:', error);
-        toast(error.message || 'Erro ao remover assinante.', 'error');
+    try {
+      const { error } = await removeSubscriber(clientSubscriptionId);
+      if (error) {
+        throw error;
       }
+
+      toast('Assinante removido da cotação financeira. Histórico de atendimentos preservado quando existia.', 'success');
+      fetchClientSubscriptions();
+    } catch (error: any) {
+      console.error('Erro ao remover assinante:', error);
+      toast(error.message || 'Erro ao remover assinante.', 'error');
     }
   };
 
@@ -3745,6 +3786,62 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const monthStart = useMemo(() => startOfMonth(selectedReferenceDate), [selectedReferenceDate]);
   const monthEnd = useMemo(() => endOfMonth(selectedReferenceDate), [selectedReferenceDate]);
 
+  const parseCalendarDateParts = (raw: unknown): { year: number; month: number; day: number } | null => {
+    const value = String(raw || '').trim();
+    if (!value) return null;
+    const datePart = value.slice(0, 10);
+    const match = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (match) {
+      return { year: Number(match[1]), month: Number(match[2]) - 1, day: Number(match[3]) };
+    }
+    const parsed = parseIsoDateSafe(raw);
+    if (!parsed) return null;
+    return { year: parsed.getFullYear(), month: parsed.getMonth(), day: parsed.getDate() };
+  };
+
+  const isCalendarDateInSelectedMonth = (raw: unknown): boolean => {
+    const parts = parseCalendarDateParts(raw);
+    if (!parts) return false;
+    return parts.year === selectedYear && parts.month === selectedMonth;
+  };
+
+  const isSameCalendarDay = (rawA: unknown, rawB: unknown): boolean => {
+    const a = parseCalendarDateParts(rawA);
+    const b = parseCalendarDateParts(rawB);
+    if (!a || !b) return false;
+    return a.year === b.year && a.month === b.month && a.day === b.day;
+  };
+
+  /** Entrada no mês = início do plano e/ou renovação (last_payment), sem duplicar no mesmo dia. */
+  const buildSubscriptionMonthEntryEvents = (cs: ClientSubscription): Array<{ dateRaw: string; typeLabel: string; value: number }> => {
+    if (isArchivedSubscriber(cs)) return [];
+    if (String(cs.payment_status || '').toLowerCase() !== 'paid') return [];
+
+    const value = getSubscriptionValue(cs);
+    if (value <= 0) return [];
+
+    const events: Array<{ dateRaw: string; typeLabel: string; value: number }> = [];
+    const startRaw = String(cs.start_date || '').trim();
+    const paymentRaw = String((cs as any)?.last_payment_date || '').trim();
+
+    if (isCalendarDateInSelectedMonth(startRaw)) {
+      events.push({ dateRaw: startRaw.slice(0, 10), typeLabel: 'Novo assinante', value });
+    }
+
+    if (isCalendarDateInSelectedMonth(paymentRaw)) {
+      const duplicateStart =
+        isCalendarDateInSelectedMonth(startRaw) && isSameCalendarDay(startRaw, paymentRaw);
+      if (!duplicateStart) {
+        events.push({ dateRaw: paymentRaw.slice(0, 10), typeLabel: 'Renovação', value });
+      }
+    }
+
+    return events;
+  };
+
+  const sumSubscriptionMonthEntryCents = (cs: ClientSubscription): number =>
+    buildSubscriptionMonthEntryEvents(cs).reduce((sum, event) => sum + toCents(event.value), 0);
+
   const getSubscriptionValue = (cs: ClientSubscription): number => {
     const value = Number(getSubscriptionValueForClient(cs));
     return Number.isFinite(value) ? value : 0;
@@ -3813,12 +3910,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return true;
   };
 
-  const isActivePaidSubscriber = (cs: ClientSubscription): boolean => {
-    if (String(cs.payment_status || '').toLowerCase() !== 'paid') return false;
+  const isSubscriptionActiveByEndDate = (cs: ClientSubscription): boolean => {
+    if (isArchivedSubscriber(cs) || isDeactivatedSubscriber(cs)) return false;
     return isSubscriptionActiveInSelectedMonth(cs);
   };
 
-  const isSubscriptionActiveByEndDate = (cs: ClientSubscription): boolean => {
+  const isActivePaidSubscriber = (cs: ClientSubscription): boolean => {
+    if (isArchivedSubscriber(cs) || isDeactivatedSubscriber(cs)) return false;
+    if (String(cs.payment_status || '').toLowerCase() !== 'paid') return false;
     return isSubscriptionActiveInSelectedMonth(cs);
   };
 
@@ -3854,22 +3953,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     );
   }, 0);
 
-  // Entradas do mês: somente pagamentos de assinatura que aconteceram no mês selecionado
-  // (renovação e/ou entrada de novo assinante), sem herdar mês anterior.
-  const emContaEntradasCents = clientSubscriptions.reduce((sum, cs) => {
-    if (String(cs.payment_status || '').toLowerCase() !== 'paid') return sum;
-
-    const rawPaymentDate = String((cs as any)?.last_payment_date || '').trim();
-    const rawFallbackDate = String(cs.start_date || '').trim();
-    const dateToCheckRaw = rawPaymentDate || rawFallbackDate;
-    if (!dateToCheckRaw) return sum;
-
-    const paymentDate = parseISO(dateToCheckRaw);
-    if (Number.isNaN(paymentDate.getTime())) return sum;
-    if (paymentDate < monthStart || paymentDate > monthEnd) return sum;
-
-    return sum + toCents(getSubscriptionValue(cs));
-  }, 0);
+  // Entradas do mês: pagamentos no período (novo assinante pelo start_date + renovação pelo last_payment_date).
+  const emContaEntradasCents = clientSubscriptions.reduce((sum, cs) => sum + sumSubscriptionMonthEntryCents(cs), 0);
 
   // Saídas do mês: pagamentos realizados para profissionais no módulo de assinantes
   // (já filtrados por competência/mês em fetchProfessionalPayments).
@@ -3887,37 +3972,20 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   const emContaBreakdown = useMemo(() => {
     return clientSubscriptions
-      .map((cs) => {
-        if (String(cs.payment_status || '').toLowerCase() !== 'paid') return null;
-
-        const rawPaymentDate = String((cs as any)?.last_payment_date || '').trim();
-        const rawFallbackDate = String(cs.start_date || '').trim();
-        const dateToCheckRaw = rawPaymentDate || rawFallbackDate;
-        if (!dateToCheckRaw) return null;
-
-        const paymentDate = parseISO(dateToCheckRaw);
-        if (Number.isNaN(paymentDate.getTime())) return null;
-        if (paymentDate < monthStart || paymentDate > monthEnd) return null;
-
-        const value = getSubscriptionValue(cs);
-        if (!Number.isFinite(value) || value <= 0) return null;
-
-        const startDateRaw = String(cs.start_date || '').trim();
-        const startDate = startDateRaw ? parseISO(startDateRaw) : null;
-        const isNewSubscriber =
-          Boolean(startDate) &&
-          startDate != null &&
-          !Number.isNaN(startDate.getTime()) &&
-          format(startDate, 'yyyy-MM-dd') === format(paymentDate, 'yyyy-MM-dd');
-
-        return {
-          id: String(cs.id || ''),
-          clientName: String(cs.profiles?.full_name || 'Cliente').trim() || 'Cliente',
-          planName: String(cs.subscriptions?.name || 'Plano').trim() || 'Plano',
-          paymentDate,
-          value,
-          typeLabel: isNewSubscriber ? 'Novo assinante' : 'Renovação',
-        };
+      .flatMap((cs) => {
+        const clientName = getSubscriberDisplayName(cs);
+        const planName = getSubscriberPlanName(cs as any);
+        return buildSubscriptionMonthEntryEvents(cs).map((event) => {
+          const paymentDate = parseISO(event.dateRaw);
+          return {
+            id: `${String(cs.id || '')}-${event.typeLabel}-${event.dateRaw}`,
+            clientName,
+            planName,
+            paymentDate: Number.isNaN(paymentDate.getTime()) ? null : paymentDate,
+            value: event.value,
+            typeLabel: event.typeLabel,
+          };
+        });
       })
       .filter((row): row is {
         id: string;
@@ -3926,9 +3994,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         paymentDate: Date;
         value: number;
         typeLabel: string;
-      } => Boolean(row))
+      } => Boolean(row.paymentDate))
       .sort((a, b) => b.paymentDate.getTime() - a.paymentDate.getTime());
-  }, [clientSubscriptions, monthEnd, monthStart]);
+  }, [clientSubscriptions, selectedMonth, selectedYear]);
 
   const liquidoAtivoBreakdown = useMemo(() => {
     return clientSubscriptions
@@ -3998,22 +4066,15 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const hasAnySubscriptionGatewayConnected = hasPagarmeConnectedForSubscribers || hasMercadoPagoConnectedForSubscribers;
   const pixEntradasLiquidasMesCents = clientSubscriptions.reduce((sum, cs) => {
     if (!hasAnySubscriptionGatewayConnected) return sum;
-    if (String(cs.payment_status || '').toLowerCase() !== 'paid') return sum;
-
-    const rawPaymentDate = String((cs as any)?.last_payment_date || '').trim();
-    const rawFallbackDate = String(cs.start_date || '').trim();
-    const dateToCheckRaw = rawPaymentDate || rawFallbackDate;
-    if (!dateToCheckRaw) return sum;
-
-    const paymentDate = parseISO(dateToCheckRaw);
-    if (Number.isNaN(paymentDate.getTime())) return sum;
-    if (paymentDate < monthStart || paymentDate > monthEnd) return sum;
 
     const paymentMethod = String((cs as any)?.subscriber_payment_method || '').toLowerCase().trim();
     if (paymentMethod !== 'pix') return sum;
     const provider = String((cs as any)?.subscription_payment_provider || '').toLowerCase();
     const isIntegratedProvider = provider.includes('pagarme') || provider.includes('mercadopago');
     if (!isIntegratedProvider) return sum;
+
+    const events = buildSubscriptionMonthEntryEvents(cs);
+    if (events.length === 0) return sum;
 
     const bruto = Number(getSubscriptionValue(cs));
     if (!Number.isFinite(bruto) || bruto <= 0) return sum;
@@ -4024,7 +4085,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       (cs as any)?.subscriber_payment_method,
       (cs as any)?.subscription_payment_order_id
     );
-    return sum + toCents(liquido);
+
+    return sum + toCents(liquido) * events.length;
   }, 0);
 
   const saldoAssinantes = fromCents(Math.max(0, pixEntradasLiquidasMesCents - emContaSaidasCents));
@@ -4060,13 +4122,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   // Contar assinantes não pagos (ativos e vencidos)
   const assinantesNaoPagos = clientSubscriptions.filter(cs => {
-    if (isArchivedSubscriber(cs)) return false;
+    if (isArchivedSubscriber(cs) || isDeactivatedSubscriber(cs)) return false;
     return cs.payment_status === 'unpaid'; // Todos os não pagos, independente da data
   }).length;
 
-  // Filtrar assinantes pela pesquisa
-  const filteredClientSubscriptions = clientSubscriptions.filter(cs => {
-    if (isArchivedSubscriber(cs)) return false;
+  const matchesSubscriberSearch = (cs: ClientSubscription): boolean => {
     if (!searchTerm.trim()) return true;
 
     const searchLower = searchTerm.toLowerCase();
@@ -4081,6 +4141,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       clientWhatsapp.includes(searchLower) ||
       subscriptionName.includes(searchLower)
     );
+  };
+
+  // Filtrar assinantes pela pesquisa (lista ativa)
+  const filteredClientSubscriptions = clientSubscriptions.filter(cs => {
+    if (isArchivedSubscriber(cs) || isDeactivatedSubscriber(cs)) return false;
+    return matchesSubscriberSearch(cs);
+  });
+
+  const filteredDeactivatedSubscriptions = clientSubscriptions.filter(cs => {
+    if (isArchivedSubscriber(cs) || !isDeactivatedSubscriber(cs)) return false;
+    return matchesSubscriberSearch(cs);
   });
 
 
@@ -6192,17 +6263,81 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       </div>
                     </div>
 
-                    {/* Botão remover em linha separada */}
-                    <button
-                      onClick={() => handleDeleteClientSubscription(cs.id, cs.profiles?.full_name || 'Cliente')}
-                      className="w-full inline-flex items-center justify-center px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700"
-                    >
-                      <Trash2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1" /> Remover
-                    </button>
+                    {/* Desativar + Remover */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleDeactivateClientSubscription(cs.id, cs.profiles?.full_name || 'Cliente')}
+                        className="w-full inline-flex items-center justify-center px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-amber-700 text-white hover:bg-amber-800 border border-amber-900/40"
+                      >
+                        Desativar assinante
+                      </button>
+                      <button
+                        onClick={() => handleDeleteClientSubscription(cs.id, cs.profiles?.full_name || 'Cliente')}
+                        className="w-full inline-flex items-center justify-center px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700"
+                      >
+                        <Trash2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1" /> Remover
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {filteredDeactivatedSubscriptions.length > 0 && (
+          <div className="mt-8 pt-6 border-t border-gray-700">
+            <div className="mb-4">
+              <h3 className="text-lg font-bold text-amber-300">Assinantes desativados</h3>
+              <p className="text-sm text-gray-400 mt-1">
+                Clientes que já pagaram e não querem continuar. Fora da contagem ativa, mas com histórico preservado.
+              </p>
+            </div>
+            <div className="space-y-3">
+              {filteredDeactivatedSubscriptions.map((cs) => {
+                const paidValue = getSubscriptionValueForClient(cs);
+                const deactivatedLabel = formatIsoDateSafe((cs as any)?.deactivated_at, '--/--/----');
+                return (
+                  <div
+                    key={`deactivated-${cs.id}`}
+                    className="rounded-lg border-2 border-amber-600/50 bg-amber-950/20 p-4"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                      <div className="min-w-0">
+                        <h4 className="font-semibold text-white truncate">
+                          {getSubscriberDisplayName(cs)}
+                        </h4>
+                        <p className="text-sm text-gray-300 mt-1">
+                          {getSubscriberPlanName(cs as any)} · Pago:{' '}
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(paidValue || 0)}
+                        </p>
+                        <p className="text-xs text-amber-200/80 mt-1">
+                          Desativado em {deactivatedLabel}
+                          {(cs as any)?.payment_status === 'paid' ? ' · ✓ Já pagou' : ''}
+                        </p>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleReactivateClientSubscription(cs.id, getSubscriberDisplayName(cs))}
+                          className="inline-flex items-center justify-center px-3 py-2 text-xs sm:text-sm font-medium rounded-lg bg-emerald-700 text-white hover:bg-emerald-800"
+                        >
+                          Reativar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteClientSubscription(cs.id, getSubscriberDisplayName(cs))}
+                          className="inline-flex items-center justify-center px-3 py-2 text-xs sm:text-sm font-medium rounded-lg bg-black text-white hover:bg-gray-800 border border-gray-700"
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" /> Remover
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
