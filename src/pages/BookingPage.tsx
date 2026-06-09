@@ -29,6 +29,7 @@ import {
   AFCOIN_POINTS_LOCAL,
   AFCOIN_POINTS_ONLINE,
   isLocalAfcoinPaymentMethod,
+  resolveBookingPaymentAmount,
 } from '../utils/appointmentPayment';
 import {
   registerAfcoinBookingEvent,
@@ -1940,7 +1941,7 @@ export default function BookingPage() {
       const pagarmeRecipientId = String((establishment as any)?.pagarme_recipient_id || '').trim();
       const mercadopagoAccessToken = String((establishment as any)?.mercadopago_access_token || '').trim();
       const isSubscriber = appointmentData?.is_subscriber === true;
-      const valorAgendamento = Number(appointmentData?.price || 0);
+      const valorAgendamento = resolveBookingPaymentAmount(appointmentData);
       const phoneCandidates = buildPhoneCandidates(
         String(appointmentData?.client_whatsapp || guestClientData?.phone || '')
       );

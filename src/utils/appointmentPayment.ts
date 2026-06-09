@@ -177,3 +177,26 @@ export function computeAfcoinBalanceByEstablishment(appointments: any[]): Map<st
   }
   return map;
 }
+
+/** Valor a cobrar no checkout (serviço + produtos extras do booking). */
+export function resolveBookingPaymentAmount(data: any): number {
+  const totalPrice = Number(data?.total_price);
+  if (Number.isFinite(totalPrice) && totalPrice > 0) {
+    return Math.round(totalPrice * 100) / 100;
+  }
+
+  const servicePrice = Number(data?.price || 0);
+  const products = Array.isArray(data?.additional_products) ? data.additional_products : [];
+  const productsTotal = products.reduce((sum: number, item: any) => {
+    const price = Number(item?.price || 0);
+    const qty = Math.max(1, Number(item?.quantity || 1));
+    return sum + (Number.isFinite(price) ? price * qty : 0);
+  }, 0);
+
+  const combined = servicePrice + productsTotal;
+  if (Number.isFinite(combined) && combined > 0) {
+    return Math.round(combined * 100) / 100;
+  }
+
+  return Number.isFinite(servicePrice) && servicePrice > 0 ? servicePrice : 0;
+}

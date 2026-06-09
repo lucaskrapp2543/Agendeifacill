@@ -4,6 +4,7 @@ import { useToast } from './ui/Toaster';
 // Import removido - agora usa API Routes
 import { criarTokenCartaoPagarme } from '../lib/pagarmeTokenize';
 import { supabase } from '../lib/supabase';
+import { AFCOIN_POINTS_ONLINE } from '../utils/appointmentPayment';
 import { CardPaymentBrick } from './CardPaymentBrick';
 
 interface PaymentModalProps {
@@ -88,6 +89,10 @@ export const PaymentModal = ({
 
   // Valor em centavos
   const amountInCents = Math.round(amount * 100);
+  const formattedAmount = Number(amount || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const afcoinAlreadyEarned = 15;
+  const afcoinPayNowBonus = Math.max(0, AFCOIN_POINTS_ONLINE - afcoinAlreadyEarned);
+  const showAfcoinMotivation = !cancelAppointmentOnFailure;
   // O split é montado no BACKEND (Express) para não expor/configurar recipient da plataforma no frontend.
 
   // Verificar qual gateway de pagamento está configurado (Pagar.me ou Mercado Pago)
@@ -1666,9 +1671,9 @@ export const PaymentModal = ({
       <div className="bg-[#1a1b1c] rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] min-h-[50vh] flex flex-col my-auto border border-gray-700">
         {/* Header fixo */}
         <div className="flex items-center justify-between p-6 pb-4 flex-shrink-0 border-b border-gray-800/50">
-          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-            <CreditCard className="h-6 w-6" />
-            Pagamento Antecipado
+          <h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
+            <CreditCard className="h-6 w-6 text-[#009EE3]" />
+            {showAfcoinMotivation ? 'Finalize e ganhe AFCoins' : 'Pagamento antecipado'}
           </h2>
           {!isProcessing && (
             <button
@@ -1719,34 +1724,66 @@ export const PaymentModal = ({
               ) : null}
 
 
-              <div className="bg-blue-600/20 border border-blue-500/50 rounded-lg p-4 mb-6">
-                <p className="text-sm text-blue-300">
-                  💳 {cancelAppointmentOnFailure
-                    ? <>Para confirmar seu agendamento, é necessário realizar o pagamento antecipado de <strong>R$ {amount.toFixed(2)}</strong>.</>
-                    : <>Parabéns pelo agendamento! Quer pagar agora <strong>R$ {amount.toFixed(2)}</strong> e já <strong>deixar seu barbeiro feliz</strong>?</>
-                  }
-                </p>
+              <div
+                className={
+                  showAfcoinMotivation
+                    ? 'rounded-2xl border border-emerald-400/25 bg-gradient-to-br from-emerald-950/50 via-[#171819] to-[#121314] p-4 mb-2'
+                    : 'rounded-2xl border border-blue-400/20 bg-blue-950/25 p-4 mb-2'
+                }
+              >
+                {showAfcoinMotivation ? (
+                  <div className="flex items-start gap-3">
+                    <img src="/afcoin.png" alt="" className="h-11 w-11 shrink-0 drop-shadow-[0_0_10px_rgba(74,222,128,0.25)]" />
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-300/90">
+                        Você está quase lá
+                      </p>
+                      <p className="text-white font-bold text-[15px] leading-snug mt-1">
+                        Pague agora e garanta até{' '}
+                        <span className="text-[#4ADE80]">{AFCOIN_POINTS_ONLINE} AFCoins</span> neste agendamento
+                      </p>
+                      <p className="text-sm text-gray-300 mt-2">
+                        Total: <span className="font-semibold text-white">{formattedAmount}</span>
+                        {' · '}
+                        <span className="text-emerald-300/90">+{afcoinPayNowBonus} bônus por pagar online</span>
+                      </p>
+                      <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+                        Escolha PIX ou cartão abaixo. Seu horário já está reservado — falta só concluir o pagamento.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-white font-semibold text-[15px]">Confirme seu agendamento</p>
+                    <p className="text-sm text-gray-300 mt-1.5 leading-relaxed">
+                      Para reservar seu horário, é necessário o pagamento antecipado de{' '}
+                      <strong className="text-white">{formattedAmount}</strong>.
+                    </p>
+                  </>
+                )}
               </div>
 
-              <div className="bg-[#2a2b2c] border border-gray-700 rounded-lg p-4">
-                <label className="block text-sm text-gray-300 mb-2">CPF/CNPJ do pagador (obrigatório para PIX)</label>
-                <input
-                  value={cpfCliente}
-                  onChange={(e) => setCpfCliente(e.target.value)}
-                  placeholder="Somente números (CPF 11 / CNPJ 14)"
-                  className="w-full px-3 py-2 rounded-md bg-[#1a1b1c] border border-gray-600 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  inputMode="numeric"
-                />
-                <p className="text-xs text-gray-400 mt-2">
-                  {hasMercadoPago
-                    ? 'O Mercado Pago exige CPF/CNPJ para pagamentos (PIX).'
-                    : 'A Pagar.me costuma exigir CPF/CNPJ para pagamentos (PIX).'}
-                </p>
-              </div>
+              <div className="rounded-2xl border border-gray-700/80 bg-[#222325]/80 p-4 space-y-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Dados do pagador</p>
+                <div>
+                  <label className="block text-sm text-gray-300 mb-2">CPF/CNPJ do pagador (obrigatório para PIX)</label>
+                  <input
+                    value={cpfCliente}
+                    onChange={(e) => setCpfCliente(e.target.value)}
+                    placeholder="Somente números (CPF 11 / CNPJ 14)"
+                    className="w-full px-3 py-2.5 rounded-lg bg-[#1a1b1c] border border-gray-600 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#009EE3]/60"
+                    inputMode="numeric"
+                  />
+                  <p className="text-xs text-gray-400 mt-2">
+                    {hasMercadoPago
+                      ? 'O Mercado Pago exige CPF/CNPJ para pagamentos (PIX).'
+                      : 'A Pagar.me costuma exigir CPF/CNPJ para pagamentos (PIX).'}
+                  </p>
+                </div>
 
               {/* ✅ NOVO: Campo de email (obrigatório para Mercado Pago) */}
               {hasMercadoPago && (
-                <div className="bg-[#2a2b2c] border border-gray-700 rounded-lg p-4">
+                <div>
                   <label className="block text-sm text-gray-300 mb-2">
                     Email do pagador <span className="text-red-400">*</span>
                   </label>
@@ -1755,7 +1792,7 @@ export const PaymentModal = ({
                     value={payerEmail}
                     onChange={(e) => setPayerEmail(e.target.value)}
                     placeholder="seu@email.com"
-                    className="w-full px-3 py-2 rounded-md bg-[#1a1b1c] border border-gray-600 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2.5 rounded-lg bg-[#1a1b1c] border border-gray-600 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#009EE3]/60"
                     inputMode="email"
                   />
                   <p className="text-xs text-gray-400 mt-2">
@@ -1763,20 +1800,25 @@ export const PaymentModal = ({
                   </p>
                 </div>
               )}
+              </div>
 
-              <div className="space-y-3">
+              <div className="space-y-3 pt-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 px-1">Forma de pagamento</p>
                 {/* Mostrar opções do Pagar.me apenas se NÃO tiver Mercado Pago */}
                 {!hasMercadoPago && (
                   <>
                     <button
                       onClick={() => handlePayment('pix')}
-                      className="w-full p-4 bg-[#2a2b2c] border border-gray-600 rounded-lg hover:border-blue-500 transition-colors flex items-center gap-3"
+                      className="w-full p-4 rounded-xl border border-gray-600/80 bg-[#222325] hover:border-blue-400/70 hover:bg-[#27282a] transition-all flex items-center gap-3"
                     >
-                      <QrCode className="h-6 w-6 text-blue-400" />
+                      <div className="h-10 w-10 rounded-lg bg-blue-500/15 flex items-center justify-center">
+                        <QrCode className="h-5 w-5 text-blue-400" />
+                      </div>
                       <div className="flex-1 text-left">
-                        <div className="text-white font-medium">PIX</div>
+                        <div className="text-white font-semibold">PIX</div>
                         <div className="text-sm text-gray-400">Aprovação imediata (Pagar.me)</div>
                       </div>
+                      <span className="text-sm font-semibold text-white">{formattedAmount}</span>
                     </button>
                   </>
                 )}
@@ -1787,24 +1829,30 @@ export const PaymentModal = ({
                     <button
                       onClick={() => handleMercadoPagoPayment('pix')}
                       disabled={isProcessing || isCheckingPayment}
-                      className="w-full p-4 bg-[#2a2b2c] border border-[#009EE3] rounded-lg hover:border-[#0088C7] transition-colors flex items-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
+                      className="w-full p-4 rounded-xl border border-[#009EE3]/40 bg-gradient-to-r from-[#009EE3]/10 to-transparent hover:border-[#009EE3] hover:from-[#009EE3]/15 transition-all flex items-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      <QrCode className="h-6 w-6 text-[#009EE3]" />
+                      <div className="h-10 w-10 rounded-lg bg-[#009EE3]/15 flex items-center justify-center">
+                        <QrCode className="h-5 w-5 text-[#009EE3]" />
+                      </div>
                       <div className="flex-1 text-left">
-                        <div className="text-white font-medium">PIX</div>
+                        <div className="text-white font-semibold">PIX</div>
                         <div className="text-sm text-gray-400">Aprovação imediata (Mercado Pago)</div>
                       </div>
+                      <span className="text-sm font-semibold text-white">{formattedAmount}</span>
                     </button>
                     <button
                       onClick={() => setSelectedMethod('credit_card')}
                       disabled={isProcessing || isCheckingPayment}
-                      className="w-full p-4 bg-[#2a2b2c] border border-[#009EE3] rounded-lg hover:border-[#0088C7] transition-colors flex items-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
+                      className="w-full p-4 rounded-xl border border-[#009EE3]/40 bg-gradient-to-r from-[#009EE3]/10 to-transparent hover:border-[#009EE3] hover:from-[#009EE3]/15 transition-all flex items-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      <CreditCard className="h-6 w-6 text-[#009EE3]" />
+                      <div className="h-10 w-10 rounded-lg bg-[#009EE3]/15 flex items-center justify-center">
+                        <CreditCard className="h-5 w-5 text-[#009EE3]" />
+                      </div>
                       <div className="flex-1 text-left">
-                        <div className="text-white font-medium">Cartão de Crédito</div>
+                        <div className="text-white font-semibold">Cartão de Crédito</div>
                         <div className="text-sm text-gray-400">Pagamento no cartão (Mercado Pago)</div>
                       </div>
+                      <span className="text-sm font-semibold text-white">{formattedAmount}</span>
                     </button>
                   </>
                 )}
