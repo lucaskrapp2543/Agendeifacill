@@ -367,3 +367,160 @@ export function AfcoinUseModal({
     </ModalShell>
   );
 }
+
+type AfcoinBookingExplainModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+};
+
+const howItWorksSteps = [
+  { emoji: '🗓️', title: 'Agendou', text: 'Ganhe moedas' },
+  { emoji: '💳', title: 'Pagou online', text: 'Ganhe muito mais moedas' },
+  { emoji: '🎁', title: 'Acumulou', text: 'Troque por benefícios' },
+];
+
+const rewardItems = [
+  { emoji: '💈', text: 'Descontos no atendimento' },
+  { emoji: '🎁', text: 'Produtos e brindes' },
+  { emoji: '🔥', text: 'Benefícios exclusivos da barbearia' },
+];
+
+export function AfcoinBookingExplainModal({ isOpen, onClose }: AfcoinBookingExplainModalProps) {
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[130] flex items-center justify-center p-3 sm:p-4"
+      onClick={onClose}
+    >
+      <style>{`
+        @keyframes afcoinExplainFade {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes afcoinExplainSlide {
+          from { opacity: 0; transform: translateY(16px) scale(0.98); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+      `}</style>
+      <div
+        className="absolute inset-0 bg-black/78 backdrop-blur-[4px]"
+        style={{ animation: 'afcoinExplainFade 0.22s ease-out' }}
+      />
+      <div
+        className="relative w-full max-w-md max-h-[88vh] overflow-y-auto rounded-[22px] sm:rounded-3xl"
+        style={{
+          background: 'linear-gradient(165deg, rgba(230,199,139,0.12) 0%, rgba(10,10,11,0.98) 32%, #0A0A0B 100%)',
+          border: '1px solid rgba(230,199,139,0.28)',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.7)',
+          animation: 'afcoinExplainSlide 0.28s cubic-bezier(.2,.8,.2,1)',
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 px-4 sm:px-5 pt-4 sm:pt-5 pb-3 border-b border-white/8 bg-[#0A0A0B]/95 backdrop-blur-md">
+          <div className="flex items-center gap-3 min-w-0">
+            <img
+              src="/afcoin.png"
+              alt=""
+              className="w-10 h-10 sm:w-11 sm:h-11 object-contain shrink-0"
+              style={{ filter: 'drop-shadow(0 0 8px rgba(230,199,139,0.4))' }}
+            />
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-black text-white leading-tight">🪙 AFCoins</h2>
+              <p className="text-[0.72rem] sm:text-xs text-[#E6C78B]/85 mt-0.5 leading-snug">
+                Ganhe recompensas enquanto agenda 💈
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 p-2 rounded-xl hover:bg-white/10 transition-colors text-white/70 hover:text-white"
+            aria-label="Fechar"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="px-4 sm:px-5 py-4 sm:py-5 space-y-4">
+          <div
+            className="rounded-2xl px-3.5 py-3 sm:px-4 sm:py-3.5"
+            style={{
+              background: 'linear-gradient(135deg, rgba(230,199,139,0.12) 0%, rgba(255,255,255,0.03) 100%)',
+              border: '1px solid rgba(230,199,139,0.22)',
+            }}
+          >
+            <p className="text-[0.88rem] sm:text-sm text-white/90 leading-relaxed">
+              <strong className="text-white">AFCoins é a moeda de benefícios do Agendei Fácil.</strong>
+            </p>
+            <p className="mt-1.5 text-[0.82rem] sm:text-sm text-white/65 leading-relaxed">
+              Quanto mais você agenda e paga online, mais moedas você acumula.
+            </p>
+          </div>
+
+          <div>
+            <p className="text-[0.68rem] sm:text-xs font-bold uppercase tracking-wider text-[#E6C78B] mb-2">
+              Como funciona?
+            </p>
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+              {howItWorksSteps.map((step) => (
+                <div
+                  key={step.title}
+                  className="rounded-xl px-2 py-2.5 sm:py-3 text-center"
+                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+                >
+                  <div className="text-lg sm:text-xl leading-none">{step.emoji}</div>
+                  <p className="mt-1.5 text-[0.62rem] sm:text-xs font-extrabold text-white leading-tight">{step.title}</p>
+                  <p className="mt-0.5 text-[0.52rem] sm:text-[0.68rem] text-white/55 leading-snug">{step.text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[0.68rem] sm:text-xs font-bold uppercase tracking-wider text-[#E6C78B] mb-2">
+              O que você pode ganhar?
+            </p>
+            <div className="space-y-1.5">
+              {rewardItems.map((item) => (
+                <div
+                  key={item.text}
+                  className="flex items-center gap-2.5 rounded-xl px-3 py-2"
+                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+                >
+                  <span className="text-base leading-none shrink-0">{item.emoji}</span>
+                  <span className="text-[0.82rem] sm:text-sm font-semibold text-white/88">{item.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div
+            className="rounded-xl px-3 py-2.5 flex items-start gap-2"
+            style={{
+              background: 'rgba(74,222,128,0.08)',
+              border: '1px solid rgba(74,222,128,0.22)',
+            }}
+          >
+            <span className="text-base leading-none shrink-0">⚡</span>
+            <p className="text-[0.82rem] sm:text-sm text-emerald-100/90 leading-relaxed">
+              Pagando online você ganha <strong className="text-[#4ADE80]">muito mais AFCoins</strong>.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-3 sm:py-3.5 rounded-2xl font-extrabold text-[#0B0B0B] transition-all active:scale-[0.99] hover:brightness-110"
+            style={{
+              background: 'linear-gradient(180deg, #E6C78B 0%, #B8944A 100%)',
+              boxShadow: '0 8px 22px rgba(230,199,139,0.22)',
+            }}
+          >
+            Entendi 😎
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

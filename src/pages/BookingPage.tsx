@@ -7,6 +7,7 @@ import { AppointmentForm } from '../components/AppointmentForm';
 import { BookingChatFlow } from '../components/BookingChatFlow';
 import { PaymentModal } from '../components/PaymentModal';
 import { QuickBookingModal } from '../components/QuickBookingModal';
+import { AfcoinBookingExplainModal } from '../components/AfcoinClientModals';
 import ReadMore from '../components/ReadMore';
 import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { useAuth } from '../context/AuthContext';
@@ -230,6 +231,7 @@ export default function BookingPage() {
   const [pendingCustomerData, setPendingCustomerData] = useState<{ name: string; phone?: string; email?: string; document?: string } | null>(null);
   const [paymentIsOptional, setPaymentIsOptional] = useState(false);
   const [showOptionalPayPrompt, setShowOptionalPayPrompt] = useState(false);
+  const [showAfcoinExplainModal, setShowAfcoinExplainModal] = useState(false);
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
   const retryFetchEstablishmentRef = useRef(0);
@@ -5615,6 +5617,18 @@ export default function BookingPage() {
               0%, 100% { box-shadow: 0 6px 18px rgba(22,163,74,0.22); }
               50% { box-shadow: 0 8px 22px rgba(34,197,94,0.28); }
             }
+            .afco-pay-btn-primary {
+              background: linear-gradient(180deg, #18a34a 0%, #157a3a 100%);
+              box-shadow: 0 4px 12px rgba(22,163,74,0.14);
+              border: 1px solid rgba(134, 239, 172, 0.22);
+            }
+            @media (min-width: 640px) {
+              .afco-pay-btn-primary {
+                animation: afcoButtonGlow 2.8s ease-in-out infinite;
+                box-shadow: 0 6px 18px rgba(22,163,74,0.22);
+                border: none;
+              }
+            }
           `}</style>
 
           <div
@@ -5736,42 +5750,43 @@ export default function BookingPage() {
                   </div>
 
                   <button
+                    type="button"
                     onClick={() => {
                       setShowOptionalPayPrompt(false);
                       setShowPaymentModal(true);
                     }}
-                    className="w-full rounded-xl sm:rounded-2xl px-4 py-3.5 sm:px-5 sm:py-4 text-white transition-all duration-200 hover:brightness-105 hover:-translate-y-[1px] active:translate-y-0"
-                    style={{
-                      background: 'linear-gradient(180deg, #16a34a 0%, #166534 100%)',
-                      animation: 'afcoButtonGlow 2.8s ease-in-out infinite',
-                      boxShadow: '0 6px 18px rgba(22,163,74,0.22)',
-                    }}
+                    className="afco-pay-btn-primary w-full min-h-[52px] sm:min-h-0 flex items-center justify-center rounded-[14px] sm:rounded-2xl px-3.5 sm:px-5 py-0 sm:py-4 text-white transition-all duration-200 hover:brightness-105 active:scale-[0.99] sm:hover:-translate-y-[1px] sm:active:translate-y-0"
                   >
-                    <span className="block text-[1.08rem] sm:text-[1.75rem] leading-tight font-black tracking-tight">
-                      <span className="sm:hidden">
-                        Pagar agora
-                        <span className="block mt-0.5 text-[0.95rem] font-extrabold text-emerald-100">
-                          +{AFCOIN_ONLINE_PAY_BONUS} AFCoins bônus
-                        </span>
-                      </span>
-                      <span className="hidden sm:block">
+                    <span className="sm:hidden text-[0.84rem] font-bold leading-none tracking-tight text-center whitespace-nowrap">
+                      Pagar agora e ganhar +{AFCOIN_ONLINE_PAY_BONUS} AFCoins
+                    </span>
+                    <span className="hidden sm:flex sm:flex-col sm:items-center sm:w-full">
+                      <span className="text-[1.75rem] leading-tight font-black tracking-tight">
                         🔒 Pagar agora e ganhar +{AFCOIN_ONLINE_PAY_BONUS} AFCoins
                       </span>
-                    </span>
-                    <span className="mt-1.5 sm:mt-1 block text-[0.68rem] sm:text-[0.95rem] font-medium text-emerald-100/80 sm:text-emerald-100/90">
-                      ✓ Pagamento rápido, seguro e aprovado na hora
+                      <span className="mt-1 text-[0.95rem] font-medium text-emerald-100/90">
+                        ✓ Pagamento rápido, seguro e aprovado na hora
+                      </span>
                     </span>
                   </button>
+                  <p className="sm:hidden mt-2 text-center text-[0.64rem] font-medium text-emerald-100/65 leading-snug">
+                    ✓ Pagamento rápido, seguro e aprovado na hora
+                  </p>
                 </div>
 
                 <div className="mt-4 sm:mt-2.5 grid grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-2.5">
                   {[
-                    { icon: '⭐', title: 'Acumule AFCoins', text: 'a cada pagamento adiantado' },
-                    { icon: '🎁', title: 'Troque por descontos', text: 'e benefícios incríveis' },
-                    { icon: '❤️', title: 'Ganhe benefícios', text: 'e vantagens exclusivas' },
+                    { id: 'accumulate', icon: '⭐', title: 'Acumule AFCoins', text: 'a cada pagamento adiantado' },
+                    {
+                      id: 'redeem',
+                      icon: '🎁',
+                      title: 'Troque',
+                      subLines: ['Serviços', 'descontos', 'produtos'],
+                    },
+                    { id: 'benefits', icon: '❤️', title: 'Ganhe benefícios', text: 'e vantagens exclusivas', footerLine: 'Só por pagar online' },
                   ].map((item) => (
                     <div
-                      key={item.title}
+                      key={item.id}
                       className="rounded-lg sm:rounded-xl border px-1 py-2 sm:px-3 sm:py-2 transition-transform duration-200 hover:-translate-y-[1px] min-h-[68px] sm:min-h-[96px] flex flex-col items-center justify-center text-center gap-0.5 sm:gap-0"
                       style={{
                         background: 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)',
@@ -5779,8 +5794,37 @@ export default function BookingPage() {
                       }}
                     >
                       <div className="text-[0.78rem] sm:text-base leading-none">{item.icon}</div>
-                      <div className="text-[0.62rem] sm:text-sm font-bold sm:font-extrabold text-zinc-200 sm:text-zinc-100 leading-[1.15] sm:leading-[1.2] px-0.5">{item.title}</div>
-                      <div className="text-[0.48rem] sm:text-[0.74rem] text-zinc-500 sm:text-zinc-400 leading-[1.15] sm:leading-[1.22] px-0.5">{item.text}</div>
+                      <div className="text-[0.62rem] sm:text-sm font-bold sm:font-extrabold text-zinc-200 sm:text-zinc-100 leading-[1.15] sm:leading-[1.2] px-0.5">
+                        {item.title}
+                      </div>
+                      {item.subLines ? (
+                        <div className="text-[0.46rem] sm:text-[0.68rem] text-zinc-500 sm:text-zinc-400 leading-[1.18] sm:leading-[1.22] px-0.5">
+                          <span className="sm:hidden flex flex-col items-center gap-px">
+                            {item.subLines.map((line, index) => (
+                              <span key={line}>
+                                {line}
+                                {index < item.subLines!.length - 1 ? ',' : ''}
+                              </span>
+                            ))}
+                          </span>
+                          <span className="hidden sm:inline">{item.subLines.join(', ')}</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="text-[0.48rem] sm:text-[0.74rem] text-zinc-500 sm:text-zinc-400 leading-[1.15] sm:leading-[1.22] px-0.5">
+                            {item.text}
+                          </div>
+                          {item.footerLine ? (
+                            <div className="text-[0.42rem] sm:text-[0.62rem] text-emerald-400/85 sm:text-emerald-400/90 font-semibold leading-[1.12] px-0.5 mt-0.5">
+                              <span className="sm:hidden flex flex-col items-center gap-px">
+                                <span>Só por</span>
+                                <span>pagar online</span>
+                              </span>
+                              <span className="hidden sm:inline">{item.footerLine}</span>
+                            </div>
+                          ) : null}
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -5794,16 +5838,38 @@ export default function BookingPage() {
                   </button>
                 </div>
 
-                <div
-                  className="mt-4 sm:mt-2 rounded-xl border px-3 py-2.5 sm:py-2 text-center text-[0.72rem] sm:text-[0.92rem] font-medium text-zinc-500 sm:text-zinc-400 leading-relaxed"
+                <button
+                  type="button"
+                  onClick={() => setShowAfcoinExplainModal(true)}
+                  className="mt-4 sm:mt-2 w-full rounded-xl border px-3 py-2.5 sm:py-3 flex items-center gap-3 text-left transition-all duration-200 hover:bg-white/[0.04] active:scale-[0.99]"
                   style={{
-                    background: 'rgba(255,255,255,0.02)',
-                    borderColor: 'rgba(255,255,255,0.06)',
+                    background: 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)',
+                    borderColor: 'rgba(230,199,139,0.22)',
                   }}
                 >
-                  🔒 Seus dados e pagamento estão protegidos pelo{' '}
-                  <span className="text-emerald-300 sm:text-emerald-400 font-semibold sm:font-extrabold">Mercado Pago</span>
-                </div>
+                  <img
+                    src="/afcoin.png"
+                    alt=""
+                    className="w-9 h-9 sm:w-10 sm:h-10 object-contain shrink-0"
+                    style={{ filter: 'drop-shadow(0 0 6px rgba(230,199,139,0.35))' }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[0.84rem] sm:text-[1rem] font-bold text-zinc-100 leading-tight">
+                      🪙 O que é AFCoins?
+                    </p>
+                    <p className="mt-0.5 text-[0.68rem] sm:text-[0.78rem] text-zinc-500 font-medium">
+                      Ganhe recompensas ao agendar
+                    </p>
+                  </div>
+                  <span className="text-zinc-500 text-lg shrink-0" aria-hidden>
+                    ›
+                  </span>
+                </button>
+
+                <AfcoinBookingExplainModal
+                  isOpen={showAfcoinExplainModal}
+                  onClose={() => setShowAfcoinExplainModal(false)}
+                />
               </>
             ) : (
               <>
