@@ -5,6 +5,7 @@ import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriber
 import { checkWhatsAppSubscriber as checkLegacySubscriber, supabase } from '../lib/supabase';
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { validatePendingClientBookingLimit } from '../utils/pendingClientBookingValidation';
+import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
 import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
 import { PaymentMethodSelector } from './PaymentMethodSelector';
 import { TimeSlotSelector } from './TimeSlotSelector';
@@ -209,6 +210,7 @@ export function BookingChatFlow({
   const [isCheckingSubscriber, setIsCheckingSubscriber] = useState(false);
   const [isCheckingPendingClientBooking, setIsCheckingPendingClientBooking] = useState(false);
   const [pendingClientBookingMessage, setPendingClientBookingMessage] = useState<string | null>(null);
+  const [sameDayRescheduleMessage, setSameDayRescheduleMessage] = useState<string | null>(null);
   const [detectedSubscriber, setDetectedSubscriber] = useState<any>(null);
   const [expiredSubscriberRecord, setExpiredSubscriberRecord] = useState<any>(null);
   const [expiredSubscriberAction, setExpiredSubscriberAction] = useState<'renew' | 'skip' | null>(null);
@@ -1026,6 +1028,55 @@ export function BookingChatFlow({
     };
   };
 
+  const validateSameDayRescheduleBlocking = async (phoneRaw: string, dateForCheck: Date) => {
+    if (!isSubscriberFlow) {
+      return { blocked: false, message: null as string | null };
+    }
+
+    const establishmentId = String(establishment?.id || establishment?.establishment_id || '').trim();
+    const normalizedPhone = String(phoneRaw || '').trim();
+    if (!establishmentId || !normalizedPhone) {
+      return { blocked: false, message: null as string | null };
+    }
+
+    const result = await validateSameDayReschedule(
+      normalizedPhone,
+      establishmentId,
+      format(dateForCheck, 'yyyy-MM-dd'),
+      true
+    );
+
+    return {
+      blocked: !result.canBook,
+      message: result.canBook
+        ? null
+        : result.message ||
+          'Você cancelou um agendamento para este dia e não pode remarcar para a mesma data. Escolha outro dia.',
+    };
+  };
+
+  useEffect(() => {
+    if (step !== 'datetime' && step !== 'confirm') {
+      setSameDayRescheduleMessage(null);
+      return;
+    }
+    if (!isSubscriberFlow || !String(chatClientPhone || '').trim()) {
+      setSameDayRescheduleMessage(null);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const validation = await validateSameDayRescheduleBlocking(chatClientPhone, selectedDate);
+      if (cancelled) return;
+      setSameDayRescheduleMessage(validation.blocked ? validation.message : null);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [step, isSubscriberFlow, chatClientPhone, selectedDateKey]);
+
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
@@ -1265,6 +1316,19 @@ export function BookingChatFlow({
     if (pendingClientBookingMessage) {
       toast.error(pendingClientBookingMessage);
       return;
+    }
+    if (sameDayRescheduleMessage) {
+      toast.error(sameDayRescheduleMessage);
+      return;
+    }
+    if (isSubscriberFlow) {
+      const sameDayValidation = await validateSameDayRescheduleBlocking(chatClientPhone, selectedDate);
+      if (sameDayValidation.blocked) {
+        setSameDayRescheduleMessage(sameDayValidation.message);
+        toast.error(sameDayValidation.message || 'Remarcação no mesmo dia não permitida.');
+        return;
+      }
+      setSameDayRescheduleMessage(null);
     }
     if (isSubscriberFlow && !isSelectedDateAllowedForSubscriber) {
       const allowedDays = subscriberAllowedWeekdays.map((day) => weekdayPtMap[day] || day).join(', ');
@@ -2019,9 +2083,25 @@ export function BookingChatFlow({
                       }
                     }
                     setInvalidSubscriberDateMessage('');
+                    void (async () => {
+                      if (isSubscriberFlow) {
+                        const sameDayValidation = await validateSameDayRescheduleBlocking(chatClientPhone, nextDate);
+                        if (sameDayValidation.blocked) {
+                          setSameDayRescheduleMessage(sameDayValidation.message);
+                          toast.error(sameDayValidation.message || 'Remarcação no mesmo dia não permitida.');
+                          return;
+                        }
+                        setSameDayRescheduleMessage(null);
+                      }
+                    })();
                   }}
                   className="w-full px-3 py-2 rounded-lg bg-[#151515] border border-white/20"
                 />
+                {sameDayRescheduleMessage && (
+                  <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200 font-semibold">
+                    {sameDayRescheduleMessage}
+                  </div>
+                )}
                 {isSubscriberFlow && (!isSelectedDateAllowedForSubscriber || subscriberDateLimitMessage) ? (
                   <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
                     {subscriberDateLimitMessage || invalidSubscriberDateMessage || 'Esse dia não está disponível para sua assinatura. Escolha um dia permitido.'}
@@ -2046,6 +2126,16 @@ export function BookingChatFlow({
                             setPendingClientBookingMessage(pendingValidation.message);
                             toast.error(pendingValidation.message || 'Cliente com atendimento pendente nesta barbearia.');
                             return;
+                          }
+                          if (isSubscriberFlow) {
+                            const sameDayValidation = await validateSameDayRescheduleBlocking(chatClientPhone, selectedDate);
+                            if (sameDayValidation.blocked) {
+                              setSameDayRescheduleMessage(sameDayValidation.message);
+                              toast.error(sameDayValidation.message || 'Remarcação no mesmo dia não permitida.');
+                              setSelectedTime('');
+                              return;
+                            }
+                            setSameDayRescheduleMessage(null);
                           }
                           setPendingClientBookingMessage(null);
                           markAfcoinScheduleMilestone();
@@ -2194,6 +2284,15 @@ export function BookingChatFlow({
                       toast.error(pendingValidation.message || 'Cliente com atendimento pendente nesta barbearia.');
                       return;
                     }
+                    if (isSubscriberFlow) {
+                      const sameDayValidation = await validateSameDayRescheduleBlocking(chatClientPhone, selectedDate);
+                      if (sameDayValidation.blocked) {
+                        setSameDayRescheduleMessage(sameDayValidation.message);
+                        toast.error(sameDayValidation.message || 'Remarcação no mesmo dia não permitida.');
+                        return;
+                      }
+                      setSameDayRescheduleMessage(null);
+                    }
                     setPendingClientBookingMessage(null);
                     markAfcoinScheduleMilestone();
                     setStep('confirm');
@@ -2210,6 +2309,11 @@ export function BookingChatFlow({
                 {pendingClientBookingMessage && (
                   <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200 font-semibold">
                     {pendingClientBookingMessage}
+                  </div>
+                )}
+                {sameDayRescheduleMessage && (
+                  <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200 font-semibold">
+                    {sameDayRescheduleMessage}
                   </div>
                 )}
                 {afcoinsEnabled && (
@@ -2331,7 +2435,7 @@ export function BookingChatFlow({
                 Próximo
               </button>
             )}
-            {step === 'confirm' && !pendingClientBookingMessage && (
+            {step === 'confirm' && !pendingClientBookingMessage && !sameDayRescheduleMessage && (
               <button
                 type="button"
                 onClick={handleConfirmBooking}

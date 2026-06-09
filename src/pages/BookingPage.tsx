@@ -25,13 +25,24 @@ import {
 } from '../utils/appointmentCancellationMeta';
 import { fireMercadoPagoPendingReconcile } from '../utils/fireMercadoPagoPendingReconcile';
 import {
+  AFCOIN_POINTS_LOCAL,
+  AFCOIN_POINTS_ONLINE,
   isLocalAfcoinPaymentMethod,
+} from '../utils/appointmentPayment';
+import {
   registerAfcoinBookingEvent,
   registerAfcoinLocalPayBundle,
   registerAfcoinOnlinePayBundle,
 } from '../utils/afcoin';
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
+
+const AFCOIN_EARLY_MILESTONES = 15;
+const AFCOIN_ONLINE_PAY_BONUS = AFCOIN_POINTS_ONLINE - AFCOIN_EARLY_MILESTONES;
+const AFCOIN_LOCAL_PAY_BONUS = AFCOIN_POINTS_LOCAL - AFCOIN_EARLY_MILESTONES;
+
+const formatBookingCurrency = (value: number) =>
+  Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 type PublicBookingReview = {
   id: string;
@@ -2319,13 +2330,20 @@ export default function BookingPage() {
       }
 
       // 🔥 VALIDAÇÃO DE REMARCAÇÃO NO MESMO DIA PARA ASSINANTES
-      if (appointmentData.is_subscriber && currentUser?.id) {
+      const subscriberPhoneForSameDay = String(
+        appointmentData?.client_whatsapp || guestClientData?.phone || ''
+      ).trim();
+      if (appointmentData.is_subscriber && subscriberPhoneForSameDay) {
         console.log('🔍 Validando remarcação no mesmo dia...');
 
+        const appointmentDateIso = String(
+          appointmentData?.appointment_date || format(selectedDate, 'yyyy-MM-dd')
+        ).slice(0, 10);
+
         const sameDayValidation = await validateSameDayReschedule(
-          currentUser.id,
+          subscriberPhoneForSameDay,
           establishment.id,
-          new Date(appointmentData.appointment_date),
+          appointmentDateIso,
           appointmentData.is_subscriber
         );
 
@@ -5583,7 +5601,7 @@ export default function BookingPage() {
 
       {/* Prompt: Pagamento opcional após agendar */}
       {showOptionalPayPrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-[3px] p-2 sm:p-4 animate-[afcoFadeIn_0.24s_ease-out]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-[3px] p-3 sm:p-4 animate-[afcoFadeIn_0.24s_ease-out]">
           <style>{`
             @keyframes afcoFadeIn {
               from { opacity: 0; }
@@ -5594,37 +5612,37 @@ export default function BookingPage() {
               to { opacity: 1; transform: translateY(0) scale(1); }
             }
             @keyframes afcoButtonGlow {
-              0%, 100% { box-shadow: 0 8px 24px rgba(22,163,74,0.35); }
-              50% { box-shadow: 0 10px 30px rgba(34,197,94,0.50); }
+              0%, 100% { box-shadow: 0 6px 18px rgba(22,163,74,0.22); }
+              50% { box-shadow: 0 8px 22px rgba(34,197,94,0.28); }
             }
           `}</style>
 
           <div
-            className="relative overflow-hidden rounded-[20px] sm:rounded-[26px] border w-full max-w-[390px] sm:max-w-[860px] max-h-[88vh] overflow-y-auto px-3 py-3 sm:px-6 sm:py-6 text-white"
+            className="relative overflow-hidden rounded-[20px] sm:rounded-[26px] border w-full max-w-[390px] sm:max-w-[860px] max-h-[88vh] overflow-y-auto px-4 py-4 sm:px-6 sm:py-6 text-white"
             style={{
-              background: 'radial-gradient(120% 180% at 0% 0%, rgba(230,199,139,0.18) 0%, rgba(9,9,11,0.98) 42%, rgba(5,5,6,0.99) 100%)',
-              borderColor: 'rgba(230,199,139,0.35)',
-              boxShadow: '0 28px 80px rgba(0,0,0,0.72), 0 0 0 1px rgba(16,185,129,0.14), 0 0 28px rgba(16,185,129,0.18)',
+              background: 'radial-gradient(120% 180% at 0% 0%, rgba(230,199,139,0.14) 0%, rgba(9,9,11,0.98) 42%, rgba(5,5,6,0.99) 100%)',
+              borderColor: 'rgba(230,199,139,0.32)',
+              boxShadow: '0 28px 80px rgba(0,0,0,0.72), 0 0 0 1px rgba(16,185,129,0.08), 0 0 16px rgba(16,185,129,0.08)',
               animation: 'afcoScaleIn 0.28s cubic-bezier(.2,.8,.2,1)',
             }}
           >
-            <div className="pointer-events-none absolute -right-14 -top-16 h-40 w-40 rounded-full bg-emerald-400/20 blur-3xl" />
-            <div className="pointer-events-none absolute -left-16 bottom-[-72px] h-44 w-44 rounded-full bg-[#E6C78B]/20 blur-3xl" />
+            <div className="pointer-events-none absolute -right-14 -top-16 h-40 w-40 rounded-full bg-emerald-400/10 blur-3xl sm:bg-emerald-400/16" />
+            <div className="pointer-events-none absolute -left-16 bottom-[-72px] h-44 w-44 rounded-full bg-[#E6C78B]/14 blur-3xl sm:bg-[#E6C78B]/20" />
 
             {Boolean(String((establishment as any)?.mercadopago_access_token || '').trim()) ? (
               <>
-                <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start justify-between gap-3 sm:gap-2">
                   <div>
                     <h2 className="leading-tight">
                       <span className="block text-[1.22rem] sm:text-[2rem] font-extrabold tracking-tight">
                         🎉 Agendamento realizado
                       </span>
-                      <span className="block text-[1.72rem] sm:text-[3.1rem] font-black uppercase leading-[0.95] tracking-tight text-[#F4D35E] drop-shadow-[0_0_18px_rgba(244,211,94,0.34)]">
+                      <span className="block text-[1.72rem] sm:text-[3.1rem] font-black uppercase leading-[0.95] tracking-tight text-[#F4D35E] drop-shadow-[0_0_12px_rgba(244,211,94,0.22)] sm:drop-shadow-[0_0_18px_rgba(244,211,94,0.34)]">
                         com sucesso!
                       </span>
                     </h2>
-                    <p className="mt-1.5 text-[0.95rem] sm:text-[1.5rem] font-semibold text-zinc-100">
-                      Pague agora via Pix ou cartão e ganhe
+                    <p className="mt-2 sm:mt-1.5 text-[0.84rem] sm:text-[1.05rem] font-medium text-zinc-400 sm:text-zinc-300 leading-relaxed">
+                      Seu horário está confirmado. Obrigado!
                     </p>
                   </div>
 
@@ -5645,86 +5663,146 @@ export default function BookingPage() {
                 </div>
 
                 <div
-                  className="mt-2.5 rounded-xl sm:rounded-2xl border px-3 py-2.5 sm:px-6 sm:py-4"
+                  className="mt-4 sm:mt-2.5 rounded-xl sm:rounded-2xl border px-3.5 py-3.5 sm:px-5 sm:py-4 space-y-3.5 sm:space-y-3"
                   style={{
-                    background: 'linear-gradient(135deg, rgba(13,148,66,0.24) 0%, rgba(6,78,59,0.35) 100%)',
-                    borderColor: 'rgba(74,222,128,0.45)',
-                    boxShadow: '0 0 0 1px rgba(74,222,128,0.2), 0 8px 30px rgba(22,163,74,0.25)',
+                    background: 'linear-gradient(135deg, rgba(13,148,66,0.16) 0%, rgba(6,78,59,0.24) 100%)',
+                    borderColor: 'rgba(74,222,128,0.28)',
+                    boxShadow: '0 0 0 1px rgba(74,222,128,0.12), 0 6px 20px rgba(22,163,74,0.14)',
                   }}
                 >
-                  <div className="flex items-center gap-3 text-green-200">
-                    <span className="text-[1.72rem] sm:text-[3.4rem] font-black leading-none text-[#4ADE80] drop-shadow-[0_0_14px_rgba(74,222,128,0.45)]">
-                      +45
+                  {/* Mobile: mesma frase, quebra em linhas confortáveis */}
+                  <div className="sm:hidden space-y-2 text-center">
+                    <p className="text-[0.88rem] font-bold text-zinc-50 leading-[1.4]">
+                      💈 Pague seu <span className="text-[#F4D35E]">atendimento adiantado</span>
+                    </p>
+                    <p className="text-[0.88rem] font-bold text-zinc-50 leading-[1.4]">
+                      via Pix ou cartão e ganhe:
+                    </p>
+                    <div className="flex items-center justify-center gap-2.5 text-green-200 pt-0.5">
+                      <span className="text-[1.72rem] font-black leading-none text-[#5EEAD4] drop-shadow-[0_0_8px_rgba(74,222,128,0.18)]">
+                        +{AFCOIN_ONLINE_PAY_BONUS}
+                      </span>
+                      <span className="text-[1.02rem] leading-none font-extrabold text-white">
+                        AFCoins bônus
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Desktop: microcopy completa */}
+                  <p className="hidden sm:block text-[1.35rem] font-bold text-zinc-50 leading-snug">
+                    💈 Pague seu <span className="text-[#F4D35E]">atendimento adiantado</span> via Pix ou cartão e ganhe:
+                  </p>
+
+                  <div className="hidden sm:flex items-center gap-3 text-green-200">
+                    <span className="text-[3.4rem] font-black leading-none text-[#4ADE80] drop-shadow-[0_0_14px_rgba(74,222,128,0.45)]">
+                      +{AFCOIN_ONLINE_PAY_BONUS}
                     </span>
-                    <span className="text-[1.08rem] sm:text-[2.15rem] leading-none font-extrabold text-white">
+                    <span className="text-[2.15rem] leading-none font-extrabold text-white">
                       AFCoins bônus
                     </span>
                   </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-2">
+                    <div
+                      className="rounded-lg sm:rounded-xl border px-3 py-3 sm:py-2.5"
+                      style={{
+                        background: 'rgba(0,0,0,0.22)',
+                        borderColor: 'rgba(230,199,139,0.24)',
+                      }}
+                    >
+                      <p className="text-[0.68rem] sm:text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        💰 Valor do atendimento
+                      </p>
+                      <p className="mt-1 sm:mt-0.5 text-[1.35rem] sm:text-[2rem] font-black text-white leading-none">
+                        {formatBookingCurrency(pendingPaymentAmount)}
+                      </p>
+                      <p className="mt-1.5 sm:mt-1 text-[0.62rem] sm:text-[0.72rem] text-zinc-500 font-medium leading-snug">
+                        Valor normal do seu serviço
+                      </p>
+                    </div>
+
+                    <div
+                      className="rounded-lg sm:rounded-xl border px-3 py-3 sm:py-2.5 flex items-center"
+                      style={{
+                        background: 'rgba(0,0,0,0.16)',
+                        borderColor: 'rgba(74,222,128,0.16)',
+                      }}
+                    >
+                      <p className="text-[0.74rem] sm:text-[0.95rem] font-medium text-zinc-300 sm:text-zinc-200 leading-relaxed sm:leading-snug">
+                        ✅ Pagamento 100% seguro via{' '}
+                        <span className="text-emerald-300 sm:text-emerald-400 font-bold sm:font-extrabold">Mercado Pago</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setShowOptionalPayPrompt(false);
+                      setShowPaymentModal(true);
+                    }}
+                    className="w-full rounded-xl sm:rounded-2xl px-4 py-3.5 sm:px-5 sm:py-4 text-white transition-all duration-200 hover:brightness-105 hover:-translate-y-[1px] active:translate-y-0"
+                    style={{
+                      background: 'linear-gradient(180deg, #16a34a 0%, #166534 100%)',
+                      animation: 'afcoButtonGlow 2.8s ease-in-out infinite',
+                      boxShadow: '0 6px 18px rgba(22,163,74,0.22)',
+                    }}
+                  >
+                    <span className="block text-[1.08rem] sm:text-[1.75rem] leading-tight font-black tracking-tight">
+                      <span className="sm:hidden">
+                        Pagar agora
+                        <span className="block mt-0.5 text-[0.95rem] font-extrabold text-emerald-100">
+                          +{AFCOIN_ONLINE_PAY_BONUS} AFCoins bônus
+                        </span>
+                      </span>
+                      <span className="hidden sm:block">
+                        🔒 Pagar agora e ganhar +{AFCOIN_ONLINE_PAY_BONUS} AFCoins
+                      </span>
+                    </span>
+                    <span className="mt-1.5 sm:mt-1 block text-[0.68rem] sm:text-[0.95rem] font-medium text-emerald-100/80 sm:text-emerald-100/90">
+                      ✓ Pagamento rápido, seguro e aprovado na hora
+                    </span>
+                  </button>
                 </div>
 
-                <button
-                  onClick={() => {
-                    setShowOptionalPayPrompt(false);
-                    setShowPaymentModal(true);
-                  }}
-                  className="mt-3 w-full rounded-xl sm:rounded-2xl px-4 py-3 sm:px-5 sm:py-4 text-[1.02rem] sm:text-[1.95rem] leading-tight font-black text-white transition-all duration-200 hover:brightness-110 hover:-translate-y-[1px] active:translate-y-0"
-                  style={{
-                    background: 'linear-gradient(180deg, #22c55e 0%, #15803d 100%)',
-                    animation: 'afcoButtonGlow 2.2s ease-in-out infinite',
-                    boxShadow: '0 8px 24px rgba(22,163,74,0.35)',
-                  }}
-                >
-                  Pagar agora e ganhar +45 AFCoins
-                </button>
-
-                <div className="mt-2.5 grid grid-cols-3 sm:grid-cols-3 gap-1.5 sm:gap-2.5">
+                <div className="mt-4 sm:mt-2.5 grid grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-2.5">
                   {[
-                    { icon: '🎁', title: 'Acumule moedas', text: 'a cada agendamento' },
-                    { icon: '💈', title: 'Troque por descontos', text: 'e benefícios incríveis' },
+                    { icon: '⭐', title: 'Acumule AFCoins', text: 'a cada pagamento adiantado' },
+                    { icon: '🎁', title: 'Troque por descontos', text: 'e benefícios incríveis' },
                     { icon: '❤️', title: 'Ganhe benefícios', text: 'e vantagens exclusivas' },
                   ].map((item) => (
                     <div
                       key={item.title}
-                      className="rounded-lg sm:rounded-xl border px-1.5 py-1.5 sm:px-3 sm:py-2 transition-transform duration-200 hover:-translate-y-[1px] min-h-[86px] sm:min-h-[96px] flex flex-col items-center justify-center text-center"
+                      className="rounded-lg sm:rounded-xl border px-1 py-2 sm:px-3 sm:py-2 transition-transform duration-200 hover:-translate-y-[1px] min-h-[68px] sm:min-h-[96px] flex flex-col items-center justify-center text-center gap-0.5 sm:gap-0"
                       style={{
-                        background: 'linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)',
-                        borderColor: 'rgba(230,199,139,0.22)',
+                        background: 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)',
+                        borderColor: 'rgba(230,199,139,0.18)',
                       }}
                     >
-                      <div className="text-[0.88rem] sm:text-base leading-none">{item.icon}</div>
-                      <div className="mt-1 text-[0.7rem] sm:text-sm font-extrabold text-zinc-100 leading-[1.2]">{item.title}</div>
-                      <div className="mt-0.5 text-[0.56rem] sm:text-[0.74rem] text-zinc-400 leading-[1.22]">{item.text}</div>
+                      <div className="text-[0.78rem] sm:text-base leading-none">{item.icon}</div>
+                      <div className="text-[0.62rem] sm:text-sm font-bold sm:font-extrabold text-zinc-200 sm:text-zinc-100 leading-[1.15] sm:leading-[1.2] px-0.5">{item.title}</div>
+                      <div className="text-[0.48rem] sm:text-[0.74rem] text-zinc-500 sm:text-zinc-400 leading-[1.15] sm:leading-[1.22] px-0.5">{item.text}</div>
                     </div>
                   ))}
                 </div>
 
-                <div
-                  className="mt-2 rounded-xl border px-2.5 py-2 text-center text-[0.78rem] sm:text-[1.15rem] font-extrabold tracking-tight text-zinc-100"
-                  style={{
-                    background: 'rgba(8,8,9,0.82)',
-                    borderColor: 'rgba(230,199,139,0.25)',
-                  }}
-                >
-                  🎁 Quanto mais você paga online, mais benefícios desbloqueia
-                </div>
-
-                <div className="mt-2 text-center">
+                <div className="mt-5 sm:mt-2 flex justify-center px-1">
                   <button
                     onClick={finishLocalPayWithAfcoins}
-                    className="text-zinc-300 text-[0.92rem] sm:text-[1.15rem] font-semibold underline underline-offset-4 decoration-zinc-500 hover:text-white hover:decoration-zinc-200 transition-colors"
+                    className="text-zinc-400 sm:text-zinc-300 text-[0.78rem] sm:text-[1.15rem] font-medium sm:font-semibold underline underline-offset-4 decoration-zinc-600 sm:decoration-zinc-500 hover:text-white hover:decoration-zinc-200 transition-colors whitespace-nowrap tracking-tight"
                   >
-                    📍 Prefiro pagar no local (+ 3 AFCoins · 18 no total)
+                    📍 Prefiro pagar no local (+{AFCOIN_LOCAL_PAY_BONUS} AFCoins)
                   </button>
                 </div>
 
                 <div
-                  className="mt-2 rounded-xl border px-3 py-2 text-center text-[0.82rem] sm:text-base font-semibold text-zinc-300"
+                  className="mt-4 sm:mt-2 rounded-xl border px-3 py-2.5 sm:py-2 text-center text-[0.72rem] sm:text-[0.92rem] font-medium text-zinc-500 sm:text-zinc-400 leading-relaxed"
                   style={{
                     background: 'rgba(255,255,255,0.02)',
-                    borderColor: 'rgba(255,255,255,0.10)',
+                    borderColor: 'rgba(255,255,255,0.06)',
                   }}
                 >
-                  ✅ Pagamento 100% seguro via <span className="text-emerald-400 font-extrabold">Mercado Pago</span>
+                  🔒 Seus dados e pagamento estão protegidos pelo{' '}
+                  <span className="text-emerald-300 sm:text-emerald-400 font-semibold sm:font-extrabold">Mercado Pago</span>
                 </div>
               </>
             ) : (
@@ -5750,7 +5828,7 @@ export default function BookingPage() {
                     onClick={finishLocalPayWithAfcoins}
                     className="flex-1 bg-transparent hover:bg-white/5 text-gray-300 font-semibold py-2 px-2 rounded-lg transition-colors text-sm underline underline-offset-4"
                   >
-                    Prefiro pagar no local (+18 AFCoins no total)
+                    Prefiro pagar no local (+{AFCOIN_LOCAL_PAY_BONUS} AFCoins)
                   </button>
                 </div>
               </>
