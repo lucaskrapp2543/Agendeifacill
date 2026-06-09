@@ -9,6 +9,7 @@ import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAp
 import { PaymentMethodSelector } from './PaymentMethodSelector';
 import { TimeSlotSelector } from './TimeSlotSelector';
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
+import { registerAfcoinBookingEvent } from '../utils/afcoin';
 
 type ChatStep =
   | 'name'
@@ -246,6 +247,15 @@ export function BookingChatFlow({
   const [publicLoyaltyRow, setPublicLoyaltyRow] = useState<{ cycle_goal: number; cycle_progress: number } | null>(null);
   const [publicLoyaltyLoading, setPublicLoyaltyLoading] = useState(false);
   const [publicLoyaltyRedeemApplied, setPublicLoyaltyRedeemApplied] = useState(false);
+  const [afcoinPhoneAwarded, setAfcoinPhoneAwarded] = useState(false);
+  const [afcoinScheduleAwarded, setAfcoinScheduleAwarded] = useState(false);
+  const afcoinsEnabled = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+
+  const markAfcoinScheduleMilestone = () => {
+    if (!afcoinsEnabled || afcoinScheduleAwarded) return;
+    toast.success('✨ Você ganhou mais +10 AFCoins');
+    setAfcoinScheduleAwarded(true);
+  };
 
   const professionals = useMemo(() => {
     const visibleProfessionals = Array.isArray(establishment?.professionals)
@@ -1133,6 +1143,18 @@ export function BookingChatFlow({
         console.error('Erro ao validar pendencia no chat:', error);
       } finally {
         setIsCheckingPendingClientBooking(false);
+      }
+
+      const hasMercadoPagoConnected = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+      if (hasMercadoPagoConnected && !afcoinPhoneAwarded) {
+        toast.success('🎉 Parabéns! Você ganhou +5 AFCoins');
+        setAfcoinPhoneAwarded(true);
+        void registerAfcoinBookingEvent({
+          establishmentId: String(establishment?.id || establishment?.establishment_id || ''),
+          clientPhone: nextPhone,
+          clientName: chatClientName || guestClientData?.name || 'Cliente',
+          rule: 'name_phone_5',
+        });
       }
 
       setIsCheckingSubscriber(true);
@@ -2026,6 +2048,7 @@ export function BookingChatFlow({
                             return;
                           }
                           setPendingClientBookingMessage(null);
+                          markAfcoinScheduleMilestone();
                           setStep('confirm');
                         })();
                       }}
@@ -2172,6 +2195,7 @@ export function BookingChatFlow({
                       return;
                     }
                     setPendingClientBookingMessage(null);
+                    markAfcoinScheduleMilestone();
                     setStep('confirm');
                   }}
                   className="w-full px-4 py-2.5 rounded-xl bg-[#E6C78B] hover:bg-[#f1ddb0] text-black text-sm font-extrabold transition-colors"
@@ -2186,6 +2210,11 @@ export function BookingChatFlow({
                 {pendingClientBookingMessage && (
                   <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200 font-semibold">
                     {pendingClientBookingMessage}
+                  </div>
+                )}
+                {afcoinsEnabled && (
+                  <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 font-semibold">
+                    ✅ Etapa concluída: você ganhou <strong>+10 AFCoins</strong> neste agendamento.
                   </div>
                 )}
                 <div><strong>Cliente:</strong> {chatClientName}</div>

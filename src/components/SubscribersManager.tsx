@@ -5786,6 +5786,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 <p className="text-xs sm:text-sm text-amber-100/90 mt-1">
                   Clientes que já pagaram no cartão, mas ainda não ativaram renovação automática.
                 </p>
+                <p className="text-[11px] sm:text-xs text-emerald-200 mt-2 rounded border border-emerald-400/30 bg-emerald-500/10 px-2 py-1.5">
+                  Esse link não cobra nada agora. Ele apenas salva/autoriza o cartão para cobrar no próximo mês, na data de renovação.
+                </p>
               </div>
               <span className="px-2 py-1 rounded-full bg-amber-400/20 border border-amber-300/40 text-amber-100 text-xs font-bold">
                 {recurringActivationCandidates.length}

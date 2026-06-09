@@ -1,8 +1,9 @@
-import { endOfDay, endOfMonth, format, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
+import { addMonths, endOfDay, endOfMonth, format, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
   AlertTriangle,
   Building2,
+  CalendarDays,
   CheckCircle,
   ChevronDown,
   ChevronLeft,
@@ -22,7 +23,7 @@ import {
   X,
   XCircle
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { AdminEstablishmentWhatsappReminders } from '../../modules/whatsapp-reminders/ui/AdminEstablishmentWhatsappReminders';
@@ -56,9 +57,29 @@ interface Establishment {
   admin_profit_value?: number | null; // Valor manual de lucro (admin) para somar no saldo geral
   admin_payment_link?: string | null; // Link de pagamento para envio de cobrança (admin)
   mercadopago_billing_amount?: number | null; // Valor da cobranca PIX por estabelecimento
+  mercadopago_access_token?: string | null;
   whatsapp?: string; // WhatsApp do estabelecimento
   pagamento_adiantado_liberado_admin?: boolean; // Liberação pelo admin para mostrar "Pagamento adiantado" ao barbeiro
 }
+
+type AfcoinWalletRow = {
+  id: string;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  balance?: number | null;
+  online_payments_count?: number | null;
+  last_appointment_at?: string | null;
+};
+
+type AfcoinRewardRow = {
+  id: string;
+  created_at?: string | null;
+  discount_cents?: number | null;
+  original_amount_cents?: number | null;
+  paid_amount_cents?: number | null;
+  status?: string | null;
+  wallet_id?: string | null;
+};
 
 /** Mesma regra da coluna STATUS: "Pago" com vencimento futuro pode ocorrer mesmo com payment_status !== 'paid'. */
 function getAdminGridDisplayPaymentState(
@@ -146,6 +167,33 @@ interface AdminMpCommissionTopRow {
   subscriptionCount: number;
 }
 
+interface AdminGeneralAppointmentsSummary {
+  totalAppointmentsMonth: number;
+  totalPaidMpAppointmentsMonth: number;
+  totalPaidMpPixMonth: number;
+  totalPaidMpCreditMonth: number;
+  totalPaidMpValueMonth: number;
+}
+
+interface AdminGeneralAppointmentsTopEstablishmentRow {
+  establishmentId: string;
+  establishmentName: string;
+  establishmentCode: string;
+  paidMpCount: number;
+  pixCount: number;
+  creditCount: number;
+  paidValue: number;
+}
+
+interface AdminGeneralAppointmentsTopClientRow {
+  clientName: string;
+  clientWhatsapp: string;
+  paidMpCount: number;
+  pixCount: number;
+  creditCount: number;
+  paidValue: number;
+}
+
 // (removido) AdminCostRow
 
 const AdminDashboard = () => {
@@ -185,12 +233,34 @@ const AdminDashboard = () => {
   const [isLoadingPayoutHistory, setIsLoadingPayoutHistory] = useState(false);
   const [showWhatsappRemindersModal, setShowWhatsappRemindersModal] = useState(false);
   const [whatsappRemindersEstablishment, setWhatsappRemindersEstablishment] = useState<Establishment | null>(null);
+  const [showAfcoinModal, setShowAfcoinModal] = useState(false);
+  const [afcoinEstablishment, setAfcoinEstablishment] = useState<Establishment | null>(null);
+  const [isLoadingAfcoinModal, setIsLoadingAfcoinModal] = useState(false);
+  const [afcoinModalError, setAfcoinModalError] = useState<string | null>(null);
+  const [afcoinWalletRows, setAfcoinWalletRows] = useState<AfcoinWalletRow[]>([]);
+  const [afcoinRewardRows, setAfcoinRewardRows] = useState<AfcoinRewardRow[]>([]);
+  const [afcoinCompensationRows, setAfcoinCompensationRows] = useState<any[]>([]);
+  const [afcoinTransactionsDistributed, setAfcoinTransactionsDistributed] = useState<number>(0);
+  const [showGeneralAppointmentsModal, setShowGeneralAppointmentsModal] = useState(false);
+  const [isLoadingGeneralAppointmentsModal, setIsLoadingGeneralAppointmentsModal] = useState(false);
+  const [generalAppointmentsModalError, setGeneralAppointmentsModalError] = useState<string | null>(null);
+  const [generalAppointmentsMonth, setGeneralAppointmentsMonth] = useState<Date>(() => new Date());
+  const [generalAppointmentsSummary, setGeneralAppointmentsSummary] = useState<AdminGeneralAppointmentsSummary>({
+    totalAppointmentsMonth: 0,
+    totalPaidMpAppointmentsMonth: 0,
+    totalPaidMpPixMonth: 0,
+    totalPaidMpCreditMonth: 0,
+    totalPaidMpValueMonth: 0,
+  });
+  const [generalAppointmentsTopEstablishments, setGeneralAppointmentsTopEstablishments] = useState<AdminGeneralAppointmentsTopEstablishmentRow[]>([]);
+  const [generalAppointmentsTopClients, setGeneralAppointmentsTopClients] = useState<AdminGeneralAppointmentsTopClientRow[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchTermDeleted, setSearchTermDeleted] = useState(''); // Busca na lixeira
   const [filterStatus, setFilterStatus] = useState<'all' | 'paid' | 'unpaid' | 'expired'>('all');
   const [filterPlan, setFilterPlan] = useState<'all' | 'prata' | 'ouro' | 'diamante' | 'outros'>('all');
   const [filterActivity, setFilterActivity] = useState<'all' | 'active' | 'inactive'>('all');
   const [filterWhatsapp, setFilterWhatsapp] = useState<'all' | 'connected'>('all');
+  const [filterMercadoPago, setFilterMercadoPago] = useState<'all' | 'connected' | 'disconnected'>('all');
   const [showDeleted, setShowDeleted] = useState(false);
   const [deletedContainmentIds, setDeletedContainmentIds] = useState<string[]>([]);
   const [showNewRegistrations, setShowNewRegistrations] = useState(false);
@@ -640,11 +710,256 @@ const AdminDashboard = () => {
   const DELETED_CONTAINMENT_STORAGE_KEY = `admin_deleted_containment_ids_v2_${String(user?.id || 'global')}`;
   const DELETED_CONTAINMENT_STORAGE_KEY_LEGACY = 'admin_deleted_containment_ids_v1';
 
+  // Verificar se é a conta de suporte
+  const isSupportAccount = user?.email === 'suporteagendeifacil@gmail.com';
+
+  const openWhatsappRemindersModal = (establishment: Establishment) => {
+    if (!isSupportAccount) return;
+    setWhatsappRemindersEstablishment(establishment);
+    setShowWhatsappRemindersModal(true);
+  };
+
+  const openAfcoinModal = async (establishment: Establishment) => {
+    setAfcoinEstablishment(establishment);
+    setShowAfcoinModal(true);
+    setAfcoinModalError(null);
+    setIsLoadingAfcoinModal(true);
+    setAfcoinWalletRows([]);
+    setAfcoinRewardRows([]);
+    setAfcoinCompensationRows([]);
+    setAfcoinTransactionsDistributed(0);
+
+    try {
+      const establishmentId = String(establishment?.id || '').trim();
+      if (!establishmentId) {
+        throw new Error('Estabelecimento inválido.');
+      }
+
+      const [{ data: walletRows, error: walletError }, { data: rewardRows, error: rewardError }, { data: txRows, error: txError }, { data: compRows, error: compError }] = await Promise.all([
+        supabase
+          .from('afcoin_wallets')
+          .select('id, customer_name, customer_phone, balance, online_payments_count, last_appointment_at')
+          .eq('establishment_id', establishmentId)
+          .order('balance', { ascending: false })
+          .limit(500),
+        supabase
+          .from('afcoin_rewards')
+          .select('id, wallet_id, created_at, discount_cents, original_amount_cents, paid_amount_cents, status')
+          .eq('establishment_id', establishmentId)
+          .order('created_at', { ascending: false })
+          .limit(500),
+        supabase
+          .from('afcoin_transactions')
+          .select('points_delta, transaction_type')
+          .eq('establishment_id', establishmentId)
+          .limit(5000),
+        supabase
+          .from('afcoin_compensations')
+          .select('id, reward_id, amount_cents, status, created_at')
+          .eq('establishment_id', establishmentId)
+          .order('created_at', { ascending: false })
+          .limit(500),
+      ]);
+
+      const possibleError = walletError || rewardError || txError || compError;
+      if (possibleError) {
+        const errMsg = String((possibleError as any)?.message || '').toLowerCase();
+        const missingTable =
+          errMsg.includes('afcoin_') ||
+          errMsg.includes('does not exist') ||
+          errMsg.includes('schema cache') ||
+          errMsg.includes('relation');
+        if (missingTable) {
+          throw new Error('Módulo AFCoins ainda não disponível no banco. Rode a migration AFCoins primeiro.');
+        }
+        throw possibleError;
+      }
+
+      const distributed = ((txRows as any[]) || []).reduce((sum, row) => {
+        const points = Number((row as any)?.points_delta || 0);
+        const txType = String((row as any)?.transaction_type || '').toLowerCase();
+        if (txType === 'earn' && Number.isFinite(points) && points > 0) return sum + points;
+        return sum;
+      }, 0);
+
+      setAfcoinWalletRows((walletRows as any[]) || []);
+      setAfcoinRewardRows((rewardRows as any[]) || []);
+      setAfcoinCompensationRows((compRows as any[]) || []);
+      setAfcoinTransactionsDistributed(distributed);
+    } catch (error: any) {
+      console.error('Erro ao carregar painel AFCoins:', error);
+      setAfcoinModalError(String(error?.message || 'Erro ao carregar painel AFCoins.'));
+    } finally {
+      setIsLoadingAfcoinModal(false);
+    }
+  };
+
+  const openGeneralAppointmentsModal = async (targetMonth?: Date) => {
+    const effectiveMonth = targetMonth ? new Date(targetMonth) : new Date(generalAppointmentsMonth);
+    setGeneralAppointmentsMonth(effectiveMonth);
+    setShowGeneralAppointmentsModal(true);
+    setIsLoadingGeneralAppointmentsModal(true);
+    setGeneralAppointmentsModalError(null);
+    setGeneralAppointmentsSummary({
+      totalAppointmentsMonth: 0,
+      totalPaidMpAppointmentsMonth: 0,
+      totalPaidMpPixMonth: 0,
+      totalPaidMpCreditMonth: 0,
+      totalPaidMpValueMonth: 0,
+    });
+    setGeneralAppointmentsTopEstablishments([]);
+    setGeneralAppointmentsTopClients([]);
+
+    try {
+      const monthStart = format(startOfMonth(effectiveMonth), 'yyyy-MM-dd');
+      const monthEnd = format(endOfMonth(effectiveMonth), 'yyyy-MM-dd');
+      const pageSize = 1000;
+      let from = 0;
+      let keepFetching = true;
+      const rows: any[] = [];
+
+      while (keepFetching) {
+        const { data, error } = await supabase
+          .from('appointments')
+          .select('id,establishment_id,client_name,client_whatsapp,appointment_date,appointment_time,status,payment_status,pix_payment_status,payment_method,payment_transaction_id,price,total_price,created_at,is_establishment_booking,is_avulso,is_squeeze')
+          .gte('appointment_date', monthStart)
+          .lte('appointment_date', monthEnd)
+          .range(from, from + pageSize - 1);
+
+        if (error) throw error;
+        const chunk = (data as any[]) || [];
+        rows.push(...chunk);
+        if (chunk.length < pageSize) {
+          keepFetching = false;
+        } else {
+          from += pageSize;
+        }
+      }
+
+      const getPaidMethod = (row: any): 'pix' | 'credito' | null => {
+        const paymentStatus = String(row?.payment_status || '').toLowerCase().trim();
+        const pixStatus = String(row?.pix_payment_status || '').toLowerCase().trim();
+        const isPaid = paymentStatus === 'paid' || pixStatus === 'confirmado' || pixStatus === 'aprovado';
+        if (!isPaid) return null;
+
+        const method = String(row?.payment_method || '').toLowerCase().trim();
+        const isPix = method.includes('pix') || pixStatus === 'confirmado' || pixStatus === 'aprovado';
+        const isCredit =
+          method === 'credito' ||
+          method === 'credit' ||
+          method === 'credit_card' ||
+          method.includes('credit') ||
+          method.includes('credito') ||
+          method.includes('card');
+        if (isPix) return 'pix';
+        if (isCredit) return 'credito';
+        return null;
+      };
+
+      const bookingRows = rows.filter((row) => {
+        const isInternalByFlag = Boolean((row as any)?.is_establishment_booking === true);
+        const isAvulsoLike = Boolean((row as any)?.is_avulso) || Boolean((row as any)?.is_squeeze);
+        return !isInternalByFlag && !isAvulsoLike;
+      });
+
+      const paidMpAppointments = bookingRows.filter((row) => {
+        const paidMethod = getPaidMethod(row);
+        if (!paidMethod) return false;
+        const transactionId = String(row?.payment_transaction_id || '').trim();
+        // Critério estrito para não confundir com pagamento local:
+        // só conta como Mercado Pago quando existe transaction_id numérico (payment id do MP).
+        return isMercadoPagoTransactionId(transactionId);
+      });
+
+      const pixCount = paidMpAppointments.filter((row) => getPaidMethod(row) === 'pix').length;
+      const creditCount = paidMpAppointments.filter((row) => getPaidMethod(row) === 'credito').length;
+      const paidValue = paidMpAppointments.reduce((sum, row) => {
+        const total = Number(row?.total_price || row?.price || 0);
+        return sum + (Number.isFinite(total) ? total : 0);
+      }, 0);
+
+      setGeneralAppointmentsSummary({
+        totalAppointmentsMonth: bookingRows.length,
+        totalPaidMpAppointmentsMonth: paidMpAppointments.length,
+        totalPaidMpPixMonth: pixCount,
+        totalPaidMpCreditMonth: creditCount,
+        totalPaidMpValueMonth: Math.round(paidValue * 100) / 100,
+      });
+
+      const topEstablishmentsMap = new Map<string, AdminGeneralAppointmentsTopEstablishmentRow>();
+      paidMpAppointments.forEach((row) => {
+        const establishmentId = String(row?.establishment_id || '').trim();
+        if (!establishmentId) return;
+        const est = establishments.find((item) => String(item.id) === establishmentId);
+        const method = getPaidMethod(row);
+        const rowValue = Number(row?.total_price || row?.price || 0);
+        const paidRowValue = Number.isFinite(rowValue) ? rowValue : 0;
+        const current = topEstablishmentsMap.get(establishmentId) || {
+          establishmentId,
+          establishmentName: String(est?.name || 'Estabelecimento'),
+          establishmentCode: String(est?.code || '—'),
+          paidMpCount: 0,
+          pixCount: 0,
+          creditCount: 0,
+          paidValue: 0,
+        };
+        current.paidMpCount += 1;
+        if (method === 'pix') current.pixCount += 1;
+        if (method === 'credito') current.creditCount += 1;
+        current.paidValue += paidRowValue;
+        topEstablishmentsMap.set(establishmentId, current);
+      });
+
+      const topEstablishments = Array.from(topEstablishmentsMap.values())
+        .sort((a, b) => {
+          if (b.paidMpCount !== a.paidMpCount) return b.paidMpCount - a.paidMpCount;
+          return b.paidValue - a.paidValue;
+        })
+        .slice(0, 20);
+      setGeneralAppointmentsTopEstablishments(topEstablishments);
+
+      const topClientsMap = new Map<string, AdminGeneralAppointmentsTopClientRow>();
+      paidMpAppointments.forEach((row) => {
+        const name = String(row?.client_name || 'Cliente').trim() || 'Cliente';
+        const whatsapp = String(row?.client_whatsapp || '').trim();
+        const key = `${name.toLowerCase()}::${whatsapp.replace(/\D/g, '')}`;
+        const method = getPaidMethod(row);
+        const rowValue = Number(row?.total_price || row?.price || 0);
+        const paidRowValue = Number.isFinite(rowValue) ? rowValue : 0;
+        const current = topClientsMap.get(key) || {
+          clientName: name,
+          clientWhatsapp: whatsapp || '—',
+          paidMpCount: 0,
+          pixCount: 0,
+          creditCount: 0,
+          paidValue: 0,
+        };
+        current.paidMpCount += 1;
+        if (method === 'pix') current.pixCount += 1;
+        if (method === 'credito') current.creditCount += 1;
+        current.paidValue += paidRowValue;
+        topClientsMap.set(key, current);
+      });
+
+      const topClients = Array.from(topClientsMap.values())
+        .sort((a, b) => {
+          if (b.paidMpCount !== a.paidMpCount) return b.paidMpCount - a.paidMpCount;
+          return b.paidValue - a.paidValue;
+        })
+        .slice(0, 20);
+      setGeneralAppointmentsTopClients(topClients);
+    } catch (error: any) {
+      console.error('Erro ao carregar Agendamentos Geral:', error);
+      setGeneralAppointmentsModalError(String(error?.message || 'Erro ao carregar agendamentos gerais.'));
+    } finally {
+      setIsLoadingGeneralAppointmentsModal(false);
+    }
+  };
+
+  // Fluxo legado mantido como fallback para não quebrar controles existentes.
   const togglePagamentoAdiantadoAdmin = async (establishmentId: string, current: boolean) => {
     try {
       const next = !current;
-
-      // Se o admin está DESATIVANDO, forçar o estabelecimento a parar de exigir pagamento antecipado.
       const payload: any = { pagamento_adiantado_liberado_admin: next };
       if (!next) payload.exigir_pagamento_antecipado = false;
 
@@ -659,8 +974,8 @@ const AdminDashboard = () => {
         return;
       }
 
-      setEstablishments(prev =>
-        prev.map(e =>
+      setEstablishments((prev) =>
+        prev.map((e) =>
           e.id === establishmentId
             ? {
               ...e,
@@ -670,6 +985,12 @@ const AdminDashboard = () => {
         )
       );
 
+      setAfcoinEstablishment((prev) =>
+        prev && prev.id === establishmentId
+          ? { ...prev, pagamento_adiantado_liberado_admin: next }
+          : prev
+      );
+
       toast.success(next ? 'Pagamento adiantado liberado para o estabelecimento' : 'Pagamento adiantado bloqueado (e desativado no booking)');
     } catch (err) {
       console.error(err);
@@ -677,13 +998,37 @@ const AdminDashboard = () => {
     }
   };
 
-  // Verificar se é a conta de suporte
-  const isSupportAccount = user?.email === 'suporteagendeifacil@gmail.com';
+  const updateAfcoinRewardStatus = async (
+    rewardId: string,
+    nextStatus: 'compensated' | 'monthly_offset' | 'cancelled'
+  ) => {
+    if (!rewardId) return;
+    try {
+      const { error } = await supabase
+        .from('afcoin_rewards')
+        .update({ status: nextStatus, updated_at: new Date().toISOString() } as any)
+        .eq('id', rewardId);
 
-  const openWhatsappRemindersModal = (establishment: Establishment) => {
-    if (!isSupportAccount) return;
-    setWhatsappRemindersEstablishment(establishment);
-    setShowWhatsappRemindersModal(true);
+      if (error) throw error;
+
+      await supabase
+        .from('afcoin_compensations')
+        .update({ status: nextStatus, updated_at: new Date().toISOString() } as any)
+        .eq('reward_id', rewardId);
+
+      setAfcoinRewardRows((prev) =>
+        prev.map((row) => (String(row.id) === String(rewardId) ? { ...row, status: nextStatus } : row))
+      );
+      setAfcoinCompensationRows((prev) =>
+        prev.map((row) =>
+          String((row as any)?.reward_id || '') === String(rewardId) ? { ...(row as any), status: nextStatus } : row
+        )
+      );
+      toast.success('Status do benefício atualizado.');
+    } catch (error) {
+      console.error('Erro ao atualizar status AFCoins:', error);
+      toast.error('Erro ao atualizar status do benefício AFCoins.');
+    }
   };
 
   // ✅ Botão PRATA no Admin (toggle)
@@ -3546,6 +3891,9 @@ const AdminDashboard = () => {
       establishment.owner_email || '',
       String((establishment as any)?.whatsapp || ''),
       whatsappConnectedOwnerIds.has(String(establishment.owner_id || '').trim()) ? 'wpp conectado whatsapp conectado' : '',
+      String((establishment as any)?.mercadopago_access_token || '').trim()
+        ? 'mp conectado mercado pago conectado'
+        : 'mp desconectado mercado pago desconectado',
       establishment.plan_type || '',
       statusLabel,
       planLabel,
@@ -3636,10 +3984,17 @@ const AdminDashboard = () => {
   const inactiveCount = Math.max(0, baseFilteredEstablishments.length - activeCount);
   const isWhatsappConnectedEstablishment = (establishment: Establishment) =>
     whatsappConnectedOwnerIds.has(String(establishment.owner_id || '').trim());
+  const isMercadoPagoConnectedEstablishment = (establishment: Establishment) =>
+    Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
   const whatsappConnectedCount = baseFilteredEstablishments.reduce(
     (acc, est) => acc + (isWhatsappConnectedEstablishment(est) ? 1 : 0),
     0
   );
+  const mercadoPagoConnectedCount = baseFilteredEstablishments.reduce(
+    (acc, est) => acc + (isMercadoPagoConnectedEstablishment(est) ? 1 : 0),
+    0
+  );
+  const mercadoPagoDisconnectedCount = Math.max(0, baseFilteredEstablishments.length - mercadoPagoConnectedCount);
 
   const sortEstablishmentsForAdminGrid = (a: Establishment, b: Establishment): number => {
     // 1) Estabelecimentos vencidos sempre no topo
@@ -3672,6 +4027,11 @@ const AdminDashboard = () => {
     })
     .filter(est => {
       if (filterWhatsapp === 'connected') return isWhatsappConnectedEstablishment(est);
+      return true;
+    })
+    .filter(est => {
+      if (filterMercadoPago === 'connected') return isMercadoPagoConnectedEstablishment(est);
+      if (filterMercadoPago === 'disconnected') return !isMercadoPagoConnectedEstablishment(est);
       return true;
     });
 
@@ -3707,6 +4067,40 @@ const AdminDashboard = () => {
       (Number.isFinite(lucroPix) ? lucroPix : 0) +
       (Number.isFinite(lucroCredito) ? lucroCredito : 0);
     return sum + lucroTotal;
+  }, 0);
+
+  const afcoinWalletById = useMemo(() => {
+    const map = new Map<string, AfcoinWalletRow>();
+    afcoinWalletRows.forEach((row) => {
+      if (row?.id) map.set(String(row.id), row);
+    });
+    return map;
+  }, [afcoinWalletRows]);
+
+  const afcoinParticipantsCount = afcoinWalletRows.length;
+  const afcoinNearRedeemCount = afcoinWalletRows.filter((row) => {
+    const balance = Number(row?.balance || 0);
+    return balance >= 800 && balance < 1000;
+  }).length;
+  const afcoinReadyRedeemCount = afcoinWalletRows.filter((row) => Number(row?.balance || 0) >= 1000).length;
+
+  const afcoinBenefitsUsedCount = afcoinRewardRows.filter((row) => {
+    const status = String(row?.status || '').toLowerCase();
+    return status !== 'cancelled' && status !== 'canceled';
+  }).length;
+
+  const afcoinBenefitsValueUsed = afcoinRewardRows.reduce((sum, row) => {
+    const status = String(row?.status || '').toLowerCase();
+    if (status === 'cancelled' || status === 'canceled') return sum;
+    const cents = Number(row?.discount_cents || 0);
+    return sum + (Number.isFinite(cents) ? cents : 0);
+  }, 0);
+
+  const afcoinCompensationPendingCents = afcoinCompensationRows.reduce((sum, row) => {
+    const status = String((row as any)?.status || '').toLowerCase();
+    if (status !== 'pending') return sum;
+    const cents = Number((row as any)?.amount_cents || 0);
+    return sum + (Number.isFinite(cents) ? cents : 0);
   }, 0);
 
   // Filtrar estabelecimentos da lixeira (respeitando período global dos cards, quando ativo)
@@ -4390,6 +4784,16 @@ const AdminDashboard = () => {
               </button>
 
               <button
+                type="button"
+                onClick={() => void openGeneralAppointmentsModal()}
+                className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                title="Resumo geral de agendamentos do mês atual (com pagos via MP)"
+              >
+                <CalendarDays className="h-4 w-4" />
+                <span>Agendamentos Geral</span>
+              </button>
+
+              <button
                 onClick={() => setShowPasswordModal(true)}
                 className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
@@ -5065,6 +5469,32 @@ const AdminDashboard = () => {
               <strong>WPP CONECTADO:</strong> {whatsappConnectedCount}
               {filterWhatsapp === 'connected' ? <span className="text-[10px] font-semibold opacity-80">(filtrando)</span> : null}
             </button>
+            <button
+              type="button"
+              onClick={() => setFilterMercadoPago((prev) => (prev === 'connected' ? 'all' : 'connected'))}
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors ${filterMercadoPago === 'connected'
+                ? 'bg-emerald-700 border-emerald-800 text-white'
+                : 'bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                }`}
+              title="Mostrar apenas estabelecimentos com Mercado Pago conectado"
+            >
+              <CheckCircle className="h-3 w-3" />
+              <strong>MP CONECTADO:</strong> {mercadoPagoConnectedCount}
+              {filterMercadoPago === 'connected' ? <span className="text-[10px] font-semibold opacity-80">(filtrando)</span> : null}
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterMercadoPago((prev) => (prev === 'disconnected' ? 'all' : 'disconnected'))}
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors ${filterMercadoPago === 'disconnected'
+                ? 'bg-rose-700 border-rose-800 text-white'
+                : 'bg-white border-rose-200 text-rose-700 hover:bg-rose-50'
+                }`}
+              title="Mostrar apenas estabelecimentos com Mercado Pago desconectado"
+            >
+              <XCircle className="h-3 w-3" />
+              <strong>MP DESCONECTADO:</strong> {mercadoPagoDisconnectedCount}
+              {filterMercadoPago === 'disconnected' ? <span className="text-[10px] font-semibold opacity-80">(filtrando)</span> : null}
+            </button>
             <span title="Meus R$1 por pagamento aprovado via Mercado Pago no mês selecionado">
               <strong>Meus R$1 Mercado Pago:</strong> {isLoadingLucroPixMes ? '...' : fmtBRL(lucroPixMesTotal)}
             </span>
@@ -5303,6 +5733,23 @@ const AdminDashboard = () => {
                               >
                                 <CheckCircle className="h-3 w-3" />
                                 WPP CONECTADO
+                              </span>
+                            )}
+                            {Boolean(String((establishment as any)?.mercadopago_access_token || '').trim()) ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-extrabold rounded-full bg-emerald-700 text-white border border-emerald-900 shadow-sm whitespace-nowrap"
+                                title="Este estabelecimento conectou o Mercado Pago"
+                              >
+                                <CheckCircle className="h-3 w-3" />
+                                MP CONECTADO
+                              </span>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-extrabold rounded-full bg-rose-700 text-white border border-rose-900 shadow-sm whitespace-nowrap"
+                                title="Este estabelecimento ainda não conectou o Mercado Pago"
+                              >
+                                <XCircle className="h-3 w-3" />
+                                MP DESCONECTADO
                               </span>
                             )}
                             <button
@@ -5677,23 +6124,19 @@ const AdminDashboard = () => {
                               </button>
                             )}
                             <button
-                              onClick={() =>
-                                togglePagamentoAdiantadoAdmin(
-                                  establishment.id,
-                                  Boolean(establishment.pagamento_adiantado_liberado_admin)
-                                )
-                              }
-                              className={`text-xs px-2 py-0.5 border rounded font-medium ${establishment.pagamento_adiantado_liberado_admin
+                              onClick={() => openAfcoinModal(establishment)}
+                              disabled={!isMercadoPagoConnectedEstablishment(establishment)}
+                              className={`text-xs px-2 py-0.5 border rounded font-semibold disabled:opacity-60 disabled:cursor-not-allowed ${isMercadoPagoConnectedEstablishment(establishment)
                                 ? 'text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100'
-                                : 'text-gray-600 border-gray-300 hover:bg-gray-50'
+                                : 'text-gray-500 border-gray-300 bg-gray-100'
                                 }`}
                               title={
-                                establishment.pagamento_adiantado_liberado_admin
-                                  ? 'Bloquear Pagamento Adiantado (e desativar no booking)'
-                                  : 'Liberar Pagamento Adiantado para este estabelecimento'
+                                isMercadoPagoConnectedEstablishment(establishment)
+                                  ? 'Abrir painel AFCoins deste estabelecimento'
+                                  : 'Conecte Mercado Pago para ativar AFCoins'
                               }
                             >
-                              PAGAMENTO AD
+                              AFCOIN
                             </button>
                             <button
                               onClick={() => registrarPagamentoSaldoTotal(establishment)}
@@ -5729,6 +6172,435 @@ const AdminDashboard = () => {
                   })}
                 </tbody>
               </table>
+
+              {showGeneralAppointmentsModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                  <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-auto">
+                    <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 bg-white z-10">
+                      <div>
+                <div className="text-sm font-bold text-gray-900">
+                  Agendamentos Geral ({format(generalAppointmentsMonth, 'MM/yyyy', { locale: ptBR })})
+                </div>
+                        <div className="text-xs text-gray-500">
+                          Controle completo de agendamentos e pagamentos via Mercado Pago (somente agendamentos).
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setShowGeneralAppointmentsModal(false)}
+                        className="text-gray-500 hover:text-gray-700"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="p-4 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs text-gray-600">
+                          Navegue pelos meses para comparar booking externo e pagamentos Mercado Pago.
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void openGeneralAppointmentsModal(addMonths(generalAppointmentsMonth, -1))}
+                            disabled={isLoadingGeneralAppointmentsModal}
+                            className="px-3 py-1.5 rounded border border-gray-300 bg-white text-gray-700 text-xs font-semibold hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            ◀ Mês anterior
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void openGeneralAppointmentsModal(new Date())}
+                            disabled={isLoadingGeneralAppointmentsModal}
+                            className="px-3 py-1.5 rounded border border-blue-300 bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Mês atual
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void openGeneralAppointmentsModal(addMonths(generalAppointmentsMonth, 1))}
+                            disabled={isLoadingGeneralAppointmentsModal}
+                            className="px-3 py-1.5 rounded border border-gray-300 bg-white text-gray-700 text-xs font-semibold hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Mês seguinte ▶
+                          </button>
+                        </div>
+                      </div>
+
+                      {isLoadingGeneralAppointmentsModal && (
+                        <div className="text-sm text-gray-600">Carregando agendamentos do mês atual...</div>
+                      )}
+
+                      {!isLoadingGeneralAppointmentsModal && generalAppointmentsModalError && (
+                        <div className="text-sm rounded border border-red-300 bg-red-50 text-red-700 px-3 py-2">
+                          {generalAppointmentsModalError}
+                        </div>
+                      )}
+
+                      {!isLoadingGeneralAppointmentsModal && !generalAppointmentsModalError && (
+                        <>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+                            <div className="rounded border p-3">
+                              <div className="text-xs text-gray-500">Total agendamentos no mês</div>
+                              <div className="text-xl font-bold text-gray-900">{generalAppointmentsSummary.totalAppointmentsMonth}</div>
+                            </div>
+                            <div className="rounded border p-3">
+                              <div className="text-xs text-gray-500">Pagos via MP (agendamentos)</div>
+                              <div className="text-xl font-bold text-indigo-700">{generalAppointmentsSummary.totalPaidMpAppointmentsMonth}</div>
+                            </div>
+                            <div className="rounded border p-3">
+                              <div className="text-xs text-gray-500">PIX (MP)</div>
+                              <div className="text-xl font-bold text-emerald-700">{generalAppointmentsSummary.totalPaidMpPixMonth}</div>
+                            </div>
+                            <div className="rounded border p-3">
+                              <div className="text-xs text-gray-500">Crédito (MP)</div>
+                              <div className="text-xl font-bold text-blue-700">{generalAppointmentsSummary.totalPaidMpCreditMonth}</div>
+                            </div>
+                            <div className="rounded border p-3">
+                              <div className="text-xs text-gray-500">Valor total pago (MP)</div>
+                              <div className="text-xl font-bold text-gray-900">{fmtBRL(generalAppointmentsSummary.totalPaidMpValueMonth)}</div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div>
+                              <h4 className="text-sm font-bold text-gray-900 mb-2">TOP 20 Estabelecimentos (pagamentos MP em agendamentos)</h4>
+                              <div className="overflow-auto border rounded bg-white">
+                                <table className="min-w-full text-xs text-gray-800">
+                                  <thead className="bg-gray-100">
+                                    <tr>
+                                      <th className="px-2 py-2 text-left text-gray-700">#</th>
+                                      <th className="px-2 py-2 text-left text-gray-700">Estabelecimento</th>
+                                      <th className="px-2 py-2 text-right text-gray-700">Pagos MP</th>
+                                      <th className="px-2 py-2 text-right text-gray-700">PIX</th>
+                                      <th className="px-2 py-2 text-right text-gray-700">Crédito</th>
+                                      <th className="px-2 py-2 text-right text-gray-700">Valor</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {generalAppointmentsTopEstablishments.length === 0 ? (
+                                      <tr>
+                                        <td className="px-2 py-3 text-gray-500" colSpan={6}>
+                                          Sem pagamentos MP de agendamentos no mês atual.
+                                        </td>
+                                      </tr>
+                                    ) : (
+                                      generalAppointmentsTopEstablishments.map((row, idx) => (
+                                        <tr key={`${row.establishmentId}-${idx}`} className="border-t border-gray-100">
+                                          <td className="px-2 py-2 text-gray-700">{idx + 1}</td>
+                                          <td className="px-2 py-2">
+                                            <div className="font-semibold text-gray-900">{row.establishmentName}</div>
+                                            <div className="text-[10px] text-gray-500">{row.establishmentCode}</div>
+                                          </td>
+                                          <td className="px-2 py-2 text-right font-semibold text-gray-800">{row.paidMpCount}</td>
+                                          <td className="px-2 py-2 text-right text-gray-800">{row.pixCount}</td>
+                                          <td className="px-2 py-2 text-right text-gray-800">{row.creditCount}</td>
+                                          <td className="px-2 py-2 text-right text-gray-800">{fmtBRL(row.paidValue)}</td>
+                                        </tr>
+                                      ))
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+
+                            <div>
+                              <h4 className="text-sm font-bold text-gray-900 mb-2">TOP 20 Clientes (pagamentos MP em agendamentos)</h4>
+                              <div className="overflow-auto border rounded bg-white">
+                                <table className="min-w-full text-xs text-gray-800">
+                                  <thead className="bg-gray-100">
+                                    <tr>
+                                      <th className="px-2 py-2 text-left text-gray-700">#</th>
+                                      <th className="px-2 py-2 text-left text-gray-700">Cliente</th>
+                                      <th className="px-2 py-2 text-right text-gray-700">Pagos MP</th>
+                                      <th className="px-2 py-2 text-right text-gray-700">PIX</th>
+                                      <th className="px-2 py-2 text-right text-gray-700">Crédito</th>
+                                      <th className="px-2 py-2 text-right text-gray-700">Valor</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {generalAppointmentsTopClients.length === 0 ? (
+                                      <tr>
+                                        <td className="px-2 py-3 text-gray-500" colSpan={6}>
+                                          Sem clientes com pagamento MP em agendamentos no mês atual.
+                                        </td>
+                                      </tr>
+                                    ) : (
+                                      generalAppointmentsTopClients.map((row, idx) => (
+                                        <tr key={`${row.clientName}-${row.clientWhatsapp}-${idx}`} className="border-t border-gray-100">
+                                          <td className="px-2 py-2 text-gray-700">{idx + 1}</td>
+                                          <td className="px-2 py-2">
+                                            <div className="font-semibold text-gray-900">{row.clientName}</div>
+                                            <div className="text-[10px] text-gray-500">{row.clientWhatsapp}</div>
+                                          </td>
+                                          <td className="px-2 py-2 text-right font-semibold text-gray-800">{row.paidMpCount}</td>
+                                          <td className="px-2 py-2 text-right text-gray-800">{row.pixCount}</td>
+                                          <td className="px-2 py-2 text-right text-gray-800">{row.creditCount}</td>
+                                          <td className="px-2 py-2 text-right text-gray-800">{fmtBRL(row.paidValue)}</td>
+                                        </tr>
+                                      ))
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {showAfcoinModal && afcoinEstablishment && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+                  <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-auto">
+                    <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 bg-white z-10">
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">AFCOIN - {afcoinEstablishment.name}</div>
+                        <div className="text-xs text-gray-500">
+                          {isMercadoPagoConnectedEstablishment(afcoinEstablishment)
+                            ? 'Mercado Pago conectado'
+                            : 'Mercado Pago desconectado'}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setShowAfcoinModal(false);
+                          setAfcoinEstablishment(null);
+                        }}
+                        className="text-gray-500 hover:text-gray-700"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="p-4 space-y-4">
+                      <div className="flex items-center justify-end">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            togglePagamentoAdiantadoAdmin(
+                              String(afcoinEstablishment.id),
+                              Boolean(afcoinEstablishment.pagamento_adiantado_liberado_admin)
+                            )
+                          }
+                          className={`text-xs px-2 py-1 border rounded font-medium ${afcoinEstablishment.pagamento_adiantado_liberado_admin
+                            ? 'text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100'
+                            : 'text-gray-600 border-gray-300 bg-white hover:bg-gray-50'
+                            }`}
+                          title="Controle legado de Pagamento Adiantado (fallback)"
+                        >
+                          PAGAMENTO AD (LEGADO)
+                        </button>
+                      </div>
+
+                      {isLoadingAfcoinModal && (
+                        <div className="text-sm text-gray-600">Carregando painel AFCoins...</div>
+                      )}
+
+                      {!isLoadingAfcoinModal && afcoinModalError && (
+                        <div className="text-sm rounded border border-amber-300 bg-amber-50 text-amber-800 px-3 py-2">
+                          {afcoinModalError}
+                        </div>
+                      )}
+
+                      {!isLoadingAfcoinModal && !afcoinModalError && (
+                        <>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div className="rounded border p-3">
+                              <div className="text-xs text-gray-500">Pagamentos online no mês</div>
+                              <div className="text-lg font-bold text-gray-900">
+                                {Number(qtdPixPagoPorEstabelecimento[String(afcoinEstablishment.id)] || 0) +
+                                  Number(qtdCreditoPagoPorEstabelecimento[String(afcoinEstablishment.id)] || 0)}
+                              </div>
+                            </div>
+                            <div className="rounded border p-3">
+                              <div className="text-xs text-gray-500">Lucro AF no mês</div>
+                              <div className="text-lg font-bold text-emerald-700">
+                                {fmtBRL(
+                                  Number(lucroPixPorEstabelecimento[String(afcoinEstablishment.id)] || 0) +
+                                  Number(lucroCreditoPorEstabelecimento[String(afcoinEstablishment.id)] || 0)
+                                )}
+                              </div>
+                            </div>
+                            <div className="rounded border p-3">
+                              <div className="text-xs text-gray-500">Clientes participantes</div>
+                              <div className="text-lg font-bold text-gray-900">{afcoinParticipantsCount}</div>
+                            </div>
+                            <div className="rounded border p-3">
+                              <div className="text-xs text-gray-500">AFCoins distribuídos</div>
+                              <div className="text-lg font-bold text-gray-900">{afcoinTransactionsDistributed}</div>
+                            </div>
+                            <div className="rounded border p-3">
+                              <div className="text-xs text-gray-500">Clientes perto de resgatar</div>
+                              <div className="text-lg font-bold text-amber-700">{afcoinNearRedeemCount}</div>
+                            </div>
+                            <div className="rounded border p-3">
+                              <div className="text-xs text-gray-500">Clientes que já podem resgatar</div>
+                              <div className="text-lg font-bold text-emerald-700">{afcoinReadyRedeemCount}</div>
+                            </div>
+                            <div className="rounded border p-3">
+                              <div className="text-xs text-gray-500">Benefícios usados (qtde / R$)</div>
+                              <div className="text-lg font-bold text-gray-900">
+                                {afcoinBenefitsUsedCount} / {fmtBRL(afcoinBenefitsValueUsed / 100)}
+                              </div>
+                            </div>
+                            <div className="rounded border p-3">
+                              <div className="text-xs text-gray-500">Compensação pendente AF</div>
+                              <div className="text-lg font-bold text-red-700">{fmtBRL(afcoinCompensationPendingCents / 100)}</div>
+                            </div>
+                          </div>
+
+                          <div className="rounded border p-3 bg-gray-50">
+                            <div className="text-xs text-gray-500">Saldo líquido estimado</div>
+                            <div className="text-xl font-extrabold text-gray-900">
+                              {fmtBRL(
+                                (Number(lucroPixPorEstabelecimento[String(afcoinEstablishment.id)] || 0) +
+                                  Number(lucroCreditoPorEstabelecimento[String(afcoinEstablishment.id)] || 0)) -
+                                afcoinBenefitsValueUsed / 100
+                              )}
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              Lucro online - benefícios usados
+                            </div>
+                          </div>
+
+                          <div>
+                            <h4 className="text-sm font-bold text-gray-900 mb-2">CLIENTES AFCOINS</h4>
+                            <div className="overflow-auto border rounded">
+                              <table className="min-w-full text-xs">
+                                <thead className="bg-gray-100">
+                                  <tr>
+                                    <th className="px-2 py-2 text-left">Nome</th>
+                                    <th className="px-2 py-2 text-left">Telefone</th>
+                                    <th className="px-2 py-2 text-right">AFCoins</th>
+                                    <th className="px-2 py-2 text-right">Faltam p/ R$5 OFF</th>
+                                    <th className="px-2 py-2 text-right">Pagamentos online</th>
+                                    <th className="px-2 py-2 text-left">Último agendamento</th>
+                                    <th className="px-2 py-2 text-left">Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {afcoinWalletRows.length === 0 ? (
+                                    <tr>
+                                      <td className="px-2 py-3 text-gray-500" colSpan={7}>Sem clientes AFCoins ainda.</td>
+                                    </tr>
+                                  ) : (
+                                    afcoinWalletRows.map((row) => {
+                                      const balance = Number(row.balance || 0);
+                                      const missing = Math.max(0, 1000 - balance);
+                                      const status =
+                                        balance >= 1000
+                                          ? 'já pode resgatar'
+                                          : balance >= 800
+                                            ? 'perto de resgatar'
+                                            : 'normal';
+                                      return (
+                                        <tr key={row.id} className="border-t">
+                                          <td className="px-2 py-2">{row.customer_name || 'Cliente'}</td>
+                                          <td className="px-2 py-2">{row.customer_phone || '-'}</td>
+                                          <td className="px-2 py-2 text-right font-semibold">{balance}</td>
+                                          <td className="px-2 py-2 text-right">{missing}</td>
+                                          <td className="px-2 py-2 text-right">{Number(row.online_payments_count || 0)}</td>
+                                          <td className="px-2 py-2">
+                                            {row.last_appointment_at ? new Date(row.last_appointment_at).toLocaleDateString('pt-BR') : '-'}
+                                          </td>
+                                          <td className="px-2 py-2">{status}</td>
+                                        </tr>
+                                      );
+                                    })
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+
+                          <div>
+                            <h4 className="text-sm font-bold text-gray-900 mb-2">TOP CLIENTES MAIS PERTO (TOP 10)</h4>
+                            <div className="rounded border p-3 text-sm text-gray-700 space-y-1">
+                              {afcoinWalletRows.slice(0, 10).map((row, idx) => (
+                                <div key={row.id}>
+                                  {idx + 1}. {row.customer_name || 'Cliente'} - {Number(row.balance || 0)} AFCoins
+                                </div>
+                              ))}
+                              {afcoinWalletRows.length === 0 && <div>Sem dados de AFCoins.</div>}
+                            </div>
+                          </div>
+
+                          <div>
+                            <h4 className="text-sm font-bold text-gray-900 mb-2">HISTÓRICO DE BENEFÍCIOS USADOS</h4>
+                            <div className="overflow-auto border rounded">
+                              <table className="min-w-full text-xs">
+                                <thead className="bg-gray-100">
+                                  <tr>
+                                    <th className="px-2 py-2 text-left">Cliente</th>
+                                    <th className="px-2 py-2 text-left">Telefone</th>
+                                    <th className="px-2 py-2 text-left">Data</th>
+                                    <th className="px-2 py-2 text-right">Valor original</th>
+                                    <th className="px-2 py-2 text-right">Desconto</th>
+                                    <th className="px-2 py-2 text-right">Cliente pagou</th>
+                                    <th className="px-2 py-2 text-right">A compensar</th>
+                                    <th className="px-2 py-2 text-left">Status</th>
+                                    <th className="px-2 py-2 text-left">Ações</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {afcoinRewardRows.length === 0 ? (
+                                    <tr>
+                                      <td className="px-2 py-3 text-gray-500" colSpan={9}>Sem benefícios utilizados ainda.</td>
+                                    </tr>
+                                  ) : (
+                                    afcoinRewardRows.map((row) => {
+                                      const wallet = afcoinWalletById.get(String(row.wallet_id || ''));
+                                      const status = String(row.status || 'pending').toLowerCase();
+                                      return (
+                                        <tr key={row.id} className="border-t">
+                                          <td className="px-2 py-2">{wallet?.customer_name || 'Cliente'}</td>
+                                          <td className="px-2 py-2">{wallet?.customer_phone || '-'}</td>
+                                          <td className="px-2 py-2">
+                                            {row.created_at ? new Date(row.created_at).toLocaleDateString('pt-BR') : '-'}
+                                          </td>
+                                          <td className="px-2 py-2 text-right">{fmtBRL(Number(row.original_amount_cents || 0) / 100)}</td>
+                                          <td className="px-2 py-2 text-right">{fmtBRL(Number(row.discount_cents || 0) / 100)}</td>
+                                          <td className="px-2 py-2 text-right">{fmtBRL(Number(row.paid_amount_cents || 0) / 100)}</td>
+                                          <td className="px-2 py-2 text-right">{fmtBRL(Number(row.discount_cents || 0) / 100)}</td>
+                                          <td className="px-2 py-2">{status}</td>
+                                          <td className="px-2 py-2">
+                                            <div className="flex flex-wrap gap-1">
+                                              <button
+                                                onClick={() => updateAfcoinRewardStatus(String(row.id), 'compensated')}
+                                                className="px-2 py-0.5 border rounded text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                                              >
+                                                Compensado
+                                              </button>
+                                              <button
+                                                onClick={() => updateAfcoinRewardStatus(String(row.id), 'monthly_offset')}
+                                                className="px-2 py-0.5 border rounded text-blue-700 border-blue-300 hover:bg-blue-50"
+                                              >
+                                                Abatido
+                                              </button>
+                                              <button
+                                                onClick={() => updateAfcoinRewardStatus(String(row.id), 'cancelled')}
+                                                className="px-2 py-0.5 border rounded text-red-700 border-red-300 hover:bg-red-50"
+                                              >
+                                                Cancelar
+                                              </button>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Modal - Histórico de Pagamentos */}
               {showPayoutHistoryModal && payoutHistoryEstablishment && (

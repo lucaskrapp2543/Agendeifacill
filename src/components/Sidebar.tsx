@@ -52,6 +52,7 @@ type TabType =
   | 'reviews'
   | 'client-page'
   | 'indication'
+  | 'receber-adiantado'
   | 'whatsapp-reminders'
   | 'support';
 
@@ -106,7 +107,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   closeSignal = 0,
   professionalAccessMode = null,
 }) => {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showMenuScrollHint, setShowMenuScrollHint] = useState(false);
@@ -241,19 +242,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   const isPlanLockedItem = (itemId: string) =>
     isPlanoPrataAtivo && (itemId === 'subscribers' || itemId === 'products' || itemId === 'fila-espera');
 
-  // Detectar mudanças no tamanho da tela
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 768) {
-        setIsExpanded(true);
-      }
-      // Em mobile, mantém o estado atual (não força fechar)
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
   // Detectar se está em mobile
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -261,6 +249,13 @@ const Sidebar: React.FC<SidebarProps> = ({
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Ao trocar de aba no mobile, recolhe o menu (ex.: popup → Receber adiantado)
+  useEffect(() => {
+    if (!isMobile) return;
+    setIsExpanded(false);
+    setShowAdminMenu(false);
+  }, [activeTab, isMobile]);
 
   // No celular, só abre o menu automaticamente na home inicial.
   // Em telas de conteúdo (ex.: Meus Serviços), nunca força abrir de novo.
@@ -623,6 +618,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     .filter((item) => !isCollaboratorView || collaboratorAllowedMenuIds.has(item.id))
     .sort((a, b) => (mainSidebarItemOrder.get(a.id) ?? 999) - (mainSidebarItemOrder.get(b.id) ?? 999));
   const isAdminTabActive = !isCollaboratorView && (
+    activeTab === 'receber-adiantado' ||
     activeTab === 'whatsapp-reminders' ||
     activeTab === 'indication' ||
     activeTab === 'subscribers' ||
@@ -636,12 +632,21 @@ const Sidebar: React.FC<SidebarProps> = ({
     activeTab === 'settings'
   );
 
+  const openReceberAdiantadoSection = () => {
+    if (onReceberAdiantadoClick) {
+      onReceberAdiantadoClick();
+      return;
+    }
+    onTabChange('receber-adiantado');
+  };
+
   const adminShortcutItems: Array<{
     id: string;
     label: string;
     description: string;
     icon: LucideIcon;
     isActive?: boolean;
+    featured?: boolean;
     lockedByPlan?: boolean;
     showBadge?: boolean;
     badgeCount?: number | string;
@@ -650,16 +655,16 @@ const Sidebar: React.FC<SidebarProps> = ({
     {
       id: 'receber-adiantado',
       label: 'Receber adiantado',
-      description: 'Atalho para configurar Mercado Pago e pagamentos antecipados.',
+      description: 'Configure Mercado Pago e receba pagamentos antecipados.',
       icon: CreditCard,
-      isActive: isReceberAdiantadoOpen,
+      featured: true,
+      isActive: activeTab === 'receber-adiantado' || isReceberAdiantadoOpen,
       onClick: () => {
         if (onboardingStep < 4) {
           onBlockedItemClick?.();
           return;
         }
-        if (!onReceberAdiantadoClick) return;
-        handleItemClick(onReceberAdiantadoClick);
+        handleItemClick(openReceberAdiantadoSection);
         setShowAdminMenu(false);
       },
     },
@@ -715,6 +720,17 @@ const Sidebar: React.FC<SidebarProps> = ({
         setShowAdminMenu(false);
       },
     },
+  ];
+
+  const receberAdiantadoAdminItem = adminShortcutItems.find((item) => item.id === 'receber-adiantado');
+  const adminShortcutItemsRest = adminShortcutItems.filter((item) => item.id !== 'receber-adiantado');
+  const adminMenuPanelItems: Array<
+    | { kind: 'menu'; item: (typeof adminMenuItems)[number] }
+    | { kind: 'shortcut'; item: (typeof adminShortcutItems)[number] }
+  > = [
+    ...(receberAdiantadoAdminItem ? [{ kind: 'shortcut' as const, item: receberAdiantadoAdminItem }] : []),
+    ...adminMenuItems.map((item) => ({ kind: 'menu' as const, item })),
+    ...adminShortcutItemsRest.map((item) => ({ kind: 'shortcut' as const, item })),
   ];
 
   // Textos auxiliares (mobile fullscreen) — estilo CNH Digital
@@ -853,12 +869,8 @@ const Sidebar: React.FC<SidebarProps> = ({
         id: 'receber-adiantado',
         label: 'Receber adiantado',
         icon: CreditCard,
-        onClick: () => {
-          if (!onReceberAdiantadoClick) return;
-          onReceberAdiantadoClick();
-          setIsExpanded(false);
-        },
-        className: mobileActionCardClass,
+        onClick: () => executeMobileAction('receber-adiantado', openReceberAdiantadoSection),
+        className: 'bg-gradient-to-r from-[#009EE3] to-[#0077B6] border border-cyan-400/40',
       },
       {
         id: 'fila-espera',
@@ -1459,62 +1471,65 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="p-3 space-y-2 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 86px)' }}>
-            {adminMenuItems.map((item) => {
-              const Icon = item.icon;
-              const isPlanLocked = Boolean((item as any).lockedByPlan);
-              const isOnboardingLocked = !isPlanLocked && isItemLockedByOnboarding(item.id);
-              return (
-                <button
-                  key={`admin-${item.id}`}
-                  type="button"
-                  onClick={() => {
-                    item.onClick();
-                    if (!isPlanLocked && !isOnboardingLocked) {
-                      setShowAdminMenu(false);
-                    }
-                  }}
-                  className={`relative w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
-                    item.isActive
-                      ? isLight
-                        ? 'bg-gray-900 text-white border-gray-900'
-                        : 'bg-white text-black border-white'
-                      : isPlanLocked || isOnboardingLocked
+            {adminMenuPanelItems.map((entry) => {
+              if (entry.kind === 'menu') {
+                const item = entry.item;
+                const Icon = item.icon;
+                const isPlanLocked = Boolean((item as any).lockedByPlan);
+                const isOnboardingLocked = !isPlanLocked && isItemLockedByOnboarding(item.id);
+                return (
+                  <button
+                    key={`admin-${item.id}`}
+                    type="button"
+                    onClick={() => {
+                      item.onClick();
+                      if (!isPlanLocked && !isOnboardingLocked) {
+                        setShowAdminMenu(false);
+                      }
+                    }}
+                    className={`relative w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
+                      item.isActive
                         ? isLight
-                          ? 'bg-gray-100 text-gray-500 border-gray-200'
-                          : 'bg-white/5 text-white/45 border-white/10'
-                        : isLight
-                          ? 'bg-white text-gray-900 hover:bg-gray-50 border-gray-200'
-                          : 'bg-white/5 text-white hover:bg-white/10 border-white/10'
-                  }`}
-                >
-                  <div className="relative">
-                    <Icon className="h-5 w-5" />
-                    {(isPlanLocked || isOnboardingLocked) && (
-                      <Lock className="absolute -bottom-1 -right-1 h-3 w-3 text-amber-400" />
-                    )}
-                    {item.showBadge && (
-                      <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center font-bold leading-none">
-                        {item.badgeCount}
-                      </span>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-extrabold truncate">
-                      {item.label}
+                          ? 'bg-gray-900 text-white border-gray-900'
+                          : 'bg-white text-black border-white'
+                        : isPlanLocked || isOnboardingLocked
+                          ? isLight
+                            ? 'bg-gray-100 text-gray-500 border-gray-200'
+                            : 'bg-white/5 text-white/45 border-white/10'
+                          : isLight
+                            ? 'bg-white text-gray-900 hover:bg-gray-50 border-gray-200'
+                            : 'bg-white/5 text-white hover:bg-white/10 border-white/10'
+                    }`}
+                  >
+                    <div className="relative">
+                      <Icon className="h-5 w-5" />
+                      {(isPlanLocked || isOnboardingLocked) && (
+                        <Lock className="absolute -bottom-1 -right-1 h-3 w-3 text-amber-400" />
+                      )}
+                      {item.showBadge && (
+                        <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center font-bold leading-none">
+                          {item.badgeCount}
+                        </span>
+                      )}
                     </div>
-                    <div className={`text-[11px] mt-0.5 ${item.isActive ? 'opacity-70' : isLight ? 'text-gray-500' : 'text-white/50'}`}>
-                      {isPlanLocked ? 'Recurso do plano Diamante' : isOnboardingLocked ? 'Bloqueado pelo passo a passo' : mobileDescriptions[item.id] || 'Abrir opção administrativa'}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-extrabold truncate">
+                        {item.label}
+                      </div>
+                      <div className={`text-[11px] mt-0.5 ${item.isActive ? 'opacity-70' : isLight ? 'text-gray-500' : 'text-white/50'}`}>
+                        {isPlanLocked ? 'Recurso do plano Diamante' : isOnboardingLocked ? 'Bloqueado pelo passo a passo' : mobileDescriptions[item.id] || 'Abrir opção administrativa'}
+                      </div>
                     </div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 opacity-50" />
-                </button>
-              );
-            })}
+                    <ChevronRight className="h-4 w-4 opacity-50" />
+                  </button>
+                );
+              }
 
-            {adminShortcutItems.map((item) => {
+              const item = entry.item;
               const Icon = item.icon;
               const isPlanLocked = Boolean(item.lockedByPlan);
               const isOnboardingLocked = !isPlanLocked && isItemLockedByOnboarding(item.id);
+              const isFeatured = Boolean(item.featured);
               return (
                 <button
                   key={`admin-shortcut-${item.id}`}
@@ -1522,16 +1537,22 @@ const Sidebar: React.FC<SidebarProps> = ({
                   onClick={item.onClick}
                   className={`relative w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
                     item.isActive
-                      ? isLight
-                        ? 'bg-gray-900 text-white border-gray-900'
-                        : 'bg-white text-black border-white'
+                      ? isFeatured
+                        ? 'bg-gradient-to-r from-[#009EE3] to-[#0077B6] text-white border-cyan-300 shadow-lg shadow-cyan-500/20'
+                        : isLight
+                          ? 'bg-gray-900 text-white border-gray-900'
+                          : 'bg-white text-black border-white'
                       : isPlanLocked || isOnboardingLocked
                         ? isLight
                           ? 'bg-gray-100 text-gray-500 border-gray-200'
                           : 'bg-white/5 text-white/45 border-white/10'
-                        : isLight
-                          ? 'bg-white text-gray-900 hover:bg-gray-50 border-gray-200'
-                          : 'bg-white/5 text-white hover:bg-white/10 border-white/10'
+                        : isFeatured
+                          ? isLight
+                            ? 'bg-gradient-to-r from-cyan-50 to-sky-100 text-cyan-950 border-cyan-400 hover:from-cyan-100 hover:to-sky-200 shadow-md shadow-cyan-200/60'
+                            : 'bg-gradient-to-r from-[#009EE3]/30 to-cyan-500/15 text-white border-cyan-400/70 hover:from-[#009EE3]/40 hover:to-cyan-500/25 shadow-md shadow-cyan-500/10'
+                          : isLight
+                            ? 'bg-white text-gray-900 hover:bg-gray-50 border-gray-200'
+                            : 'bg-white/5 text-white hover:bg-white/10 border-white/10'
                   }`}
                 >
                   <div className="relative">
@@ -1875,33 +1896,31 @@ const Sidebar: React.FC<SidebarProps> = ({
                           onBlockedItemClick?.();
                           return;
                         }
-                        if (!onReceberAdiantadoClick) return;
-                        handleItemClick(onReceberAdiantadoClick);
+                        handleItemClick(openReceberAdiantadoSection);
                       }}
-                      disabled={!onReceberAdiantadoClick}
-                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${isReceberAdiantadoOpen
+                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen
                           ? 'bg-white text-black shadow-md'
                           : 'bg-gradient-to-r from-[#009EE3] to-[#0077B6] text-white hover:from-[#0088C7] hover:to-[#006AA3] shadow-md'
-                        } ${!onReceberAdiantadoClick ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        }`}
                       title={isExpanded ? '' : 'Receber adiantado'}
                       aria-label="Receber adiantado"
                     >
                       <CreditCard
-                        className={`h-5 w-5 flex-shrink-0 ${isReceberAdiantadoOpen ? 'text-black' : 'text-white'
+                        className={`h-5 w-5 flex-shrink-0 ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen ? 'text-black' : 'text-white'
                           }`}
                       />
                       {isExpanded && (
                         <>
-                          <span className={`text-sm font-medium whitespace-nowrap ${isReceberAdiantadoOpen ? 'text-black' : 'text-white'}`}>
+                          <span className={`text-sm font-medium whitespace-nowrap ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen ? 'text-black' : 'text-white'}`}>
                             Receber adiantado
                           </span>
-                          <ChevronRight className={`h-4 w-4 flex-shrink-0 opacity-60 ml-auto ${isReceberAdiantadoOpen ? 'text-black' : 'text-white'}`} />
+                          <ChevronRight className={`h-4 w-4 flex-shrink-0 opacity-60 ml-auto ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen ? 'text-black' : 'text-white'}`} />
                         </>
                       )}
                     </button>
 
                     {/* Tooltip para menu recolhido */}
-                    {!isExpanded && onReceberAdiantadoClick && (
+                    {!isExpanded && (
                       <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
                         Receber adiantado
                       </div>

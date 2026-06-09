@@ -24,6 +24,12 @@ import {
   updateAppointmentCancelledWithSource,
 } from '../utils/appointmentCancellationMeta';
 import { fireMercadoPagoPendingReconcile } from '../utils/fireMercadoPagoPendingReconcile';
+import {
+  isLocalAfcoinPaymentMethod,
+  registerAfcoinBookingEvent,
+  registerAfcoinLocalPayBundle,
+  registerAfcoinOnlinePayBundle,
+} from '../utils/afcoin';
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
 
@@ -2191,6 +2197,19 @@ export default function BookingPage() {
         pagarmeRecipientIdPreview: pagarmeRecipientId ? `${pagarmeRecipientId.slice(0, 6)}...${pagarmeRecipientId.slice(-4)}` : null
       });
 
+      const appointmentDataSanitized: any = { ...(appointmentData as any) };
+      // Nunca confiar em status vindo do chat/form; define no backend do fluxo.
+      delete appointmentDataSanitized.status;
+      if (String(appointmentDataSanitized?.payment_status ?? '').trim() === '') {
+        delete appointmentDataSanitized.payment_status;
+      }
+      const sanitizeAppointmentStatus = (raw: unknown, fallback: 'pending' | 'pending_payment') => {
+        const value = String(raw ?? '').trim().toLowerCase();
+        const allowed = new Set(['pending', 'confirmed', 'cancelled', 'completed', 'pending_payment']);
+        if (allowed.has(value)) return value;
+        return fallback;
+      };
+
       if (precisaPagamento) {
         if (usarPagarMe && !pagarmeRecipientId) {
           toast.error('Este estabelecimento exige pagamento antecipado, mas ainda não configurou o recebedor Pagar.me. Fale com o estabelecimento.');
@@ -2215,10 +2234,10 @@ export default function BookingPage() {
           establishment_id: establishment.id,
           establishment_code: establishment.code,
           appointment_date: format(selectedDate, 'yyyy-MM-dd'),
-          status: 'pending_payment',
+          ...appointmentDataSanitized,
+          status: sanitizeAppointmentStatus(appointmentDataSanitized?.status, 'pending_payment'),
           payment_status: 'pending',
           payment_method: 'pendente',
-          ...appointmentData
         };
 
         let { data: inserted, error: insertError } = await withTimeout(
@@ -2329,7 +2348,8 @@ export default function BookingPage() {
         professional: appointmentData?.professional,
         service: appointmentData?.service,
         price: appointmentData?.price,
-        payment_method: appointmentData?.payment_method
+          payment_method: appointmentData?.payment_method,
+          status_final: sanitizeAppointmentStatus(undefined, 'pending')
       });
 
       const normalBasePayload = {
@@ -2337,7 +2357,8 @@ export default function BookingPage() {
         establishment_id: establishment.id,
         establishment_code: establishment.code, // Salvar código do estabelecimento
         appointment_date: format(selectedDate, 'yyyy-MM-dd'),
-        ...appointmentData
+        ...appointmentDataSanitized,
+        status: sanitizeAppointmentStatus(appointmentDataSanitized?.status, 'pending'),
       };
 
       let { data: insertedAppointment, error } = await withTimeout(
@@ -2385,6 +2406,30 @@ export default function BookingPage() {
 
       toast.success('Agendamento realizado com sucesso!');
 
+      const phoneForViewAppointments = (appointmentData?.client_whatsapp || guestClientData?.phone || '').toString();
+      const mpConnectedForAfcoins = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+      const afcoinBaseParams = {
+        establishmentId: String(establishment?.id || ''),
+        appointmentId: insertedAppointment?.id || null,
+        clientPhone: phoneForViewAppointments,
+        clientName: (appointmentData?.client_name || guestClientData?.name || 'Cliente').toString(),
+      };
+
+      if (mpConnectedForAfcoins && insertedAppointment?.id && !permitePagamentoOpcional) {
+        if (isLocalAfcoinPaymentMethod(appointmentData?.payment_method)) {
+          const awarded = await registerAfcoinLocalPayBundle(afcoinBaseParams);
+          if (awarded > 0) {
+            toast.success(`✨ Você ganhou ${awarded} AFCoins neste agendamento (pagamento no estabelecimento).`);
+          }
+        } else {
+          await registerAfcoinBookingEvent({ ...afcoinBaseParams, rule: 'name_phone_5' });
+          const confirmed = await registerAfcoinBookingEvent({ ...afcoinBaseParams, rule: 'booking_confirm_10' });
+          if (confirmed) {
+            toast.success('✨ Você ganhou mais +10 AFCoins');
+          }
+        }
+      }
+
       // Store appointment data for dashboard reminder modal
       // Buscar o nome do profissional do banco de dados
       let professionalName = 'Não especificado';
@@ -2422,7 +2467,6 @@ export default function BookingPage() {
       setShowBookingForm(false); // Esconder formulário após agendamento
 
       // Salvar o telefone no localStorage para usar na página de visualização
-      const phoneForViewAppointments = (appointmentData?.client_whatsapp || guestClientData?.phone || '').toString();
       if (phoneForViewAppointments) {
         const cleanPhone = phoneForViewAppointments.replace(/\D/g, '');
         localStorage.setItem('last_booking_phone', cleanPhone);
@@ -2516,6 +2560,44 @@ export default function BookingPage() {
     setShowQuickBookingModal(false);
     setShowBookingForm(true);
     setUseLegacyBookingFlow(!Boolean((establishment as any)?.booking_chat_enabled ?? true));
+    if (Boolean(String((establishment as any)?.mercadopago_access_token || '').trim())) {
+      toast.success('🎉 Parabéns! Você ganhou +5 AFCoins');
+      void registerAfcoinBookingEvent({
+        establishmentId: String(establishment?.id || ''),
+        clientPhone: phone,
+        clientName: name,
+        rule: 'name_phone_5',
+      });
+    }
+  };
+
+  const finishLocalPayWithAfcoins = async () => {
+    setShowOptionalPayPrompt(false);
+    const mpConnected = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+    const clientPhone = pendingCustomerData?.phone || guestClientData?.phone || '';
+    const clientName = pendingCustomerData?.name || guestClientData?.name || 'Cliente';
+
+    if (mpConnected && pendingAppointmentId) {
+      const awarded = await registerAfcoinLocalPayBundle({
+        establishmentId: String(establishment?.id || ''),
+        appointmentId: pendingAppointmentId,
+        clientPhone,
+        clientName,
+      });
+      if (awarded > 0) {
+        toast.success(`Agendamento confirmado! Você ganhou ${awarded} AFCoins pagando no estabelecimento.`);
+      } else {
+        toast.success('Agendamento confirmado! Seus AFCoins serão atualizados em instantes.');
+      }
+    } else {
+      toast.success('Agendamento confirmado! Redirecionando...');
+    }
+
+    const phone = (clientPhone || localStorage.getItem('last_booking_phone') || '').toString();
+    const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
+    if (isReloadingRef.current) return;
+    isReloadingRef.current = true;
+    window.location.href = cleanPhone ? `/view-appointments?phone=${encodeURIComponent(cleanPhone)}` : '/view-appointments';
   };
 
   useEffect(() => {
@@ -5333,9 +5415,24 @@ export default function BookingPage() {
           recipientId={(window as any).__paymentGateway === 'pagarme'
             ? String((establishment as any)?.pagarme_recipient_id || '')
             : undefined}
-          onPaymentSuccess={(clientPhone) => {
+          onPaymentSuccess={async (clientPhone) => {
+            const paidAppointmentId = pendingAppointmentId;
             setShowPaymentModal(false);
             setPendingAppointmentId(null);
+            const afcoinsEnabled = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+            if (afcoinsEnabled && paidAppointmentId) {
+              const awarded = await registerAfcoinOnlinePayBundle({
+                establishmentId: String(establishment?.id || ''),
+                appointmentId: paidAppointmentId,
+                clientPhone: clientPhone || pendingCustomerData?.phone || guestClientData?.phone || '',
+                clientName: pendingCustomerData?.name || guestClientData?.name || 'Cliente',
+              });
+              toast.success(
+                awarded > 0
+                  ? `🎉 Parabéns! Você ganhou ${awarded} AFCoins neste agendamento (pagamento online).`
+                  : '🎉 Pagamento confirmado! Seus AFCoins serão atualizados em instantes.'
+              );
+            }
 
             // Se tiver telefone, redirecionar para view-appointments
             if (clientPhone) {
@@ -5486,49 +5583,178 @@ export default function BookingPage() {
 
       {/* Prompt: Pagamento opcional após agendar */}
       {showOptionalPayPrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="bg-[#1a1b1c] rounded-xl shadow-2xl max-w-md w-full p-6 border border-gray-700">
-            <h2 className="text-xl font-extrabold text-white mb-2">Parabéns! Agendamento feito ✅</h2>
-            <p className="text-gray-300 mb-6 leading-relaxed">
-              Quer <span className="font-semibold text-white">pagar agora</span> e já
-              <span className="ml-2 inline-block px-2 py-1 rounded-md bg-green-600/20 border border-green-500/40 text-green-300 font-extrabold">
-                deixar seu barbeiro feliz
-              </span>
-              ?
-              <span className="block mt-2 text-xs text-gray-400">
-                Se você preferir, pode só confirmar e pagar depois.
-              </span>
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button
-                onClick={() => {
-                  setShowOptionalPayPrompt(false);
-                  setShowPaymentModal(true);
-                }}
-                className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
-              >
-                Sim, pagar agora
-              </button>
-              <button
-                onClick={() => {
-                  setShowOptionalPayPrompt(false);
-                  // Seguir fluxo normal (sem pagamento)
-                  toast.success('Agendamento confirmado! Redirecionando...');
-                  setTimeout(() => {
-                    const phone =
-                      (pendingCustomerData?.phone || guestClientData?.phone || localStorage.getItem('last_booking_phone') || '').toString();
-                    const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
-                    // ✅ Proteção contra múltiplos redirects
-                    if (isReloadingRef.current) return;
-                    isReloadingRef.current = true;
-                    window.location.href = cleanPhone ? `/view-appointments?phone=${encodeURIComponent(cleanPhone)}` : '/view-appointments';
-                  }, 800);
-                }}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors"
-              >
-                Não, só confirmar
-              </button>
-            </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-[3px] p-2 sm:p-4 animate-[afcoFadeIn_0.24s_ease-out]">
+          <style>{`
+            @keyframes afcoFadeIn {
+              from { opacity: 0; }
+              to { opacity: 1; }
+            }
+            @keyframes afcoScaleIn {
+              from { opacity: 0; transform: translateY(8px) scale(0.97); }
+              to { opacity: 1; transform: translateY(0) scale(1); }
+            }
+            @keyframes afcoButtonGlow {
+              0%, 100% { box-shadow: 0 8px 24px rgba(22,163,74,0.35); }
+              50% { box-shadow: 0 10px 30px rgba(34,197,94,0.50); }
+            }
+          `}</style>
+
+          <div
+            className="relative overflow-hidden rounded-[20px] sm:rounded-[26px] border w-full max-w-[390px] sm:max-w-[860px] max-h-[88vh] overflow-y-auto px-3 py-3 sm:px-6 sm:py-6 text-white"
+            style={{
+              background: 'radial-gradient(120% 180% at 0% 0%, rgba(230,199,139,0.18) 0%, rgba(9,9,11,0.98) 42%, rgba(5,5,6,0.99) 100%)',
+              borderColor: 'rgba(230,199,139,0.35)',
+              boxShadow: '0 28px 80px rgba(0,0,0,0.72), 0 0 0 1px rgba(16,185,129,0.14), 0 0 28px rgba(16,185,129,0.18)',
+              animation: 'afcoScaleIn 0.28s cubic-bezier(.2,.8,.2,1)',
+            }}
+          >
+            <div className="pointer-events-none absolute -right-14 -top-16 h-40 w-40 rounded-full bg-emerald-400/20 blur-3xl" />
+            <div className="pointer-events-none absolute -left-16 bottom-[-72px] h-44 w-44 rounded-full bg-[#E6C78B]/20 blur-3xl" />
+
+            {Boolean(String((establishment as any)?.mercadopago_access_token || '').trim()) ? (
+              <>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h2 className="leading-tight">
+                      <span className="block text-[1.22rem] sm:text-[2rem] font-extrabold tracking-tight">
+                        🎉 Agendamento realizado
+                      </span>
+                      <span className="block text-[1.72rem] sm:text-[3.1rem] font-black uppercase leading-[0.95] tracking-tight text-[#F4D35E] drop-shadow-[0_0_18px_rgba(244,211,94,0.34)]">
+                        com sucesso!
+                      </span>
+                    </h2>
+                    <p className="mt-1.5 text-[0.95rem] sm:text-[1.5rem] font-semibold text-zinc-100">
+                      Pague agora via Pix ou cartão e ganhe
+                    </p>
+                  </div>
+
+                  <div
+                    className="shrink-0 mt-1 mr-0.5 h-14 w-14 sm:h-[88px] sm:w-[88px] rounded-full grid place-items-center overflow-hidden"
+                    style={{
+                      boxShadow: '0 0 0 1px rgba(250,204,21,0.28), 0 0 16px rgba(250,204,21,0.24), 0 10px 24px rgba(0,0,0,0.45)',
+                    }}
+                  >
+                    <img
+                      src="/afcoin.png"
+                      alt="Moeda AFCoin"
+                      className="w-full h-full object-contain"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </div>
+                </div>
+
+                <div
+                  className="mt-2.5 rounded-xl sm:rounded-2xl border px-3 py-2.5 sm:px-6 sm:py-4"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(13,148,66,0.24) 0%, rgba(6,78,59,0.35) 100%)',
+                    borderColor: 'rgba(74,222,128,0.45)',
+                    boxShadow: '0 0 0 1px rgba(74,222,128,0.2), 0 8px 30px rgba(22,163,74,0.25)',
+                  }}
+                >
+                  <div className="flex items-center gap-3 text-green-200">
+                    <span className="text-[1.72rem] sm:text-[3.4rem] font-black leading-none text-[#4ADE80] drop-shadow-[0_0_14px_rgba(74,222,128,0.45)]">
+                      +45
+                    </span>
+                    <span className="text-[1.08rem] sm:text-[2.15rem] leading-none font-extrabold text-white">
+                      AFCoins bônus
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setShowOptionalPayPrompt(false);
+                    setShowPaymentModal(true);
+                  }}
+                  className="mt-3 w-full rounded-xl sm:rounded-2xl px-4 py-3 sm:px-5 sm:py-4 text-[1.02rem] sm:text-[1.95rem] leading-tight font-black text-white transition-all duration-200 hover:brightness-110 hover:-translate-y-[1px] active:translate-y-0"
+                  style={{
+                    background: 'linear-gradient(180deg, #22c55e 0%, #15803d 100%)',
+                    animation: 'afcoButtonGlow 2.2s ease-in-out infinite',
+                    boxShadow: '0 8px 24px rgba(22,163,74,0.35)',
+                  }}
+                >
+                  Pagar agora e ganhar +45 AFCoins
+                </button>
+
+                <div className="mt-2.5 grid grid-cols-3 sm:grid-cols-3 gap-1.5 sm:gap-2.5">
+                  {[
+                    { icon: '🎁', title: 'Acumule moedas', text: 'a cada agendamento' },
+                    { icon: '💈', title: 'Troque por descontos', text: 'e benefícios incríveis' },
+                    { icon: '❤️', title: 'Ganhe benefícios', text: 'e vantagens exclusivas' },
+                  ].map((item) => (
+                    <div
+                      key={item.title}
+                      className="rounded-lg sm:rounded-xl border px-1.5 py-1.5 sm:px-3 sm:py-2 transition-transform duration-200 hover:-translate-y-[1px] min-h-[86px] sm:min-h-[96px] flex flex-col items-center justify-center text-center"
+                      style={{
+                        background: 'linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)',
+                        borderColor: 'rgba(230,199,139,0.22)',
+                      }}
+                    >
+                      <div className="text-[0.88rem] sm:text-base leading-none">{item.icon}</div>
+                      <div className="mt-1 text-[0.7rem] sm:text-sm font-extrabold text-zinc-100 leading-[1.2]">{item.title}</div>
+                      <div className="mt-0.5 text-[0.56rem] sm:text-[0.74rem] text-zinc-400 leading-[1.22]">{item.text}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div
+                  className="mt-2 rounded-xl border px-2.5 py-2 text-center text-[0.78rem] sm:text-[1.15rem] font-extrabold tracking-tight text-zinc-100"
+                  style={{
+                    background: 'rgba(8,8,9,0.82)',
+                    borderColor: 'rgba(230,199,139,0.25)',
+                  }}
+                >
+                  🎁 Quanto mais você paga online, mais benefícios desbloqueia
+                </div>
+
+                <div className="mt-2 text-center">
+                  <button
+                    onClick={finishLocalPayWithAfcoins}
+                    className="text-zinc-300 text-[0.92rem] sm:text-[1.15rem] font-semibold underline underline-offset-4 decoration-zinc-500 hover:text-white hover:decoration-zinc-200 transition-colors"
+                  >
+                    📍 Prefiro pagar no local (+ 3 AFCoins · 18 no total)
+                  </button>
+                </div>
+
+                <div
+                  className="mt-2 rounded-xl border px-3 py-2 text-center text-[0.82rem] sm:text-base font-semibold text-zinc-300"
+                  style={{
+                    background: 'rgba(255,255,255,0.02)',
+                    borderColor: 'rgba(255,255,255,0.10)',
+                  }}
+                >
+                  ✅ Pagamento 100% seguro via <span className="text-emerald-400 font-extrabold">Mercado Pago</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="text-xl font-extrabold text-white mb-2">🎉 Agendamento realizado com sucesso!</h2>
+                <p className="text-gray-300 mb-6 leading-relaxed">
+                  Quer <span className="font-semibold text-white">pagar agora</span> e já confirmar seu agendamento?
+                  <span className="block mt-2 text-xs text-gray-400">
+                    Se preferir, você pode confirmar sem pagar agora.
+                  </span>
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button
+                    onClick={() => {
+                      setShowOptionalPayPrompt(false);
+                      setShowPaymentModal(true);
+                    }}
+                    className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
+                  >
+                    Pagar agora
+                  </button>
+                  <button
+                    onClick={finishLocalPayWithAfcoins}
+                    className="flex-1 bg-transparent hover:bg-white/5 text-gray-300 font-semibold py-2 px-2 rounded-lg transition-colors text-sm underline underline-offset-4"
+                  >
+                    Prefiro pagar no local (+18 AFCoins no total)
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

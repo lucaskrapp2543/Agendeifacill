@@ -1,14 +1,29 @@
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ArrowLeft, Calendar, Clock, Download, MapPin, Phone, User, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { ArrowLeft, Calendar, Clock, CreditCard, Download, MapPin, Phone, User, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PhoneLoginModal } from '../components/PhoneLoginModal';
 import { SuccessBookingModal } from '../components/SuccessBookingModal';
+import { AfcoinHowItWorksModal, AfcoinUseModal } from '../components/AfcoinClientModals';
 import { getAppointmentsByPhone, supabase } from '../lib/supabase';
 import { CANCELLATION_SOURCE } from '../utils/appointmentCancellationMeta';
 import { estadoCancelamentoParaAgendamentoCliente } from '../utils/regrasCancelamento';
+import {
+  AFCOIN_EARN_HINT,
+  AFCOIN_REDEEM_THRESHOLD,
+  buildAfcoinPhoneVariants,
+  fetchAfcoinClientWallets,
+  normalizeAfcoinPhone,
+  syncAfcoinsFromAppointments,
+} from '../utils/afcoin';
+import {
+  computeAfcoinBalanceByEstablishment,
+  computeAfcoinBalanceFromAppointments,
+  computeAfcoinPointsForAppointment,
+  getAppointmentPaymentDisplay,
+} from '../utils/appointmentPayment';
 
 export default function ViewAppointmentsPage() {
   const navigate = useNavigate();
@@ -31,6 +46,59 @@ export default function ViewAppointmentsPage() {
   const [expandedInfoByAppointment, setExpandedInfoByAppointment] = useState<Record<string, boolean>>({});
   const [appointmentHistoryById, setAppointmentHistoryById] = useState<Record<string, any[]>>({});
   const [isLoadingInfoByAppointment, setIsLoadingInfoByAppointment] = useState<Record<string, boolean>>({});
+  const [afcoinRowsByEstablishment, setAfcoinRowsByEstablishment] = useState<Array<{
+    establishmentId: string;
+    establishmentName: string;
+    balance: number;
+    onlinePaymentsCount: number;
+    missingToBenefit: number;
+    canRedeem: boolean;
+  }>>([]);
+  const [isLoadingAfcoins, setIsLoadingAfcoins] = useState(false);
+  const [showAfcoinHowModal, setShowAfcoinHowModal] = useState(false);
+  const [showAfcoinUseModal, setShowAfcoinUseModal] = useState(false);
+
+  /** Saldo exibido = soma lida dos agendamentos (18 local / 60 online por agendamento). */
+  const displayAfcoinBalance = useMemo(
+    () => computeAfcoinBalanceFromAppointments(appointments),
+    [appointments]
+  );
+
+  const maxAfcoinBalancePerShop = useMemo(() => {
+    const byEstablishment = computeAfcoinBalanceByEstablishment(appointments);
+    let max = 0;
+    byEstablishment.forEach((value) => {
+      if (value > max) max = value;
+    });
+    return max;
+  }, [appointments]);
+
+  const bestAfcoinRedeemRow = useMemo(() => {
+    const byEstablishment = computeAfcoinBalanceByEstablishment(appointments);
+    let best: { establishmentId: string; establishmentName: string; balance: number } | null = null;
+
+    appointments.forEach((appointment: any) => {
+      const establishmentId = String(appointment?.establishment_id || appointment?.establishments?.id || '').trim();
+      if (!establishmentId) return;
+      const balance = Number(byEstablishment.get(establishmentId) || 0);
+      if (balance < AFCOIN_REDEEM_THRESHOLD) return;
+      const establishmentName = String(
+        appointment?.establishments?.name || appointment?.establishment_name || 'Barbearia'
+      ).trim();
+      if (!best || balance > best.balance) {
+        best = { establishmentId, establishmentName, balance };
+      }
+    });
+
+    return best;
+  }, [appointments]);
+
+  const canUseAfcoinBenefit = Boolean(bestAfcoinRedeemRow);
+  const missingAfcoinsToUse = Math.max(0, AFCOIN_REDEEM_THRESHOLD - maxAfcoinBalancePerShop);
+
+  const handleUseAfcoinBenefit = () => {
+    setShowAfcoinUseModal(true);
+  };
 
   const normalizarWhatsappE164 = (raw: string): string => {
     let cleanWhatsapp = String(raw || '').replace(/\D/g, '');
@@ -50,6 +118,110 @@ export default function ViewAppointmentsPage() {
     }
 
     return cleanWhatsapp;
+  };
+
+  const buildPhoneVariants = (raw: string): string[] => {
+    const digits = String(raw || '').replace(/\D/g, '');
+    if (!digits) return [];
+    const withoutCountry = digits.startsWith('55') && digits.length > 2 ? digits.slice(2) : digits;
+    const candidates = new Set<string>();
+    const baseSet = new Set<string>([withoutCountry, digits]);
+    if (withoutCountry.length === 10) baseSet.add(`${withoutCountry.slice(0, 2)}9${withoutCountry.slice(2)}`);
+    if (withoutCountry.length === 11 && withoutCountry.slice(2, 3) === '9') baseSet.add(`${withoutCountry.slice(0, 2)}${withoutCountry.slice(3)}`);
+    baseSet.forEach((base) => {
+      const clean = String(base || '').replace(/\D/g, '');
+      if (!clean) return;
+      candidates.add(clean);
+      if (!clean.startsWith('55')) candidates.add(`55${clean}`);
+      if (clean.startsWith('55') && clean.length > 2) candidates.add(clean.slice(2));
+    });
+    return Array.from(candidates);
+  };
+
+  const loadAfcoinWalletsForPhone = async (rawPhone: string, rows: any[]) => {
+    const phoneVariants = buildAfcoinPhoneVariants(rawPhone);
+    const normalizedPhone = normalizeAfcoinPhone(rawPhone);
+    if (phoneVariants.length === 0 || !normalizedPhone || !Array.isArray(rows) || rows.length === 0) {
+      setAfcoinRowsByEstablishment([]);
+      return;
+    }
+
+    const uniqueEstablishments = new Map<string, string>();
+    rows.forEach((appointment: any) => {
+      const establishmentId = String(appointment?.establishment_id || appointment?.establishments?.id || '').trim();
+      if (!establishmentId) return;
+      const establishmentName = String(appointment?.establishments?.name || appointment?.establishment_name || 'Barbearia').trim();
+      uniqueEstablishments.set(establishmentId, establishmentName || 'Barbearia');
+    });
+    if (uniqueEstablishments.size === 0) {
+      setAfcoinRowsByEstablishment([]);
+      return;
+    }
+
+    setIsLoadingAfcoins(true);
+    try {
+      const establishmentIds = Array.from(uniqueEstablishments.keys());
+      let walletRows = await fetchAfcoinClientWallets({ establishmentIds, phoneVariants });
+
+      if (walletRows.length === 0) {
+        const { data, error } = await supabase
+          .from('afcoin_wallets')
+          .select('establishment_id, balance, online_payments_count, customer_phone, updated_at')
+          .in('establishment_id', establishmentIds)
+          .in('customer_phone', phoneVariants)
+          .order('updated_at', { ascending: false });
+
+        if (error) {
+          const msg = String((error as any)?.message || '').toLowerCase();
+          const missingTable =
+            msg.includes('afcoin_wallets') &&
+            (msg.includes('does not exist') || msg.includes('relation') || msg.includes('schema cache') || msg.includes('column'));
+          if (!missingTable) {
+            console.warn('AFCoins: erro ao carregar carteira do cliente:', error.message, error.details);
+          }
+        } else if (Array.isArray(data)) {
+          walletRows = data.map((w: any) => ({
+            establishment_id: String(w?.establishment_id || ''),
+            customer_phone: String(w?.customer_phone || ''),
+            balance: Number(w?.balance || 0),
+            online_payments_count: Number(w?.online_payments_count || 0),
+            local_payments_count: 0,
+            updated_at: w?.updated_at ? String(w.updated_at) : undefined,
+          }));
+        }
+      }
+
+      const perEstablishment = await Promise.all(
+        Array.from(uniqueEstablishments.entries()).map(async ([establishmentId, establishmentName]) => {
+          const rowsForShop = walletRows.filter((w) => String(w.establishment_id) === establishmentId);
+          const row =
+            rowsForShop.find((w) => normalizeAfcoinPhone(String(w?.customer_phone || '')) === normalizedPhone) ||
+            rowsForShop[0] ||
+            null;
+          const balance = Number((row as any)?.balance || 0);
+          const onlinePaymentsCount = Number((row as any)?.online_payments_count || 0);
+          const safeBalance = Number.isFinite(balance) ? balance : 0;
+          const missingToBenefit = Math.max(0, 1000 - safeBalance);
+          const canRedeem = safeBalance >= 1000;
+          return {
+            establishmentId,
+            establishmentName,
+            balance: safeBalance,
+            onlinePaymentsCount: Number.isFinite(onlinePaymentsCount) ? onlinePaymentsCount : 0,
+            missingToBenefit,
+            canRedeem,
+          };
+        })
+      );
+
+      perEstablishment.sort((a, b) => b.balance - a.balance);
+      setAfcoinRowsByEstablishment(perEstablishment);
+    } catch (error) {
+      console.warn('AFCoins: falha inesperada ao carregar carteira do cliente:', error);
+      setAfcoinRowsByEstablishment([]);
+    } finally {
+      setIsLoadingAfcoins(false);
+    }
   };
 
   const obterWhatsappProfissional = (establishmentRow: any, professionalNameRaw: string | undefined | null): string => {
@@ -189,6 +361,8 @@ export default function ViewAppointmentsPage() {
 
       // Salvar telefone no localStorage para futuras visitas
       localStorage.setItem('last_booking_phone', cleanPhone);
+      await syncAfcoinsFromAppointments(sortedAppointments, cleanPhone);
+      await loadAfcoinWalletsForPhone(cleanPhone, sortedAppointments);
 
       // Toast removido - não é necessário mostrar quantos agendamentos foram encontrados
 
@@ -1209,26 +1383,96 @@ Por favor, confirme o cancelamento. Obrigado!`;
       {/* Header */}
       <div className="border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
         <div className="container-custom py-4">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-start justify-between gap-3 mb-4">
             <button
               onClick={() => navigate('/')}
-              className="flex items-center gap-2 transition-colors"
+              className="flex items-center gap-2 transition-colors shrink-0"
               style={{ color: '#A1A1A1' }}
             >
               <ArrowLeft className="w-5 h-5" />
               <span>Voltar</span>
             </button>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 text-sm rounded-xl transition-colors font-semibold hover:bg-white/5"
-              style={{
-                background: '#151515',
-                border: '1px solid rgba(255,255,255,0.06)',
-                color: '#A1A1A1'
-              }}
-            >
-              Desconectar
-            </button>
+
+            <div className="flex items-start gap-2 min-w-0 flex-wrap justify-end">
+              {appointments.length > 0 && (
+                <div
+                  className="flex flex-col gap-2 px-3 py-2.5 sm:px-3.5 sm:py-3 rounded-2xl shrink min-w-0 w-full sm:w-auto max-w-full sm:max-w-none"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(230,199,139,0.18) 0%, rgba(8,8,9,0.95) 55%)',
+                    border: '1px solid rgba(230,199,139,0.35)',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+                  }}
+                >
+                  <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                    <img
+                      src="/afcoin.png"
+                      alt=""
+                      className="w-10 h-10 sm:w-11 sm:h-11 object-contain shrink-0"
+                      style={{ filter: 'drop-shadow(0 0 8px rgba(230,199,139,0.45))' }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] sm:text-xs font-semibold uppercase tracking-wide text-[#E6C78B]/90 truncate">
+                        Seu saldo AFCoins
+                      </p>
+                      <p className="text-xl sm:text-2xl font-black text-white leading-none mt-0.5">
+                        {isLoadingAfcoins ? '…' : displayAfcoinBalance}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAfcoinHowModal(true)}
+                      className="flex-1 px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all active:scale-[0.98] hover:bg-white/10"
+                      style={{
+                        background: 'rgba(255,255,255,0.06)',
+                        border: '1px solid rgba(230,199,139,0.28)',
+                        color: '#E6C78B',
+                      }}
+                    >
+                      Como funciona
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleUseAfcoinBenefit}
+                      className={`flex-1 px-3 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition-all active:scale-[0.98] ${
+                        canUseAfcoinBenefit
+                          ? 'hover:brightness-110'
+                          : 'hover:bg-white/12'
+                      }`}
+                      style={
+                        canUseAfcoinBenefit
+                          ? {
+                              background: 'linear-gradient(180deg, #E6C78B 0%, #B8944A 100%)',
+                              color: '#0B0B0B',
+                              boxShadow: '0 4px 16px rgba(230,199,139,0.3)',
+                            }
+                          : {
+                              background: 'rgba(255,255,255,0.08)',
+                              border: '1px solid rgba(255,255,255,0.12)',
+                              color: 'rgba(255,255,255,0.88)',
+                            }
+                      }
+                    >
+                      Usar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={handleLogout}
+                className="px-3 py-2 sm:px-4 sm:py-2 text-xs sm:text-sm rounded-xl transition-colors font-semibold hover:bg-white/5 shrink-0"
+                style={{
+                  background: '#151515',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  color: '#A1A1A1'
+                }}
+              >
+                Desconectar
+              </button>
+            </div>
           </div>
           <h1 className="text-2xl font-extrabold" style={{ color: '#E6C78B' }}>
             Meus Agendamentos
@@ -1289,6 +1533,14 @@ Por favor, confirme o cancelamento. Obrigado!`;
           </div>
         ) : (
           <div className="space-y-4">
+            {!isLoadingAfcoins && appointments.length > 0 && !canUseAfcoinBenefit && (
+              <p className="text-xs text-center text-white/55 px-2">
+                {maxAfcoinBalancePerShop > 0
+                  ? `Faltam ${missingAfcoinsToUse} AFCoins na sua barbearia com maior saldo para liberar o botão Usar (${AFCOIN_REDEEM_THRESHOLD} por barbearia). ${AFCOIN_EARN_HINT}`
+                  : AFCOIN_EARN_HINT}
+              </p>
+            )}
+
             <div
               className="rounded-2xl p-4 mb-6"
               style={{
@@ -1354,6 +1606,47 @@ Por favor, confirme o cancelamento. Obrigado!`;
                       <span className="text-sm" style={{ color: '#A1A1A1' }}>Duração: {appointment.duration} min</span>
                     </div>
                   )}
+                  {(() => {
+                    const payment = getAppointmentPaymentDisplay(appointment);
+                    const isSystemPay =
+                      payment.channel === 'system_online_pix' || payment.channel === 'system_online_card';
+                    return (
+                      <div className="flex items-start gap-2 md:col-span-2">
+                        <CreditCard
+                          className="w-5 h-5 shrink-0 mt-0.5"
+                          style={{ color: isSystemPay ? '#E6C78B' : '#A1A1A1' }}
+                        />
+                        <div className="min-w-0">
+                          <p className="text-sm" style={{ color: '#D4D4D4' }}>
+                            <span style={{ color: '#A1A1A1' }}>Pagamento: </span>
+                            <span
+                              className="font-semibold"
+                              style={{ color: isSystemPay ? '#E6C78B' : '#FFFFFF' }}
+                            >
+                              {payment.actualLabel}
+                            </span>
+                          </p>
+                          {payment.showInformedPreference && payment.informedLabel !== payment.actualLabel && (
+                            <p className="text-xs mt-0.5" style={{ color: '#888888' }}>
+                              Preferência informada: {payment.informedLabel}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {(() => {
+                    const afcoinPoints = computeAfcoinPointsForAppointment(appointment);
+                    if (afcoinPoints <= 0) return null;
+                    return (
+                      <div className="flex items-center gap-2 md:col-span-2">
+                        <img src="/afcoin.png" alt="" className="w-5 h-5 object-contain shrink-0" />
+                        <span className="text-sm font-bold" style={{ color: '#E6C78B' }}>
+                          +{afcoinPoints} AFCoins neste agendamento
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="mb-4">
@@ -1389,6 +1682,21 @@ Por favor, confirme o cancelamento. Obrigado!`;
                       <p><strong>Horário agendado:</strong> {String(appointment.appointment_time || 'Não informado')}</p>
                       <p><strong>Duração:</strong> {appointment.duration ? `${appointment.duration} min` : 'Não informada'}</p>
                       <p><strong>Profissional atual:</strong> {appointment.professional_name || appointment.professional || 'Não informado'}</p>
+                      <p>
+                        <strong>Pagamento (sistema):</strong>{' '}
+                        {getAppointmentPaymentDisplay(appointment).actualLabel}
+                      </p>
+                      {(() => {
+                        const payment = getAppointmentPaymentDisplay(appointment);
+                        if (!payment.showInformedPreference || payment.informedLabel === payment.actualLabel) {
+                          return null;
+                        }
+                        return (
+                          <p>
+                            <strong>Preferência informada no agendamento:</strong> {payment.informedLabel}
+                          </p>
+                        );
+                      })()}
                       <p><strong>Origem do agendamento:</strong> {getAppointmentOriginLabel(appointment)}</p>
                     </div>
 
@@ -1629,6 +1937,23 @@ Por favor, confirme o cancelamento. Obrigado!`;
           </div>
         </div>
       )}
+
+      <AfcoinHowItWorksModal
+        isOpen={showAfcoinHowModal}
+        onClose={() => setShowAfcoinHowModal(false)}
+        balance={displayAfcoinBalance}
+        maxPerShop={maxAfcoinBalancePerShop}
+      />
+
+      <AfcoinUseModal
+        isOpen={showAfcoinUseModal}
+        onClose={() => setShowAfcoinUseModal(false)}
+        balance={displayAfcoinBalance}
+        maxPerShop={maxAfcoinBalancePerShop}
+        missing={missingAfcoinsToUse}
+        canUse={canUseAfcoinBenefit}
+        establishmentName={bestAfcoinRedeemRow?.establishmentName}
+      />
 
       {/* Modal de login por telefone */}
       <PhoneLoginModal

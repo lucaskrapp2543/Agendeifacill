@@ -229,6 +229,7 @@ type TabType =
   | 'reviews'
   | 'client-page'
   | 'indication'
+  | 'receber-adiantado'
   | 'whatsapp-reminders'
   | 'support';
 
@@ -26235,8 +26236,8 @@ Estamos te aguardando!`;
           }}
           useLightLayout={useLightLayout}
           onToggleLayoutTheme={toggleLayoutTheme}
-          onReceberAdiantadoClick={() => setShowMercadoPagoModal(true)}
-          isReceberAdiantadoOpen={showMercadoPagoModal}
+          onReceberAdiantadoClick={() => setActiveTab('receber-adiantado')}
+          isReceberAdiantadoOpen={activeTab === 'receber-adiantado'}
           isAppointmentsTutorialRunning={showAppointmentsTutorial}
           pendingReviewsCount={pendingReviewsCount}
           pendingSubscribersCount={pendingSubscribersCount}
@@ -26248,6 +26249,7 @@ Estamos te aguardando!`;
         {/* Conteúdo principal */}
         <div className="flex-1 ml-0 transition-all duration-300 min-w-0 pt-0">
           {/* Imagem Melhor do Brasil - Topo Absoluto (Mobile) */}
+          {activeTab !== 'receber-adiantado' && (
           <div className="w-full mb-4 flex justify-center md:hidden">
             <img
               src="/melhordobrasilcortado.png"
@@ -26255,9 +26257,11 @@ Estamos te aguardando!`;
               className="w-full h-auto rounded-lg shadow-lg"
             />
           </div>
+          )}
 
-          <div className="py-4 px-4 sm:py-8 sm:px-6 w-full">
+          <div className={`w-full ${activeTab === 'receber-adiantado' ? 'py-0 px-0' : 'py-4 px-4 sm:py-8 sm:px-6'}`}>
             {/* Cabeçalho */}
+            {activeTab !== 'receber-adiantado' && (
             <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-6 sm:mb-8">
               <div className="flex-1 min-w-0">
                 {activeTab !== 'appointments' && (
@@ -26319,8 +26323,9 @@ Estamos te aguardando!`;
                 )}
               </div>
             </div>
+            )}
 
-            {!isTop1CardDismissedForCurrentMonth && (isLoadingMonthlyTopWinner || monthlyTopWinner) && (
+            {!isTop1CardDismissedForCurrentMonth && activeTab !== 'receber-adiantado' && (isLoadingMonthlyTopWinner || monthlyTopWinner) && (
               <div className="mb-5 sm:mb-6">
                 {isLoadingMonthlyTopWinner && !monthlyTopWinner ? (
                   <div className="w-full rounded-2xl border border-amber-300/30 bg-gradient-to-r from-amber-900/25 to-slate-900/40 p-4 sm:p-5 animate-pulse">
@@ -26340,7 +26345,7 @@ Estamos te aguardando!`;
             )}
 
             {/* Sino flutuante (somente mobile) - acima do botão de recarregar */}
-            {establishment && (
+            {establishment && activeTab !== 'receber-adiantado' && (
               <button
                 type="button"
                 onClick={() => {
@@ -26510,64 +26515,54 @@ Estamos te aguardando!`;
 
                   {/* Popup de Propaganda */}
                   {showPromotionPopup && establishment && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                      <div className="bg-white rounded-lg shadow-xl max-w-md md:max-w-2xl w-full relative">
-                        {/* Botão X no canto superior direito */}
-                        <button
-                          onClick={() => setShowPromotionPopup(false)}
-                          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors z-10"
-                        >
-                          <X className="h-5 w-5" />
-                        </button>
-
-                        <div className="p-6 md:p-8">
-                          {/* Imagem de Indicação */}
-                          <div className="mb-4 md:mb-6">
-                            <img
-                              src="/indicacao.png"
-                              alt="Indicação"
-                              className="w-full h-auto rounded-lg md:max-w-2xl mx-auto"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                target.src = '/indicacao.png';
-                                console.error('Erro ao carregar imagem indicacao.png');
-                              }}
-                            />
-                          </div>
-
-                          {/* Botões */}
-                          <div className="space-y-3 md:space-y-4">
-                            <button
-                              onClick={() => {
-                                const whatsappNumber = '5548991265320';
-                                const message = 'Quero regularizar meu pagamento agora';
-                                openWhatsAppWithBusinessPriority(whatsappNumber, message);
-                              }}
-                              className="w-full px-4 py-3 md:px-6 md:py-4 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-medium md:text-lg flex items-center justify-center gap-2"
-                            >
-                              Pagar agora
-                            </button>
-
-                            <div className="flex gap-3 md:gap-4">
-                              <button
-                                onClick={() => {
-                                  // Salvar no localStorage para não mostrar mais
-                                  localStorage.setItem('promotion_dismissed', 'true');
-                                  setShowPromotionPopup(false);
-                                }}
-                                className="flex-1 px-4 py-2 md:px-6 md:py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium text-sm md:text-base"
-                              >
-                                Não quero mais ver isso
-                              </button>
-                              <button
-                                onClick={() => setShowPromotionPopup(false)}
-                                className="flex-1 px-4 py-2 md:px-6 md:py-3 bg-gray-100 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors font-medium text-sm md:text-base"
-                              >
-                                Fechar
-                              </button>
-                            </div>
-                          </div>
+                    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3 sm:p-4 md:p-6">
+                      <div className="bg-[#0a1628] sm:bg-white rounded-2xl shadow-2xl w-full sm:max-w-xl md:max-w-3xl lg:max-w-4xl relative max-h-[92vh] overflow-y-auto flex flex-col my-auto">
+                        {/* Botões no topo */}
+                        <div className="bg-white px-2.5 py-2 sm:px-3 sm:py-2.5 flex gap-2 flex-shrink-0 border-b border-gray-200 rounded-t-2xl">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              localStorage.setItem('promotion_dismissed', 'true');
+                              setShowPromotionPopup(false);
+                            }}
+                            className="flex-1 px-2.5 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium text-[11px] sm:text-xs leading-tight"
+                          >
+                            Não quero mais ver isso
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowPromotionPopup(false)}
+                            className="flex-1 px-2.5 py-2 bg-gray-100 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors font-medium text-[11px] sm:text-xs"
+                          >
+                            Fechar
+                          </button>
                         </div>
+
+                        {/* Imagem clicável — leva para Receber adiantado */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowPromotionPopup(false);
+                            setActiveTab('receber-adiantado');
+                            setSidebarCloseSignal((value) => value + 1);
+                            window.dispatchEvent(new CustomEvent('agendei:close-sidebar'));
+                          }}
+                          className="w-full flex-shrink-0 leading-[0] bg-[#0a1628] cursor-pointer border-0 p-0 text-left transition-transform active:scale-[0.995] hover:opacity-[0.98]"
+                          title="Conectar Mercado Pago e receber adiantado"
+                          aria-label="Conectar Mercado Pago e receber adiantado"
+                        >
+                          <img
+                            src="/mpconect.png"
+                            alt="Receber adiantado com Mercado Pago — toque para conectar"
+                            className="w-full h-auto object-contain block pointer-events-none"
+                            draggable={false}
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.src = '/mpconect.png';
+                              console.error('Erro ao carregar imagem mpconect.png');
+                            }}
+                          />
+                        </button>
                       </div>
                     </div>
                   )}
@@ -29119,6 +29114,43 @@ Estamos te aguardando!`;
                         </div>
                       </div>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab Receber adiantado — Mercado Pago (seção dedicada) */}
+              {activeTab === 'receber-adiantado' && (
+                <div className="w-full">
+                  {/* Barra mínima mobile — só menu */}
+                  <div className="sticky top-0 z-20 flex items-center justify-between px-3 py-2.5 bg-[#0a1628]/95 backdrop-blur-sm border-b border-white/10 md:hidden">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const sidebar = document.querySelector('[data-sidebar-toggle]');
+                        if (sidebar) (sidebar as HTMLElement).click();
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-white/10 text-white text-xs font-semibold"
+                    >
+                      ☰ Menu
+                    </button>
+                    <span className="text-xs font-bold text-white/90 tracking-wide">Receber adiantado</span>
+                    <div className="w-[52px]" aria-hidden="true" />
+                  </div>
+
+                  {/* Banner — mesmo visual do popup (largura total, sem recorte) */}
+                  <div className="w-full bg-[#0a1628] leading-[0] md:flex md:justify-center">
+                    <img
+                      src="/mpconect.png"
+                      alt="Receber adiantado com Mercado Pago"
+                      className="w-full md:max-w-5xl lg:max-w-4xl h-auto object-contain block"
+                      loading="eager"
+                      decoding="async"
+                    />
+                  </div>
+
+                  {/* Card Mercado Pago — área de configuração */}
+                  <div className="px-3 sm:px-4 md:px-6 py-4 sm:py-5 max-w-5xl mx-auto w-full">
+                    <MercadoPagoCard wrapperClassName="" />
                   </div>
                 </div>
               )}
