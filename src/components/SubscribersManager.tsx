@@ -1,6 +1,6 @@
 import { addMonths, endOfMonth, format, isPast, parse, parseISO, startOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronDown, ChevronUp, Edit, Eye, EyeOff, History, Link2, Plus, Send, Trash2, Users, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Edit, Eye, EyeOff, FileDown, History, Link2, Plus, Send, Trash2, Users, X } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -24,6 +24,7 @@ import {
   getPreviousCalendarMonthDateRange,
   isIsoDateWithinRange,
 } from '../utils/subscriptionUsagePeriod';
+import { downloadSubscriberAccountantReport } from '../utils/subscriberAccountantReport';
 import { ClientRecoveryModal } from './ClientRecoveryModal';
 import { useToast } from './ui/Toaster';
 
@@ -75,6 +76,7 @@ interface SubscribersManagerProps {
   clients: Client[]; // Usar Client ao invés de Profile
   onClientUpdated?: () => void; // Nova prop para notificar atualizações
   establishment?: {
+    name?: string;
     code?: string;
     limit_subscriber_bookings?: boolean;
     prevent_same_day_reschedule?: boolean;
@@ -4154,6 +4156,90 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return matchesSubscriberSearch(cs);
   });
 
+  const handleGenerateAccountantReport = () => {
+    const repassesAtendimentos = subscriberAttendances.reduce(
+      (sum, attendance) => sum + getAttendanceEffectiveRepass(attendance),
+      0
+    );
+    const repassesComissaoVenda = subscriptionSaleCommissions.reduce(
+      (sum, item) => sum + (parseFloat(String(item?.commission_amount || 0)) || 0),
+      0
+    );
+
+    const discountRows = clientSubscriptions
+      .filter((cs) => !isArchivedSubscriber(cs))
+      .map((cs) => {
+        const planValue = Number(cs.subscriptions?.value || (cs as any)?.subscription_value || 0);
+        const paidValue = getSubscriptionValueForClient(cs);
+        const discount = Math.max(0, planValue - paidValue);
+        if (!Number.isFinite(discount) || discount <= 0) return null;
+        return {
+          clientName: getSubscriberDisplayName(cs),
+          planName: getSubscriberPlanName(cs as any),
+          planValue,
+          paidValue,
+          discount,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row));
+
+    const totalDescontos = discountRows.reduce((sum, row) => sum + row.discount, 0);
+    const novosAssinantesMes = emContaBreakdown.filter((row) => row.typeLabel === 'Novo assinante').length;
+    const renovacoesMes = emContaBreakdown.filter((row) => row.typeLabel === 'Renovação').length;
+    const assinantesDesativados = clientSubscriptions.filter(
+      (cs) => isDeactivatedSubscriber(cs) && !isArchivedSubscriber(cs)
+    ).length;
+
+    downloadSubscriberAccountantReport({
+      establishmentName: String((establishment as any)?.name || 'Estabelecimento').trim(),
+      establishmentCode: String(establishment?.code || '').trim(),
+      establishmentId,
+      monthLabel: monthNames[selectedMonth],
+      year: selectedYear,
+      monthIndex: selectedMonth,
+      brutoAtivo,
+      liquidoAtivo,
+      emContaEntradasMes,
+      emContaSaidasMes,
+      emContaMes,
+      totalAssinantes,
+      assinantesNaoPagos,
+      totalRepasses,
+      repassesAtendimentos,
+      repassesComissaoVenda,
+      saldoAssinantes: shouldShowSubscribersBalanceCard ? saldoAssinantes : null,
+      totalDescontos,
+      novosAssinantesMes,
+      renovacoesMes,
+      totalAtendimentosMes: subscriberAttendances.length,
+      assinantesDesativados,
+      emContaBreakdown,
+      liquidoAtivoBreakdown,
+      naoPagosBreakdown: naoPagosBreakdown.filter(
+        (row) => !isArchivedSubscriber(clientSubscriptionById.get(row.id)) && !isDeactivatedSubscriber(clientSubscriptionById.get(row.id))
+      ),
+      professionalPayments,
+      attendances: subscriberAttendances.map((attendance: any) => ({
+        attendance_date: attendance?.attendance_date,
+        professional_name: attendance?.professional_name,
+        clientName:
+          String(attendance?.client_name_snapshot || '').trim() ||
+          clientNameBySubIdMap.get(String(attendance?.client_subscription_id || '')) ||
+          'Assinante',
+        repass_value: getAttendanceEffectiveRepass(attendance),
+      })),
+      saleCommissions: subscriptionSaleCommissions.map((item: any) => ({
+        professional_name: item?.professional_name,
+        commission_amount: item?.commission_amount,
+        clientName:
+          clientNameBySubIdMap.get(String(item?.client_subscription_id || '')) || 'Assinante',
+      })),
+      discountRows,
+    });
+
+    toast.success('Relatório baixado. Envie o arquivo CSV para seu contador.');
+  };
+
 
   // Função para mudar o mês selecionado
   const handleMonthChange = async (month: number, year: number) => {
@@ -4226,8 +4312,19 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4">
           <h2 className="text-lg sm:text-xl font-semibold">Resumo de Assinaturas</h2>
+
+          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={handleGenerateAccountantReport}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg transition-colors text-sm font-semibold border border-emerald-900/30"
+              title="Baixar relatório completo do mês para enviar ao contador"
+            >
+              <FileDown className="h-4 w-4" />
+              Gerar nota
+            </button>
 
           {/* Seletor de Mês/Ano */}
           <div className="flex items-center gap-2 sm:gap-3">
@@ -4263,6 +4360,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 Hoje
               </button>
             )}
+          </div>
           </div>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
