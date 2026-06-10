@@ -45,6 +45,8 @@ interface BookingChatFlowProps {
     stock_quantity?: number | null;
     highlight_for_client_booking?: boolean | null;
   }>;
+  /** Link exclusivo: mostra e permite agendar só com este profissional. */
+  exclusiveProfessionalId?: string | null;
 }
 
 const toMoney = (value: number): string => `R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`;
@@ -198,6 +200,7 @@ export function BookingChatFlow({
   subscriberServices = [],
   subscriberExtraServiceCategories = [],
   bookingHighlightedProducts = [],
+  exclusiveProfessionalId = null,
 }: BookingChatFlowProps) {
   const [step, setStep] = useState<ChatStep>('name');
   const [chatClientName, setChatClientName] = useState(String(guestClientData?.name || '').trim());
@@ -263,11 +266,25 @@ export function BookingChatFlow({
     const visibleProfessionals = Array.isArray(establishment?.professionals)
       ? establishment.professionals.filter((p: any) => !p?.hidden_from_booking)
       : [];
+    const exclusiveId = String(exclusiveProfessionalId || '').trim();
+    if (exclusiveId) {
+      const exclusiveList = visibleProfessionals.filter((p: any) => String(p?.id || '').trim() === exclusiveId);
+      if (exclusiveList.length > 0) return exclusiveList;
+    }
     const lockedProfessionalId = String((detectedSubscriber as any)?.subscriber_professional_id || '').trim();
     if (!isSubscriberFlow || !lockedProfessionalId) return visibleProfessionals;
     const lockedList = visibleProfessionals.filter((p: any) => String(p?.id || '').trim() === lockedProfessionalId);
     return lockedList.length > 0 ? lockedList : visibleProfessionals;
-  }, [detectedSubscriber, establishment?.professionals, isSubscriberFlow]);
+  }, [detectedSubscriber, establishment?.professionals, exclusiveProfessionalId, isSubscriberFlow]);
+
+  useEffect(() => {
+    const exclusiveId = String(exclusiveProfessionalId || '').trim();
+    if (!exclusiveId) return;
+    const stillSelected = String(selectedProfessionalId || '').trim() === exclusiveId;
+    const available = professionals.some((p: any) => String(p?.id || '').trim() === exclusiveId);
+    if (!available) return;
+    if (!stillSelected) setSelectedProfessionalId(exclusiveId);
+  }, [exclusiveProfessionalId, professionals, selectedProfessionalId]);
 
   const selectedProfessional = useMemo(
     () => professionals.find((professional: any) => String(professional?.id || '') === String(selectedProfessionalId || '')),

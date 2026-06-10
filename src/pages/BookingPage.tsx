@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 import { Accessibility, AlertCircle, Armchair, CalendarDays, CarFront, ChevronDown, ChevronLeft, ChevronRight, Coffee, CupSoda, Download, Home, LogOut, Music2, Snowflake, Star, ThumbsUp, Tv, Users, UtensilsCrossed, Wifi, type LucideIcon } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AppointmentForm } from '../components/AppointmentForm';
@@ -40,6 +40,10 @@ import {
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
 import { ReviewProfessionalSelector } from '../components/ReviewProfessionalSelector';
+import {
+  isExclusiveBookingLinkEnabledForProfessional,
+  parseExclusiveProfessionalIdFromSearch,
+} from '../utils/exclusiveProfessionalBookingLink';
 import {
   EstablishmentReviewQuestion,
   ReviewCustomAnswer,
@@ -1432,7 +1436,33 @@ export default function BookingPage() {
     }
   };
 
-  const reviewSelectableProfessionals = getReviewSelectableProfessionals(establishment?.professionals);
+  const exclusiveProfessionalIdFromUrl = useMemo(
+    () => parseExclusiveProfessionalIdFromSearch(location.search),
+    [location.search]
+  );
+
+  const exclusiveProfessionalId = useMemo(() => {
+    const requestedId = String(exclusiveProfessionalIdFromUrl || '').trim();
+    if (!requestedId) return null;
+    const professionals = Array.isArray(establishment?.professionals) ? establishment.professionals : [];
+    const match = professionals.find((p: any) => String(p?.id || '').trim() === requestedId);
+    if (!match || match?.hidden_from_booking) return null;
+    if (!isExclusiveBookingLinkEnabledForProfessional(match)) return null;
+    return requestedId;
+  }, [exclusiveProfessionalIdFromUrl, establishment?.professionals]);
+
+  const exclusiveProfessionalName = useMemo(() => {
+    if (!exclusiveProfessionalId) return null;
+    const professionals = Array.isArray(establishment?.professionals) ? establishment.professionals : [];
+    const match = professionals.find((p: any) => String(p?.id || '').trim() === exclusiveProfessionalId);
+    return String(match?.name || '').trim() || null;
+  }, [exclusiveProfessionalId, establishment?.professionals]);
+
+  const reviewSelectableProfessionals = useMemo(() => {
+    const all = getReviewSelectableProfessionals(establishment?.professionals);
+    if (!exclusiveProfessionalId) return all;
+    return all.filter((p) => p.id === exclusiveProfessionalId);
+  }, [establishment?.professionals, exclusiveProfessionalId]);
 
   useEffect(() => {
     if (!showCreateReviewModal || !establishment?.id) return;
@@ -3519,6 +3549,11 @@ export default function BookingPage() {
           {/* Informações do Estabelecimento */}
           <div className="text-center space-y-2 relative z-30" style={{ marginTop: establishment?.carousel_position === 'behind' && hasCarouselPhotos ? '80px' : '20px' }}>
             <h1 className="text-2xl font-extrabold tracking-tight text-white">{establishment?.name}</h1>
+            {exclusiveProfessionalName && (
+              <p className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-full border border-[#E6C78B]/35 bg-[#E6C78B]/10 text-[#E6C78B] text-sm font-semibold">
+                Agendando com {exclusiveProfessionalName}
+              </p>
+            )}
             {!isSimpleBookingPageEnabled && establishment?.description && (
               <p className="text-white/70">
                 <ReadMore
@@ -4268,6 +4303,7 @@ export default function BookingPage() {
                               isSubscriberBooking={true} // Indica que é agendamento de assinante
                               guestClientData={guestClientData} // Passar dados do cliente para preenchimento automático
                               onRequestChangeSubscriberService={handleRequestChangeSubscriberService}
+                              exclusiveProfessionalId={exclusiveProfessionalId}
                             />
                           </div>
                         </>
@@ -4344,7 +4380,7 @@ export default function BookingPage() {
               )}
 
               {/* Seção de Profissionais (premium) - acima de Comodidades */}
-              {!isSimpleBookingPageEnabled && establishment?.professionals && establishment.professionals.filter((p: any) => !p.hidden_from_booking).length > 0 && (
+              {!isSimpleBookingPageEnabled && !exclusiveProfessionalId && establishment?.professionals && establishment.professionals.filter((p: any) => !p.hidden_from_booking).length > 0 && (
                 <div className="mt-8 mb-6">
                   <div
                     className="rounded-2xl px-4 py-4 border shadow-[0_18px_55px_rgba(0,0,0,0.55)]"
@@ -4765,6 +4801,7 @@ export default function BookingPage() {
                     subscriberDetectionDisabled={subscriberDetectionDisabled}
                     onSubscriberDetectionDisabledChange={setSubscriberDetectionDisabled}
                     guestClientData={guestClientData}
+                    exclusiveProfessionalId={exclusiveProfessionalId}
                   />
                 </>
               ) : (
@@ -4791,6 +4828,7 @@ export default function BookingPage() {
                   subscriberServices={subscriberServicesForBooking}
                   subscriberExtraServiceCategories={subscriberExtraServiceCategories}
                   bookingHighlightedProducts={bookingHighlightedProducts}
+                  exclusiveProfessionalId={exclusiveProfessionalId}
                 />
               )}
             </div>
@@ -5037,6 +5075,7 @@ export default function BookingPage() {
                           isSubscriberBooking={true} // Indica que é agendamento de assinante
                           guestClientData={guestClientData} // Passar dados do cliente para preenchimento automático
                           onRequestChangeSubscriberService={handleRequestChangeSubscriberService}
+                          exclusiveProfessionalId={exclusiveProfessionalId}
                         />
                       </div>
                     </>

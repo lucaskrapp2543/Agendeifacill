@@ -6,6 +6,10 @@ import { supabase } from '../lib/supabase';
 import { buildSubscriberAttendanceSnapshotFields, insertSubscriberAttendance, removeSubscriberAttendanceForCancelledAppointment, resolveAppointmentProfessionalForSubscriber } from '../lib/subscriberSystem';
 import { CANCELLATION_SOURCE, describeCancellationSourcePt } from '../utils/appointmentCancellationMeta';
 import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
+import {
+  buildExclusiveProfessionalBookingLink,
+  isExclusiveBookingLinkEnabledForProfessional,
+} from '../utils/exclusiveProfessionalBookingLink';
 import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
 import { ChangeAppointmentServiceModal } from './ChangeAppointmentServiceModal';
 import { ProfessionalInfoModal } from './ProfessionalInfoModal';
@@ -21,6 +25,7 @@ interface Professional {
   hide_gross_in_financial?: boolean;
   lock_appointments_with_owner_pin?: boolean;
   lock_financial_with_owner_pin?: boolean;
+  exclusive_booking_link_disabled?: boolean;
 }
 
 interface ProfessionalPin {
@@ -454,6 +459,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [isLoadingMonthPending, setIsLoadingMonthPending] = useState(false);
     const [monthPendingFilterDate, setMonthPendingFilterDate] = useState('');
     const [showCancelledHistoryModal, setShowCancelledHistoryModal] = useState(false);
+    const [exclusiveLinkModalProfessional, setExclusiveLinkModalProfessional] = useState<Professional | null>(null);
     const [showStatusDetailsModal, setShowStatusDetailsModal] = useState(false);
     const [statusDetailsRows, setStatusDetailsRows] = useState<Appointment[]>([]);
     const [statusDetailsType, setStatusDetailsType] = useState<'pending' | 'completed'>('pending');
@@ -5886,6 +5892,85 @@ export const AllProfessionalsAppointmentsView: React.FC<
           </div>
         )}
 
+        {exclusiveLinkModalProfessional && (
+          <div
+            className="fixed inset-0 bg-black/70 flex items-center justify-center z-[70] p-4"
+            onClick={() => setExclusiveLinkModalProfessional(null)}
+          >
+            <div
+              className="bg-[#161718] border border-white/10 rounded-2xl shadow-2xl max-w-md w-full p-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div>
+                  <h2 className="text-lg font-extrabold text-white">Link exclusivo 🔗</h2>
+                  <p className="text-sm text-[#E6C78B] font-semibold mt-1">
+                    {exclusiveLinkModalProfessional.name}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setExclusiveLinkModalProfessional(null)}
+                  className="p-2 rounded-full hover:bg-white/10 text-white/80"
+                  aria-label="Fechar"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <p className="text-sm text-white/80 leading-relaxed">
+                É o <strong className="text-white">mesmo booking</strong> da barbearia, só que quando o cliente entra por
+                este link ele <strong className="text-white">só vê você</strong> na hora de agendar — os outros profissionais
+                não aparecem.
+              </p>
+              <p className="text-sm text-white/70 mt-3 leading-relaxed">
+                Perfeito para divulgar no Instagram ou WhatsApp sem medo do cliente agendar com outro barbeiro. 💈
+              </p>
+
+              <div className="mt-4 rounded-lg border border-white/10 bg-black/30 p-3">
+                <p className="text-[11px] uppercase tracking-wide text-white/50 mb-1">Seu link</p>
+                <p className="text-xs text-white/90 break-all">
+                  {buildExclusiveProfessionalBookingLink(
+                    String(establishment?.code || ''),
+                    String(exclusiveLinkModalProfessional.id || '')
+                  )}
+                </p>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setExclusiveLinkModalProfessional(null)}
+                  className="px-3 py-2.5 rounded-lg bg-white/10 text-white hover:bg-white/15 text-sm font-semibold"
+                >
+                  Fechar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const establishmentCode = String(establishment?.code || '').trim();
+                    const professionalId = String(exclusiveLinkModalProfessional.id || '').trim();
+                    if (!establishmentCode || !professionalId) {
+                      toast('Não foi possível gerar o link exclusivo.', 'error');
+                      return;
+                    }
+                    const link = buildExclusiveProfessionalBookingLink(establishmentCode, professionalId);
+                    try {
+                      await navigator.clipboard.writeText(link);
+                      toast(`Link de ${exclusiveLinkModalProfessional.name} copiado!`, 'success');
+                    } catch {
+                      toast('Não foi possível copiar. Tente novamente.', 'error');
+                    }
+                  }}
+                  className="px-3 py-2.5 rounded-lg bg-[#E6C78B] text-black hover:bg-[#f3e7c7] text-sm font-extrabold"
+                >
+                  Copiar link
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showCancelledHistoryModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowCancelledHistoryModal(false)}>
             <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -6287,6 +6372,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             </span>
                           </button>
                         </div>
+
+                        {isExclusiveBookingLinkEnabledForProfessional(professional) && (
+                          <button
+                            type="button"
+                            onClick={() => setExclusiveLinkModalProfessional(professional)}
+                            className="mt-2 w-full text-center text-xs font-semibold text-[#E6C78B] hover:text-[#f3e7c7] transition-colors underline underline-offset-2"
+                            title="Abrir explicação e copiar link exclusivo"
+                          >
+                            ( link exclusivo )
+                          </button>
+                        )}
 
                         {/* Contadores de Status por Profissional */}
                         <div className="mt-3 grid grid-cols-3 gap-2 text-xs w-full">

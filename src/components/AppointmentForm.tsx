@@ -120,6 +120,8 @@ interface AppointmentFormProps {
   externalCurrentStep?: number; // Controle opcional de etapa por componente pai (modo chat)
   onExternalCurrentStepChange?: (step: number) => void; // Notifica mudança de etapa no modo controlado
   bookingHighlightedProducts?: BookingHighlightedProduct[];
+  /** Link exclusivo: mostra e permite agendar só com este profissional. */
+  exclusiveProfessionalId?: string | null;
 }
 
 export function AppointmentForm({
@@ -141,6 +143,7 @@ export function AppointmentForm({
   externalCurrentStep,
   onExternalCurrentStepChange,
   bookingHighlightedProducts = [],
+  exclusiveProfessionalId = null,
 }: AppointmentFormProps) {
   const { user } = useAuth();
   const isEstablishmentOwner = user?.id === establishment?.owner_id;
@@ -939,10 +942,28 @@ export function AppointmentForm({
   const [isValidatingPendingClientBooking, setIsValidatingPendingClientBooking] = useState(false);
   const availableProfessionalsForSubscriberBooking = useMemo(() => {
     const visibleProfessionals = (establishment.professionals || []).filter((professional: any) => !professional.hidden_from_booking);
+    const exclusiveId = String(exclusiveProfessionalId || '').trim();
+    if (exclusiveId) {
+      const exclusiveList = visibleProfessionals.filter(
+        (professional: any) => String(professional?.id || '').trim() === exclusiveId
+      );
+      if (exclusiveList.length > 0) return exclusiveList;
+    }
     const forcedProfessionalId = String((subscriberService as any)?.professional_id || '').trim();
     if (!isSubscriberBooking || !forcedProfessionalId) return visibleProfessionals;
     return visibleProfessionals.filter((professional: any) => String(professional?.id || '').trim() === forcedProfessionalId);
-  }, [establishment.professionals, isSubscriberBooking, subscriberService]);
+  }, [establishment.professionals, exclusiveProfessionalId, isSubscriberBooking, subscriberService]);
+
+  useEffect(() => {
+    const exclusiveId = String(exclusiveProfessionalId || '').trim();
+    if (!exclusiveId) return;
+    const professional = availableProfessionalsForSubscriberBooking.find(
+      (p: any) => String(p?.id || '').trim() === exclusiveId
+    );
+    if (!professional) return;
+    if (String(selectedProfessional?.id || '').trim() === exclusiveId) return;
+    setSelectedProfessional(professional);
+  }, [exclusiveProfessionalId, availableProfessionalsForSubscriberBooking, selectedProfessional?.id]);
 
   function getResolvedSubscriberDuration(): number {
     const raw = (subscriberService as any)?.service_duration ?? (subscriberService as any)?.duration;

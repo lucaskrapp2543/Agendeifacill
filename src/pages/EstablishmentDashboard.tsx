@@ -89,6 +89,7 @@ interface Professional {
   whatsapp?: string; // Campo para WhatsApp do profissional
   offers_child_service?: boolean; // Campo para indicar se oferece serviço infantil
   hidden_from_booking?: boolean; // Campo para ocultar profissional do booking público
+  exclusive_booking_link_disabled?: boolean; // Se true, oculta/cancela link exclusivo na agenda
   hide_gross_in_financial?: boolean; // Oculta bruto no financeiro (Meus Agendamentos)
   lock_appointments_with_owner_pin?: boolean; // Exige senha do dono para ver/editar agenda
   lock_financial_with_owner_pin?: boolean; // Exige senha do dono para abrir financeiro
@@ -9523,6 +9524,47 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  const handleToggleExclusiveBookingLink = async (professionalId: string, enabled: boolean) => {
+    if (!establishment) return;
+
+    const disabled = !enabled;
+    try {
+      const updatedProfessionals = professionals.map((p) =>
+        p.id === professionalId ? { ...p, exclusive_booking_link_disabled: disabled } : p
+      );
+
+      setProfessionals(updatedProfessionals);
+
+      const { error, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
+
+      if (error) {
+        toast('Erro ao salvar configuração do link exclusivo', 'error');
+        setProfessionals((prev) =>
+          prev.map((p) =>
+            p.id === professionalId ? { ...p, exclusive_booking_link_disabled: !disabled } : p
+          )
+        );
+        return;
+      }
+
+      setProfessionals(safeProfessionals);
+      setEstablishment({
+        ...establishment,
+        professionals: safeProfessionals,
+      });
+
+      toast(
+        enabled
+          ? 'Link exclusivo ativado para este profissional.'
+          : 'Link exclusivo desativado para este profissional.',
+        'success'
+      );
+    } catch (error) {
+      console.error('❌ Erro ao alternar link exclusivo:', error);
+      toast('Erro ao atualizar link exclusivo', 'error');
+    }
+  };
+
   const handleToggleHiddenFromBooking = async (professionalId: string, hiddenFromBooking: boolean) => {
     console.log('🔄 Alternando ocultar profissional do booking:', { professionalId, hiddenFromBooking });
 
@@ -9992,6 +10034,10 @@ const EstablishmentDashboard = () => {
               ? (localProfessional as any).specific_services
               : (Array.isArray(dbProfessional.specific_services) ? dbProfessional.specific_services : []),
             offers_child_service: localProfessional.offers_child_service ?? dbProfessional.offers_child_service ?? false,
+            exclusive_booking_link_disabled:
+              (localProfessional as any).exclusive_booking_link_disabled !== undefined
+                ? Boolean((localProfessional as any).exclusive_booking_link_disabled)
+                : Boolean((dbProfessional as any).exclusive_booking_link_disabled),
             work_hours: localProfessional.work_hours || dbProfessional.work_hours || null,
             absences: (localProfessional as any).absences || dbProfessional.absences || [], // ✅ PRESERVAR AUSÊNCIAS!
             // ✅ PRESERVAR HORÁRIOS BLOQUEADOS: união por data (local defasado não apaga bloqueios do banco)
@@ -10664,6 +10710,7 @@ const EstablishmentDashboard = () => {
               : 'owner',
           hidden_from_booking: Boolean((p as any).hidden_from_booking || (p as any).oculto_da_reserva), // ✅ booking público (não resetar em "Atualizar")
           oculto_da_reserva: Boolean((p as any).oculto_da_reserva || (p as any).hidden_from_booking), // ✅ legado / compat
+          exclusive_booking_link_disabled: Boolean((p as any).exclusive_booking_link_disabled),
           specific_services: Array.isArray((p as any).specific_services) ? (p as any).specific_services : [], // ✅ PRESERVAR SERVIÇOS ESPECÍFICOS!
           offers_child_service: p.offers_child_service || false, // PRESERVAR configuração de serviço infantil
           work_hours: p.work_hours || null, // PRESERVAR horários de trabalho personalizados
@@ -40480,6 +40527,35 @@ Estamos te aguardando!`;
                       {professional.hidden_from_booking && (
                         <p className="text-xs text-gray-500 mt-1">
                           ⚠️ Este profissional não aparecerá no booking público, mas continuará visível no dashboard.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm text-gray-400">Link exclusivo na agenda</label>
+                      <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span>🔗</span>
+                          <div>
+                            <span className="text-white">Link exclusivo ativo</span>
+                            <p className="text-xs text-gray-500">
+                              Quando ativo, o profissional vê o botão na agenda para copiar um link em que o cliente agenda só com ele.
+                            </p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={!Boolean((professional as any).exclusive_booking_link_disabled)}
+                            onChange={(e) => handleToggleExclusiveBookingLink(professional.id, e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
+                        </label>
+                      </div>
+                      {(professional as any).exclusive_booking_link_disabled && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          O botão &quot;( link exclusivo )&quot; não aparecerá na agenda deste profissional.
                         </p>
                       )}
                     </div>
