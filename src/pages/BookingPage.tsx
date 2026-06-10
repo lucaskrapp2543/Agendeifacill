@@ -6,6 +6,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AppointmentForm } from '../components/AppointmentForm';
 import { BookingChatFlow } from '../components/BookingChatFlow';
 import { PaymentModal } from '../components/PaymentModal';
+import { ReviewCustomQuestionFields } from '../components/ReviewCustomQuestionFields';
 import { QuickBookingModal } from '../components/QuickBookingModal';
 import { AfcoinBookingExplainModal } from '../components/AfcoinClientModals';
 import ReadMore from '../components/ReadMore';
@@ -38,6 +39,16 @@ import {
 } from '../utils/afcoin';
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
+import { ReviewProfessionalSelector } from '../components/ReviewProfessionalSelector';
+import {
+  EstablishmentReviewQuestion,
+  ReviewCustomAnswer,
+  fetchEstablishmentReviewQuestions,
+  getReviewSelectableProfessionals,
+  isMissingReviewCustomAnswersColumnError,
+  isMissingReviewProfessionalColumnsError,
+  validateReviewCustomAnswers,
+} from '../lib/reviewQuestions';
 
 const AFCOIN_EARLY_MILESTONES = 15;
 const AFCOIN_ONLINE_PAY_BONUS = AFCOIN_POINTS_ONLINE - AFCOIN_EARLY_MILESTONES;
@@ -51,6 +62,8 @@ type PublicBookingReview = {
   client_name: string;
   review_text: string;
   created_at: string;
+  professional_name?: string | null;
+  professional_photo_url?: string | null;
 };
 
 type BookingHighlightedProduct = {
@@ -147,6 +160,10 @@ export default function BookingPage() {
   const [reviewClientName, setReviewClientName] = useState('');
   const [reviewClientPhone, setReviewClientPhone] = useState('');
   const [reviewText, setReviewText] = useState('');
+  const [reviewSelectedProfessionalId, setReviewSelectedProfessionalId] = useState<string | null>(null);
+  const [activeReviewQuestions, setActiveReviewQuestions] = useState<EstablishmentReviewQuestion[]>([]);
+  const [reviewCustomAnswers, setReviewCustomAnswers] = useState<Record<string, string>>({});
+  const [isLoadingReviewQuestions, setIsLoadingReviewQuestions] = useState(false);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [showReviewSubmittedModal, setShowReviewSubmittedModal] = useState(false);
   const [bookingHighlightedProducts, setBookingHighlightedProducts] = useState<BookingHighlightedProduct[]>([]);
@@ -795,6 +812,26 @@ export default function BookingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [establishment?.id, establishment?.hide_booking_reviews]);
 
+  useEffect(() => {
+    if (!establishment?.id || establishment?.hide_booking_reviews) return;
+
+    const params = new URLSearchParams(location.search);
+    const shouldOpenReview =
+      params.get('avaliar') === '1' ||
+      params.get('avaliar') === 'true' ||
+      params.get('review') === '1';
+
+    if (!shouldOpenReview) return;
+
+    setShowCreateReviewModal(true);
+
+    params.delete('avaliar');
+    params.delete('review');
+    const remaining = params.toString();
+    const cleanUrl = `${location.pathname}${remaining ? `?${remaining}` : ''}${location.hash || ''}`;
+    window.history.replaceState({}, '', cleanUrl);
+  }, [establishment?.id, establishment?.hide_booking_reviews, location.pathname, location.search, location.hash]);
+
   // Atualizar último acesso do cliente quando logado
   useEffect(() => {
     const updateLastAccess = async () => {
@@ -1333,14 +1370,26 @@ export default function BookingPage() {
     isFetchingApprovedReviewsRef.current = true;
     setIsLoadingApprovedReviews(true);
     try {
-      const { data, error } = await supabase
+      const baseSelect = 'id,client_name,review_text,created_at';
+      let { data, error } = await supabase
         .from('establishment_reviews')
-        .select('id,client_name,review_text,created_at')
+        .select(`${baseSelect},professional_name,professional_photo_url`)
         .eq('establishment_id', establishment.id)
         .eq('is_approved', true)
         .eq('moderation_status', 'approved')
         .order('created_at', { ascending: false })
         .limit(100);
+
+      if (error && isMissingReviewProfessionalColumnsError(error)) {
+        ({ data, error } = await supabase
+          .from('establishment_reviews')
+          .select(baseSelect)
+          .eq('establishment_id', establishment.id)
+          .eq('is_approved', true)
+          .eq('moderation_status', 'approved')
+          .order('created_at', { ascending: false })
+          .limit(100));
+      }
 
       if (error) {
         const msg = String(error?.message || '').toLowerCase();
@@ -1365,6 +1414,33 @@ export default function BookingPage() {
     }
   };
 
+  const loadActiveReviewQuestions = async () => {
+    if (!establishment?.id) {
+      setActiveReviewQuestions([]);
+      return;
+    }
+    setIsLoadingReviewQuestions(true);
+    try {
+      const { data, error } = await fetchEstablishmentReviewQuestions(establishment.id, { activeOnly: true });
+      if (error) throw error;
+      setActiveReviewQuestions(data);
+    } catch (error) {
+      console.error('Erro ao carregar perguntas da avaliação:', error);
+      setActiveReviewQuestions([]);
+    } finally {
+      setIsLoadingReviewQuestions(false);
+    }
+  };
+
+  const reviewSelectableProfessionals = getReviewSelectableProfessionals(establishment?.professionals);
+
+  useEffect(() => {
+    if (!showCreateReviewModal || !establishment?.id) return;
+    setReviewCustomAnswers({});
+    setReviewSelectedProfessionalId(null);
+    loadActiveReviewQuestions();
+  }, [showCreateReviewModal, establishment?.id]);
+
   const handleSubmitBookingReview = async () => {
     if (!establishment?.id) return;
 
@@ -1381,26 +1457,69 @@ export default function BookingPage() {
       return;
     }
     if (!cleanedText) {
-      toast.error('Escreva sua avaliação.');
+      toast.error('Escreva seu elogio.');
       return;
     }
     if (cleanedText.length > 200) {
-      toast.error('A avaliação deve ter no máximo 200 caracteres.');
+      toast.error('O elogio deve ter no máximo 200 caracteres.');
       return;
+    }
+
+    const selectedProfessional =
+      reviewSelectableProfessionals.length > 0
+        ? reviewSelectableProfessionals.find((p) => p.id === reviewSelectedProfessionalId) || null
+        : null;
+
+    if (reviewSelectableProfessionals.length > 0 && !selectedProfessional) {
+      toast.error('Selecione qual profissional te atendeu.');
+      return;
+    }
+
+    let customAnswersPayload: ReviewCustomAnswer[] = [];
+
+    if (activeReviewQuestions.length > 0) {
+      const validation = validateReviewCustomAnswers(activeReviewQuestions, reviewCustomAnswers);
+      if (!validation.ok) {
+        toast.error(validation.message);
+        return;
+      }
+      customAnswersPayload = validation.payload;
     }
 
     setIsSubmittingReview(true);
     try {
-      const { error } = await supabase
-        .from('establishment_reviews')
-        .insert({
-          establishment_id: establishment.id,
-          client_name: cleanedName,
-          client_phone: cleanedPhone,
-          review_text: cleanedText,
-          moderation_status: 'pending',
-          is_approved: false,
-        });
+      const insertPayload: Record<string, unknown> = {
+        establishment_id: establishment.id,
+        client_name: cleanedName,
+        client_phone: cleanedPhone,
+        review_text: cleanedText,
+        moderation_status: 'pending',
+        is_approved: false,
+      };
+
+      if (customAnswersPayload.length > 0) {
+        insertPayload.custom_answers = customAnswersPayload;
+      }
+
+      if (selectedProfessional) {
+        insertPayload.professional_id = selectedProfessional.id;
+        insertPayload.professional_name = selectedProfessional.name;
+        insertPayload.professional_photo_url = selectedProfessional.photo_url || null;
+      }
+
+      let { error } = await supabase.from('establishment_reviews').insert(insertPayload);
+
+      if (error && customAnswersPayload.length > 0 && isMissingReviewCustomAnswersColumnError(error)) {
+        delete insertPayload.custom_answers;
+        ({ error } = await supabase.from('establishment_reviews').insert(insertPayload));
+      }
+
+      if (error && selectedProfessional && isMissingReviewProfessionalColumnsError(error)) {
+        delete insertPayload.professional_id;
+        delete insertPayload.professional_name;
+        delete insertPayload.professional_photo_url;
+        ({ error } = await supabase.from('establishment_reviews').insert(insertPayload));
+      }
 
       if (error) throw error;
 
@@ -1409,6 +1528,8 @@ export default function BookingPage() {
       setReviewClientName('');
       setReviewClientPhone('');
       setReviewText('');
+      setReviewSelectedProfessionalId(null);
+      setReviewCustomAnswers({});
       toast.success('Avaliação enviada! Ela ficará visível após aprovação.');
     } catch (error: any) {
       const msg = String(error?.message || '').toLowerCase();
@@ -5285,6 +5406,22 @@ export default function BookingPage() {
                       <span className="font-bold text-white">{review.client_name}</span>
                       <span className="text-xs text-white/60">{new Date(review.created_at).toLocaleDateString('pt-BR')}</span>
                     </div>
+                    {review.professional_name && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <img
+                          src={storagePublicUrlForBrowser(review.professional_photo_url) || '/fotopessoa.png'}
+                          alt={review.professional_name}
+                          className="w-8 h-8 rounded-full object-cover border border-[#E6C78B]/50"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.src = '/fotopessoa.png';
+                          }}
+                        />
+                        <span className="text-xs text-white/70">
+                          Atendido por <strong className="text-white/90">{review.professional_name}</strong>
+                        </span>
+                      </div>
+                    )}
                     <div className="text-[#E6C78B] text-sm mt-1">⭐⭐⭐⭐⭐</div>
                     <p className="text-white/85 text-sm mt-2 whitespace-pre-wrap break-words">{review.review_text}</p>
                   </div>
@@ -5296,9 +5433,9 @@ export default function BookingPage() {
       )}
 
       {showCreateReviewModal && (
-        <div className="fixed inset-0 z-[120] bg-black/70 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-[#161718] border border-white/10 rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-4">
+        <div className="fixed inset-0 z-[120] bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="w-full max-w-md max-h-[92vh] sm:max-h-[85vh] bg-[#161718] border border-white/10 rounded-t-2xl sm:rounded-2xl flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
               <h3 className="text-white text-xl font-extrabold">Avaliar barbearia</h3>
               <button
                 type="button"
@@ -5306,13 +5443,13 @@ export default function BookingPage() {
                   if (isSubmittingReview) return;
                   setShowCreateReviewModal(false);
                 }}
-                className="text-white/70 hover:text-white text-2xl leading-none"
+                className="text-white/70 hover:text-white text-2xl leading-none p-1"
               >
                 ×
               </button>
             </div>
 
-            <div className="space-y-3">
+            <div className="overflow-y-auto px-5 pb-2 space-y-3 flex-1">
               <div>
                 <label className="block text-sm text-white/80 mb-1">Nome do cliente</label>
                 <input
@@ -5333,25 +5470,50 @@ export default function BookingPage() {
                   placeholder="(DD) 9xxxx-xxxx"
                 />
               </div>
+              {reviewSelectableProfessionals.length > 0 && (
+                <ReviewProfessionalSelector
+                  professionals={reviewSelectableProfessionals}
+                  selectedId={reviewSelectedProfessionalId}
+                  onSelect={setReviewSelectedProfessionalId}
+                  disabled={isSubmittingReview}
+                />
+              )}
+
               <div>
-                <label className="block text-sm text-white/80 mb-1">Avaliação</label>
+                <label className="block text-sm text-white/80 mb-1">Deixe algum elogio</label>
+                <p className="text-xs text-white/50 mb-2">
+                  Seu elogio aparecerá no booking depois que o estabelecimento aprovar.
+                </p>
                 <textarea
                   value={reviewText}
                   onChange={(e) => setReviewText(e.target.value.slice(0, 200))}
                   className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-white/25 resize-none"
                   rows={4}
-                  placeholder="Escreva sua avaliação (máx. 200 caracteres)"
+                  placeholder="Escreva um elogio sobre o atendimento (máx. 200 caracteres)"
                 />
                 <div className="text-right text-xs text-white/50 mt-1">{reviewText.length}/200</div>
               </div>
+
+              {isLoadingReviewQuestions ? (
+                <p className="text-sm text-white/60 py-2">Carregando perguntas...</p>
+              ) : (
+                <ReviewCustomQuestionFields
+                  questions={activeReviewQuestions}
+                  answers={reviewCustomAnswers}
+                  onChange={(questionId, value) =>
+                    setReviewCustomAnswers((prev) => ({ ...prev, [questionId]: value }))
+                  }
+                  disabled={isSubmittingReview}
+                />
+              )}
             </div>
 
-            <div className="mt-5 grid grid-cols-2 gap-2">
+            <div className="px-5 py-4 grid grid-cols-2 gap-2 shrink-0 border-t border-white/10 bg-[#161718]">
               <button
                 type="button"
                 onClick={() => setShowCreateReviewModal(false)}
                 disabled={isSubmittingReview}
-                className="px-3 py-2 rounded-lg bg-white/10 text-white hover:bg-white/15 transition-colors disabled:opacity-60"
+                className="px-3 py-2.5 rounded-lg bg-white/10 text-white hover:bg-white/15 transition-colors disabled:opacity-60"
               >
                 Cancelar
               </button>
@@ -5359,7 +5521,7 @@ export default function BookingPage() {
                 type="button"
                 onClick={handleSubmitBookingReview}
                 disabled={isSubmittingReview}
-                className="px-3 py-2 rounded-lg bg-[#E6C78B] text-black font-extrabold hover:bg-[#f3e7c7] transition-colors disabled:opacity-60"
+                className="px-3 py-2.5 rounded-lg bg-[#E6C78B] text-black font-extrabold hover:bg-[#f3e7c7] transition-colors disabled:opacity-60"
               >
                 {isSubmittingReview ? 'Enviando...' : 'Enviar avaliação'}
               </button>

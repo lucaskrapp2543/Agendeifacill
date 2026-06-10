@@ -13,6 +13,9 @@ import {
   isDeactivatedSubscriber,
   reactivateSubscriber,
   removeSubscriber,
+  resolveAppointmentProfessionalForSubscriber,
+  resolveSubscriberAttendanceProfessionalGroup,
+  subscriberAttendanceMatchesProfessionalGroup,
 } from '../lib/subscriberSystem';
 import { createSubscription, deleteSubscription, getClientSubscriptions, getSubscriptions, supabase } from '../lib/supabase'; // Adicionar esta importação
 import { Database } from '../types/supabase';
@@ -1051,6 +1054,35 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return m;
   }, [clientSubscriptions, subscriberAttendances]);
 
+  const establishmentProfessionalsForGrouping = useMemo(
+    () =>
+      (professionals || [])
+        .map((pro) => ({
+          id: String(pro?.id || '').trim(),
+          name: String(pro?.full_name || (pro as any)?.name || '').trim(),
+        }))
+        .filter((pro) => pro.id && pro.name),
+    [professionals]
+  );
+
+  const deletedProfessionalsForGrouping = useMemo(
+    () =>
+      (((establishment as any)?.deleted_professionals || []) as any[])
+        .map((pro) => ({
+          id: String(pro?.id || '').trim(),
+          name: String(pro?.full_name || pro?.name || '').trim(),
+        }))
+        .filter((pro) => pro.id && pro.name),
+    [establishment]
+  );
+
+  const getProfessionalGroupFromAttendance = (attendance: any) =>
+    resolveSubscriberAttendanceProfessionalGroup(
+      attendance,
+      establishmentProfessionalsForGrouping,
+      deletedProfessionalsForGrouping
+    );
+
   const isOwnerProfessionalByName = (professionalNameRaw: string): boolean => {
     const key = normalizeNameKey(professionalNameRaw);
     if (!key) return false;
@@ -1569,6 +1601,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         .select(`
           id,
           professional_name,
+          professional_id,
           attendance_date,
           repass_value,
           created_at,
@@ -1578,6 +1611,29 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         .gte('attendance_date', firstDayOfMonth.toISOString().split('T')[0])
         .lte('attendance_date', lastDayOfMonth.toISOString().split('T')[0])
         .order('attendance_date', { ascending: false });
+
+      if (error && String((error as any)?.message || '').toLowerCase().includes('professional_id')) {
+        const fallback = await supabase
+          .from('subscriber_attendances')
+          .select(`
+            id,
+            professional_name,
+            attendance_date,
+            repass_value,
+            created_at,
+            client_subscription_id
+          `)
+          .eq('establishment_id', establishmentId)
+          .gte('attendance_date', firstDayOfMonth.toISOString().split('T')[0])
+          .lte('attendance_date', lastDayOfMonth.toISOString().split('T')[0])
+          .order('attendance_date', { ascending: false });
+        if (fallback.error) {
+          console.error('Erro ao buscar atendimentos de assinantes:', fallback.error);
+          return;
+        }
+        setSubscriberAttendances(fallback.data || []);
+        return;
+      }
 
       if (error) {
         console.error('Erro ao buscar atendimentos de assinantes:', error);
@@ -2237,21 +2293,31 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const buildAttendancesByProfessional = (attendances: any[], clientSubscriptionId: string) => {
     const clientPointsMode = isClientSubscriptionPointsMode(clientSubscriptionId);
     return attendances.reduce((acc, attendance) => {
-      const professional = String(attendance.professional_name || '').trim() || 'Profissional não informado';
-      if (!acc[professional]) {
-        acc[professional] = {
+      const group = getProfessionalGroupFromAttendance(attendance);
+      const groupKey = group.groupKey;
+      if (!acc[groupKey]) {
+        acc[groupKey] = {
+          displayName: group.displayName,
           count: 0,
           totalValue: 0,
           pointsCount: 0,
-          attendances: []
+          attendances: [],
         };
       }
-      acc[professional].count++;
-      acc[professional].totalValue += getAttendanceEffectiveRepass(attendance);
-      if (clientPointsMode) acc[professional].pointsCount += 1;
-      acc[professional].attendances.push(attendance);
+      acc[groupKey].count++;
+      acc[groupKey].totalValue += getAttendanceEffectiveRepass(attendance);
+      if (clientPointsMode) acc[groupKey].pointsCount += 1;
+      acc[groupKey].attendances.push(attendance);
       return acc;
-    }, {} as { [key: string]: { count: number; totalValue: number; pointsCount: number; attendances: any[] } });
+    }, {} as {
+      [key: string]: {
+        displayName: string;
+        count: number;
+        totalValue: number;
+        pointsCount: number;
+        attendances: any[];
+      };
+    });
   };
 
   // Função para agrupar atendimentos por profissional
@@ -3104,32 +3170,38 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   };
 
   // Handler para deletar/limpar profissional do controle
-  const handleDeleteProfessionalFromControl = async (professionalName: string) => {
+  const handleDeleteProfessionalFromControl = async (groupKey: string, displayName: string) => {
     const monthName = monthNames[selectedMonth];
-    if (window.confirm(`Tem certeza que deseja LIMPAR todos os registros de atendimento do profissional "${professionalName}" de ${monthName} ${selectedYear}?\n\nIsso irá ZERAR o valor acumulado e apagar o histórico de atendimentos deste profissional no mês.\n\nEsta ação NÃO PODE ser desfeita!`)) {
+    if (window.confirm(`Tem certeza que deseja LIMPAR todos os registros de atendimento do profissional "${displayName}" de ${monthName} ${selectedYear}?\n\nIsso irá ZERAR o valor acumulado e apagar o histórico de atendimentos deste profissional no mês.\n\nEsta ação NÃO PODE ser desfeita!`)) {
       try {
-        // Calcular período do mês selecionado
-        const firstDay = new Date(selectedYear, selectedMonth, 1);
-        const firstDayStr = firstDay.toISOString().split('T')[0]; // YYYY-MM-DD
+        const idsToDelete = (subscriberAttendances || [])
+          .filter((attendance) =>
+            subscriberAttendanceMatchesProfessionalGroup(
+              attendance,
+              groupKey,
+              establishmentProfessionalsForGrouping,
+              deletedProfessionalsForGrouping
+            )
+          )
+          .map((attendance) => String(attendance?.id || '').trim())
+          .filter(Boolean);
 
-        // Último dia do mês selecionado
-        const lastDay = new Date(selectedYear, selectedMonth + 1, 0);
-        const lastDayStr = lastDay.toISOString().split('T')[0]; // YYYY-MM-DD
+        if (idsToDelete.length === 0) {
+          toast.error('Nenhum atendimento encontrado para este profissional no mês selecionado.');
+          return;
+        }
 
-        // Deletar todos os subscriber_attendances deste profissional no mês selecionado
         const { error } = await supabase
           .from('subscriber_attendances')
           .delete()
-          .eq('professional_name', professionalName)
-          .eq('establishment_id', establishmentId)
-          .gte('attendance_date', firstDayStr)
-          .lte('attendance_date', lastDayStr);
+          .in('id', idsToDelete)
+          .eq('establishment_id', establishmentId);
 
         if (error) {
           throw error;
         }
 
-        toast.success(`Profissional "${professionalName}" removido do controle com sucesso!`);
+        toast.success(`Profissional "${displayName}" removido do controle com sucesso!`);
 
         // Recarregar dados
         fetchSubscriberAttendances(selectedMonth, selectedYear);
@@ -4688,6 +4760,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 (() => {
                   const acc: {
                     [key: string]: {
+                      displayName: string;
                       totalValue: number;
                       pointsFromAttendances: number;
                       attendanceCount: number;
@@ -4697,9 +4770,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   } = {};
 
                   subscriberAttendances.forEach((attendance: any) => {
-                    const professional = String(attendance.professional_name || '').trim() || 'Profissional';
-                    if (!acc[professional]) {
-                      acc[professional] = {
+                    const group = getProfessionalGroupFromAttendance(attendance);
+                    const groupKey = group.groupKey;
+                    if (!acc[groupKey]) {
+                      acc[groupKey] = {
+                        displayName: group.displayName,
                         totalValue: 0,
                         pointsFromAttendances: 0,
                         attendanceCount: 0,
@@ -4707,24 +4782,26 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         saleCommissionCount: 0,
                       };
                     }
-                    acc[professional].totalValue += getAttendanceEffectiveRepass(attendance);
-                    acc[professional].attendanceCount += 1;
+                    acc[groupKey].totalValue += getAttendanceEffectiveRepass(attendance);
+                    acc[groupKey].attendanceCount += 1;
 
                     const clientSubId = String(attendance.client_subscription_id || '');
                     const snapshotName = String(attendance.client_name_snapshot || '').trim();
                     const clientKey = clientSubId || (snapshotName ? `snap:${snapshotName}` : '');
                     if (clientKey) {
-                      acc[professional].uniqueClientIds.add(clientKey);
+                      acc[groupKey].uniqueClientIds.add(clientKey);
                       if (clientSubId && isClientSubscriptionPointsMode(clientSubId)) {
-                        acc[professional].pointsFromAttendances += 1;
+                        acc[groupKey].pointsFromAttendances += 1;
                       }
                     }
                   });
 
                   subscriptionSaleCommissions.forEach((item: any) => {
-                    const professional = String(item.professional_name || '').trim() || 'Profissional';
-                    if (!acc[professional]) {
-                      acc[professional] = {
+                    const group = getProfessionalGroupFromAttendance(item);
+                    const groupKey = group.groupKey;
+                    if (!acc[groupKey]) {
+                      acc[groupKey] = {
+                        displayName: group.displayName,
                         totalValue: 0,
                         pointsFromAttendances: 0,
                         attendanceCount: 0,
@@ -4732,15 +4809,16 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         saleCommissionCount: 0,
                       };
                     }
-                    acc[professional].totalValue += parseFloat(item.commission_amount) || 0;
-                    acc[professional].saleCommissionCount += 1;
+                    acc[groupKey].totalValue += parseFloat(item.commission_amount) || 0;
+                    acc[groupKey].saleCommissionCount += 1;
                   });
 
                   // Transformar em objeto simples para o Object.entries sem perder os Sets
                   // (Sets seguem existindo dentro do objeto, só não fazemos JSON/stringify)
                   return acc as any;
                 })()
-              ).map(([professional, info]) => {
+              ).map(([groupKey, info]) => {
+                const professional = String((info as any)?.displayName || '').trim() || 'Profissional';
                 const isOwnerProfessional = isOwnerProfessionalByName(professional);
                 const totalValue = (info as any)?.totalValue || 0;
                 const pointsFromAttendances = (info as any)?.pointsFromAttendances || 0;
@@ -4768,17 +4846,25 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 // IMPORTANTE: Considerar apenas pagamentos feitos via assinatura (payment_source = 'subscription')
                 // Pagamentos do dashboard financeiro (payment_source = 'normal' ou NULL) NÃO devem entrar aqui
                 const totalPaid = professionalPayments
-                  .filter(p =>
-                    p.professional_name === professional &&
-                    p.payment_source === 'subscription' // Só pagamentos via assinatura
-                  )
+                  .filter((p) => {
+                    if (p.payment_source !== 'subscription') return false;
+                    const paymentGroup = resolveSubscriberAttendanceProfessionalGroup(
+                      {
+                        professional_id: p.professional_id,
+                        professional_name: p.professional_name,
+                      },
+                      establishmentProfessionalsForGrouping,
+                      deletedProfessionalsForGrouping
+                    );
+                    return paymentGroup.groupKey === groupKey;
+                  })
                   .reduce((sum, p) => sum + (p.amount || 0), 0);
 
                 // Valor pendente = total acumulado - total pago
                 const pendingValue = isOwnerProfessional ? 0 : Math.max(0, totalValue - totalPaid);
 
                 return (
-                  <div key={professional} className="flex justify-between items-center bg-[#2a2b2c] rounded-lg p-3">
+                  <div key={groupKey} className="flex justify-between items-center bg-[#2a2b2c] rounded-lg p-3">
                     <div className="flex-1">
                       <p className="text-sm font-medium text-white">{professional}</p>
                       {isOwnerProfessional && (
@@ -4886,7 +4972,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         Histórico
                       </button>
                       <button
-                        onClick={() => handleDeleteProfessionalFromControl(professional)}
+                        onClick={() => handleDeleteProfessionalFromControl(groupKey, professional)}
                         className="px-3 py-1.5 bg-black hover:bg-gray-800 text-white text-sm font-medium rounded transition-colors flex items-center gap-1"
                         title={`Apagar todos os registros deste profissional de ${monthNames[selectedMonth]} ${selectedYear}`}
                       >
@@ -7010,10 +7096,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   <div className="bg-[#2a2b2c] rounded-lg p-4">
                     <h4 className="text-sm font-medium text-white mb-3">Resumo por Profissional</h4>
                     <div className="space-y-3">
-                      {Object.entries(attendancesByProfessional).map(([professional, data]) => (
-                        <div key={professional} className="flex justify-between items-center bg-[#1a1b1c] rounded-lg p-3">
+                      {Object.entries(attendancesByProfessional).map(([groupKey, data]) => (
+                        <div key={groupKey} className="flex justify-between items-center bg-[#1a1b1c] rounded-lg p-3">
                           <div>
-                            <p className="text-sm font-medium text-white">{professional}</p>
+                            <p className="text-sm font-medium text-white">{data.displayName}</p>
                             <p className="text-xs text-gray-400">{data.count} atendimento(s)</p>
                           </div>
                           <div className="text-right">

@@ -607,9 +607,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     'logout',
   ]);
   const isCollaboratorView = professionalAccessMode === 'collaborator';
-  const adminMenuItems = isCollaboratorView
-    ? []
-    : menuItems.filter((item) => adminMenuItemIds.has(item.id));
   const mainSidebarItemOrder = new Map(
     ['notifications', 'top10-clientes', 'appointments', 'client-page', 'admin-menu', 'support', 'passo-a-passo', 'logout'].map((id, index) => [id, index])
   );
@@ -722,16 +719,38 @@ const Sidebar: React.FC<SidebarProps> = ({
     },
   ];
 
-  const receberAdiantadoAdminItem = adminShortcutItems.find((item) => item.id === 'receber-adiantado');
-  const adminShortcutItemsRest = adminShortcutItems.filter((item) => item.id !== 'receber-adiantado');
-  const adminMenuPanelItems: Array<
-    | { kind: 'menu'; item: (typeof adminMenuItems)[number] }
-    | { kind: 'shortcut'; item: (typeof adminShortcutItems)[number] }
-  > = [
-    ...(receberAdiantadoAdminItem ? [{ kind: 'shortcut' as const, item: receberAdiantadoAdminItem }] : []),
-    ...adminMenuItems.map((item) => ({ kind: 'menu' as const, item })),
-    ...adminShortcutItemsRest.map((item) => ({ kind: 'shortcut' as const, item })),
+  const ADMIN_MENU_PANEL_ORDER: string[] = [
+    'receber-adiantado',
+    'clients',
+    'service-categories',
+    'professionals',
+    'products',
+    'dashboard',
+    'expenses',
+    'taxes',
+    'subscribers',
+    'whatsapp-reminders',
+    'fila-espera',
+    'reviews',
+    'client-page',
+    'placa-barbearia',
+    'config',
+    'indication',
   ];
+  const adminMenuPanelItems: Array<
+    | { kind: 'menu'; item: (typeof menuItems)[number] }
+    | { kind: 'shortcut'; item: (typeof adminShortcutItems)[number] }
+  > = isCollaboratorView
+    ? []
+    : ADMIN_MENU_PANEL_ORDER.flatMap((id) => {
+        const shortcut = adminShortcutItems.find((item) => item.id === id);
+        if (shortcut) return [{ kind: 'shortcut' as const, item: shortcut }];
+        const menuItem = menuItems.find(
+          (item) => item.id === id && (adminMenuItemIds.has(item.id) || id === 'client-page')
+        );
+        if (menuItem) return [{ kind: 'menu' as const, item: menuItem }];
+        return [];
+      });
 
   // Textos auxiliares (mobile fullscreen) — estilo CNH Digital
   const mobileDescriptions: Record<string, string> = {

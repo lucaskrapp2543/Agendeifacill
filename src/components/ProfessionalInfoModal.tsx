@@ -23,6 +23,8 @@ interface ProfessionalInfoModalProps {
   subscriberAttendanceCount?: number;
   subscriberClientsCount?: number;
   subscriberSalesCount?: number;
+  subscriberDailyAttendanceCount?: number;
+  subscriberDailyAccumulated?: number;
   establishmentId?: string;
   selectedMonth?: Date;
   basePercentage?: number;
@@ -170,6 +172,8 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   subscriberAttendanceCount = 0,
   subscriberClientsCount = 0,
   subscriberSalesCount = 0,
+  subscriberDailyAttendanceCount = 0,
+  subscriberDailyAccumulated = 0,
   establishmentId,
   selectedMonth,
   basePercentage,
@@ -239,7 +243,11 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
     }).format(value);
   };
   const hasSubscriberFinancial =
-    subscriberMonthlyAccumulated > 0 || subscriberMonthlyPaid > 0 || subscriberMonthlyPending > 0;
+    subscriberMonthlyAccumulated > 0 ||
+    subscriberMonthlyPaid > 0 ||
+    subscriberMonthlyPending > 0 ||
+    subscriberAttendanceCount > 0 ||
+    subscriberSalesCount > 0;
   const hideGrossInFinancial = professional.hide_gross_in_financial === true;
   const topServiceCount = serviceInsights[0]?.count || 1;
   const topCancelledServiceCount = cancelInsightsPeriod.byService[0]?.count || 1;
@@ -1199,6 +1207,20 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
               <p className="text-xs sm:text-sm text-gray-600">
                 Atendimentos concluídos hoje: <span className="font-bold text-green-800">{appointmentsToday}</span>
               </p>
+              {subscriberDailyAttendanceCount > 0 && (
+                <p className="text-xs sm:text-sm text-purple-700 mt-1">
+                  Assinaturas hoje:{' '}
+                  <span className="font-bold">{subscriberDailyAttendanceCount}</span>
+                  {subscriberDailyAccumulated > 0 && (
+                    <>
+                      {' '}• Repasse:{' '}
+                      <span className="font-bold">
+                        {showValues ? formatCurrency(subscriberDailyAccumulated) : '••••••'}
+                      </span>
+                    </>
+                  )}
+                </p>
+              )}
             </div>
           </div>
 
@@ -1231,9 +1253,15 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
             )}
             <div className="mt-3 text-center">
               <p className="text-xs sm:text-sm text-gray-600">
-                Agendamentos este mês:{' '}
+                Agendamentos avulsos este mês:{' '}
                 <span className="font-bold text-gray-800">{appointmentsMonth}</span>
               </p>
+              {subscriberAttendanceCount > 0 && (
+                <p className="text-xs sm:text-sm text-purple-700 mt-1">
+                  Atendimentos de assinatura no mês:{' '}
+                  <span className="font-bold">{subscriberAttendanceCount}</span>
+                </p>
+              )}
             </div>
             {hasSubscriberFinancial && (
               <div className="mt-4 rounded-xl border-2 border-purple-300 bg-gradient-to-r from-purple-50 via-violet-50 to-fuchsia-50 p-4 shadow-sm">

@@ -290,12 +290,23 @@ const openWhatsAppByPreference = (
   window.location.href = waWeb;
 };
 
+type OpenWhatsAppOptions = {
+  /** Mantém emojis na mensagem (ex.: agradecimento com avaliação). Padrão: false. */
+  preserveEmojis?: boolean;
+};
+
 // Preferência de app de WhatsApp por dispositivo (business/normal/perguntar).
-export const openWhatsAppWithBusinessPriority = (phoneDigits: string, message: string) => {
+export const openWhatsAppWithBusinessPriority = (
+  phoneDigits: string,
+  message: string,
+  options?: OpenWhatsAppOptions
+) => {
   const cleanPhone = String(phoneDigits || '').replace(/\D/g, '');
   if (!cleanPhone) return;
 
-  const encodedMessage = encodeURIComponent(sanitizeWhatsAppMessage(message || ''));
+  const rawMessage = String(message || '').trim();
+  const finalMessage = options?.preserveEmojis ? rawMessage : sanitizeWhatsAppMessage(rawMessage);
+  const encodedMessage = encodeURIComponent(finalMessage);
   const waBusinessScheme = `whatsapp-business://send?phone=${cleanPhone}&text=${encodedMessage}`;
   const waRegularScheme = `whatsapp://send?phone=${cleanPhone}&text=${encodedMessage}`;
   const waApi = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;

@@ -1,9 +1,9 @@
 import { format, parse } from 'date-fns';
 import { Calendar, CheckCircle2, ChevronLeft, ChevronRight, Clock, Coins, Crown, Lock, Package, Phone, Plus, Trash2, User, UserPlus, Users, X } from 'lucide-react';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-import { buildSubscriberAttendanceSnapshotFields, insertSubscriberAttendance } from '../lib/subscriberSystem';
+import { buildSubscriberAttendanceSnapshotFields, insertSubscriberAttendance, removeSubscriberAttendanceForCancelledAppointment, resolveAppointmentProfessionalForSubscriber } from '../lib/subscriberSystem';
 import { CANCELLATION_SOURCE, describeCancellationSourcePt } from '../utils/appointmentCancellationMeta';
 import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
 import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
@@ -27,6 +27,16 @@ interface ProfessionalPin {
   professional_id: string;
   pin: string;
 }
+
+/** Chave estável para cruzar nome do profissional (agenda x assinantes), ignorando emojis/acentos. */
+const normalizeProfessionalNameKey = (value: unknown): string =>
+  String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 
 interface AdditionalProduct {
   name: string;
@@ -251,6 +261,7 @@ interface AllProfessionalsAppointmentsViewProps {
   onProfessionalPhotoRemove?: (professionalId: string) => Promise<void> | void;
   onGenerateNF?: (appointment: Appointment) => void;
   onOpenReminderModal?: (appointment: Appointment) => void;
+  onSendThankYou?: (appointment: Appointment) => void;
   onOpenFinishEarlyModal?: (appointment: Appointment) => void;
   onGoToProfessionalConfig?: (professionalId: string) => void;
   onOpenBlockHoursModal?: (professionalId: string) => void;
@@ -324,6 +335,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onProfessionalPhotoRemove,
   onGenerateNF,
   onOpenReminderModal,
+  onSendThankYou,
   onOpenFinishEarlyModal,
   onGoToProfessionalConfig,
   onOpenBlockHoursModal,
@@ -530,6 +542,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
         attendanceCount: number;
         uniqueClientsCount: number;
         saleCommissionCount: number;
+        dailyAttendanceCount: number;
+        dailyAccumulated: number;
       }>
     >({});
     const [professionalGoalConfigs, setProfessionalGoalConfigs] = useState<Record<string, ProfessionalGoalMonthlyConfig>>({});
@@ -911,194 +925,208 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return () => { cancelled = true; };
     }, [establishment?.id]);
 
-    useEffect(() => {
+    const refreshSubscriberFinancialByProfessional = useCallback(async () => {
       if (!establishment?.id) {
         setSubscriberFinancialByProfessional({});
         return;
       }
 
-      let cancelled = false;
+      try {
+        const start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+        const end = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0, 23, 59, 59);
+        const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
 
-      const loadSubscriberProfessionalFinancial = async () => {
-        try {
-          const start = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
-          const end = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0, 23, 59, 59);
+        const [attendancesResult, saleCommissionsResult, paymentsResult] = await Promise.all([
+          supabase
+            .from('subscriber_attendances')
+            .select('professional_name, professional_id, repass_value, client_subscription_id, attendance_date')
+            .eq('establishment_id', establishment.id)
+            .gte('attendance_date', format(start, 'yyyy-MM-dd'))
+            .lte('attendance_date', format(end, 'yyyy-MM-dd')),
+          supabase
+            .from('subscription_sale_commissions')
+            .select('professional_name, commission_amount')
+            .eq('establishment_id', establishment.id)
+            .gte('created_at', start.toISOString())
+            .lte('created_at', end.toISOString()),
+          supabase
+            .from('professional_payments')
+            .select('professional_id, professional_name, amount, payment_source, payment_date, for_month')
+            .eq('establishment_id', establishment.id)
+            .in('payment_source', ['subscription', 'assinatura'])
+            .gte('payment_date', start.toISOString())
+            .lte('payment_date', end.toISOString()),
+        ]);
 
-          const [attendancesResult, saleCommissionsResult, paymentsResult] = await Promise.all([
-            supabase
-              .from('subscriber_attendances')
-              .select('professional_name, repass_value, client_subscription_id')
-              .eq('establishment_id', establishment.id)
-              .gte('attendance_date', format(start, 'yyyy-MM-dd'))
-              .lte('attendance_date', format(end, 'yyyy-MM-dd')),
-            supabase
-              .from('subscription_sale_commissions')
-              .select('professional_name, commission_amount')
-              .eq('establishment_id', establishment.id)
-              .gte('created_at', start.toISOString())
-              .lte('created_at', end.toISOString()),
-            supabase
-              .from('professional_payments')
-              .select('professional_id, professional_name, amount, payment_source, payment_date, for_month')
-              .eq('establishment_id', establishment.id)
-              .in('payment_source', ['subscription', 'assinatura'])
-              .gte('payment_date', start.toISOString())
-              .lte('payment_date', end.toISOString()),
-          ]);
+        if (attendancesResult.error) throw attendancesResult.error;
+        if (saleCommissionsResult.error) throw saleCommissionsResult.error;
+        if (paymentsResult.error) throw paymentsResult.error;
 
-          if (attendancesResult.error) throw attendancesResult.error;
-          if (saleCommissionsResult.error) throw saleCommissionsResult.error;
-          if (paymentsResult.error) throw paymentsResult.error;
+        const [subsCfgRes, clientSubsCfgRes] = await Promise.all([
+          supabase
+            .from('subscriptions')
+            .select('id, fixed_commission_value, divide_total_enabled')
+            .eq('establishment_id', establishment.id),
+          supabase
+            .from('client_subscriptions')
+            .select('id, subscription_id')
+            .eq('establishment_id', establishment.id),
+        ]);
+        if (subsCfgRes.error) throw subsCfgRes.error;
+        if (clientSubsCfgRes.error) throw clientSubsCfgRes.error;
 
-          const [subsCfgRes, clientSubsCfgRes] = await Promise.all([
-            supabase
-              .from('subscriptions')
-              .select('id, fixed_commission_value, divide_total_enabled')
-              .eq('establishment_id', establishment.id),
-            supabase
-              .from('client_subscriptions')
-              .select('id, subscription_id')
-              .eq('establishment_id', establishment.id),
-          ]);
-          if (subsCfgRes.error) throw subsCfgRes.error;
-          if (clientSubsCfgRes.error) throw clientSubsCfgRes.error;
+        const parseDivideApptView = (v: unknown): boolean => {
+          if (typeof v === 'boolean') return v;
+          if (typeof v === 'number') return v === 1;
+          const s = String(v ?? '').trim().toLowerCase();
+          return s === 'true' || s === '1' || s === 't' || s === 'sim' || s === 'yes' || s === 'on';
+        };
+        const subscriptionPointsModeApptView = new Map<string, boolean>();
+        ((subsCfgRes.data as any[]) || []).forEach((row: any) => {
+          const id = String(row?.id || '').trim();
+          if (!id) return;
+          const fixed = Number(row?.fixed_commission_value || 0);
+          const divide = parseDivideApptView(row?.divide_total_enabled);
+          subscriptionPointsModeApptView.set(id, !divide && !(fixed > 0));
+        });
+        const pointsModeByClientSubApptView = new Map<string, boolean>();
+        ((clientSubsCfgRes.data as any[]) || []).forEach((row: any) => {
+          const cid = String(row?.id || '').trim();
+          const sid = String(row?.subscription_id || '').trim();
+          if (!cid || !sid) return;
+          if (subscriptionPointsModeApptView.get(sid) === true) {
+            pointsModeByClientSubApptView.set(cid, true);
+          }
+        });
 
-          const parseDivideApptView = (v: unknown): boolean => {
-            if (typeof v === 'boolean') return v;
-            if (typeof v === 'number') return v === 1;
-            const s = String(v ?? '').trim().toLowerCase();
-            return s === 'true' || s === '1' || s === 't' || s === 'sim' || s === 'yes' || s === 'on';
-          };
-          const subscriptionPointsModeApptView = new Map<string, boolean>();
-          ((subsCfgRes.data as any[]) || []).forEach((row: any) => {
-            const id = String(row?.id || '').trim();
-            if (!id) return;
-            const fixed = Number(row?.fixed_commission_value || 0);
-            const divide = parseDivideApptView(row?.divide_total_enabled);
-            subscriptionPointsModeApptView.set(id, !divide && !(fixed > 0));
-          });
-          const pointsModeByClientSubApptView = new Map<string, boolean>();
-          ((clientSubsCfgRes.data as any[]) || []).forEach((row: any) => {
-            const cid = String(row?.id || '').trim();
-            const sid = String(row?.subscription_id || '').trim();
-            if (!cid || !sid) return;
-            if (subscriptionPointsModeApptView.get(sid) === true) {
-              pointsModeByClientSubApptView.set(cid, true);
-            }
-          });
-
-          const normalizeKey = (value: string) => String(value || '').trim().toLowerCase();
-          const totalsByName: Record<
-            string,
-            {
-              accumulated: number;
-              paid: number;
-              attendanceCount: number;
-              uniqueClientIds: Set<string>;
-              saleCommissionCount: number;
-            }
-          > = {};
-
-          const ownerProfessionalNameKeys = new Set(
-            (professionals || [])
-              .filter((p) => isOwnerProfessional(p))
-              .map((p) => String(p?.name || '').trim().toLowerCase())
-              .filter(Boolean)
-          );
-
-          const ensure = (professionalNameRaw: string) => {
-            const name = String(professionalNameRaw || '').trim();
-            if (!name) return null;
-            if (ownerProfessionalNameKeys.has(name.toLowerCase())) return null;
-            const key = normalizeKey(name);
-            if (!totalsByName[key]) {
-              totalsByName[key] = {
-                accumulated: 0,
-                paid: 0,
-                attendanceCount: 0,
-                uniqueClientIds: new Set<string>(),
-                saleCommissionCount: 0,
-              };
-            }
-            return key;
-          };
-
-          ((attendancesResult.data as any[]) || []).forEach((row: any) => {
-            const key = ensure(String(row?.professional_name || ''));
-            if (!key) return;
-            const subId = String(row?.client_subscription_id || '').trim();
-            const skipMoneyRepass = Boolean(subId) && pointsModeByClientSubApptView.get(subId) === true;
-            if (!skipMoneyRepass) {
-              totalsByName[key].accumulated += Number(row?.repass_value || 0);
-            }
-            totalsByName[key].attendanceCount += 1;
-            if (subId) totalsByName[key].uniqueClientIds.add(subId);
-          });
-
-          ((saleCommissionsResult.data as any[]) || []).forEach((row: any) => {
-            const key = ensure(String(row?.professional_name || ''));
-            if (!key) return;
-            totalsByName[key].accumulated += Number(row?.commission_amount || 0);
-            totalsByName[key].saleCommissionCount += 1;
-          });
-
-          const professionalIdToName: Record<string, string> = {};
-          (professionals || []).forEach((p) => {
-            const id = String(p?.id || '').trim();
-            const name = String(p?.name || '').trim();
-            if (id && name) professionalIdToName[id] = name;
-          });
-
-          const selectedMonthKey = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}`;
-
-          ((paymentsResult.data as any[]) || []).forEach((row: any) => {
-            const forMonth = String(row?.for_month || '').trim();
-            if (forMonth && forMonth !== selectedMonthKey) {
-              // Evita abater no mês atual pagamentos lançados agora, mas referentes a competência antiga.
-              return;
-            }
-            const professionalName =
-              String(row?.professional_name || '').trim() ||
-              professionalIdToName[String(row?.professional_id || '').trim()] ||
-              '';
-            const key = ensure(professionalName);
-            if (!key) return;
-            const amount = Number(row?.amount || 0);
-            if (amount > 0) totalsByName[key].paid += amount;
-          });
-
-          const byProfessionalName = Object.entries(totalsByName).reduce((acc, [key, row]) => {
-            acc[key] = {
-              accumulated: Math.max(0, Number(row.accumulated || 0)),
-              paid: Math.max(0, Number(row.paid || 0)),
-              pending: Math.max(0, Number(row.accumulated || 0) - Number(row.paid || 0)),
-              attendanceCount: Number(row.attendanceCount || 0),
-              uniqueClientsCount: row.uniqueClientIds.size,
-              saleCommissionCount: Number(row.saleCommissionCount || 0),
-            };
-            return acc;
-          }, {} as Record<string, {
+        const totalsByName: Record<
+          string,
+          {
             accumulated: number;
             paid: number;
-            pending: number;
             attendanceCount: number;
-            uniqueClientsCount: number;
+            uniqueClientIds: Set<string>;
             saleCommissionCount: number;
-          }>);
+            dailyAttendanceCount: number;
+            dailyAccumulated: number;
+          }
+        > = {};
 
-          if (!cancelled) setSubscriberFinancialByProfessional(byProfessionalName);
-        } catch (error) {
-          console.error('Erro ao carregar financeiro de assinaturas por profissional (modal):', error);
-          if (!cancelled) setSubscriberFinancialByProfessional({});
-        }
-      };
+        const ownerProfessionalNameKeys = new Set(
+          (professionals || [])
+            .filter((p) => isOwnerProfessional(p))
+            .map((p) => normalizeProfessionalNameKey(p?.name || ''))
+            .filter(Boolean)
+        );
 
-      void loadSubscriberProfessionalFinancial();
+        const ensure = (professionalNameRaw: string) => {
+          const name = String(professionalNameRaw || '').trim();
+          if (!name) return null;
+          const key = normalizeProfessionalNameKey(name);
+          if (!key || ownerProfessionalNameKeys.has(key)) return null;
+          if (!totalsByName[key]) {
+            totalsByName[key] = {
+              accumulated: 0,
+              paid: 0,
+              attendanceCount: 0,
+              uniqueClientIds: new Set<string>(),
+              saleCommissionCount: 0,
+              dailyAttendanceCount: 0,
+              dailyAccumulated: 0,
+            };
+          }
+          return key;
+        };
 
-      return () => {
-        cancelled = true;
-      };
+        const professionalIdToName: Record<string, string> = {};
+        (professionals || []).forEach((p) => {
+          const id = String(p?.id || '').trim();
+          const name = String(p?.name || '').trim();
+          if (id && name) professionalIdToName[id] = name;
+        });
+
+        ((attendancesResult.data as any[]) || []).forEach((row: any) => {
+            const storedId = String(row?.professional_id || '').trim();
+            const storedName = String(row?.professional_name || '').trim();
+            const key =
+              (storedId && professionalIdToName[storedId]
+                ? ensure(professionalIdToName[storedId])
+                : null) || ensure(storedName);
+            if (!key) return;
+          const subId = String(row?.client_subscription_id || '').trim();
+          const skipMoneyRepass = Boolean(subId) && pointsModeByClientSubApptView.get(subId) === true;
+          const repassValue = skipMoneyRepass ? 0 : Number(row?.repass_value || 0);
+          if (repassValue > 0) {
+            totalsByName[key].accumulated += repassValue;
+          }
+          totalsByName[key].attendanceCount += 1;
+          if (subId) totalsByName[key].uniqueClientIds.add(subId);
+
+          if (String(row?.attendance_date || '').slice(0, 10) === selectedDateStr) {
+            totalsByName[key].dailyAttendanceCount += 1;
+            if (repassValue > 0) {
+              totalsByName[key].dailyAccumulated += repassValue;
+            }
+          }
+        });
+
+        ((saleCommissionsResult.data as any[]) || []).forEach((row: any) => {
+          const key = ensure(String(row?.professional_name || ''));
+          if (!key) return;
+          totalsByName[key].accumulated += Number(row?.commission_amount || 0);
+          totalsByName[key].saleCommissionCount += 1;
+        });
+
+        const selectedMonthKey = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}`;
+
+        ((paymentsResult.data as any[]) || []).forEach((row: any) => {
+          const forMonth = String(row?.for_month || '').trim();
+          if (forMonth && forMonth !== selectedMonthKey) {
+            return;
+          }
+          const professionalName =
+            String(row?.professional_name || '').trim() ||
+            professionalIdToName[String(row?.professional_id || '').trim()] ||
+            '';
+          const key = ensure(professionalName);
+          if (!key) return;
+          const amount = Number(row?.amount || 0);
+          if (amount > 0) totalsByName[key].paid += amount;
+        });
+
+        const byProfessionalName = Object.entries(totalsByName).reduce((acc, [key, row]) => {
+          acc[key] = {
+            accumulated: Math.max(0, Number(row.accumulated || 0)),
+            paid: Math.max(0, Number(row.paid || 0)),
+            pending: Math.max(0, Number(row.accumulated || 0) - Number(row.paid || 0)),
+            attendanceCount: Number(row.attendanceCount || 0),
+            uniqueClientsCount: row.uniqueClientIds.size,
+            saleCommissionCount: Number(row.saleCommissionCount || 0),
+            dailyAttendanceCount: Number(row.dailyAttendanceCount || 0),
+            dailyAccumulated: Math.max(0, Number(row.dailyAccumulated || 0)),
+          };
+          return acc;
+        }, {} as Record<string, {
+          accumulated: number;
+          paid: number;
+          pending: number;
+          attendanceCount: number;
+          uniqueClientsCount: number;
+          saleCommissionCount: number;
+          dailyAttendanceCount: number;
+          dailyAccumulated: number;
+        }>);
+
+        setSubscriberFinancialByProfessional(byProfessionalName);
+      } catch (error) {
+        console.error('Erro ao carregar financeiro de assinaturas por profissional (modal):', error);
+        setSubscriberFinancialByProfessional({});
+      }
     }, [establishment?.id, selectedDate, professionals]);
+
+    useEffect(() => {
+      void refreshSubscriberFinancialByProfessional();
+    }, [refreshSubscriberFinancialByProfessional]);
 
     const getSupabaseErrorMessage = (error: any, fallback: string): string => {
       if (!error) return fallback;
@@ -1583,18 +1611,19 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const resolveAppointmentProfessionalName = (apt: Appointment): string => {
-      const fromRow = String((apt as any)?.professional_name || '').trim();
-      const isInvalid = (value: string) => {
-        const normalized = value.trim().toLowerCase();
-        return !normalized || normalized === 'unknown' || normalized === 'desconhecido';
-      };
-      if (!isInvalid(fromRow)) return fromRow;
+      const refs = (professionals || []).map((pro) => ({
+        id: String(pro.id || ''),
+        name: String(pro.name || ''),
+      }));
+      return resolveAppointmentProfessionalForSubscriber(apt as any, refs).professionalName;
+    };
 
-      const professionalIdOrName = String((apt as any)?.professional_id || (apt as any)?.professional || '').trim();
-      const byIdOrName = getProfessionalNameById(professionalIdOrName);
-      if (!isInvalid(byIdOrName)) return byIdOrName;
-
-      return 'Profissional';
+    const resolveAppointmentProfessionalRecord = (apt: Appointment) => {
+      const refs = (professionals || []).map((pro) => ({
+        id: String(pro.id || ''),
+        name: String(pro.name || ''),
+      }));
+      return resolveAppointmentProfessionalForSubscriber(apt as any, refs);
     };
 
     const normalizePhoneDigitsForSubscriber = (value: unknown): string => {
@@ -1865,13 +1894,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
         let repassValue = pointsModeSubscription ? 0 : round2(baseFixed * multiplier);
         if (divideEnabled) repassValue = round2(repassValue / divideCount);
 
-        const professionalName = resolveAppointmentProfessionalName(apt);
+        const professionalRecord = resolveAppointmentProfessionalRecord(apt);
         const payload: Record<string, unknown> = {
           establishment_id: establishmentId,
           client_subscription_id: context.clientSubscriptionId,
-          professional_name: professionalName,
+          professional_name: professionalRecord.professionalName,
+          professional_id: professionalRecord.professionalId,
           attendance_date: attendanceDate,
           repass_value: repassValue,
+          appointment_id: appointmentId,
           client_name_snapshot: context.subscriberName || 'Cliente',
           subscription_name_snapshot: String(context.subscription?.name || 'Plano').trim() || 'Plano',
         };
@@ -1890,6 +1921,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             attendance_date: attendanceDate,
           }
         );
+        void refreshSubscriberFinancialByProfessional();
       } catch (error) {
         console.warn('⚠️ Falha ao registrar assinatura automaticamente:', error);
         await writeAutoSubscriberLog(
@@ -2034,7 +2066,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         if (updErr) throw updErr;
 
         // 2) Registrar atendimento no assinante
-        const professionalName = resolveAppointmentProfessionalName(apt);
+        const professionalRecord = resolveAppointmentProfessionalRecord(apt);
         // ✅ Calcular repasse automaticamente (usando configurações da assinatura)
         const round2 = (v: number) => Math.round(v * 100) / 100;
 
@@ -2118,9 +2150,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const payload: any = {
           establishment_id: establishmentId,
           client_subscription_id: String(selectedSubscriberOptionId),
-          professional_name: professionalName,
+          professional_name: professionalRecord.professionalName,
+          professional_id: professionalRecord.professionalId,
           attendance_date: attendanceDateStr,
           repass_value: repassValue,
+          appointment_id: String(apt.id || '').trim() || undefined,
           ...buildSubscriberAttendanceSnapshotFields({
             subscriber_name: selectedSub?.display_name,
             subscriptions: { name: selectedSub?.plan_name },
@@ -2158,6 +2192,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             : '✅ Atendimento registrado e agendamento concluído!',
           'success'
         );
+        void refreshSubscriberFinancialByProfessional();
         handleCloseSubscriberAttendanceModal();
         if (onAppointmentUpdate) onAppointmentUpdate();
       } catch (e) {
@@ -3454,6 +3489,23 @@ export const AllProfessionalsAppointmentsView: React.FC<
           await registerSubscriberAttendanceAutomatically(appointment);
         }
 
+        if (appointment && newStatus === 'cancelled' && previousStatus === 'completed') {
+          const { removedCount, error: removeAttendanceError } =
+            await removeSubscriberAttendanceForCancelledAppointment({
+              establishmentId: String(establishment?.id || ''),
+              appointmentId: String(appointment.id || ''),
+              appointmentDate: String((appointment as any)?.appointment_date || '').slice(0, 10),
+              professionalName: resolveAppointmentProfessionalName(appointment),
+              clientWhatsapp: String((appointment as any)?.client_whatsapp || ''),
+            });
+          if (removeAttendanceError) {
+            console.warn('⚠️ Falha ao remover atendimento de assinatura ao cancelar:', removeAttendanceError);
+          }
+          if (removedCount > 0) {
+            void refreshSubscriberFinancialByProfessional();
+          }
+        }
+
         const actionLabelByStatus: Record<string, string> = {
           pending: 'Botão Pendente',
           confirmed: 'Botão Confirmado',
@@ -4307,7 +4359,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const professional = professionals.find((p) => p.id === professionalId);
       const percentage = normalizeProfessionalPercentage(professional?.percentage);
       const goalProgress = getGoalProgressForProfessional(professionalId);
-      const professionalNameKey = String(professional?.name || '').trim().toLowerCase();
+      const professionalNameKey = normalizeProfessionalNameKey(professional?.name || '');
       const subscriberFinancial = subscriberFinancialByProfessional[professionalNameKey] || {
         accumulated: 0,
         paid: 0,
@@ -4315,6 +4367,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
         attendanceCount: 0,
         uniqueClientsCount: 0,
         saleCommissionCount: 0,
+        dailyAttendanceCount: 0,
+        dailyAccumulated: 0,
       };
 
       // Calcular líquido diário: verificar se taxa é descontada do estabelecimento ou do profissional
@@ -4499,6 +4553,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
         subscriberAttendanceCount: subscriberFinancial.attendanceCount,
         subscriberClientsCount: subscriberFinancial.uniqueClientsCount,
         subscriberSalesCount: subscriberFinancial.saleCommissionCount,
+        subscriberDailyAttendanceCount: subscriberFinancial.dailyAttendanceCount,
+        subscriberDailyAccumulated: subscriberFinancial.dailyAccumulated,
         serviceInsights,
         cancelledInsights,
         topClientInsight,
@@ -6644,16 +6700,26 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
                                     {/* Botão Enviar Lembrete - Aparece quando NÃO expandido */}
                                     {!isExpanded && apt.status !== 'cancelled' && (
-                                      <div className="mt-2 pt-2 border-t border-white/20">
+                                      <div className="mt-2 pt-2 border-t border-white/20 grid grid-cols-2 gap-1.5">
                                         <button
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             if (onOpenReminderModal) onOpenReminderModal(apt);
                                           }}
-                                          className="w-full px-2 py-1.5 text-xs font-medium rounded transition-colors bg-black text-white hover:bg-gray-800"
+                                          className="px-1.5 py-1.5 text-[10px] sm:text-xs font-medium rounded transition-colors bg-black text-white hover:bg-gray-800 leading-tight"
                                           title="Enviar lembrete via WhatsApp"
                                         >
                                           📱 Enviar lembrete
+                                        </button>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (onSendThankYou) onSendThankYou(apt);
+                                          }}
+                                          className="px-1.5 py-1.5 text-[10px] sm:text-xs font-medium rounded transition-colors bg-[#E6C78B] text-black hover:bg-[#f3e7c7] leading-tight"
+                                          title="Enviar agradecimento e pedir avaliação via WhatsApp"
+                                        >
+                                          ⭐ Enviar agradecimento
                                         </button>
                                       </div>
                                     )}

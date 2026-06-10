@@ -28,6 +28,7 @@ import { RescheduleAppointmentModal } from '../components/RescheduleAppointmentM
 import ReservarCliente from '../components/ReservarCliente';
 import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
+import { ReviewQuestionsManager } from '../components/ReviewQuestionsManager';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
 import { TimeSelector } from '../components/TimeSelector';
 import { TopMonthlyWinnerCard, type TopMonthlyWinnerCardData } from '../components/TopMonthlyWinnerCard';
@@ -40,7 +41,14 @@ import { ValidityHeader } from '../components/ValidityHeader';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../hooks/useNotifications';
 import { addExpense, createEstablishment, deleteExpense, getEstablishmentGoals, getEstablishmentPremiumSubscribers, getExpensesByMonth, getProfessionalGoal, getSubscriptions, isNewClient, setProfessionalGoal, supabase, updateEstablishment } from '../lib/supabase';
-import { createIndependentSubscriber } from '../lib/subscriberSystem';
+import { createIndependentSubscriber, insertSubscriberAttendance, removeSubscriberAttendanceForCancelledAppointment, resolveAppointmentProfessionalForSubscriber } from '../lib/subscriberSystem';
+import {
+  formatReviewCustomAnswerDisplay,
+  isMissingReviewCustomAnswersColumnError,
+  isMissingReviewProfessionalColumnsError,
+  parseReviewCustomAnswers,
+} from '../lib/reviewQuestions';
+import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
 import {
   buildStalePaymentDetail,
   CANCELLATION_SOURCE,
@@ -49,6 +57,11 @@ import {
   updateAppointmentCancelledWithSource,
 } from '../utils/appointmentCancellationMeta';
 import { fireMercadoPagoPendingReconcile } from '../utils/fireMercadoPagoPendingReconcile';
+import {
+  buildReviewBookingDeepLink,
+  buildThankYouWhatsAppMessage,
+  formatClientWhatsappForMessage,
+} from '../utils/reviewThankYouMessage';
 import { isAppStandbyActive, subscribeToAppStandby } from '../utils/appStandby';
 import { LEGACY_LIMITE_CANCELAMENTO_MINUTOS } from '../utils/regrasCancelamento';
 import {
@@ -244,6 +257,10 @@ interface EstablishmentReview {
   created_at: string;
   approved_at?: string | null;
   rejected_at?: string | null;
+  custom_answers?: unknown;
+  professional_id?: string | null;
+  professional_name?: string | null;
+  professional_photo_url?: string | null;
 }
 
 interface AdditionalProduct {
@@ -864,6 +881,7 @@ const EstablishmentDashboard = () => {
   const [pendingSubscribersCount, setPendingSubscribersCount] = useState(0);
   const [isLoadingEstablishmentReviews, setIsLoadingEstablishmentReviews] = useState(false);
   const [reviewsStatusFilter, setReviewsStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+  const [selectedReviewProfessionalKey, setSelectedReviewProfessionalKey] = useState<string | null>(null);
   const isLoadingEstablishmentReviewsRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showBirthdayFilter, setShowBirthdayFilter] = useState(false);
@@ -10827,6 +10845,24 @@ const EstablishmentDashboard = () => {
         throw cancelErr;
       }
 
+      const previousStatus = String(appointmentToCancel.status || '').trim().toLowerCase();
+      if (previousStatus === 'completed') {
+        const professionalName = getProfessionalName(appointmentToCancel.professional);
+        const { removedCount, error: removeAttendanceError } =
+          await removeSubscriberAttendanceForCancelledAppointment({
+            establishmentId: String(appointmentToCancel.establishment_id || establishment?.id || ''),
+            appointmentId: String(appointmentToCancel.id || ''),
+            appointmentDate: String(appointmentToCancel.appointment_date || '').slice(0, 10),
+            professionalName: professionalName !== 'Profissional não encontrado' ? professionalName : '',
+            clientWhatsapp: String(appointmentToCancel.client_whatsapp || ''),
+          });
+        if (removeAttendanceError) {
+          console.warn('⚠️ Falha ao remover atendimento de assinatura ao cancelar:', removeAttendanceError);
+        } else if (removedCount > 0) {
+          console.log(`✅ Atendimento de assinatura revertido (${removedCount}) após cancelamento.`);
+        }
+      }
+
       // Enviar notificação de cancelamento
       if (appointmentToCancel) {
         const professionalName = getProfessionalName(appointmentToCancel.professional);
@@ -11010,6 +11046,41 @@ Estamos te aguardando!`;
     } catch (error) {
       console.error('Erro ao enviar lembrete:', error);
       toast('Erro ao enviar lembrete', 'error');
+    }
+  };
+
+  const handleSendThankYou = (appointment: Appointment) => {
+    try {
+      const clientWhatsapp = appointment.client_whatsapp;
+      if (!clientWhatsapp) {
+        toast('WhatsApp do cliente não encontrado', 'error');
+        return;
+      }
+
+      const establishmentCode = String(establishment?.code || '').trim();
+      if (!establishmentCode) {
+        toast('Código do booking não encontrado para montar o link de avaliação.', 'error');
+        return;
+      }
+
+      const phoneNumber = formatClientWhatsappForMessage(clientWhatsapp);
+      if (!phoneNumber) {
+        toast('WhatsApp do cliente inválido', 'error');
+        return;
+      }
+
+      const bookingLink = buildReviewBookingDeepLink(establishmentCode);
+      const message = buildThankYouWhatsAppMessage({
+        clientName: appointment.client_name || 'cliente',
+        establishmentName: establishment?.name || 'nossa barbearia',
+        bookingLink,
+      });
+
+      openWhatsAppWithBusinessPriority(phoneNumber, message, { preserveEmojis: true });
+      toast('Agradecimento enviado via WhatsApp!', 'success');
+    } catch (error) {
+      console.error('Erro ao enviar agradecimento:', error);
+      toast('Erro ao enviar agradecimento', 'error');
     }
   };
 
@@ -11347,6 +11418,36 @@ Estamos te aguardando!`;
 
       if (newStatus === 'completed' && appointment && previousStatus !== 'completed') {
         await autoRegisterSubscriberAttendanceForAppointment(appointment);
+      }
+
+      if (newStatus === 'cancelled' && appointment && previousStatus === 'completed') {
+        const professionalIdOrName = String((appointment as any)?.professional_id || (appointment as any)?.professional || '').trim();
+        const professionalNameFromRow = String((appointment as any)?.professional_name || '').trim();
+        const resolvedProfessionalName = getProfessionalNameById(professionalIdOrName);
+        const isInvalidProfessionalName = (value: string) => {
+          const normalized = value.trim().toLowerCase();
+          return !normalized || normalized === 'unknown' || normalized === 'desconhecido';
+        };
+        const professionalName = !isInvalidProfessionalName(professionalNameFromRow)
+          ? professionalNameFromRow
+          : !isInvalidProfessionalName(resolvedProfessionalName)
+            ? resolvedProfessionalName
+            : 'Profissional';
+
+        const { removedCount, error: removeAttendanceError } =
+          await removeSubscriberAttendanceForCancelledAppointment({
+            establishmentId: String(establishment?.id || ''),
+            appointmentId: String((appointment as any)?.id || ''),
+            appointmentDate: String((appointment as any)?.appointment_date || '').slice(0, 10),
+            professionalName,
+            clientWhatsapp: String((appointment as any)?.client_whatsapp || ''),
+          });
+        if (removeAttendanceError) {
+          console.warn('⚠️ Falha ao remover atendimento de assinatura ao cancelar:', removeAttendanceError);
+        }
+        if (removedCount > 0) {
+          console.log(`✅ Atendimento de assinatura revertido (${removedCount}) após cancelamento.`);
+        }
       }
 
       await refreshAppointmentsData();
@@ -11745,31 +11846,26 @@ Estamos te aguardando!`;
       let repassValue = pointsModeSubscription ? 0 : round2(baseFixed * multiplier);
       if (divideEnabled) repassValue = round2(repassValue / divideCount);
 
-      const professionalIdOrName = String((apt as any)?.professional_id || (apt as any)?.professional || '').trim();
-      const professionalNameFromRow = String((apt as any)?.professional_name || '').trim();
-      const isInvalidProfessionalName = (value: string) => {
-        const normalized = value.trim().toLowerCase();
-        return !normalized || normalized === 'unknown' || normalized === 'desconhecido';
-      };
-      const resolvedProfessionalName = getProfessionalNameById(professionalIdOrName);
-      const professionalName = !isInvalidProfessionalName(professionalNameFromRow)
-        ? professionalNameFromRow
-        : !isInvalidProfessionalName(resolvedProfessionalName)
-          ? resolvedProfessionalName
-          : 'Profissional';
+      const professionalRecord = resolveAppointmentProfessionalForSubscriber(
+        apt as any,
+        (professionals || []).map((pro) => ({
+          id: String(pro.id || ''),
+          name: String(pro.name || ''),
+        }))
+      );
 
       const payload: Record<string, unknown> = {
         establishment_id: establishment.id,
         client_subscription_id: clientSubscriptionId,
-        professional_name: professionalName,
+        professional_name: professionalRecord.professionalName,
+        professional_id: professionalRecord.professionalId,
         attendance_date: attendanceDate,
         repass_value: repassValue,
+        appointment_id: appointmentId,
       };
       if (user?.id) payload.created_by = user.id;
 
-      const { error: insertError } = await (supabase as any)
-        .from('subscriber_attendances')
-        .insert(payload);
+      const { error: insertError } = await insertSubscriberAttendance(payload);
       if (insertError) throw insertError;
 
       await writeAutoSubscriberLog(
@@ -17844,11 +17940,38 @@ Estamos te aguardando!`;
     isLoadingEstablishmentReviewsRef.current = true;
     setIsLoadingEstablishmentReviews(true);
     try {
-      const { data, error } = await supabase
+      const baseSelect =
+        'id,establishment_id,client_name,client_phone,review_text,moderation_status,is_approved,created_at,approved_at,rejected_at';
+      const extendedSelect = `${baseSelect},custom_answers,professional_id,professional_name,professional_photo_url`;
+      let { data, error } = await supabase
         .from('establishment_reviews')
-        .select('id,establishment_id,client_name,client_phone,review_text,moderation_status,is_approved,created_at,approved_at,rejected_at')
+        .select(extendedSelect)
         .eq('establishment_id', establishment.id)
         .order('created_at', { ascending: false });
+
+      if (error && isMissingReviewProfessionalColumnsError(error)) {
+        ({ data, error } = await supabase
+          .from('establishment_reviews')
+          .select(`${baseSelect},custom_answers`)
+          .eq('establishment_id', establishment.id)
+          .order('created_at', { ascending: false }));
+      }
+
+      if (error && isMissingReviewCustomAnswersColumnError(error)) {
+        ({ data, error } = await supabase
+          .from('establishment_reviews')
+          .select(`${baseSelect},professional_id,professional_name,professional_photo_url`)
+          .eq('establishment_id', establishment.id)
+          .order('created_at', { ascending: false }));
+      }
+
+      if (error && (isMissingReviewCustomAnswersColumnError(error) || isMissingReviewProfessionalColumnsError(error))) {
+        ({ data, error } = await supabase
+          .from('establishment_reviews')
+          .select(baseSelect)
+          .eq('establishment_id', establishment.id)
+          .order('created_at', { ascending: false }));
+      }
 
       if (error) {
         const msg = String(error?.message || '').toLowerCase();
@@ -18048,9 +18171,102 @@ Estamos te aguardando!`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [establishment?.id, activeTab]);
 
-  const filteredEstablishmentReviews = establishmentReviews.filter((review) =>
-    reviewsStatusFilter === 'all' ? true : review.moderation_status === reviewsStatusFilter
-  );
+  const getReviewProfessionalStatKey = (review: EstablishmentReview): string => {
+    const professionalId = String(review.professional_id || '').trim();
+    const professionalName = String(review.professional_name || '').trim();
+    if (professionalId) return professionalId;
+    if (professionalName) return `name:${professionalName}`;
+    return 'sem_profissional';
+  };
+
+  const filteredEstablishmentReviews = establishmentReviews.filter((review) => {
+    const matchesStatus =
+      reviewsStatusFilter === 'all' ? true : review.moderation_status === reviewsStatusFilter;
+    if (!matchesStatus) return false;
+    if (!selectedReviewProfessionalKey) return true;
+    return getReviewProfessionalStatKey(review) === selectedReviewProfessionalKey;
+  });
+
+  const reviewStatsByProfessional = useMemo(() => {
+    type ReviewProfessionalStat = {
+      id: string;
+      name: string;
+      photo_url?: string | null;
+      total: number;
+      approved: number;
+      pending: number;
+      rejected: number;
+    };
+
+    const statsMap = new Map<string, ReviewProfessionalStat>();
+    const ensureStat = (params: {
+      id: string;
+      name: string;
+      photo_url?: string | null;
+    }): ReviewProfessionalStat => {
+      const key = params.id;
+      const existing = statsMap.get(key);
+      if (existing) {
+        if (!existing.photo_url && params.photo_url) existing.photo_url = params.photo_url;
+        return existing;
+      }
+      const created: ReviewProfessionalStat = {
+        id: key,
+        name: params.name,
+        photo_url: params.photo_url ?? null,
+        total: 0,
+        approved: 0,
+        pending: 0,
+        rejected: 0,
+      };
+      statsMap.set(key, created);
+      return created;
+    };
+
+    const establishmentProfessionals = Array.isArray(establishment?.professionals)
+      ? establishment.professionals
+      : [];
+
+    for (const raw of establishmentProfessionals) {
+      const id = String((raw as any)?.id || '').trim();
+      const name = String((raw as any)?.name || '').trim();
+      if (!id || !name) continue;
+      ensureStat({
+        id,
+        name,
+        photo_url: (raw as any)?.photo_url ?? null,
+      });
+    }
+
+    for (const review of establishmentReviews) {
+      const professionalId = String(review.professional_id || '').trim();
+      const professionalName = String(review.professional_name || '').trim();
+      const statKey = professionalId || (professionalName ? `name:${professionalName}` : 'sem_profissional');
+      const statName = professionalName || 'Sem profissional informado';
+
+      const stat = ensureStat({
+        id: statKey,
+        name: statName,
+        photo_url: review.professional_photo_url ?? null,
+      });
+
+      stat.total += 1;
+      if (review.moderation_status === 'approved') stat.approved += 1;
+      else if (review.moderation_status === 'pending') stat.pending += 1;
+      else if (review.moderation_status === 'rejected') stat.rejected += 1;
+    }
+
+    return Array.from(statsMap.values()).sort((a, b) => {
+      if (b.total !== a.total) return b.total - a.total;
+      return a.name.localeCompare(b.name, 'pt-BR');
+    });
+  }, [establishment?.professionals, establishmentReviews]);
+
+  const selectedReviewProfessionalName = useMemo(() => {
+    if (!selectedReviewProfessionalKey) return null;
+    const fromStats = reviewStatsByProfessional.find((stat) => stat.id === selectedReviewProfessionalKey);
+    return fromStats?.name || null;
+  }, [selectedReviewProfessionalKey, reviewStatsByProfessional]);
 
   // Filtrar clientes baseado na busca e filtro de aniversário
   const filteredClients = clients.filter(client => {
@@ -26667,6 +26883,7 @@ Estamos te aguardando!`;
                       onProfessionalPhotoRemove={handleRemoveProfessionalPhoto}
                       onGenerateNF={handleGenerateNF as any}
                       onOpenReminderModal={handleOpenReminderModal as any}
+                      onSendThankYou={handleSendThankYou as any}
                       onOpenFinishEarlyModal={handleOpenFinishEarlyModal as any}
                       onGoToProfessionalConfig={handleGoToProfessionalConfig}
                       onOpenBlockHoursModal={handleOpenBlockTimeModal}
@@ -27285,17 +27502,26 @@ Estamos te aguardando!`;
                                     </div>
                                   </div>
 
-                                  {/* Botão "Enviar lembrete" e "clique para ver" */}
+                                  {/* Botões de lembrete/agradecimento e "clique para ver" */}
                                   {!appointmentDropdowns[appointment.id] && (
-                                    <div className="flex items-center justify-between">
-                                      <button
-                                        onClick={() => handleOpenReminderModal(appointment)}
-                                        className="px-2 py-1 text-xs font-medium rounded transition-colors bg-black text-white hover:bg-gray-800"
-                                        title="Enviar lembrete via WhatsApp"
-                                      >
-                                        📱 Enviar lembrete
-                                      </button>
-                                      <div className="flex items-center gap-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="grid grid-cols-2 gap-1.5 flex-1 min-w-0">
+                                        <button
+                                          onClick={() => handleOpenReminderModal(appointment)}
+                                          className="px-1.5 py-1 text-[10px] font-medium rounded transition-colors bg-black text-white hover:bg-gray-800 leading-tight"
+                                          title="Enviar lembrete via WhatsApp"
+                                        >
+                                          📱 Enviar lembrete
+                                        </button>
+                                        <button
+                                          onClick={() => handleSendThankYou(appointment)}
+                                          className="px-1.5 py-1 text-[10px] font-medium rounded transition-colors bg-[#E6C78B] text-black hover:bg-[#f3e7c7] leading-tight"
+                                          title="Enviar agradecimento e pedir avaliação via WhatsApp"
+                                        >
+                                          ⭐ Enviar agradecimento
+                                        </button>
+                                      </div>
+                                      <div className="flex items-center gap-2 shrink-0">
                                         <span className="text-xs text-white/70">
                                           clique para ver
                                         </span>
@@ -28742,6 +28968,8 @@ Estamos te aguardando!`;
 
               {activeTab === 'reviews' && (
                 <div className="space-y-6 w-full">
+                  <ReviewQuestionsManager establishmentId={establishment?.id || ''} toast={toast} />
+
                   <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full p-4 sm:p-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                       <div>
@@ -28795,11 +29023,98 @@ Estamos te aguardando!`;
                       ))}
                     </div>
 
+                    {!isLoadingEstablishmentReviews && reviewStatsByProfessional.length > 0 && (
+                      <div className="mb-5 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <div className="flex items-center justify-between gap-2 mb-3">
+                          <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide">
+                            Avaliações por profissional
+                          </h3>
+                          <span className="text-xs text-gray-500">
+                            {establishmentReviews.length} no total
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {reviewStatsByProfessional.map((stat) => {
+                            const isSelected = selectedReviewProfessionalKey === stat.id;
+                            return (
+                              <button
+                                key={stat.id}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setSelectedReviewProfessionalKey(null);
+                                    return;
+                                  }
+                                  setSelectedReviewProfessionalKey(stat.id);
+                                  setReviewsStatusFilter('all');
+                                }}
+                                className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                                  isSelected
+                                    ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                                    : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                                }`}
+                                title={`Ver avaliações de ${stat.name}`}
+                              >
+                                <img
+                                  src={storagePublicUrlForBrowser(stat.photo_url) || '/fotopessoa.png'}
+                                  alt={stat.name}
+                                  className="w-10 h-10 rounded-full object-cover border border-gray-200 shrink-0"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    target.src = '/fotopessoa.png';
+                                  }}
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-semibold text-gray-900 truncate">{stat.name}</p>
+                                  <p className="text-xs text-gray-600 mt-0.5">
+                                    <strong className="text-gray-900">{stat.total}</strong>{' '}
+                                    {stat.total === 1 ? 'avaliação' : 'avaliações'}
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 mt-0.5">
+                                    {stat.approved} aprovada{stat.approved === 1 ? '' : 's'}
+                                    {stat.pending > 0 ? ` · ${stat.pending} pendente${stat.pending === 1 ? '' : 's'}` : ''}
+                                    {stat.rejected > 0 ? ` · ${stat.rejected} reprovada${stat.rejected === 1 ? '' : 's'}` : ''}
+                                  </p>
+                                </div>
+                                <span
+                                  className={`shrink-0 text-lg font-extrabold ${
+                                    stat.total > 0 ? 'text-emerald-700' : 'text-gray-300'
+                                  }`}
+                                >
+                                  {stat.total}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <p className="text-[11px] text-gray-500 mt-2">
+                          Clique em um profissional para ver as avaliações dele. Clique de novo para voltar a todos.
+                        </p>
+                      </div>
+                    )}
+
+                    {selectedReviewProfessionalKey && selectedReviewProfessionalName && (
+                      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5">
+                        <span className="text-sm text-blue-900">
+                          Mostrando avaliações de <strong>{selectedReviewProfessionalName}</strong>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedReviewProfessionalKey(null)}
+                          className="px-3 py-1.5 rounded-lg bg-white border border-blue-200 text-blue-900 text-xs font-bold hover:bg-blue-100 transition-colors"
+                        >
+                          Ver todos os profissionais
+                        </button>
+                      </div>
+                    )}
+
                     {isLoadingEstablishmentReviews ? (
                       <div className="text-gray-600 py-6">Carregando avaliações...</div>
                     ) : filteredEstablishmentReviews.length === 0 ? (
                       <div className="text-gray-500 py-8 text-center bg-gray-50 border border-gray-200 rounded-lg">
-                        Nenhuma avaliação neste filtro.
+                        {selectedReviewProfessionalName
+                          ? `Nenhuma avaliação de ${selectedReviewProfessionalName} neste filtro.`
+                          : 'Nenhuma avaliação neste filtro.'}
                       </div>
                     ) : (
                       <div className="space-y-3">
@@ -28810,6 +29125,7 @@ Estamos te aguardando!`;
                               : review.moderation_status === 'rejected'
                                 ? 'Reprovada'
                                 : 'Pendente';
+                          const customAnswers = parseReviewCustomAnswers(review.custom_answers);
                           return (
                             <div key={review.id} className="border border-gray-200 rounded-xl p-4">
                               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -28824,9 +29140,54 @@ Estamos te aguardando!`;
                                     Telefone: <strong>{review.client_phone}</strong> • Enviado em{' '}
                                     <strong>{new Date(review.created_at).toLocaleString('pt-BR')}</strong>
                                   </div>
-                                  <p className="text-gray-800 mt-3 whitespace-pre-wrap break-words">
-                                    {review.review_text}
-                                  </p>
+
+                                  {review.professional_name && (
+                                    <div className="flex items-center gap-3 mt-3 p-3 rounded-lg bg-blue-50 border border-blue-100">
+                                      <img
+                                        src={storagePublicUrlForBrowser(review.professional_photo_url) || '/fotopessoa.png'}
+                                        alt={review.professional_name}
+                                        className="w-12 h-12 rounded-full object-cover border-2 border-blue-200"
+                                        onError={(e) => {
+                                          const target = e.target as HTMLImageElement;
+                                          target.src = '/fotopessoa.png';
+                                        }}
+                                      />
+                                      <div>
+                                        <p className="text-xs font-bold text-blue-800 uppercase tracking-wide">
+                                          Profissional atendente
+                                        </p>
+                                        <p className="text-sm font-semibold text-gray-900">{review.professional_name}</p>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  <div className="mt-3">
+                                    <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">
+                                      Elogio do cliente
+                                    </p>
+                                    <p className="text-gray-800 whitespace-pre-wrap break-words">
+                                      {review.review_text}
+                                    </p>
+                                  </div>
+
+                                  {customAnswers.length > 0 && (
+                                    <div className="mt-4 pt-3 border-t border-gray-200 space-y-2">
+                                      <p className="text-xs font-bold text-gray-600 uppercase tracking-wide">
+                                        Respostas personalizadas
+                                      </p>
+                                      {customAnswers.map((answer) => (
+                                        <div
+                                          key={`${review.id}-${answer.question_id}`}
+                                          className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2"
+                                        >
+                                          <p className="text-xs text-gray-600">{answer.question_text}</p>
+                                          <p className="text-sm font-semibold text-gray-900 mt-0.5 break-words">
+                                            {formatReviewCustomAnswerDisplay(answer)}
+                                          </p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
 
                                 <div className="flex items-center gap-2">

@@ -8,6 +8,7 @@ import { PhoneLoginModal } from '../components/PhoneLoginModal';
 import { SuccessBookingModal } from '../components/SuccessBookingModal';
 import { AfcoinHowItWorksModal, AfcoinUseModal } from '../components/AfcoinClientModals';
 import { getAppointmentsByPhone, supabase } from '../lib/supabase';
+import { removeSubscriberAttendanceForCancelledAppointment } from '../lib/subscriberSystem';
 import { CANCELLATION_SOURCE } from '../utils/appointmentCancellationMeta';
 import { estadoCancelamentoParaAgendamentoCliente } from '../utils/regrasCancelamento';
 import {
@@ -740,6 +741,22 @@ export default function ViewAppointmentsPage() {
         }
       } else {
         console.log('✅ Agendamento cancelado diretamente:', updateData);
+      }
+
+      if (String(existingAppointment.status || '').trim().toLowerCase() === 'completed') {
+        const { removedCount, error: removeAttendanceError } =
+          await removeSubscriberAttendanceForCancelledAppointment({
+            establishmentId: String(establishmentId || appointment.establishment_id || ''),
+            appointmentId: String(appointmentId),
+            appointmentDate: String(appointment.appointment_date || '').slice(0, 10),
+            professionalName: String(appointment.professional_name || appointment.professional || ''),
+            clientWhatsapp: String(appointment.client_whatsapp || phone || ''),
+          });
+        if (removeAttendanceError) {
+          console.warn('⚠️ Falha ao remover atendimento de assinatura após cancelamento do cliente:', removeAttendanceError);
+        } else if (removedCount > 0) {
+          console.log(`✅ Atendimento de assinatura revertido (${removedCount}) após cancelamento do cliente.`);
+        }
       }
 
       // Atualizar a lista de agendamentos
