@@ -22,7 +22,7 @@ Queria pedir uma ajudinha sua... Consegue entrar nesse link e avaliar nosso esta
 Acesse aqui:
 ${bookingLink}
 
-Nós da ${establishmentName} se importamos muito com a sua opinião! 😊🙏
+Nós da ${establishmentName} nos importamos muito com a sua opinião! 😊🙏
 
 Valeu demais! 🤝`;
 };
