@@ -1313,7 +1313,8 @@ export const getAppointmentsByPhone = async (phone: string) => {
             name,
             code,
             professionals,
-            skip_client_whatsapp_booking_nudge
+            skip_client_whatsapp_booking_nudge,
+            client_afcoins_enabled
           )
         `)
         .ilike('client_whatsapp', `%${cleanPhone}%`)
@@ -1380,7 +1381,8 @@ export const getAppointmentsByPhone = async (phone: string) => {
             name,
             code,
             professionals,
-            skip_client_whatsapp_booking_nudge
+            skip_client_whatsapp_booking_nudge,
+            client_afcoins_enabled
           )
         `)
         .ilike('client_whatsapp', `%${formattedPhone}%`)

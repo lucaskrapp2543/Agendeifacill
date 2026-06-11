@@ -15,6 +15,14 @@ export const AFCOIN_REDEEM_THRESHOLD = 1000;
 export const AFCOIN_EARN_HINT =
   'Ganhe +5 ao informar telefone, +10 ao confirmar horário, +18 pagando no estabelecimento (5+10+3) ou muito mais pagando online. Válido para agendamentos a partir de 08/06/2026.';
 
+/** Estabelecimento participa do programa AFCoins para clientes (default: sim). */
+export function isClientAfcoinsEnabledForEstablishment(establishment: unknown): boolean {
+  if (!establishment || typeof establishment !== 'object') return true;
+  const raw = (establishment as { client_afcoins_enabled?: boolean | null }).client_afcoins_enabled;
+  if (raw === undefined || raw === null) return true;
+  return Boolean(raw);
+}
+
 /** Mesma lógica do SQL afcoin_normalize_phone */
 export function normalizeAfcoinPhone(raw: string): string {
   const digits = String(raw || '').replace(/\D/g, '');
@@ -45,10 +53,14 @@ export async function registerAfcoinBookingEvent(params: {
   rule: AfcoinBookingRule;
   paymentId?: string | null;
   metadata?: Record<string, unknown>;
+  establishment?: unknown;
 }): Promise<boolean> {
   const establishmentId = String(params.establishmentId || '').trim();
   const clientPhone = normalizeAfcoinPhone(params.clientPhone);
   if (!establishmentId || !clientPhone) return false;
+  if (params.establishment && !isClientAfcoinsEnabledForEstablishment(params.establishment)) {
+    return false;
+  }
 
   try {
     const { data, error } = await supabase.rpc('afcoin_register_booking_event', {
@@ -85,6 +97,7 @@ type AfcoinBundleParams = {
   clientPhone: string;
   clientName: string;
   paymentId?: string | null;
+  establishment?: unknown;
 };
 
 /** Garante 5 + 10 + 3 ao pagar no local (18 total). Idempotente por regra/agendamento. */
@@ -165,6 +178,8 @@ export async function syncAfcoinsFromAppointments(
   for (const appointment of appointments) {
     if (!isAppointmentEligibleForAfcoins(appointment)) continue;
 
+    if (!isClientAfcoinsEnabledForEstablishment(appointment?.establishments)) continue;
+
     const establishmentId = String(appointment?.establishment_id || appointment?.establishments?.id || '').trim();
     const appointmentId = String(appointment?.id || '').trim();
     if (!establishmentId || !appointmentId) continue;
@@ -183,6 +198,7 @@ export async function syncAfcoinsFromAppointments(
       clientName: String(appointment?.client_name || 'Cliente').trim() || 'Cliente',
       paymentId: String(appointment?.payment_transaction_id || '').trim() || null,
       metadata: { origin: 'view_appointments_sync', channel },
+      establishment: appointment?.establishments,
     };
 
     if (channel === 'system_online_pix' || channel === 'system_online_card') {

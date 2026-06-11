@@ -36,6 +36,7 @@ import {
   registerAfcoinBookingEvent,
   registerAfcoinLocalPayBundle,
   registerAfcoinOnlinePayBundle,
+  isClientAfcoinsEnabledForEstablishment,
 } from '../utils/afcoin';
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
@@ -254,6 +255,15 @@ export default function BookingPage() {
   const [paymentIsOptional, setPaymentIsOptional] = useState(false);
   const [showOptionalPayPrompt, setShowOptionalPayPrompt] = useState(false);
   const [showAfcoinExplainModal, setShowAfcoinExplainModal] = useState(false);
+
+  const clientAfcoinsProgramActive = useMemo(
+    () => isClientAfcoinsEnabledForEstablishment(establishment),
+    [establishment]
+  );
+  const showAfcoinFeatures = useMemo(() => {
+    const mpConnected = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+    return clientAfcoinsProgramActive && mpConnected;
+  }, [clientAfcoinsProgramActive, establishment]);
 
   const bookingFormRef = useRef<HTMLDivElement>(null);
   const retryFetchEstablishmentRef = useRef(0);
@@ -2579,12 +2589,13 @@ export default function BookingPage() {
       toast.success('Agendamento realizado com sucesso!');
 
       const phoneForViewAppointments = (appointmentData?.client_whatsapp || guestClientData?.phone || '').toString();
-      const mpConnectedForAfcoins = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+      const mpConnectedForAfcoins = showAfcoinFeatures;
       const afcoinBaseParams = {
         establishmentId: String(establishment?.id || ''),
         appointmentId: insertedAppointment?.id || null,
         clientPhone: phoneForViewAppointments,
         clientName: (appointmentData?.client_name || guestClientData?.name || 'Cliente').toString(),
+        establishment,
       };
 
       if (mpConnectedForAfcoins && insertedAppointment?.id && !permitePagamentoOpcional) {
@@ -2732,29 +2743,30 @@ export default function BookingPage() {
     setShowQuickBookingModal(false);
     setShowBookingForm(true);
     setUseLegacyBookingFlow(!Boolean((establishment as any)?.booking_chat_enabled ?? true));
-    if (Boolean(String((establishment as any)?.mercadopago_access_token || '').trim())) {
+    if (showAfcoinFeatures) {
       toast.success('🎉 Parabéns! Você ganhou +5 AFCoins');
       void registerAfcoinBookingEvent({
         establishmentId: String(establishment?.id || ''),
         clientPhone: phone,
         clientName: name,
         rule: 'name_phone_5',
+        establishment,
       });
     }
   };
 
   const finishLocalPayWithAfcoins = async () => {
     setShowOptionalPayPrompt(false);
-    const mpConnected = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
     const clientPhone = pendingCustomerData?.phone || guestClientData?.phone || '';
     const clientName = pendingCustomerData?.name || guestClientData?.name || 'Cliente';
 
-    if (mpConnected && pendingAppointmentId) {
+    if (showAfcoinFeatures && pendingAppointmentId) {
       const awarded = await registerAfcoinLocalPayBundle({
         establishmentId: String(establishment?.id || ''),
         appointmentId: pendingAppointmentId,
         clientPhone,
         clientName,
+        establishment,
       });
       if (awarded > 0) {
         toast.success(`Agendamento confirmado! Você ganhou ${awarded} AFCoins pagando no estabelecimento.`);
@@ -5641,13 +5653,14 @@ export default function BookingPage() {
             const paidAppointmentId = pendingAppointmentId;
             setShowPaymentModal(false);
             setPendingAppointmentId(null);
-            const afcoinsEnabled = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+            const afcoinsEnabled = showAfcoinFeatures;
             if (afcoinsEnabled && paidAppointmentId) {
               const awarded = await registerAfcoinOnlinePayBundle({
                 establishmentId: String(establishment?.id || ''),
                 appointmentId: paidAppointmentId,
                 clientPhone: clientPhone || pendingCustomerData?.phone || guestClientData?.phone || '',
                 clientName: pendingCustomerData?.name || guestClientData?.name || 'Cliente',
+                establishment,
               });
               toast.success(
                 awarded > 0
@@ -5683,6 +5696,7 @@ export default function BookingPage() {
             toast('Pagamento não concluído agora. Agendamento ficou pendente de confirmação.', 'warning');
           }}
           cancelAppointmentOnFailure={!paymentIsOptional}
+          enableAfcoinMotivation={showAfcoinFeatures}
           customerData={{
             name: pendingCustomerData?.name || guestClientData?.name || 'Cliente',
             phone: pendingCustomerData?.phone || guestClientData?.phone,
@@ -5845,7 +5859,7 @@ export default function BookingPage() {
             <div className="pointer-events-none absolute -right-14 -top-16 h-40 w-40 rounded-full bg-emerald-400/10 blur-3xl sm:bg-emerald-400/16" />
             <div className="pointer-events-none absolute -left-16 bottom-[-72px] h-44 w-44 rounded-full bg-[#E6C78B]/14 blur-3xl sm:bg-[#E6C78B]/20" />
 
-            {Boolean(String((establishment as any)?.mercadopago_access_token || '').trim()) ? (
+            {showAfcoinFeatures ? (
               <>
                 <div className="flex items-start justify-between gap-3 sm:gap-2">
                   <div>
@@ -6096,7 +6110,7 @@ export default function BookingPage() {
                     onClick={finishLocalPayWithAfcoins}
                     className="flex-1 bg-transparent hover:bg-white/5 text-gray-300 font-semibold py-2 px-2 rounded-lg transition-colors text-sm underline underline-offset-4"
                   >
-                    Prefiro pagar no local (+{AFCOIN_LOCAL_PAY_BONUS} AFCoins)
+                    Prefiro pagar no estabelecimento
                   </button>
                 </div>
               </>

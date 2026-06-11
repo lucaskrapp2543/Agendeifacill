@@ -60,6 +60,7 @@ import { fireMercadoPagoPendingReconcile } from '../utils/fireMercadoPagoPending
 import {
   buildReviewBookingDeepLink,
   buildThankYouWhatsAppMessage,
+  clientHasReviewForEstablishment,
   formatClientWhatsappForMessage,
 } from '../utils/reviewThankYouMessage';
 import { isAppStandbyActive, subscribeToAppStandby } from '../utils/appStandby';
@@ -1106,6 +1107,9 @@ const EstablishmentDashboard = () => {
   const [pagamentoAdiantadoOpcional, setPagamentoAdiantadoOpcional] = useState(false); // Se true, cliente pode agendar sem pagar
   const [exigirPagamentoAntecipadoMercadoPago, setExigirPagamentoAntecipadoMercadoPago] = useState(false); // Exigir pagamento antecipado (Mercado Pago)
   const [pagamentoAdiantadoOpcionalMercadoPago, setPagamentoAdiantadoOpcionalMercadoPago] = useState(false); // Se true, cliente pode agendar sem pagar (Mercado Pago)
+  const [clientAfcoinsEnabled, setClientAfcoinsEnabled] = useState(true);
+  const [showAfcoinsDisableConfirmModal, setShowAfcoinsDisableConfirmModal] = useState(false);
+  const [isSavingClientAfcoins, setIsSavingClientAfcoins] = useState(false);
   // Saldo (vendas PIX via Pagar.me) - líquido já com taxas
   const [saldoEmVendas, setSaldoEmVendas] = useState<number>(0);
   const [isLoadingSaldoEmVendas, setIsLoadingSaldoEmVendas] = useState(false);
@@ -2961,6 +2965,113 @@ const EstablishmentDashboard = () => {
     [establishment?.id, filaEntries, fetchFilaEntries, removerDaFila, tentarNotificarUmAntes]
   );
 
+  const saveClientAfcoinsEnabled = useCallback(
+    async (enabled: boolean) => {
+      if (!establishment?.id) {
+        toast.error('ID do estabelecimento não encontrado');
+        return false;
+      }
+
+      setIsSavingClientAfcoins(true);
+      try {
+        const { error } = await supabase
+          .from('establishments')
+          .update({ client_afcoins_enabled: enabled })
+          .eq('id', establishment.id);
+
+        if (error) {
+          const msg = String(error.message || '').toLowerCase();
+          if (msg.includes('client_afcoins_enabled')) {
+            toast.error(
+              'Coluna client_afcoins_enabled ainda não existe no banco. Execute a migration no Supabase SQL Editor.'
+            );
+          } else {
+            throw error;
+          }
+          return false;
+        }
+
+        setClientAfcoinsEnabled(enabled);
+        setEstablishment({ ...(establishment as any), client_afcoins_enabled: enabled } as any);
+        toast.success(
+          enabled
+            ? 'Benefícios AFCoins ativados para seus clientes.'
+            : 'Benefícios AFCoins desativados para seus clientes.'
+        );
+        return true;
+      } catch (error: any) {
+        console.error('❌ Erro ao salvar client_afcoins_enabled:', error);
+        toast.error(
+          [error?.message || 'Erro ao salvar configuração AFCoins', error?.details, error?.hint]
+            .filter(Boolean)
+            .join(' — ')
+        );
+        return false;
+      } finally {
+        setIsSavingClientAfcoins(false);
+        setShowAfcoinsDisableConfirmModal(false);
+      }
+    },
+    [establishment, toast]
+  );
+
+  const clientAfcoinsSettingsSection = (
+    <div className="space-y-3">
+      <label className="flex items-start space-x-2">
+        <input
+          type="checkbox"
+          checked={clientAfcoinsEnabled}
+          disabled={isSavingClientAfcoins}
+          onChange={(e) => {
+            const next = e.target.checked;
+            if (!next) {
+              setShowAfcoinsDisableConfirmModal(true);
+              return;
+            }
+            void saveClientAfcoinsEnabled(true);
+          }}
+          className="form-checkbox h-4 w-4 mt-0.5 text-primary bg-[#1a1b1c] border-gray-600 rounded"
+        />
+        <span className="text-white text-sm font-semibold leading-snug">🎁 Benefícios do Cliente — AFCOINS</span>
+      </label>
+
+      {clientAfcoinsEnabled && (
+        <div className="ml-6 rounded-lg border border-[#E6C78B]/25 bg-gradient-to-br from-[#E6C78B]/8 to-black/20 p-4 space-y-3 text-xs sm:text-sm text-gray-300 leading-relaxed">
+          <h4 className="text-sm font-extrabold text-[#E6C78B]">🎁 O que são os AFCOINS?</h4>
+          <p>
+            Ao deixar essa opção ativa, seus clientes acumulam <strong className="text-white">AFCoins</strong> a cada
+            agendamento realizado pelo <strong className="text-white">Agendei Fácil</strong> 💈
+          </p>
+          <p>
+            Essas moedas podem ser trocadas por{' '}
+            <strong className="text-white">descontos, produtos ou benefícios na sua barbearia</strong>, incentivando seus
+            clientes a voltarem mais vezes.
+          </p>
+          <p>
+            🔥 <strong className="text-white">E o melhor:</strong>
+            <br />
+            Os custos dos brindes e benefícios são pagos pelo próprio <strong className="text-white">Agendei Fácil</strong>.
+            <br />
+            <strong className="text-[#4ADE80]">Você não paga nada por isso.</strong>
+          </p>
+          <div>
+            <p className="font-semibold text-white mb-1.5">Objetivo dos AFCOINS:</p>
+            <ul className="space-y-1 text-gray-400">
+              <li>✅ Incentivar clientes a agendarem mais vezes</li>
+              <li>✅ Aumentar pagamentos online</li>
+              <li>✅ Reduzir faltas nos agendamentos</li>
+              <li>✅ Fidelizar seus clientes automaticamente</li>
+            </ul>
+          </div>
+          <p className="text-[#E6C78B]/90 font-medium">
+            Esse é um benefício exclusivo do <strong className="text-[#E6C78B]">Agendei Fácil</strong> que não existe em
+            outros sistemas do Brasil 🇧🇷
+          </p>
+        </div>
+      )}
+    </div>
+  );
+
   // ✅ Card Mercado Pago (reutilizável em dois lugares: configurações + atalho no menu lateral)
   const MercadoPagoCard = ({ wrapperClassName = 'mt-6' }: { wrapperClassName?: string }) => (
     <div
@@ -3115,6 +3226,10 @@ const EstablishmentDashboard = () => {
             : '🔗 Conectar conta Mercado Pago'}
         </button>
 
+        {!String((establishment as any)?.mercadopago_access_token || '').trim() && (
+          <div className="mt-4 bg-[#2a2b2c] border border-gray-700 rounded-lg p-3">{clientAfcoinsSettingsSection}</div>
+        )}
+
         {String((establishment as any)?.mercadopago_access_token || '').trim() && (
           <div className="mt-4 space-y-4">
             <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
@@ -3182,6 +3297,8 @@ const EstablishmentDashboard = () => {
                   </div>
                 </label>
               )}
+
+              <div className="pt-3 mt-2 border-t border-gray-600/50">{clientAfcoinsSettingsSection}</div>
             </div>
 
             <button
@@ -3263,6 +3380,51 @@ const EstablishmentDashboard = () => {
                     🔄 Atualizar
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showAfcoinsDisableConfirmModal && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+            <div
+              className="w-full max-w-md rounded-2xl border border-[#E6C78B]/30 bg-[#0f1112] p-6 shadow-2xl"
+              style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.65), 0 0 0 1px rgba(230,199,139,0.12)' }}
+            >
+              <h3 className="text-lg font-extrabold text-white mb-3">⚠️ Tem certeza?</h3>
+              <div className="space-y-3 text-sm text-gray-300 leading-relaxed mb-6">
+                <p>
+                  Ao desativar os <strong className="text-white">AFCOINS</strong>, seus clientes deixarão de ganhar{' '}
+                  <strong className="text-white">benefícios e brindes patrocinados pelo Agendei Fácil</strong>.
+                </p>
+                <p>
+                  Isso pode diminuir o incentivo dos clientes em agendar novamente e reduzir a fidelização da sua barbearia 💈
+                </p>
+                <p>
+                  Lembre-se:
+                  <br />
+                  <strong className="text-white">Você não paga nada pelos benefícios.</strong>
+                  <br />O Agendei Fácil cobre os custos para ajudar você a ter mais clientes voltando.
+                </p>
+                <p className="font-semibold text-white">Deseja realmente desativar os AFCOINS?</p>
+              </div>
+              <div className="flex flex-col gap-2.5">
+                <button
+                  type="button"
+                  disabled={isSavingClientAfcoins}
+                  onClick={() => setShowAfcoinsDisableConfirmModal(false)}
+                  className="w-full px-4 py-3 rounded-xl bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white font-extrabold transition-all disabled:opacity-60"
+                >
+                  ✅ Manter ativado (recomendado)
+                </button>
+                <button
+                  type="button"
+                  disabled={isSavingClientAfcoins}
+                  onClick={() => void saveClientAfcoinsEnabled(false)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-600 text-gray-400 hover:text-white hover:border-gray-500 font-semibold text-sm transition-colors disabled:opacity-60"
+                >
+                  Desativar mesmo assim
+                </button>
               </div>
             </div>
           </div>
@@ -4670,6 +4832,11 @@ const EstablishmentDashboard = () => {
   // Estados para modal de lembrete
   const [showReminderConfirm, setShowReminderConfirm] = useState(false);
   const [appointmentForReminder, setAppointmentForReminder] = useState<Appointment | null>(null);
+
+  // Modal: cliente já avaliou — confirmar envio de agradecimento mesmo assim
+  const [showThankYouReviewConfirm, setShowThankYouReviewConfirm] = useState(false);
+  const [appointmentForThankYou, setAppointmentForThankYou] = useState<Appointment | null>(null);
+  const [isCheckingThankYouReview, setIsCheckingThankYouReview] = useState(false);
 
   // Estado para modal informativo de lembrete
   const [showReminderInfoModal, setShowReminderInfoModal] = useState(false);
@@ -11284,11 +11451,46 @@ Estamos te aguardando!`;
     }
   };
 
-  const handleSendThankYou = (appointment: Appointment) => {
+  const executeSendThankYou = (appointment: Appointment) => {
+    const clientWhatsapp = appointment.client_whatsapp;
+    if (!clientWhatsapp) {
+      toast('WhatsApp do cliente não encontrado', 'error');
+      return;
+    }
+
+    const establishmentCode = String(establishment?.code || '').trim();
+    if (!establishmentCode) {
+      toast('Código do booking não encontrado para montar o link de avaliação.', 'error');
+      return;
+    }
+
+    const phoneNumber = formatClientWhatsappForMessage(clientWhatsapp);
+    if (!phoneNumber) {
+      toast('WhatsApp do cliente inválido', 'error');
+      return;
+    }
+
+    const bookingLink = buildReviewBookingDeepLink(establishmentCode);
+    const message = buildThankYouWhatsAppMessage({
+      clientName: appointment.client_name || 'cliente',
+      establishmentName: establishment?.name || 'nossa barbearia',
+      bookingLink,
+    });
+
+    openWhatsAppWithBusinessPriority(phoneNumber, message, { preserveEmojis: true });
+    toast('Agradecimento enviado via WhatsApp!', 'success');
+  };
+
+  const handleSendThankYou = async (appointment: Appointment) => {
     try {
       const clientWhatsapp = appointment.client_whatsapp;
       if (!clientWhatsapp) {
         toast('WhatsApp do cliente não encontrado', 'error');
+        return;
+      }
+
+      if (!establishment?.id) {
+        toast('Estabelecimento não encontrado', 'error');
         return;
       }
 
@@ -11298,25 +11500,38 @@ Estamos te aguardando!`;
         return;
       }
 
-      const phoneNumber = formatClientWhatsappForMessage(clientWhatsapp);
-      if (!phoneNumber) {
-        toast('WhatsApp do cliente inválido', 'error');
+      setIsCheckingThankYouReview(true);
+      const alreadyReviewed = await clientHasReviewForEstablishment({
+        supabase,
+        establishmentId: String(establishment.id),
+        clientPhone: clientWhatsapp,
+      });
+      setIsCheckingThankYouReview(false);
+
+      if (alreadyReviewed) {
+        setAppointmentForThankYou(appointment);
+        setShowThankYouReviewConfirm(true);
         return;
       }
 
-      const bookingLink = buildReviewBookingDeepLink(establishmentCode);
-      const message = buildThankYouWhatsAppMessage({
-        clientName: appointment.client_name || 'cliente',
-        establishmentName: establishment?.name || 'nossa barbearia',
-        bookingLink,
-      });
-
-      openWhatsAppWithBusinessPriority(phoneNumber, message, { preserveEmojis: true });
-      toast('Agradecimento enviado via WhatsApp!', 'success');
+      executeSendThankYou(appointment);
     } catch (error) {
+      setIsCheckingThankYouReview(false);
       console.error('Erro ao enviar agradecimento:', error);
       toast('Erro ao enviar agradecimento', 'error');
     }
+  };
+
+  const handleConfirmThankYouDespiteReview = () => {
+    if (!appointmentForThankYou) return;
+    executeSendThankYou(appointmentForThankYou);
+    setShowThankYouReviewConfirm(false);
+    setAppointmentForThankYou(null);
+  };
+
+  const handleCloseThankYouReviewModal = () => {
+    setShowThankYouReviewConfirm(false);
+    setAppointmentForThankYou(null);
   };
 
   // Função para fechar modal de lembrete
@@ -13254,6 +13469,7 @@ Estamos te aguardando!`;
         setPagamentoAdiantadoOpcional((establishmentData as any).pagamento_adiantado_opcional ?? false);
         setExigirPagamentoAntecipadoMercadoPago((establishmentData as any).exigir_pagamento_antecipado_mercadopago ?? false); // Pagamento antecipado Mercado Pago
         setPagamentoAdiantadoOpcionalMercadoPago((establishmentData as any).pagamento_adiantado_opcional_mercadopago ?? false);
+        setClientAfcoinsEnabled((establishmentData as any).client_afcoins_enabled !== false);
         setFilaEsperaAtiva((establishmentData as any).fila_espera_ativa ?? false);
         // Sanitiza IDs de fila para ignorar profissionais removidos/inválidos.
         {
@@ -42666,6 +42882,44 @@ Estamos te aguardando!`;
                   className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
                 >
                   Sim, Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* Modal: cliente já avaliou — confirmar envio de agradecimento */}
+      {
+        showThankYouReviewConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
+                  <span className="text-amber-600 text-xl">⭐</span>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900">Cliente já avaliou</h3>
+              </div>
+
+              <p className="text-gray-700 mb-6 leading-relaxed">
+                Esse cliente já avaliou seu estabelecimento anteriormente. Deseja enviar a mensagem de agradecimento e
+                avaliação mesmo assim?
+              </p>
+
+              <div className="flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={handleCloseThankYouReviewModal}
+                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmThankYouDespiteReview}
+                  className="px-4 py-2 bg-[#E6C78B] text-black rounded-lg hover:bg-[#f3e7c7] transition-colors font-semibold"
+                >
+                  Enviar mesmo assim
                 </button>
               </div>
             </div>

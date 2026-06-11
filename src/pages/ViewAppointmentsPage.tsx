@@ -18,6 +18,7 @@ import {
   fetchAfcoinClientWallets,
   normalizeAfcoinPhone,
   syncAfcoinsFromAppointments,
+  isClientAfcoinsEnabledForEstablishment,
 } from '../utils/afcoin';
 import {
   computeAfcoinBalanceByEstablishment,
@@ -60,25 +61,35 @@ export default function ViewAppointmentsPage() {
   const [showAfcoinUseModal, setShowAfcoinUseModal] = useState(false);
 
   /** Saldo exibido = soma lida dos agendamentos (18 local / 60 online por agendamento). */
-  const displayAfcoinBalance = useMemo(
-    () => computeAfcoinBalanceFromAppointments(appointments),
+  const appointmentsWithAfcoins = useMemo(
+    () => appointments.filter((appointment) => isClientAfcoinsEnabledForEstablishment(appointment?.establishments)),
     [appointments]
   );
 
+  const showAfcoinSection = useMemo(
+    () => appointmentsWithAfcoins.length > 0,
+    [appointmentsWithAfcoins]
+  );
+
+  const displayAfcoinBalance = useMemo(
+    () => computeAfcoinBalanceFromAppointments(appointmentsWithAfcoins),
+    [appointmentsWithAfcoins]
+  );
+
   const maxAfcoinBalancePerShop = useMemo(() => {
-    const byEstablishment = computeAfcoinBalanceByEstablishment(appointments);
+    const byEstablishment = computeAfcoinBalanceByEstablishment(appointmentsWithAfcoins);
     let max = 0;
     byEstablishment.forEach((value) => {
       if (value > max) max = value;
     });
     return max;
-  }, [appointments]);
+  }, [appointmentsWithAfcoins]);
 
   const bestAfcoinRedeemRow = useMemo(() => {
-    const byEstablishment = computeAfcoinBalanceByEstablishment(appointments);
+    const byEstablishment = computeAfcoinBalanceByEstablishment(appointmentsWithAfcoins);
     let best: { establishmentId: string; establishmentName: string; balance: number } | null = null;
 
-    appointments.forEach((appointment: any) => {
+    appointmentsWithAfcoins.forEach((appointment: any) => {
       const establishmentId = String(appointment?.establishment_id || appointment?.establishments?.id || '').trim();
       if (!establishmentId) return;
       const balance = Number(byEstablishment.get(establishmentId) || 0);
@@ -92,7 +103,7 @@ export default function ViewAppointmentsPage() {
     });
 
     return best;
-  }, [appointments]);
+  }, [appointmentsWithAfcoins]);
 
   const canUseAfcoinBenefit = Boolean(bestAfcoinRedeemRow);
   const missingAfcoinsToUse = Math.max(0, AFCOIN_REDEEM_THRESHOLD - maxAfcoinBalancePerShop);
@@ -1411,7 +1422,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
             </button>
 
             <div className="flex items-start gap-2 min-w-0 flex-wrap justify-end">
-              {appointments.length > 0 && (
+              {appointments.length > 0 && showAfcoinSection && (
                 <div
                   className="flex flex-col gap-2 px-3 py-2.5 sm:px-3.5 sm:py-3 rounded-2xl shrink min-w-0 w-full sm:w-auto max-w-full sm:max-w-none"
                   style={{
@@ -1550,7 +1561,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
           </div>
         ) : (
           <div className="space-y-4">
-            {!isLoadingAfcoins && appointments.length > 0 && !canUseAfcoinBenefit && (
+            {!isLoadingAfcoins && showAfcoinSection && appointments.length > 0 && !canUseAfcoinBenefit && (
               <p className="text-xs text-center text-white/55 px-2">
                 {maxAfcoinBalancePerShop > 0
                   ? `Faltam ${missingAfcoinsToUse} AFCoins na sua barbearia com maior saldo para liberar o botão Usar (${AFCOIN_REDEEM_THRESHOLD} por barbearia). ${AFCOIN_EARN_HINT}`
@@ -1653,6 +1664,7 @@ Por favor, confirme o cancelamento. Obrigado!`;
                     );
                   })()}
                   {(() => {
+                    if (!isClientAfcoinsEnabledForEstablishment(appointment?.establishments)) return null;
                     const afcoinPoints = computeAfcoinPointsForAppointment(appointment);
                     if (afcoinPoints <= 0) return null;
                     return (

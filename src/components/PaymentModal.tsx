@@ -24,6 +24,8 @@ interface PaymentModalProps {
   };
   // Se false: não cancela agendamento se o cliente não pagar (modo opcional)
   cancelAppointmentOnFailure?: boolean;
+  /** Se false, oculta incentivos AFCoins no modal (ex.: estabelecimento desativou o programa). */
+  enableAfcoinMotivation?: boolean;
 }
 
 type PaymentMethod = 'pix' | 'credit_card' | 'debit_card' | null;
@@ -39,6 +41,7 @@ export const PaymentModal = ({
   onPaymentFailure,
   customerData,
   cancelAppointmentOnFailure = true,
+  enableAfcoinMotivation,
 }: PaymentModalProps) => {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -75,6 +78,7 @@ export const PaymentModal = ({
   const [cardRefusedReason, setCardRefusedReason] = useState<string>('');
   const [hasPagarMeError, setHasPagarMeError] = useState(false);
   const [hasMercadoPago, setHasMercadoPago] = useState(false);
+  const [establishmentClientAfcoinsEnabled, setEstablishmentClientAfcoinsEnabled] = useState(true);
   // ✅ NOVO: Estados para dados do Card Payment Brick
   const [brickCardToken, setBrickCardToken] = useState<string | null>(null);
   const [brickPaymentMethodId, setBrickPaymentMethodId] = useState<string | null>(null);
@@ -92,7 +96,9 @@ export const PaymentModal = ({
   const formattedAmount = Number(amount || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const afcoinAlreadyEarned = 15;
   const afcoinPayNowBonus = Math.max(0, AFCOIN_POINTS_ONLINE - afcoinAlreadyEarned);
-  const showAfcoinMotivation = !cancelAppointmentOnFailure;
+  const showAfcoinMotivation =
+    (enableAfcoinMotivation !== undefined ? enableAfcoinMotivation : !cancelAppointmentOnFailure) &&
+    establishmentClientAfcoinsEnabled;
   // O split é montado no BACKEND (Express) para não expor/configurar recipient da plataforma no frontend.
 
   // Verificar qual gateway de pagamento está configurado (Pagar.me ou Mercado Pago)
@@ -100,7 +106,7 @@ export const PaymentModal = ({
     if (isOpen && establishmentId) {
       supabase
         .from('establishments')
-        .select('mercadopago_access_token, pagarme_recipient_id, exigir_pagamento_antecipado_mercadopago, exigir_pagamento_antecipado')
+        .select('mercadopago_access_token, pagarme_recipient_id, exigir_pagamento_antecipado_mercadopago, exigir_pagamento_antecipado, client_afcoins_enabled')
         .eq('id', establishmentId)
         .single()
         .then(({ data }) => {
@@ -108,6 +114,7 @@ export const PaymentModal = ({
           const hasPM = !!data?.pagarme_recipient_id;
           const exigirMP = Boolean(data?.exigir_pagamento_antecipado_mercadopago === true);
           const exigirPM = Boolean(data?.exigir_pagamento_antecipado === true);
+          setEstablishmentClientAfcoinsEnabled((data as any)?.client_afcoins_enabled !== false);
 
           // ✅ CORRIGIDO: Prioridade baseada em qual gateway está configurado para exigir
           // Se Mercado Pago está marcado para exigir → usar Mercado Pago
