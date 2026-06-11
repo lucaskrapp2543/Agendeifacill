@@ -63,6 +63,25 @@ const isScheduleSensitiveMessageType = (messageTypeRaw: string): boolean => {
   return /^reminder_\d+m$/.test(messageType);
 };
 
+const isInternalEstablishmentAppointment = (
+  appointment: {
+    client_id?: string | null;
+    establishment_id?: string | null;
+    is_establishment_booking?: boolean | null;
+    is_avulso?: boolean | null;
+    is_squeeze?: boolean | null;
+  },
+  ownerId: string
+): boolean => {
+  if (Boolean(appointment.is_establishment_booking)) return true;
+  if (Boolean(appointment.is_avulso)) return true;
+  if (Boolean(appointment.is_squeeze)) return true;
+  const normalizedOwnerId = String(ownerId || '').trim();
+  const clientId = String(appointment.client_id || '').trim();
+  if (normalizedOwnerId && clientId && clientId === normalizedOwnerId) return true;
+  return false;
+};
+
 const shouldSkipAutomationSend = async (
   log: { appointmentId: string; messageType: string } | undefined
 ): Promise<string | null> => {
@@ -74,25 +93,57 @@ const shouldSkipAutomationSend = async (
   const appointmentId = String(log.appointmentId || '').trim();
   if (!appointmentId) return null;
 
-  const { data, error } = await supabaseAdmin
-    .from('appointments')
-    .select('status')
-    .eq('id', appointmentId)
-    .maybeSingle();
+  const messageType = String(log.messageType || '').trim().toLowerCase();
+  const selectAttempts = [
+    'status,establishment_id,client_id,is_establishment_booking,is_avulso,is_squeeze',
+    'status,establishment_id,client_id,is_establishment_booking',
+    'status,establishment_id,client_id',
+    'status',
+  ];
 
-  if (error) {
-    console.warn('[whatsapp/queue] Falha ao validar status do agendamento antes de enviar automação:', {
-      appointmentId,
-      messageType: log.messageType,
-      error: String(error?.message || error),
-    });
-    // Em caso de erro de consulta, mantém o comportamento antigo (não bloqueia envio).
-    return null;
+  let appointment: any = null;
+  for (const selectClause of selectAttempts) {
+    const { data, error } = await supabaseAdmin
+      .from('appointments')
+      .select(selectClause)
+      .eq('id', appointmentId)
+      .maybeSingle();
+    if (!error && data) {
+      appointment = data;
+      break;
+    }
+    const msg = String(error?.message || '').toLowerCase();
+    const missingColumn = String(error?.code || '').trim().toUpperCase() === '42703' || msg.includes('does not exist');
+    if (!missingColumn) {
+      console.warn('[whatsapp/queue] Falha ao validar agendamento antes de enviar automação:', {
+        appointmentId,
+        messageType: log.messageType,
+        error: String(error?.message || error),
+      });
+      break;
+    }
   }
 
-  const status = String((data as any)?.status || '').trim().toLowerCase();
+  if (!appointment) return null;
+
+  const status = String(appointment?.status || '').trim().toLowerCase();
   if (status === 'cancelled') {
     return `Envio automático ignorado: agendamento ${appointmentId} já está cancelado.`;
+  }
+
+  if (messageType === 'booking_confirmation') {
+    const establishmentId = String(appointment.establishment_id || '').trim();
+    if (establishmentId) {
+      const { data: establishmentData } = await supabaseAdmin
+        .from('establishments')
+        .select('owner_id')
+        .eq('id', establishmentId)
+        .maybeSingle();
+      const ownerId = String((establishmentData as any)?.owner_id || '').trim();
+      if (isInternalEstablishmentAppointment(appointment, ownerId)) {
+        return `Envio automático ignorado: agendamento ${appointmentId} foi criado dentro da barbearia (sem saudação).`;
+      }
+    }
   }
 
   return null;

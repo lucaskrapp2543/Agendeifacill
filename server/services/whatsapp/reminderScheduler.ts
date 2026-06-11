@@ -295,6 +295,10 @@ export class WhatsAppReminderScheduler {
     const selectCandidates = [
       'id,establishment_id,professional_id,professional_name,professional,client_id,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,is_establishment_booking,is_avulso,is_squeeze',
       'id,establishment_id,professional_id,professional,client_id,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,is_establishment_booking,is_avulso,is_squeeze',
+      'id,establishment_id,professional_id,professional_name,professional,client_id,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,is_establishment_booking',
+      'id,establishment_id,professional_id,professional,client_id,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,is_establishment_booking',
+      'id,establishment_id,professional_id,professional_name,professional,client_id,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
+      'id,establishment_id,professional_id,professional,client_id,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
       'id,establishment_id,professional_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
       'id,establishment_id,professional_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
       'id,establishment_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
@@ -633,6 +637,54 @@ export class WhatsAppReminderScheduler {
     return false;
   }
 
+  private isMissingAppointmentColumnError(error: any, column?: string): boolean {
+    const code = String(error?.code || '').trim().toUpperCase();
+    const msg = String(error?.message || '').toLowerCase();
+    if (code === '42703' || msg.includes('does not exist')) {
+      if (!column) return true;
+      return msg.includes(column.toLowerCase());
+    }
+    return false;
+  }
+
+  /** Garante flags de origem interna mesmo quando o SELECT em lote caiu em fallback legado. */
+  private async hydrateInternalBookingFlags(appointment: AppointmentRow): Promise<AppointmentRow> {
+    const aptId = String(appointment.id || '').trim();
+    if (!aptId || !UUID_REGEX.test(aptId)) return appointment;
+
+    if (Boolean(appointment.is_establishment_booking) || Boolean(appointment.is_avulso) || Boolean(appointment.is_squeeze)) {
+      return appointment;
+    }
+
+    const selectAttempts = [
+      'client_id,is_establishment_booking,is_avulso,is_squeeze,establishment_id',
+      'client_id,is_establishment_booking,is_avulso,establishment_id',
+      'client_id,is_establishment_booking,establishment_id',
+      'client_id,establishment_id',
+    ];
+
+    for (const selectClause of selectAttempts) {
+      const { data, error } = await this.supabase
+        .from('appointments')
+        .select(selectClause)
+        .eq('id', aptId)
+        .maybeSingle();
+
+      if (!error && data) {
+        return { ...appointment, ...(data as Partial<AppointmentRow>) };
+      }
+      if (error && !this.isMissingAppointmentColumnError(error)) {
+        console.warn('[whatsapp/scheduler] Falha ao hidratar flags de agendamento interno:', {
+          appointmentId: aptId,
+          error: String(error?.message || error),
+        });
+        break;
+      }
+    }
+
+    return appointment;
+  }
+
   private async scheduleDelayedReminderIfNeeded(params: {
     appointment: AppointmentRow;
     appointmentAt: Date;
@@ -936,7 +988,19 @@ export class WhatsAppReminderScheduler {
       [...reminderCandidates, ...recentCandidates].forEach((apt) => {
         const id = String(apt.id || '').trim();
         if (!id) return;
-        mergedMap.set(id, apt);
+        const existing = mergedMap.get(id);
+        if (!existing) {
+          mergedMap.set(id, apt);
+          return;
+        }
+        mergedMap.set(id, {
+          ...existing,
+          ...apt,
+          client_id: apt.client_id ?? existing.client_id,
+          is_establishment_booking: apt.is_establishment_booking ?? existing.is_establishment_booking,
+          is_avulso: apt.is_avulso ?? existing.is_avulso,
+          is_squeeze: apt.is_squeeze ?? existing.is_squeeze,
+        });
       });
       const appointments = Array.from(mergedMap.values()).filter((apt) => {
         const phone = normalizePhone(String(apt.client_whatsapp || ''));
@@ -1075,7 +1139,8 @@ export class WhatsAppReminderScheduler {
         const appointmentAt = toDateTime(appointment.appointment_date, appointment.appointment_time);
         if (!appointmentAt) continue;
 
-        const isInternalBooking = this.isInternalEstablishmentBooking(appointment, establishmentById);
+        const hydratedAppointment = await this.hydrateInternalBookingFlags(appointment);
+        const isInternalBooking = this.isInternalEstablishmentBooking(hydratedAppointment, establishmentById);
         const isRecentlyCreated =
           recentIdSet.has(String(appointment.id || '').trim()) &&
           Number.isFinite(createdAt.getTime()) &&
@@ -1092,9 +1157,21 @@ export class WhatsAppReminderScheduler {
           !guardedConfirmation &&
           !alreadyLoggedConfirmation;
 
+        if (isRecentlyCreated && isInternalBooking) {
+          console.info('[whatsapp/scheduler] booking_confirmation_skipped_internal', {
+            appointmentId: appointment.id,
+            userId: senderUserId,
+            phone: recipientPhone,
+            is_establishment_booking: Boolean(hydratedAppointment.is_establishment_booking),
+            is_avulso: Boolean(hydratedAppointment.is_avulso),
+            is_squeeze: Boolean(hydratedAppointment.is_squeeze),
+            client_id: String(hydratedAppointment.client_id || '').trim() || null,
+          });
+        }
+
         if (shouldSendConfirmation) {
           const vars = this.buildTemplateVars(
-            appointment,
+            hydratedAppointment,
             establishmentName,
             settings.reminderOffsetMinutes,
             establishmentById
@@ -1140,7 +1217,7 @@ export class WhatsAppReminderScheduler {
           // Programa o lembrete no momento em que a saudação é reconhecida.
           // O scheduler abaixo continua como fallback caso o job programado não exista.
           await this.scheduleDelayedReminderIfNeeded({
-            appointment,
+            appointment: hydratedAppointment,
             appointmentAt,
             senderUserId,
             recipientPhone,
@@ -1151,13 +1228,8 @@ export class WhatsAppReminderScheduler {
             now,
           });
         } else if (isInternalBooking && isRecentlyCreated) {
-          console.info('[whatsapp/scheduler] booking_confirmation_skipped_internal', {
-            appointmentId: appointment.id,
-            userId: senderUserId,
-            phone: recipientPhone,
-          });
           await this.scheduleDelayedReminderIfNeeded({
-            appointment,
+            appointment: hydratedAppointment,
             appointmentAt,
             senderUserId,
             recipientPhone,
