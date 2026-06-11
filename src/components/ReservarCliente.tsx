@@ -1981,6 +1981,7 @@ export default function ReservarCliente({
           duration: totalDuration,
           payment_method: isSubscriber ? 'assinante' : 'dinheiro',
           is_avulso: isAvulso,
+          is_establishment_booking: true,
           is_subscriber: isSubscriber,
           is_loyalty_reward: useLoyaltyFree,
           ...(isSubscriber

@@ -12,6 +12,7 @@ type AppointmentRow = {
   professional_id?: string | null;
   professional_name?: string | null;
   professional?: string | null;
+  client_id?: string | null;
   client_name?: string | null;
   client_whatsapp?: string | null;
   appointment_date: string;
@@ -21,6 +22,9 @@ type AppointmentRow = {
   updated_at?: string | null;
   cancellation_source?: string | null;
   cancellation_detail?: string | null;
+  is_establishment_booking?: boolean | null;
+  is_avulso?: boolean | null;
+  is_squeeze?: boolean | null;
 };
 
 type CancellationNotificationRow = {
@@ -289,6 +293,8 @@ export class WhatsAppReminderScheduler {
     includeNonCancelledAnyStatus?: boolean;
   }): Promise<AppointmentRow[]> {
     const selectCandidates = [
+      'id,establishment_id,professional_id,professional_name,professional,client_id,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,is_establishment_booking,is_avulso,is_squeeze',
+      'id,establishment_id,professional_id,professional,client_id,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,is_establishment_booking,is_avulso,is_squeeze',
       'id,establishment_id,professional_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
       'id,establishment_id,professional_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
       'id,establishment_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
@@ -608,6 +614,112 @@ export class WhatsAppReminderScheduler {
       .trim()
       .replace(/\/+$/, '');
     return `${baseUrl}/booking/${encodeURIComponent(code)}`;
+  }
+
+  /** Reserva interna (dashboard / Reservar Cliente / encaixe): não envia saudação; lembrete continua normal. */
+  private isInternalEstablishmentBooking(
+    appointment: AppointmentRow,
+    establishmentById: Map<string, EstablishmentRow>
+  ): boolean {
+    if (Boolean(appointment.is_establishment_booking)) return true;
+    if (Boolean(appointment.is_avulso)) return true;
+    if (Boolean(appointment.is_squeeze)) return true;
+
+    const establishment = establishmentById.get(String(appointment.establishment_id || '').trim());
+    const ownerId = String(establishment?.owner_id || '').trim();
+    const clientId = String(appointment.client_id || '').trim();
+    if (ownerId && clientId && clientId === ownerId) return true;
+
+    return false;
+  }
+
+  private async scheduleDelayedReminderIfNeeded(params: {
+    appointment: AppointmentRow;
+    appointmentAt: Date;
+    senderUserId: string;
+    recipientPhone: string;
+    settings: AutomationSettings;
+    establishmentName: string;
+    establishmentById: Map<string, EstablishmentRow>;
+    existingLogSet: Set<string>;
+    now: Date;
+  }): Promise<void> {
+    const {
+      appointment,
+      appointmentAt,
+      senderUserId,
+      recipientPhone,
+      settings,
+      establishmentName,
+      establishmentById,
+      existingLogSet,
+      now,
+    } = params;
+
+    if (!settings.reminderEnabled) return;
+
+    const scheduledReminderType = `reminder_${settings.reminderOffsetMinutes}m`;
+    const scheduledReminderKey = `${appointment.id}::${scheduledReminderType}`;
+    if (existingLogSet.has(scheduledReminderKey)) return;
+
+    const scheduledReminderAtMs = appointmentAt.getTime() - settings.reminderOffsetMinutes * 60_000;
+    const reminderDelayMs = scheduledReminderAtMs - now.getTime();
+    if (reminderDelayMs <= 0) return;
+
+    const vars = this.buildTemplateVars(
+      appointment,
+      establishmentName,
+      settings.reminderOffsetMinutes,
+      establishmentById
+    );
+
+    const reminderReserved = await this.reserveMessageLog({
+      appointmentId: appointment.id,
+      establishmentId: appointment.establishment_id,
+      senderUserId,
+      recipientPhone,
+      messageType: scheduledReminderType,
+    });
+    if (!reminderReserved) {
+      existingLogSet.add(scheduledReminderKey);
+      return;
+    }
+
+    existingLogSet.add(scheduledReminderKey);
+    const reminderRes = await this.deps.enqueueOrSend({
+      userId: senderUserId,
+      phone: recipientPhone,
+      message: formatTemplate(settings.reminderTemplate, vars),
+      idempotencyKey: `${scheduledReminderType}:${appointment.id}`,
+      delayMs: reminderDelayMs,
+      automationLog: {
+        appointmentId: appointment.id,
+        messageType: scheduledReminderType,
+      },
+    });
+
+    if (reminderRes.ok) {
+      await this.updateMessageLogStatus({
+        appointmentId: appointment.id,
+        messageType: scheduledReminderType,
+        status: resolveLogStatus(reminderRes),
+        error: reminderRes.error || null,
+      });
+    } else {
+      await this.releaseMessageLogReservation(appointment.id, scheduledReminderType);
+      existingLogSet.delete(scheduledReminderKey);
+    }
+
+    console.info('[whatsapp/scheduler] reminder_scheduled', {
+      appointmentId: appointment.id,
+      reminderType: scheduledReminderType,
+      userId: senderUserId,
+      phone: recipientPhone,
+      delayMs: reminderDelayMs,
+      ok: reminderRes.ok,
+      deliveryMode: reminderRes.deliveryMode || 'direct',
+      error: reminderRes.error || null,
+    });
   }
 
   private buildCancellationPayload(
@@ -963,17 +1075,22 @@ export class WhatsAppReminderScheduler {
         const appointmentAt = toDateTime(appointment.appointment_date, appointment.appointment_time);
         if (!appointmentAt) continue;
 
+        const isInternalBooking = this.isInternalEstablishmentBooking(appointment, establishmentById);
+        const isRecentlyCreated =
+          recentIdSet.has(String(appointment.id || '').trim()) &&
+          Number.isFinite(createdAt.getTime()) &&
+          now.getTime() - createdAt.getTime() <= 120 * 60_000;
+
         // 1) confirmação de agendamento (até 2h após criação, com deduplicação por log/idempotência)
         const confirmationKey = `${appointment.id}::booking_confirmation`;
         const guardedConfirmation = this.isGuarded(confirmationKey, now.getTime());
         const alreadyLoggedConfirmation = existingLogSet.has(confirmationKey);
         const shouldSendConfirmation =
           settings.greetingEnabled &&
-          recentIdSet.has(String(appointment.id || '').trim()) &&
+          isRecentlyCreated &&
+          !isInternalBooking &&
           !guardedConfirmation &&
-          !alreadyLoggedConfirmation &&
-          Number.isFinite(createdAt.getTime()) &&
-          now.getTime() - createdAt.getTime() <= 120 * 60_000;
+          !alreadyLoggedConfirmation;
 
         if (shouldSendConfirmation) {
           const vars = this.buildTemplateVars(
@@ -1022,54 +1139,34 @@ export class WhatsAppReminderScheduler {
 
           // Programa o lembrete no momento em que a saudação é reconhecida.
           // O scheduler abaixo continua como fallback caso o job programado não exista.
-          const scheduledReminderType = `reminder_${settings.reminderOffsetMinutes}m`;
-          const scheduledReminderKey = `${appointment.id}::${scheduledReminderType}`;
-          const scheduledReminderAtMs = appointmentAt.getTime() - settings.reminderOffsetMinutes * 60_000;
-          const reminderDelayMs = scheduledReminderAtMs - now.getTime();
-          if (settings.reminderEnabled && reminderDelayMs > 0 && !existingLogSet.has(scheduledReminderKey)) {
-            const reminderReserved = await this.reserveMessageLog({
-              appointmentId: appointment.id,
-              establishmentId: appointment.establishment_id,
-              senderUserId,
-              recipientPhone,
-              messageType: scheduledReminderType,
-            });
-            if (reminderReserved) {
-              existingLogSet.add(scheduledReminderKey);
-              const reminderRes = await this.deps.enqueueOrSend({
-                userId: senderUserId,
-                phone: recipientPhone,
-                message: formatTemplate(settings.reminderTemplate, vars),
-                idempotencyKey: `${scheduledReminderType}:${appointment.id}`,
-                delayMs: reminderDelayMs,
-                automationLog: {
-                  appointmentId: appointment.id,
-                  messageType: scheduledReminderType,
-                },
-              });
-              if (reminderRes.ok) {
-                await this.updateMessageLogStatus({
-                  appointmentId: appointment.id,
-                  messageType: scheduledReminderType,
-                  status: resolveLogStatus(reminderRes),
-                  error: reminderRes.error || null,
-                });
-              } else {
-                await this.releaseMessageLogReservation(appointment.id, scheduledReminderType);
-                existingLogSet.delete(scheduledReminderKey);
-              }
-              console.info('[whatsapp/scheduler] reminder_scheduled', {
-                appointmentId: appointment.id,
-                reminderType: scheduledReminderType,
-                userId: senderUserId,
-                phone: recipientPhone,
-                delayMs: reminderDelayMs,
-                ok: reminderRes.ok,
-                deliveryMode: reminderRes.deliveryMode || 'direct',
-                error: reminderRes.error || null,
-              });
-            }
-          }
+          await this.scheduleDelayedReminderIfNeeded({
+            appointment,
+            appointmentAt,
+            senderUserId,
+            recipientPhone,
+            settings,
+            establishmentName,
+            establishmentById,
+            existingLogSet,
+            now,
+          });
+        } else if (isInternalBooking && isRecentlyCreated) {
+          console.info('[whatsapp/scheduler] booking_confirmation_skipped_internal', {
+            appointmentId: appointment.id,
+            userId: senderUserId,
+            phone: recipientPhone,
+          });
+          await this.scheduleDelayedReminderIfNeeded({
+            appointment,
+            appointmentAt,
+            senderUserId,
+            recipientPhone,
+            settings,
+            establishmentName,
+            establishmentById,
+            existingLogSet,
+            now,
+          });
         }
 
         // 2) lembrete no tempo configurado

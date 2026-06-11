@@ -95,6 +95,8 @@ interface Professional {
   lock_financial_with_owner_pin?: boolean; // Exige senha do dono para abrir financeiro
   unique_professional_access_enabled?: boolean; // Acesso único individual para este profissional
   unique_professional_access_role?: 'owner' | 'collaborator'; // Tipo de acesso quando o acesso único estiver ativo
+  professional_powers_enabled?: boolean; // Modo secretaria: ver agendas de outros profissionais
+  professional_powers_agenda_ids?: string[]; // IDs das agendas extras visíveis no acesso único
   work_hours?: {
     [key: string]: {
       enabled: boolean;
@@ -3630,13 +3632,63 @@ const EstablishmentDashboard = () => {
     if (selectedIsUnique && professionalAccessSession?.role === 'owner') {
       return [];
     }
+
+    const secretaryAgendaIds = new Set<string>();
+    if (
+      Boolean((selectedProfessional as any)?.professional_powers_enabled) &&
+      Boolean((selectedProfessional as any)?.unique_professional_access_enabled)
+    ) {
+      const rawIds = (selectedProfessional as any)?.professional_powers_agenda_ids;
+      if (Array.isArray(rawIds)) {
+        rawIds.forEach((rawId) => {
+          const normalizedId = String(rawId || '').trim();
+          if (normalizedId && normalizedId !== selectedProfessionalId) {
+            secretaryAgendaIds.add(normalizedId);
+          }
+        });
+      }
+    }
+
     return professionals
       .filter((professional) => {
         const id = String(professional?.id || '').trim();
-        return id && id !== selectedProfessionalId && Boolean((professional as any)?.unique_professional_access_enabled);
+        if (!id || id === selectedProfessionalId) return false;
+        if (secretaryAgendaIds.has(id)) return false;
+        return Boolean((professional as any)?.unique_professional_access_enabled);
       })
       .map((professional) => String(professional?.id || '').trim());
   }, [professionals, professionalAccessSession?.professionalId, professionalAccessSession?.role]);
+
+  const collaboratorAllowedAgendaIds = useMemo(() => {
+    if (!isCollaboratorRestrictedView) return [];
+    const professionalId = String(collaboratorRestrictedProfessionalId || '').trim();
+    if (!professionalId) return [];
+    const professional = professionals.find((item) => String(item?.id || '').trim() === professionalId);
+    if (!professional || !(professional as any)?.professional_powers_enabled) return [];
+    const rawIds = (professional as any)?.professional_powers_agenda_ids;
+    if (!Array.isArray(rawIds)) return [];
+    return rawIds.map((rawId) => String(rawId || '').trim()).filter(Boolean);
+  }, [isCollaboratorRestrictedView, collaboratorRestrictedProfessionalId, professionals]);
+
+  const isSecretaryModeActive = useMemo(() => {
+    if (!isCollaboratorRestrictedView) return false;
+    const professionalId = String(collaboratorRestrictedProfessionalId || '').trim();
+    if (!professionalId) return false;
+    const professional = professionals.find((item) => String(item?.id || '').trim() === professionalId);
+    return Boolean((professional as any)?.professional_powers_enabled);
+  }, [isCollaboratorRestrictedView, collaboratorRestrictedProfessionalId, professionals]);
+
+  const baseCollaboratorAllowedTabs = useMemo(
+    () => new Set(['appointments', 'client-page', 'passo-a-passo', 'support']),
+    []
+  );
+
+  const isCollaboratorTabAllowed = (tab: string) => {
+    if (!isCollaboratorRestrictedView) return true;
+    if (baseCollaboratorAllowedTabs.has(tab)) return true;
+    if (isSecretaryModeActive && isSettingsUnlocked) return true;
+    return false;
+  };
 
   const getUniqueAccessStorageKey = () => {
     const establishmentId = String(establishment?.id || '').trim();
@@ -3775,14 +3827,6 @@ const EstablishmentDashboard = () => {
     setIdentityGatePinStep(requiresUniquePin);
     setShowProfessionalIdentityGate(requiresUniquePin);
   }, [establishment?.id, hasAnyUniqueAccessProfessional, professionals, user?.id]);
-
-  useEffect(() => {
-    if (!isCollaboratorRestrictedView) return;
-    const allowedTabs = new Set(['appointments', 'client-page', 'passo-a-passo', 'support']);
-    if (!allowedTabs.has(String(activeTab || ''))) {
-      setActiveTab('appointments');
-    }
-  }, [isCollaboratorRestrictedView, activeTab]);
 
   const [servicesWithPrices, setServicesWithPrices] = useState<Service[]>([]);
 
@@ -5066,6 +5110,21 @@ const EstablishmentDashboard = () => {
   const [isDashboardUnlocked, setIsDashboardUnlocked] = useState(false);
   const [showDashboardPinModal, setShowDashboardPinModal] = useState(false);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+
+  useEffect(() => {
+    if (!isCollaboratorRestrictedView) return;
+    const tab = String(activeTab || '');
+    if (isSecretaryModeActive && isSettingsUnlocked) return;
+    if (!baseCollaboratorAllowedTabs.has(tab)) {
+      setActiveTab('appointments');
+    }
+  }, [
+    isCollaboratorRestrictedView,
+    isSecretaryModeActive,
+    isSettingsUnlocked,
+    activeTab,
+    baseCollaboratorAllowedTabs,
+  ]);
 
   const getProfessionalAgendaUnlockCacheKey = (professionalId: string) =>
     establishment?.id
@@ -9693,6 +9752,99 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  const handleToggleProfessionalPowers = async (professionalId: string, enabled: boolean) => {
+    if (!establishment) return;
+
+    try {
+      const updatedProfessionals = professionals.map((professional) => {
+        if (professional.id !== professionalId) return professional;
+        return {
+          ...professional,
+          professional_powers_enabled: enabled,
+          professional_powers_agenda_ids: enabled
+            ? Array.isArray((professional as any)?.professional_powers_agenda_ids)
+              ? (professional as any).professional_powers_agenda_ids
+              : []
+            : [],
+        };
+      });
+
+      setProfessionals(updatedProfessionals);
+      const { error, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
+      if (error) {
+        toast('Erro ao salvar poderes do profissional', 'error');
+        setProfessionals((prev) =>
+          prev.map((professional) =>
+            professional.id === professionalId
+              ? { ...professional, professional_powers_enabled: !enabled }
+              : professional
+          )
+        );
+        return;
+      }
+
+      setProfessionals(safeProfessionals);
+      setEstablishment({
+        ...establishment,
+        professionals: safeProfessionals,
+      });
+      toast(
+        enabled
+          ? 'Modo secretaria ativado para este profissional.'
+          : 'Modo secretaria desativado para este profissional.',
+        'success'
+      );
+    } catch (error) {
+      console.error('❌ Erro ao alternar poderes do profissional:', error);
+      toast('Erro ao atualizar poderes do profissional', 'error');
+    }
+  };
+
+  const handleToggleProfessionalPowersAgenda = async (
+    professionalId: string,
+    agendaProfessionalId: string,
+    selected: boolean
+  ) => {
+    if (!establishment) return;
+
+    const ownerId = String(professionalId || '').trim();
+    const agendaId = String(agendaProfessionalId || '').trim();
+    if (!ownerId || !agendaId || ownerId === agendaId) return;
+
+    try {
+      const updatedProfessionals = professionals.map((professional) => {
+        if (professional.id !== ownerId) return professional;
+        const currentIds = Array.isArray((professional as any)?.professional_powers_agenda_ids)
+          ? (professional as any).professional_powers_agenda_ids.map((rawId: unknown) => String(rawId || '').trim()).filter(Boolean)
+          : [];
+        const nextIds = selected
+          ? Array.from(new Set([...currentIds, agendaId]))
+          : currentIds.filter((id: string) => id !== agendaId);
+        return {
+          ...professional,
+          professional_powers_enabled: true,
+          professional_powers_agenda_ids: nextIds,
+        };
+      });
+
+      setProfessionals(updatedProfessionals);
+      const { error, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
+      if (error) {
+        toast('Erro ao salvar agendas liberadas para este profissional', 'error');
+        return;
+      }
+
+      setProfessionals(safeProfessionals);
+      setEstablishment({
+        ...establishment,
+        professionals: safeProfessionals,
+      });
+    } catch (error) {
+      console.error('❌ Erro ao alternar agenda liberada:', error);
+      toast('Erro ao atualizar agendas liberadas', 'error');
+    }
+  };
+
   const handleToggleLockFinancialWithOwnerPin = async (professionalId: string, lockFinancialWithOwnerPin: boolean) => {
     if (!establishment) return;
 
@@ -9765,7 +9917,10 @@ const EstablishmentDashboard = () => {
                 lock_appointments_with_owner_pin: false,
                 lock_financial_with_owner_pin: false,
               }
-            : {}),
+            : {
+                professional_powers_enabled: false,
+                professional_powers_agenda_ids: [],
+              }),
         };
       });
 
@@ -10005,6 +10160,8 @@ const EstablishmentDashboard = () => {
 
           // Mesclar: priorizar dados locais mas preservar campos do banco que não estão no local
           const mergedProfessional = {
+            ...dbProfessional,
+            ...localProfessional,
             id: localProfessional.id,
             name: localProfessional.name.trim(),
             specialties: localProfessional.specialties || [],
@@ -10030,6 +10187,18 @@ const EstablishmentDashboard = () => {
               : (dbProfessional as any).oculto_da_reserva !== undefined
                 ? Boolean((dbProfessional as any).oculto_da_reserva)
                 : Boolean(dbProfessional.hidden_from_booking),
+            unique_professional_access_enabled:
+              (localProfessional as any).unique_professional_access_enabled !== undefined
+                ? Boolean((localProfessional as any).unique_professional_access_enabled)
+                : Boolean((dbProfessional as any).unique_professional_access_enabled),
+            unique_professional_access_role:
+              (localProfessional as any).unique_professional_access_role !== undefined
+                ? String((localProfessional as any).unique_professional_access_role || '').trim().toLowerCase() === 'collaborator'
+                  ? 'collaborator'
+                  : 'owner'
+                : String((dbProfessional as any).unique_professional_access_role || '').trim().toLowerCase() === 'collaborator'
+                  ? 'collaborator'
+                  : 'owner',
             specific_services: Array.isArray((localProfessional as any).specific_services)
               ? (localProfessional as any).specific_services
               : (Array.isArray(dbProfessional.specific_services) ? dbProfessional.specific_services : []),
@@ -10038,6 +10207,19 @@ const EstablishmentDashboard = () => {
               (localProfessional as any).exclusive_booking_link_disabled !== undefined
                 ? Boolean((localProfessional as any).exclusive_booking_link_disabled)
                 : Boolean((dbProfessional as any).exclusive_booking_link_disabled),
+            professional_powers_enabled:
+              (localProfessional as any).professional_powers_enabled !== undefined
+                ? Boolean((localProfessional as any).professional_powers_enabled)
+                : Boolean((dbProfessional as any).professional_powers_enabled),
+            professional_powers_agenda_ids: Array.isArray((localProfessional as any)?.professional_powers_agenda_ids)
+              ? (localProfessional as any).professional_powers_agenda_ids
+                  .map((rawId: unknown) => String(rawId || '').trim())
+                  .filter(Boolean)
+              : Array.isArray((dbProfessional as any)?.professional_powers_agenda_ids)
+                ? (dbProfessional as any).professional_powers_agenda_ids
+                    .map((rawId: unknown) => String(rawId || '').trim())
+                    .filter(Boolean)
+                : [],
             work_hours: localProfessional.work_hours || dbProfessional.work_hours || null,
             absences: (localProfessional as any).absences || dbProfessional.absences || [], // ✅ PRESERVAR AUSÊNCIAS!
             // ✅ PRESERVAR HORÁRIOS BLOQUEADOS: união por data (local defasado não apaga bloqueios do banco)
@@ -10711,6 +10893,12 @@ const EstablishmentDashboard = () => {
           hidden_from_booking: Boolean((p as any).hidden_from_booking || (p as any).oculto_da_reserva), // ✅ booking público (não resetar em "Atualizar")
           oculto_da_reserva: Boolean((p as any).oculto_da_reserva || (p as any).hidden_from_booking), // ✅ legado / compat
           exclusive_booking_link_disabled: Boolean((p as any).exclusive_booking_link_disabled),
+          professional_powers_enabled: Boolean((p as any).professional_powers_enabled),
+          professional_powers_agenda_ids: Array.isArray((p as any).professional_powers_agenda_ids)
+            ? (p as any).professional_powers_agenda_ids
+                .map((rawId: unknown) => String(rawId || '').trim())
+                .filter(Boolean)
+            : [],
           specific_services: Array.isArray((p as any).specific_services) ? (p as any).specific_services : [], // ✅ PRESERVAR SERVIÇOS ESPECÍFICOS!
           offers_child_service: p.offers_child_service || false, // PRESERVAR configuração de serviço infantil
           work_hours: p.work_hours || null, // PRESERVAR horários de trabalho personalizados
@@ -25316,13 +25504,27 @@ Estamos te aguardando!`;
 
   // ✅ Função customizada para mudança de tab com validação automática
   const handleTabChange = (tab: string) => {
-    if (isCollaboratorRestrictedView) {
-      const collaboratorAllowedTabs = new Set(['appointments', 'client-page', 'passo-a-passo', 'support']);
-      if (!collaboratorAllowedTabs.has(tab)) {
-        toast('Este profissional tem acesso de colaborador e só pode abrir a própria agenda.', 'warning');
-        setActiveTab('appointments');
+    if (isCollaboratorRestrictedView && !isCollaboratorTabAllowed(tab)) {
+      const hasPin =
+        Boolean(establishment?.pin_password) &&
+        String(establishment?.pin_password || '').trim().length > 0 &&
+        String(establishment?.pin_password || '').trim() !== '0000' &&
+        !isUniqueOwnerAccessSession;
+
+      if (isSecretaryModeActive && hasPin && !isSettingsUnlocked) {
+        setPendingTabAfterPin(tab);
+        setShowPinModal(true);
         return;
       }
+
+      toast(
+        isSecretaryModeActive
+          ? 'Digite a senha do Menu Admin para acessar esta área.'
+          : 'Este profissional tem acesso de colaborador e só pode abrir a própria agenda.',
+        'warning'
+      );
+      setActiveTab('appointments');
+      return;
     }
 
     const hasPin =
@@ -26507,6 +26709,7 @@ Estamos te aguardando!`;
           topMonthlyWinner={monthlyTopWinner}
           closeSignal={sidebarCloseSignal}
           professionalAccessMode={isCollaboratorRestrictedView ? 'collaborator' : 'owner'}
+          isSecretaryModeActive={isSecretaryModeActive}
         />
 
         {/* Conteúdo principal */}
@@ -26983,6 +27186,7 @@ Estamos te aguardando!`;
                       bypassOwnerPinLocks={isUniqueOwnerAccessSession}
                       bypassFinancialPinForProfessionalId={uniqueAccessAuthenticatedProfessionalId || null}
                       hiddenProfessionalIds={hiddenUniqueProfessionalIdsForSession}
+                      collaboratorAllowedAgendaIds={collaboratorAllowedAgendaIds}
                     />
                   </div>
 
@@ -40621,6 +40825,73 @@ Estamos te aguardando!`;
                           <p className="text-[11px] text-gray-500">
                             Compatibilidade automática: ao ativar o Acesso Único Profissional, as proteções "Ocultar agendamentos com senha do profissional" e "Ocultar financeiro com senha do dono" são desativadas para este profissional.
                           </p>
+
+                          <div className="pt-3 border-t border-gray-800 space-y-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-white">Poderes desse profissional</p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Modo secretaria: libera ver outras agendas no acesso único (ex.: recepcionista fechar comanda).
+                                </p>
+                              </div>
+                              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean((professional as any).professional_powers_enabled)}
+                                  onChange={(e) => handleToggleProfessionalPowers(professional.id, e.target.checked)}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
+                              </label>
+                            </div>
+
+                            {Boolean((professional as any).professional_powers_enabled) && (
+                              <div className="rounded-lg border border-gray-700 bg-[#1a1b1c] p-3 space-y-2">
+                                <p className="text-xs font-semibold text-gray-300">
+                                  Quais agendas estão abertas para este profissional ver?
+                                </p>
+                                {professionals.filter((candidate) => String(candidate.id || '').trim() !== String(professional.id || '').trim()).length === 0 ? (
+                                  <p className="text-xs text-gray-500">Cadastre outros profissionais para liberar agendas.</p>
+                                ) : (
+                                  <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                                    {professionals
+                                      .filter((candidate) => String(candidate.id || '').trim() !== String(professional.id || '').trim())
+                                      .map((candidate) => {
+                                        const agendaIds = Array.isArray((professional as any)?.professional_powers_agenda_ids)
+                                          ? (professional as any).professional_powers_agenda_ids
+                                              .map((rawId: unknown) => String(rawId || '').trim())
+                                              .filter(Boolean)
+                                          : [];
+                                        const checked = agendaIds.includes(String(candidate.id || '').trim());
+                                        return (
+                                          <label
+                                            key={`powers-agenda-${professional.id}-${candidate.id}`}
+                                            className="flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-2 cursor-pointer hover:bg-[#222425]"
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={checked}
+                                              onChange={(e) =>
+                                                handleToggleProfessionalPowersAgenda(
+                                                  professional.id,
+                                                  String(candidate.id || ''),
+                                                  e.target.checked
+                                                )
+                                              }
+                                              className="rounded border-gray-500"
+                                            />
+                                            <span className="text-sm text-white">{candidate.name || 'Profissional'}</span>
+                                          </label>
+                                        );
+                                      })}
+                                  </div>
+                                )}
+                                <p className="text-[11px] text-gray-500">
+                                  A agenda própria deste profissional sempre fica visível. Marque os colegas que ele também pode acompanhar.
+                                </p>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>

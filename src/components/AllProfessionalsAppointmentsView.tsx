@@ -315,6 +315,7 @@ interface AllProfessionalsAppointmentsViewProps {
   }>>;
   forceProfessionalId?: string | null;
   isCollaboratorView?: boolean;
+  collaboratorAllowedAgendaIds?: string[];
   bypassOwnerPinLocks?: boolean;
   bypassFinancialPinForProfessionalId?: string | null;
   hiddenProfessionalIds?: string[];
@@ -369,6 +370,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   dormantClientsByProfessional = {},
   forceProfessionalId = null,
   isCollaboratorView = false,
+  collaboratorAllowedAgendaIds = [],
   bypassOwnerPinLocks = false,
   bypassFinancialPinForProfessionalId = null,
   hiddenProfessionalIds = [],
@@ -686,10 +688,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
       if (!forcedId) return;
       const exists = professionals.some((professional) => String(professional.id || '').trim() === forcedId);
       if (!exists) return;
+
+      const extraIds = (collaboratorAllowedAgendaIds || [])
+        .map((id) => String(id || '').trim())
+        .filter((id) => id && id !== forcedId)
+        .filter((id) => professionals.some((professional) => String(professional.id || '').trim() === id));
+      const visibleIds = Array.from(new Set([forcedId, ...extraIds]));
+
       setSelectedProfessionalId(forcedId);
-      setVisibleProfessionalIds([forcedId]);
-      persistProfessionalVisibilityPreference([forcedId]);
-    }, [isCollaboratorView, forceProfessionalId, professionals]);
+      setVisibleProfessionalIds(visibleIds);
+      persistProfessionalVisibilityPreference(visibleIds);
+    }, [isCollaboratorView, forceProfessionalId, collaboratorAllowedAgendaIds, professionals]);
 
     const toggleProfessionalVisibility = (professionalId: string) => {
       if (isCollaboratorView) return;
@@ -5194,7 +5203,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
             payment_method: isSubscriptionSqueeze ? 'assinante' : 'dinheiro',
             is_avulso: isAvulsoSqueeze,
             is_subscriber: isSubscriptionSqueeze,
-            is_squeeze: true // Marcar como encaixe
+            is_squeeze: true, // Marcar como encaixe
+            is_establishment_booking: true,
           });
 
         if (error) throw error;
@@ -5261,6 +5271,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
               <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6" />
             </button>
           </div>
+
+          {isCollaboratorView && visibleProfessionals.length > 1 && (
+            <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+              <div className="text-sm font-extrabold text-emerald-900">Modo secretaria ativo</div>
+              <div className="text-xs text-emerald-800 mt-1">
+                Você pode acompanhar estas agendas liberadas pelo estabelecimento.
+              </div>
+              <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                {visibleProfessionals.map((professional) => (
+                  <span
+                    key={`secretary-visible-${professional.id}`}
+                    className="flex-shrink-0 rounded-full border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"
+                  >
+                    {professional.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {professionals.length > 1 && !isCollaboratorView && (
             <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3">

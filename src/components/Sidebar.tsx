@@ -80,6 +80,7 @@ interface SidebarProps {
   topMonthlyWinner?: TopMonthlyWinnerCardData | null;
   closeSignal?: number; // força fechar menu mobile quando o pai precisar
   professionalAccessMode?: 'owner' | 'collaborator' | null;
+  isSecretaryModeActive?: boolean; // Modo secretaria: colaborador com poderes vê Menu Admin
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -106,6 +107,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   topMonthlyWinner = null,
   closeSignal = 0,
   professionalAccessMode = null,
+  isSecretaryModeActive = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false);
@@ -292,7 +294,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     String(establishment?.pin_password || '').trim() !== '0000';
 
   const openAdminMenu = () => {
-    if (professionalAccessMode === 'collaborator') return;
+    if (professionalAccessMode === 'collaborator' && !isSecretaryModeActive) return;
     if (onboardingStep < 4) {
       onBlockedItemClick?.();
       return;
@@ -607,14 +609,19 @@ const Sidebar: React.FC<SidebarProps> = ({
     'logout',
   ]);
   const isCollaboratorView = professionalAccessMode === 'collaborator';
+  const canAccessAdminMenu = !isCollaboratorView || isSecretaryModeActive;
   const mainSidebarItemOrder = new Map(
     ['notifications', 'top10-clientes', 'appointments', 'client-page', 'admin-menu', 'support', 'passo-a-passo', 'logout'].map((id, index) => [id, index])
   );
   const sidebarMenuItems = menuItems
     .filter((item) => !adminMenuItemIds.has(item.id) && mainSidebarItemOrder.has(item.id))
-    .filter((item) => !isCollaboratorView || collaboratorAllowedMenuIds.has(item.id))
+    .filter((item) => {
+      if (!isCollaboratorView) return true;
+      if (item.id === 'admin-menu') return isSecretaryModeActive;
+      return collaboratorAllowedMenuIds.has(item.id);
+    })
     .sort((a, b) => (mainSidebarItemOrder.get(a.id) ?? 999) - (mainSidebarItemOrder.get(b.id) ?? 999));
-  const isAdminTabActive = !isCollaboratorView && (
+  const isAdminTabActive = canAccessAdminMenu && (
     activeTab === 'receber-adiantado' ||
     activeTab === 'whatsapp-reminders' ||
     activeTab === 'indication' ||
@@ -740,7 +747,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const adminMenuPanelItems: Array<
     | { kind: 'menu'; item: (typeof menuItems)[number] }
     | { kind: 'shortcut'; item: (typeof adminShortcutItems)[number] }
-  > = isCollaboratorView
+  > = !canAccessAdminMenu
     ? []
     : ADMIN_MENU_PANEL_ORDER.flatMap((id) => {
         const shortcut = adminShortcutItems.find((item) => item.id === id);
@@ -1187,7 +1194,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               </div>
 
               <div className="mt-3 space-y-2">
-                {mainMobileMenuActions.filter((action) => action.id === 'admin-menu').map((action) => {
+                {canAccessAdminMenu && mainMobileMenuActions.filter((action) => action.id === 'admin-menu').map((action) => {
                   const Icon = action.icon;
                   const isDanger = action.tone === 'danger';
                   const isAdminMenuAction = action.id === 'admin-menu';
@@ -1221,7 +1228,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </div>
 
-            {showAdminMenu && (
+            {canAccessAdminMenu && showAdminMenu && (
             <div className="mt-3 rounded-2xl border border-white/10 bg-[#0b1220] p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -1463,7 +1470,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         />
       )}
 
-      {showAdminMenu && (
+      {canAccessAdminMenu && showAdminMenu && (
         <div
           className={`fixed top-0 bottom-0 z-50 border-r shadow-2xl ${
             isMobile ? 'w-[min(88vw,22rem)] left-0 md:hidden' : 'w-80'
