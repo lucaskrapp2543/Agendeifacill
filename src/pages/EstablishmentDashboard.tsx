@@ -27403,6 +27403,7 @@ Estamos te aguardando!`;
                       bypassFinancialPinForProfessionalId={uniqueAccessAuthenticatedProfessionalId || null}
                       hiddenProfessionalIds={hiddenUniqueProfessionalIdsForSession}
                       collaboratorAllowedAgendaIds={collaboratorAllowedAgendaIds}
+                      isSecretaryModeActive={isSecretaryModeActive}
                     />
                   </div>
 

@@ -316,6 +316,7 @@ interface AllProfessionalsAppointmentsViewProps {
   forceProfessionalId?: string | null;
   isCollaboratorView?: boolean;
   collaboratorAllowedAgendaIds?: string[];
+  isSecretaryModeActive?: boolean;
   bypassOwnerPinLocks?: boolean;
   bypassFinancialPinForProfessionalId?: string | null;
   hiddenProfessionalIds?: string[];
@@ -371,6 +372,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   forceProfessionalId = null,
   isCollaboratorView = false,
   collaboratorAllowedAgendaIds = [],
+  isSecretaryModeActive = false,
   bypassOwnerPinLocks = false,
   bypassFinancialPinForProfessionalId = null,
   hiddenProfessionalIds = [],
@@ -613,6 +615,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     useEffect(() => {
+      if (isCollaboratorView) return;
       const currentIds = professionals.map((professional) => String(professional.id || '').trim()).filter(Boolean);
       if (currentIds.length === 0) {
         setVisibleProfessionalIds([]);
@@ -647,7 +650,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
       unlockedAppointmentsByProfessional,
       professionalPins,
       establishment?.professionals_pins,
-      hiddenProfessionalIdSet
+      hiddenProfessionalIdSet,
+      isCollaboratorView,
     ]);
 
     const visibleProfessionals = useMemo(
@@ -686,19 +690,37 @@ export const AllProfessionalsAppointmentsView: React.FC<
       if (!isCollaboratorView) return;
       const forcedId = String(forceProfessionalId || '').trim();
       if (!forcedId) return;
-      const exists = professionals.some((professional) => String(professional.id || '').trim() === forcedId);
-      if (!exists) return;
 
       const extraIds = (collaboratorAllowedAgendaIds || [])
         .map((id) => String(id || '').trim())
         .filter((id) => id && id !== forcedId)
         .filter((id) => professionals.some((professional) => String(professional.id || '').trim() === id));
-      const visibleIds = Array.from(new Set([forcedId, ...extraIds]));
 
-      setSelectedProfessionalId(forcedId);
+      const visibleIds = isSecretaryModeActive
+        ? extraIds
+        : Array.from(new Set([forcedId, ...extraIds]));
+
+      if (visibleIds.length === 0) {
+        if (isSecretaryModeActive) {
+          setVisibleProfessionalIds([]);
+          return;
+        }
+        setSelectedProfessionalId(forcedId);
+        setVisibleProfessionalIds([forcedId]);
+        persistProfessionalVisibilityPreference([forcedId]);
+        return;
+      }
+
+      setSelectedProfessionalId(visibleIds[0]);
       setVisibleProfessionalIds(visibleIds);
       persistProfessionalVisibilityPreference(visibleIds);
-    }, [isCollaboratorView, forceProfessionalId, collaboratorAllowedAgendaIds, professionals]);
+    }, [
+      isCollaboratorView,
+      isSecretaryModeActive,
+      forceProfessionalId,
+      collaboratorAllowedAgendaIds,
+      professionals,
+    ]);
 
     const toggleProfessionalVisibility = (professionalId: string) => {
       if (isCollaboratorView) return;
@@ -5272,22 +5294,46 @@ export const AllProfessionalsAppointmentsView: React.FC<
             </button>
           </div>
 
-          {isCollaboratorView && visibleProfessionals.length > 1 && (
+          {isCollaboratorView && isSecretaryModeActive && (
             <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-              <div className="text-sm font-extrabold text-emerald-900">Modo secretaria ativo</div>
-              <div className="text-xs text-emerald-800 mt-1">
-                Você pode acompanhar estas agendas liberadas pelo estabelecimento.
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="text-sm font-extrabold text-emerald-900">Modo secretaria ativo</div>
+                  <div className="text-xs text-emerald-800 mt-1">
+                    Você pode acompanhar estas agendas liberadas pelo estabelecimento.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleOpenBarbershopCash}
+                  data-tutorial-id="appointments-caixa"
+                  className="hidden md:inline-flex shrink-0 items-center justify-center rounded-lg bg-emerald-700 hover:bg-emerald-600 px-4 py-2 text-xs font-extrabold text-white transition-colors disabled:opacity-60"
+                  disabled={isLoadingBarbershopCashOpening}
+                >
+                  {`CAIXA / GERAL (${format(selectedDate, 'dd/MM/yyyy')})`}
+                </button>
               </div>
-              <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-                {visibleProfessionals.map((professional) => (
-                  <span
-                    key={`secretary-visible-${professional.id}`}
-                    className="flex-shrink-0 rounded-full border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"
-                  >
-                    {professional.name}
-                  </span>
-                ))}
-              </div>
+              {visibleProfessionals.length > 0 ? (
+                <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                  {visibleProfessionals.map((professional) => (
+                    <span
+                      key={`secretary-visible-${professional.id}`}
+                      className="flex-shrink-0 rounded-full border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"
+                    >
+                      {professional.name}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                  Nenhuma agenda liberada para a secretaria neste acesso.
+                </div>
+              )}
+              {!canViewBarbershopCash && (
+                <p className="mt-2 text-[11px] text-emerald-800/80">
+                  O caixa da barbearia pede a senha de 4 dígitos ao abrir.
+                </p>
+              )}
             </div>
           )}
 
