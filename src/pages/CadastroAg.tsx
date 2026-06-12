@@ -3,6 +3,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { CardPaymentBrick } from '../components/CardPaymentBrick';
+import {
+  buildCadastroAgLink,
+  computePartnerReferralFirstPaymentAmount,
+  normalizePartnerReferralCodeInput,
+  readPartnerReferralCupomFromSearch,
+} from '../lib/partnerReferralCode';
+import { resolvePartnerReferralDiamanteDiscountPercent } from '../lib/partnerReferralTestCoupon';
 
 interface RegistrationData {
   clientName: string;
@@ -159,10 +166,15 @@ const clearCadastroAgDraft = () => {
   }
 };
 
+type PartnerReferralValidationState = 'idle' | 'validating' | 'valid' | 'invalid';
+
+const formatBrl = (value: number) => `R$ ${value.toFixed(2).replace('.', ',')}`;
+
 const CadastroAg = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const planParam = new URLSearchParams(location.search).get('plan')?.toLowerCase();
+  const cupomFromUrl = readPartnerReferralCupomFromSearch(location.search);
   const selectedPlan: SitePlan = planParam === 'prata' ? 'prata' : 'diamante';
   const selectedPlanConfig = PLAN_CONFIG[selectedPlan];
   const initialDraftRef = useRef<any | null>(null);
@@ -197,9 +209,46 @@ const CadastroAg = () => {
   const [showAccountCreatedModal, setShowAccountCreatedModal] = useState(false);
   const [showCardForm, setShowCardForm] = useState(() => Boolean(initialDraftRef.current?.showCardForm));
   const [cardPayerData, setCardPayerData] = useState<any | null>(() => initialDraftRef.current?.cardPayerData || null);
+  const [partnerReferralInput, setPartnerReferralInput] = useState(() =>
+    normalizePartnerReferralCodeInput(
+      String(cupomFromUrl || initialDraftRef.current?.partnerReferralInput || '')
+    )
+  );
+  const [partnerReferralValidation, setPartnerReferralValidation] = useState<PartnerReferralValidationState>('idle');
+  const [partnerReferralMessage, setPartnerReferralMessage] = useState('');
+  const [partnerReferralAppliedCode, setPartnerReferralAppliedCode] = useState<string | null>(() =>
+    cupomFromUrl ? null : initialDraftRef.current?.partnerReferralAppliedCode || null
+  );
   const paymentOptionsRef = useRef<HTMLDivElement | null>(null);
+  const pollTimerRef = useRef<number | null>(null);
+  const pollCheckoutIdRef = useRef<string>('');
   const mercadoPagoPublicKey = String(import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY || '').trim();
 
+  const MAX_CHECKOUT_POLL_ATTEMPTS = 36;
+
+  const validatePartnerReferralUrl = import.meta.env.PROD
+    ? '/.netlify/functions/validate-partner-referral-code'
+    : '/api/mercadopago/validate-partner-referral-code';
+
+  const partnerReferralDiscountPercent =
+    partnerReferralAppliedCode != null
+      ? resolvePartnerReferralDiamanteDiscountPercent(
+          normalizePartnerReferralCodeInput(partnerReferralAppliedCode)
+        )
+      : null;
+
+  const diamantePricingPreview =
+    selectedPlan === 'diamante' && partnerReferralValidation === 'valid' && partnerReferralAppliedCode
+      ? computePartnerReferralFirstPaymentAmount(
+          selectedPlanConfig.amount * 100,
+          partnerReferralDiscountPercent ?? 0
+        )
+      : null;
+  const checkoutAmountToday =
+    diamantePricingPreview != null
+      ? diamantePricingPreview.finalAmountCents / 100
+      : selectedPlanConfig.amount;
+  const cardPaymentAmount = checkoutAmountToday;
   const createCheckoutUrl = import.meta.env.PROD
     ? '/.netlify/functions/site-registration-create-checkout'
     : '/api/mercadopago/site-registration-create-checkout';
@@ -245,6 +294,8 @@ const CadastroAg = () => {
           cardPayerData,
           checkoutId,
           paymentStatusMessage,
+          partnerReferralInput,
+          partnerReferralAppliedCode,
           savedAt: Date.now(),
         })
       );
@@ -256,11 +307,68 @@ const CadastroAg = () => {
     cardPayerData,
     formData,
     paymentStatusMessage,
+    partnerReferralAppliedCode,
+    partnerReferralInput,
     selectedCountry?.code,
     selectedPlan,
     showCardForm,
     showPaymentOptions,
   ]);
+
+  useEffect(() => {
+    if (selectedPlan !== 'diamante' || !cupomFromUrl) return;
+    setPartnerReferralInput((current) => (current === cupomFromUrl ? current : cupomFromUrl));
+  }, [cupomFromUrl, selectedPlan]);
+
+  useEffect(() => {
+    if (selectedPlan !== 'diamante') {
+      setPartnerReferralValidation('idle');
+      setPartnerReferralMessage('');
+      setPartnerReferralAppliedCode(null);
+      return;
+    }
+
+    const normalized = normalizePartnerReferralCodeInput(partnerReferralInput);
+    if (!normalized || normalized.length < 3) {
+      setPartnerReferralValidation('idle');
+      setPartnerReferralMessage('');
+      setPartnerReferralAppliedCode(null);
+      return;
+    }
+
+    setPartnerReferralValidation('validating');
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(validatePartnerReferralUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            plan: 'diamante',
+            code: normalized,
+            email: formData.email.trim().toLowerCase(),
+          }),
+        });
+        const data = await response.json();
+        if (data?.valid) {
+          setPartnerReferralValidation('valid');
+          setPartnerReferralAppliedCode(String(data.code || normalized));
+          setPartnerReferralMessage(
+            String(data.message || `Cupom válido: indicado por ${data.partner_name || 'parceiro'}`)
+          );
+          return;
+        }
+        setPartnerReferralValidation('invalid');
+        setPartnerReferralAppliedCode(null);
+        setPartnerReferralMessage(String(data?.message || 'Cupom inválido ou não encontrado.'));
+      } catch {
+        setPartnerReferralValidation('invalid');
+        setPartnerReferralAppliedCode(null);
+        setPartnerReferralMessage('Não foi possível validar o cupom agora. Tente novamente.');
+      }
+    }, 450);
+
+    return () => window.clearTimeout(timer);
+  }, [formData.email, partnerReferralInput, selectedPlan, validatePartnerReferralUrl]);
 
   useEffect(() => {
     const shouldWarnBeforeLeaving = showCardForm && !isCreatingCheckout && !showAccountCreatedModal;
@@ -402,33 +510,80 @@ const CadastroAg = () => {
       };
   };
 
-  const pollCheckoutStatus = async (id: string) => {
+  const pollCheckoutStatus = (id: string) => {
     if (!id) return;
 
-    try {
-      const response = await fetch(`${checkoutStatusUrl}?checkout_id=${encodeURIComponent(id)}`);
-      const data = await response.json();
-      const status = String(data?.checkout?.status || '').toLowerCase();
-
-      if (status === 'converted') {
-        setPaymentStatusMessage('');
-        clearCadastroAgDraft();
-        setShowAccountCreatedModal(true);
-        return;
-      }
-
-      if (status === 'conversion_failed') {
-        setPaymentStatusMessage('Pagamento aprovado, mas houve erro ao criar a conta. Chame o suporte para liberar manualmente.');
-        return;
-      }
-
-      setPaymentStatusMessage('Aguardando confirmação do pagamento para criar sua conta...');
-      setTimeout(() => pollCheckoutStatus(id), 5000);
-    } catch (error) {
-      console.error('Erro ao consultar pagamento:', error);
-      setPaymentStatusMessage('Não consegui consultar agora. Se o pagamento já foi aprovado, a conta será criada pelo webhook.');
+    if (pollCheckoutIdRef.current === id && pollTimerRef.current != null) {
+      return;
     }
+
+    if (pollTimerRef.current != null) {
+      window.clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+
+    pollCheckoutIdRef.current = id;
+
+    const runPoll = async (attempt: number) => {
+      try {
+        const response = await fetch(`${checkoutStatusUrl}?checkout_id=${encodeURIComponent(id)}`);
+        const data = await response.json();
+        const status = String(data?.checkout?.status || '').toLowerCase();
+        const hasCreatedAccount = Boolean(data?.checkout?.created_establishment_id);
+
+        if (status === 'converted' || hasCreatedAccount) {
+          pollCheckoutIdRef.current = '';
+          pollTimerRef.current = null;
+          setPaymentStatusMessage('');
+          clearCadastroAgDraft();
+          setShowAccountCreatedModal(true);
+          return;
+        }
+
+        if (status === 'conversion_failed') {
+          if (attempt < MAX_CHECKOUT_POLL_ATTEMPTS) {
+            setPaymentStatusMessage('Pagamento aprovado! Finalizando a criação da sua conta...');
+            pollTimerRef.current = window.setTimeout(() => runPoll(attempt + 1), 5000);
+            return;
+          }
+
+          pollCheckoutIdRef.current = '';
+          pollTimerRef.current = null;
+          setPaymentStatusMessage(
+            'Pagamento aprovado, mas houve erro ao criar a conta. Chame o suporte para liberar manualmente.'
+          );
+          return;
+        }
+
+        setPaymentStatusMessage('Aguardando confirmação do pagamento para criar sua conta...');
+        if (attempt < MAX_CHECKOUT_POLL_ATTEMPTS) {
+          pollTimerRef.current = window.setTimeout(() => runPoll(attempt + 1), 5000);
+        }
+      } catch (error) {
+        console.error('Erro ao consultar pagamento:', error);
+        if (attempt < MAX_CHECKOUT_POLL_ATTEMPTS) {
+          setPaymentStatusMessage('Confirmando pagamento... aguarde um instante.');
+          pollTimerRef.current = window.setTimeout(() => runPoll(attempt + 1), 5000);
+          return;
+        }
+        pollCheckoutIdRef.current = '';
+        pollTimerRef.current = null;
+        setPaymentStatusMessage(
+          'Não consegui consultar agora. Se o pagamento já foi aprovado, a conta será criada pelo webhook.'
+        );
+      }
+    };
+
+    runPoll(0);
   };
+
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current != null) {
+        window.clearTimeout(pollTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -460,6 +615,18 @@ const CadastroAg = () => {
   ) => {
     if (!validateForm() || isCreatingCheckout) return;
 
+    const normalizedPartnerCode = normalizePartnerReferralCodeInput(partnerReferralInput);
+    if (selectedPlan === 'diamante' && normalizedPartnerCode.length >= 3) {
+      if (partnerReferralValidation === 'validating') {
+        toast.error('Aguarde a validação do cupom antes de pagar.');
+        return;
+      }
+      if (partnerReferralValidation !== 'valid' || !partnerReferralAppliedCode) {
+        toast.error(partnerReferralMessage || 'Cupom inválido ou não encontrado.');
+        return;
+      }
+    }
+
     setIsCreatingCheckout(method);
     setIsSubmitting(true);
     setPaymentStatusMessage('');
@@ -472,6 +639,9 @@ const CadastroAg = () => {
           plan: selectedPlan,
           method,
           registration: buildRegistrationData(),
+          ...(selectedPlan === 'diamante' && partnerReferralAppliedCode
+            ? { partner_referral_code: partnerReferralAppliedCode }
+            : {}),
           ...(cardData
             ? {
                 card_token_id: cardData.token,
@@ -482,7 +652,10 @@ const CadastroAg = () => {
                 card_last_four_digits: cardData.lastFourDigits,
               }
             : {}),
-          backUrl: `${window.location.origin}/cadastroag?plan=${selectedPlan}`
+          backUrl: `${window.location.origin}${buildCadastroAgLink({
+            plan: selectedPlan,
+            cupom: selectedPlan === 'diamante' ? partnerReferralAppliedCode : null,
+          })}`,
         })
       });
 
@@ -602,6 +775,50 @@ const CadastroAg = () => {
                   </div>
                 </div>
               </div>
+
+              {selectedPlan === 'diamante' && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 space-y-3">
+                  <label htmlFor="partner-referral-checkout-code" className="block text-sm font-semibold text-gray-800">
+                    Tem cupom de indicação?
+                  </label>
+                  <input
+                    id="partner-referral-checkout-code"
+                    type="text"
+                    value={partnerReferralInput}
+                    onChange={(e) => setPartnerReferralInput(normalizePartnerReferralCodeInput(e.target.value))}
+                    placeholder="Digite o cupom"
+                    maxLength={20}
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="w-full rounded-lg border border-amber-300 bg-white px-4 py-3 text-base font-bold uppercase tracking-wider text-gray-900 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none"
+                  />
+                  {partnerReferralValidation === 'validating' && (
+                    <p className="text-sm text-amber-800">Validando cupom...</p>
+                  )}
+                  {partnerReferralValidation === 'valid' && partnerReferralMessage && (
+                    <p className="text-sm font-semibold text-emerald-700">{partnerReferralMessage}</p>
+                  )}
+                  {partnerReferralValidation === 'invalid' && partnerReferralMessage && (
+                    <p className="text-sm font-semibold text-red-700">{partnerReferralMessage}</p>
+                  )}
+                  {diamantePricingPreview && (
+                    <div className="rounded-lg border border-emerald-200 bg-white p-3 text-sm text-gray-800 space-y-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Valor original:</span>
+                        <span>{formatBrl(selectedPlanConfig.amount)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-emerald-700">
+                        <span>Desconto:</span>
+                        <span>{partnerReferralDiscountPercent}%</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 font-extrabold text-gray-900 pt-1 border-t border-gray-100">
+                        <span>Total hoje:</span>
+                        <span>{formatBrl(diamantePricingPreview.finalAmountCents / 100)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Nome do Cliente */}
               <div>
@@ -905,7 +1122,7 @@ const CadastroAg = () => {
                       {mercadoPagoPublicKey ? (
                         <CardPaymentBrick
                           publicKey={mercadoPagoPublicKey}
-                          amount={selectedPlanConfig.amount}
+                          amount={cardPaymentAmount}
                           creditOnly
                           payerData={cardPayerData || {
                             email: formData.email.trim().toLowerCase(),

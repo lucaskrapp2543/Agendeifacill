@@ -80,6 +80,27 @@
   force = true
   methods = ["POST", "OPTIONS"]
 
+[[redirects]]
+  from = "/api/mercadopago/validate-partner-referral-code"
+  to = "/.netlify/functions/validate-partner-referral-code"
+  status = 200
+  force = true
+  methods = ["POST", "OPTIONS"]
+
+[[redirects]]
+  from = "/api/mercadopago/site-registration-create-checkout"
+  to = "/.netlify/functions/site-registration-create-checkout"
+  status = 200
+  force = true
+  methods = ["POST", "OPTIONS"]
+
+[[redirects]]
+  from = "/api/mercadopago/site-registration-checkout-status"
+  to = "/.netlify/functions/site-registration-checkout-status"
+  status = 200
+  force = true
+  methods = ["GET", "POST", "OPTIONS"]
+
 ## Rotas de API (WhatsApp Baileys) - produção
 [[redirects]]
   from = "/api/whatsapp/:path*"

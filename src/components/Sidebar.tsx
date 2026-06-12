@@ -405,7 +405,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'indication',
-      label: 'Quero 1 mês grátis',
+      label: '💰 Indique e Ganhe',
       icon: Gift,
       onClick: () => {
         if (isItemLocked('indication')) {
@@ -764,7 +764,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     notifications: 'Veja avisos de agendamentos, cancelamentos e compras de assinaturas.',
     appointments: 'Veja seus agendamentos, crie reservas e acompanhe o dia.',
     'whatsapp-reminders': 'Conecte o WhatsApp por QR ou código e ative lembretes automáticos para seus clientes.',
-    indication: 'Ganhe 1 mês grátis compartilhando seu link de indicação.',
+    indication: 'Ganhe R$8/mês por indicação ativa no Diamante. Com 3 ativos, mensalidade grátis; do 4º em diante, lucro.',
     clients: 'Cadastre clientes, veja histórico e anotações importantes.',
     subscribers: 'Gerencie assinantes e planos mensais do seu estabelecimento.',
     'service-categories': 'Crie e organize seus serviços e preços (cupons de descontos e etc).',
@@ -886,7 +886,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       },
       {
         id: 'indication',
-        label: 'Quero 1 mes gratis',
+        label: '💰 Indique e Ganhe',
         icon: Gift,
         onClick: () => executeMobileAction('indication', () => onTabChange('indication')),
         className: mobileActionCardClass,
@@ -1913,7 +1913,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   )}
                 </div>
 
-                {/* ✅ Atalho destacado abaixo do "Quero 1 mês grátis" */}
+                {/* Atalho destacado abaixo do Indique e Ganhe */}
                 {item.id === 'indication' && (
                   <div className="relative mt-2">
                     <button

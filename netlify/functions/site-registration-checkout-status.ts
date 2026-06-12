@@ -43,7 +43,22 @@ export const handler: Handler = async (event) => {
     const status = String((data as any).status || '').toLowerCase();
     const paymentId = String((data as any).payment_id || '').trim();
     const preapprovalId = String((data as any).preapproval_id || '').trim();
-    if (status !== 'converted' && paymentId && PLATFORM_MP_ACCESS_TOKEN) {
+
+    if ((data as any).created_establishment_id) {
+      const { data: fullCheckout } = await supabaseAdmin
+        .from('site_registration_checkouts')
+        .select('*')
+        .eq('id', checkoutId)
+        .maybeSingle();
+      if (fullCheckout) {
+        conversionResult = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
+          status: 'approved',
+          paymentId: paymentId || (fullCheckout as any).payment_id || null,
+          preapprovalId: preapprovalId || (fullCheckout as any).preapproval_id || null,
+          paymentMethod: String((fullCheckout as any).payment_method || '') === 'recurring_card' ? 'recurring_card' : 'pix',
+        });
+      }
+    } else if (status !== 'converted' && paymentId && PLATFORM_MP_ACCESS_TOKEN) {
       const payment = await checkMPPaymentStatus(Number(paymentId), PLATFORM_MP_ACCESS_TOKEN);
       conversionResult = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
         status: (payment as any)?.status,

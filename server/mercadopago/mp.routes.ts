@@ -15,6 +15,12 @@ import { confirmPendingAppointmentFromMpPaymentMetadata } from '../../src/lib/me
 import { reconcilePendingMercadoPagoAppointments } from '../../src/lib/mercadopago/reconcilePendingAppointmentsMp';
 import { checkMPPaymentStatus, createMPPayment, CreateMPPaymentRequest } from '../../src/lib/mercadopago/mp-service';
 import { convertSiteRegistrationCheckoutIfPaid } from '../../src/lib/siteRegistrationCheckoutConversion';
+import {
+  buildSiteRegistrationCheckoutPartnerColumns,
+  getPartnerReferralRecurringStartDateIso,
+  resolvePartnerReferralForSiteRegistrationCheckout,
+  validatePartnerReferralForSiteRegistration,
+} from '../../src/lib/partnerReferralCheckout';
 
 const router = Router();
 
@@ -149,6 +155,45 @@ const SITE_PLAN_CONFIG = {
   diamante: { label: 'DIAMANTE', amountCents: 6790 },
 } as const;
 
+router.post('/validate-partner-referral-code', async (req: Request, res: Response) => {
+  try {
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) return res.status(500).json({ error: 'Supabase admin nao configurado' });
+
+    const planKey = String(req.body?.plan || 'diamante').toLowerCase().trim();
+    const result = await validatePartnerReferralForSiteRegistration(supabaseAdmin, {
+      planKey,
+      rawCode: req.body?.code,
+      registrationEmail: req.body?.email,
+      baseAmountCents: SITE_PLAN_CONFIG.diamante.amountCents,
+    });
+
+    if (!result.ok) {
+      return res.json({
+        ok: false,
+        valid: false,
+        message: result.message,
+        reason: result.reason,
+      });
+    }
+
+    return res.json({
+      ok: true,
+      valid: true,
+      code: result.code,
+      partner_name: result.partnerEstablishmentName,
+      message: `Cupom válido: indicado por ${result.partnerEstablishmentName}`,
+      pricing: {
+        original_amount_cents: result.pricing.originalAmountCents,
+        final_amount_cents: result.pricing.finalAmountCents,
+        discount_percent: result.pricing.discountPercent,
+      },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: String(error?.message || 'Erro ao validar cupom') });
+  }
+});
+
 router.post('/site-registration-create-checkout', async (req: Request, res: Response) => {
   try {
     const supabaseAdmin = getSupabaseAdmin();
@@ -182,6 +227,18 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
       return res.status(400).json({ error: 'Para cartão, informe CPF ou CNPJ válido do titular.' });
     }
 
+    const partnerResolution = await resolvePartnerReferralForSiteRegistrationCheckout(supabaseAdmin, {
+      planKey,
+      rawCode: req.body?.partner_referral_code,
+      registrationEmail: email,
+      baseAmountCents: plan.amountCents,
+    });
+    if (!partnerResolution.ok) {
+      return res.status(400).json({ error: partnerResolution.message, reason: partnerResolution.reason });
+    }
+    const pricing = partnerResolution.pricing;
+    const partnerColumns = buildSiteRegistrationCheckoutPartnerColumns(pricing);
+
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const { data: checkout, error: checkoutError } = await supabaseAdmin
       .from('site_registration_checkouts')
@@ -192,7 +249,8 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
         password,
         client_whatsapp: clientWhatsapp,
         selected_plan: planKey,
-        amount_cents: plan.amountCents,
+        amount_cents: pricing.chargeAmountCents,
+        ...partnerColumns,
         payment_method: method,
         payment_provider: 'mercadopago',
         status: 'pending',
@@ -220,7 +278,7 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
 
     if (method === 'pix') {
       const payment = await createMPPayment({
-        amount: plan.amountCents,
+        amount: pricing.chargeAmountCents,
         description,
         access_token: accessToken,
         payment_method_id: 'pix',
@@ -252,8 +310,11 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
         checkout_id: checkoutId,
         plan: planKey,
         method,
-        amount_cents: plan.amountCents,
-        amount_brl: plan.amountCents / 100,
+        amount_cents: pricing.chargeAmountCents,
+        amount_brl: pricing.chargeAmountCents / 100,
+        original_amount_cents: pricing.originalAmountCents,
+        discount_percent: pricing.discountPercent,
+        partner_referral_code: pricing.partnerReferralCode,
         payment_id: paymentId,
         status: String((payment as any)?.status || 'pending'),
         qr_code: String(pixData?.qr_code || ''),
@@ -277,17 +338,60 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
       returnUrl.searchParams.set('site_payment', 'return');
 
       const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+      const hasPartnerFirstMonthDiscount =
+        Boolean(pricing.partnerReferralCode) && pricing.chargeAmountCents < pricing.recurringAmountCents;
+
+      let firstPaymentId = '';
+      let firstPaymentStatus = '';
+
+      if (hasPartnerFirstMonthDiscount) {
+        const firstPayment = await createMPPayment({
+          amount: pricing.chargeAmountCents,
+          description: `${description} - 1ª mensalidade com cupom`,
+          access_token: accessToken,
+          payment_method_id: paymentMethodId || 'credit_card',
+          installments,
+          token: cardTokenId,
+          issuer_id: issuerId || undefined,
+          payer: {
+            email,
+            identification:
+              documentNumber.length === 11 || documentNumber.length === 14
+                ? { type: documentType as 'CPF' | 'CNPJ', number: documentNumber }
+                : undefined,
+          },
+          external_reference: `${externalReference}:first_month`,
+          metadata: {
+            type: 'site_registration_checkout_first_month',
+            checkout_id: checkoutId,
+            selected_plan: planKey,
+            partner_referral_code: pricing.partnerReferralCode,
+          },
+        } as CreateMPPaymentRequest);
+
+        firstPaymentId = String((firstPayment as any)?.id || '').trim();
+        firstPaymentStatus = String((firstPayment as any)?.status || '').trim();
+        if (!firstPaymentId) {
+          return res.status(500).json({ error: 'Mercado Pago nao retornou ID do pagamento da primeira mensalidade.' });
+        }
+      }
+
+      const autoRecurring: Record<string, unknown> = {
+        frequency: 1,
+        frequency_type: 'months',
+        transaction_amount: pricing.recurringAmountCents / 100,
+        currency_id: 'BRL',
+      };
+      if (hasPartnerFirstMonthDiscount) {
+        autoRecurring.start_date = getPartnerReferralRecurringStartDateIso(1);
+      }
+
       const response = await axios.post(`${MP_API_BASE_URL}/preapproval`, {
         reason: description,
         payer_email: email,
         card_token_id: cardTokenId,
         external_reference: externalReference,
-        auto_recurring: {
-          frequency: 1,
-          frequency_type: 'months',
-          transaction_amount: plan.amountCents / 100,
-          currency_id: 'BRL',
-        },
+        auto_recurring: autoRecurring,
         back_url: returnUrl.toString(),
         status: 'authorized',
       }, {
@@ -307,6 +411,7 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
       await supabaseAdmin
         .from('site_registration_checkouts')
         .update({
+          payment_id: firstPaymentId || (checkout as any).payment_id || null,
           preapproval_id: preapprovalId,
           checkout_url: null,
           metadata: {
@@ -319,15 +424,22 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
             installments,
             card_bin: cardBin || null,
             card_last_four_digits: cardLastFourDigits || null,
-            checkout_mode: 'transparent_card_subscription',
-            conversion_requires_subscription_payment: true,
+            checkout_mode: hasPartnerFirstMonthDiscount
+              ? 'transparent_card_subscription_partner_discount'
+              : 'transparent_card_subscription',
+            conversion_requires_subscription_payment: !hasPartnerFirstMonthDiscount,
+            partner_first_payment_id: firstPaymentId || null,
+            recurring_amount_cents: pricing.recurringAmountCents,
           },
           updated_at: new Date().toISOString(),
         } as any)
         .eq('id', checkoutId);
 
       const conversion = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
-        status: String(preapproval?.status || ''),
+        status: hasPartnerFirstMonthDiscount
+          ? firstPaymentStatus || String(preapproval?.status || '')
+          : String(preapproval?.status || ''),
+        paymentId: firstPaymentId || undefined,
         preapprovalId,
         paymentMethod: 'recurring_card',
       });
@@ -337,10 +449,16 @@ router.post('/site-registration-create-checkout', async (req: Request, res: Resp
         checkout_id: checkoutId,
         plan: planKey,
         method,
-        amount_cents: plan.amountCents,
-        amount_brl: plan.amountCents / 100,
+        amount_cents: pricing.chargeAmountCents,
+        amount_brl: pricing.chargeAmountCents / 100,
+        original_amount_cents: pricing.originalAmountCents,
+        discount_percent: pricing.discountPercent,
+        partner_referral_code: pricing.partnerReferralCode,
         preapproval_id: preapprovalId,
-        status: String(preapproval?.status || 'pending'),
+        payment_id: firstPaymentId || null,
+        status: hasPartnerFirstMonthDiscount
+          ? firstPaymentStatus || String(preapproval?.status || 'pending')
+          : String(preapproval?.status || 'pending'),
         recurrence_created: true,
         conversion,
         expires_at: expiresAt,
@@ -435,7 +553,22 @@ router.get('/site-registration-checkout-status', async (req: Request, res: Respo
     const status = String((data as any).status || '').toLowerCase();
     const paymentId = String((data as any).payment_id || '').trim();
     const preapprovalId = String((data as any).preapproval_id || '').trim();
-    if (status !== 'converted' && paymentId && accessToken) {
+
+    if ((data as any).created_establishment_id) {
+      const { data: fullCheckout } = await supabaseAdmin
+        .from('site_registration_checkouts')
+        .select('*')
+        .eq('id', checkoutId)
+        .maybeSingle();
+      if (fullCheckout) {
+        conversionResult = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
+          status: 'approved',
+          paymentId: paymentId || (fullCheckout as any).payment_id || null,
+          preapprovalId: preapprovalId || (fullCheckout as any).preapproval_id || null,
+          paymentMethod: String((fullCheckout as any).payment_method || '') === 'recurring_card' ? 'recurring_card' : 'pix',
+        });
+      }
+    } else if (status !== 'converted' && paymentId && accessToken) {
       const payment = await checkMPPaymentStatus(Number(paymentId), accessToken);
       conversionResult = await convertSiteRegistrationCheckoutIfPaid(supabaseAdmin, checkoutId, {
         status: (payment as any)?.status,

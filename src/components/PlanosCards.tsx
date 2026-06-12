@@ -1,6 +1,7 @@
 import React from 'react';
 import { Award, Gem, CheckCircle2, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { buildCadastroAgLink, normalizePartnerReferralCodeInput } from '../lib/partnerReferralCode';
 
 function formatarPrecoBRL(valor: number) {
   return valor.toFixed(2).replace('.', ',');
@@ -33,13 +34,21 @@ function LinhaRecurso({
 }
 
 export default function PlanosCards({
-  hidePrata = false
+  hidePrata = false,
+  referralCupom = null,
 }: {
   whatsappNumber?: string;
   hidePrata?: boolean;
+  referralCupom?: string | null;
 }) {
   const precoPrata = 37.9;
   const precoDiamante = 67.9;
+  const normalizedReferralCupom = normalizePartnerReferralCodeInput(String(referralCupom || ''));
+  const referralOnlyMode = Boolean(normalizedReferralCupom);
+  const showLegacyPrata = !hidePrata && !referralOnlyMode;
+  const showMainPrata = !referralOnlyMode;
+  const cadastroLink = (plan: 'prata' | 'diamante') =>
+    buildCadastroAgLink({ plan, cupom: normalizedReferralCupom || null });
 
   const prataOk = [
     '1 profissional',
@@ -113,9 +122,17 @@ export default function PlanosCards({
   ];
 
   return (
-    <div className={`grid gap-8 ${hidePrata ? 'md:grid-cols-2 max-w-5xl mx-auto' : 'md:grid-cols-3'}`}>
-      {/* PLANO PRATA */}
-      {!hidePrata && (
+    <div
+      className={`grid gap-8 ${
+        referralOnlyMode
+          ? 'max-w-xl mx-auto'
+          : hidePrata
+            ? 'md:grid-cols-2 max-w-5xl mx-auto'
+            : 'md:grid-cols-3'
+      }`}
+    >
+      {/* PLANO PRATA (legado) */}
+      {showLegacyPrata && (
       <div className="w-full max-w-[520px] md:max-w-none mx-auto rounded-3xl bg-gradient-to-b from-gray-400 via-gray-300 to-gray-500 p-1 shadow-xl">
         <div className="rounded-[22px] overflow-hidden">
           <div className="relative px-5 py-5 sm:px-6 sm:py-6 bg-gradient-to-r from-gray-300 to-gray-400">
@@ -154,7 +171,7 @@ export default function PlanosCards({
             </div>
 
             <Link
-              to="/cadastroag?plan=prata"
+              to={cadastroLink('prata')}
               className="block w-full mt-4 px-4 py-3 rounded-xl font-extrabold text-black bg-white hover:bg-gray-100 transition-colors text-center"
             >
               Quero esse plano
@@ -165,6 +182,7 @@ export default function PlanosCards({
       )}
 
       {/* PLANO PRATA */}
+      {showMainPrata && (
       <div className="w-full max-w-[520px] md:max-w-none mx-auto rounded-3xl bg-gradient-to-b from-slate-100 via-zinc-300 to-slate-500 p-1 shadow-lg">
         <div className="rounded-[22px] overflow-hidden">
           <div className="relative px-5 py-5 sm:px-6 sm:py-6 bg-gradient-to-r from-zinc-200 via-slate-300 to-zinc-500">
@@ -206,7 +224,7 @@ export default function PlanosCards({
             </div>
 
             <Link
-              to="/cadastroag?plan=prata"
+              to={cadastroLink('prata')}
               className="block w-full mt-4 px-4 py-3 rounded-xl font-extrabold text-white bg-slate-600 hover:bg-slate-500 transition-colors text-center"
             >
               Quero esse plano
@@ -214,6 +232,7 @@ export default function PlanosCards({
           </div>
         </div>
       </div>
+      )}
 
       {/* PLANO DIAMANTE */}
       <div className="w-full max-w-[520px] md:max-w-none mx-auto rounded-3xl bg-gradient-to-b from-cyan-300 via-blue-500 to-indigo-700 p-1 shadow-[0_0_35px_rgba(59,130,246,0.45)] ring-2 ring-cyan-300/80 md:scale-[1.02]">
@@ -275,7 +294,7 @@ export default function PlanosCards({
             </div>
 
             <Link
-              to="/cadastroag?plan=diamante"
+              to={cadastroLink('diamante')}
               className="block w-full mt-4 px-4 py-3 rounded-xl font-extrabold text-white bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 transition-colors text-center shadow-lg"
             >
               Quero esse plano

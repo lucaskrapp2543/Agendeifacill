@@ -5,6 +5,7 @@ import { recordAdminMpCommission } from '../../src/lib/mercadopago/adminMpCommis
 import { confirmPendingAppointmentFromMpPaymentMetadata } from '../../src/lib/mercadopago/confirmAppointmentFromMpPayment';
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { checkMPPaymentStatus } from '../../src/lib/mercadopago/mp-service';
+import { createPartnerReferralAfterConversion, ensurePartnerReferralLinkForConvertedCheckout } from '../../src/lib/partnerReferralCheckout';
 import { json, parseJsonBody } from './_utils';
 
 // Supabase Admin (bypass RLS)
@@ -121,7 +122,20 @@ const createSiteRegistrationAccountIfNeeded = async (
 
   const checkoutAny = checkout as any;
   if (checkoutAny.status === 'converted' && checkoutAny.created_establishment_id) {
-    return { handled: true, created: false, reason: 'already_converted', establishmentId: checkoutAny.created_establishment_id };
+    const partnerReferral = await ensurePartnerReferralLinkForConvertedCheckout(supabaseAdmin!, {
+      checkout: { ...checkoutAny, id: checkoutId },
+      checkoutId,
+      referredEstablishmentId: String(checkoutAny.created_establishment_id),
+      referredOwnerId: checkoutAny.created_user_id || null,
+      paymentId: paymentContext.paymentId || checkoutAny.payment_id || null,
+    });
+    return {
+      handled: true,
+      created: false,
+      reason: 'already_converted',
+      establishmentId: checkoutAny.created_establishment_id,
+      partnerReferral,
+    };
   }
 
   const planKey = String(checkoutAny.selected_plan || '').toLowerCase().trim() as keyof typeof SITE_PLAN_CONFIG;
@@ -160,6 +174,9 @@ const createSiteRegistrationAccountIfNeeded = async (
     }
 
     const establishmentCode = await generateUniqueEstablishmentCode();
+    const recurringAmountCents = Number(
+      checkoutAny.original_amount_cents || checkoutAny.amount_cents || plan.amountCents
+    );
     const { data: establishment, error: establishmentError } = await supabaseAdmin!
       .from('establishments')
       .insert({
@@ -196,8 +213,8 @@ const createSiteRegistrationAccountIfNeeded = async (
         is_blocked: false,
         onboarding_step: 1,
         plan_prata_active: plan.planPrataActive,
-        admin_profit_value: plan.amountCents / 100,
-        mercadopago_billing_amount: plan.amountCents / 100,
+        admin_profit_value: recurringAmountCents / 100,
+        mercadopago_billing_amount: recurringAmountCents / 100,
       } as any)
       .select('id')
       .single();
@@ -208,6 +225,13 @@ const createSiteRegistrationAccountIfNeeded = async (
 
     const establishmentId = String((establishment as any).id);
     const amountCents = Number(checkoutAny.amount_cents || plan.amountCents);
+
+    const partnerReferralResult = await createPartnerReferralAfterConversion(supabaseAdmin!, {
+      checkout: { ...checkoutAny, id: checkoutId },
+      referredEstablishmentId: establishmentId,
+      referredOwnerId: authData.user.id,
+      paymentId: paymentContext.paymentId || checkoutAny.payment_id || null,
+    });
 
     await supabaseAdmin!
       .from('site_registration_checkouts')
@@ -224,6 +248,7 @@ const createSiteRegistrationAccountIfNeeded = async (
           converted_by: 'mercadopago_webhook',
           payment_raw_status: paymentContext.status,
           establishment_code: establishmentCode,
+          partner_referral_linked: partnerReferralResult.created,
         },
         updated_at: nowIso,
       } as any)
@@ -284,13 +309,14 @@ const createSiteRegistrationAccountIfNeeded = async (
             establishment_id: establishmentId,
             preapproval_id: String(paymentContext.preapprovalId),
             status: 'authorized',
-            amount_cents: amountCents,
+            amount_cents: recurringAmountCents,
             payer_email: checkoutAny.email,
             external_reference: `site_registration_checkout:${checkoutId}`,
             metadata: {
               type: 'site_registration_checkout',
               checkout_id: checkoutId,
               selected_plan: planKey,
+              first_payment_amount_cents: amountCents,
             },
             updated_at: nowIso,
           } as any,

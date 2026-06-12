@@ -1,8 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import PlanosCards from '../components/PlanosCards';
+import { readPartnerReferralCupomFromSearch } from '../lib/partnerReferralCode';
 
 export default function Planos() {
+  const location = useLocation();
+  const referralCupom = readPartnerReferralCupomFromSearch(location.search);
   const whatsappNumber = '5548991484275';
   const waLink = (mensagem: string) => `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(mensagem)}`;
 
@@ -101,6 +105,13 @@ export default function Planos() {
           <div className="mt-2 text-white/80">
             Escolha o plano ideal para o seu estabelecimento.
           </div>
+          {referralCupom && (
+            <div className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-emerald-400/40 bg-emerald-500/15 px-4 py-2 text-sm font-semibold text-emerald-100">
+              <span>Cupom de indicação:</span>
+              <span className="font-black tracking-wider text-white">{referralCupom}</span>
+              <span className="text-emerald-200/90">— plano Diamante com desconto</span>
+            </div>
+          )}
         </div>
 
         {/* ✅ Bloco "NÃO É PARCELAMENTO" no início */}
@@ -142,7 +153,7 @@ export default function Planos() {
           </p>
         </div>
 
-        <PlanosCards whatsappNumber="5548991484275" hidePrata />
+        <PlanosCards whatsappNumber="5548991484275" hidePrata referralCupom={referralCupom || null} />
 
         {/* ✅ Botão abaixo do plano Diamante */}
         <div className="max-w-2xl mx-auto mt-8">

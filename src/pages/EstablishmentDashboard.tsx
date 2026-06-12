@@ -28,6 +28,7 @@ import { RescheduleAppointmentModal } from '../components/RescheduleAppointmentM
 import ReservarCliente from '../components/ReservarCliente';
 import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
+import { PartnerReferralPanel } from '../components/PartnerReferralPanel';
 import { ReviewQuestionsManager } from '../components/ReviewQuestionsManager';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
 import { TimeSelector } from '../components/TimeSelector';
@@ -29984,68 +29985,12 @@ Estamos te aguardando!`;
                 </div>
               )}
 
-              {/* Tab de Indicação - Quero 1 mês grátis */}
+              {/* Tab Indique e Ganhe (Programa de Parceiros — Fase 1) */}
               {activeTab === 'indication' && (
-                <div className="space-y-6 w-full">
-                  <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-4 sm:p-6">
-                    {/* Header */}
-                    <div className="flex items-center gap-3 mb-4 sm:mb-6">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-r from-gray-800 to-black rounded-full flex items-center justify-center">
-                        <span className="text-white text-xl sm:text-2xl">🎁</span>
-                      </div>
-                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
-                        Quero 1 mês grátis
-                      </h2>
-                    </div>
-
-                    {/* Conteúdo */}
-                    <div className="space-y-6">
-                      <div className="text-center">
-                        <p className="text-gray-700 text-base sm:text-lg leading-relaxed mb-6">
-                          Indique um colega e ganhe <strong className="text-gray-800">1 mês grátis ou mais</strong>! 🎉
-                        </p>
-                      </div>
-
-                      {/* Imagem */}
-                      <div className="flex justify-center mb-6">
-                        <img
-                          src="/indicacao2.png"
-                          alt="Indicação"
-                          className="w-full max-w-md h-auto rounded-lg shadow-lg"
-                        />
-                      </div>
-
-                      {/* Botão de Indicar */}
-                      <div className="flex justify-center">
-                        <button
-                          onClick={() => {
-                            const whatsappNumber = '5548991265320';
-                            const message = 'quero indicar um colega e ganhar 1 mês grátis ou mais';
-                            const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
-                            window.open(whatsappUrl, '_blank');
-                          }}
-                          className="w-full max-w-md bg-gradient-to-r from-gray-800 to-black text-white font-semibold py-4 px-8 rounded-lg hover:from-gray-700 hover:to-gray-900 transition-colors text-lg shadow-lg flex items-center justify-center gap-2"
-                        >
-                          <span>💬</span>
-                          <span>Indicar</span>
-                        </button>
-                      </div>
-
-                      {/* Informação adicional */}
-                      <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-300">
-                        <div className="flex items-start gap-3">
-                          <span className="text-gray-700 text-xl flex-shrink-0">💡</span>
-                          <div>
-                            <p className="text-gray-700 text-sm leading-relaxed">
-                              <strong>Como funciona:</strong> Clique no botão "Indicar" acima e envie a mensagem para nosso WhatsApp.
-                              Nossa equipe entrará em contato para processar sua indicação e garantir seu mês grátis!
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <PartnerReferralPanel
+                  establishmentId={establishment?.id}
+                  establishmentName={establishment?.name}
+                />
               )}
 
               {activeTab === 'settings' && (
