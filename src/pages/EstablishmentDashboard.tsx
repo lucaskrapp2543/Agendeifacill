@@ -29,6 +29,7 @@ import ReservarCliente from '../components/ReservarCliente';
 import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
 import { PartnerReferralPanel } from '../components/PartnerReferralPanel';
+import { RecebaNaHoraPageLayout } from '../components/RecebaNaHoraPageLayout';
 import { ReviewQuestionsManager } from '../components/ReviewQuestionsManager';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
 import { TimeSelector } from '../components/TimeSelector';
@@ -3074,7 +3075,17 @@ const EstablishmentDashboard = () => {
   );
 
   // ✅ Card Mercado Pago (reutilizável em dois lugares: configurações + atalho no menu lateral)
-  const MercadoPagoCard = ({ wrapperClassName = 'mt-6' }: { wrapperClassName?: string }) => (
+  const MercadoPagoCard = ({
+    wrapperClassName = 'mt-6',
+    variant = 'default',
+  }: {
+    wrapperClassName?: string;
+    variant?: 'default' | 'receba-na-hora';
+  }) => {
+    const isRecebaNaHora = variant === 'receba-na-hora';
+    const isMpConnected = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+
+    return (
     <div
       className={`${wrapperClassName ? `${wrapperClassName} ` : ''}relative overflow-hidden rounded-xl p-[1px] shadow-[0_0_0_1px_rgba(0,158,227,0.2)]`}
       style={{
@@ -3086,31 +3097,54 @@ const EstablishmentDashboard = () => {
       <div className="absolute -bottom-24 -left-24 h-56 w-56 rounded-full bg-[#009EE3]/10 blur-3xl pointer-events-none" />
 
       <div className="bg-[#0f1112] border border-[#009EE3]/30 rounded-xl p-6 relative z-10">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-[#009EE3]/20 flex items-center justify-center">
-              <span className="text-2xl">💳</span>
-            </div>
-            <div>
-              <div className="text-white font-extrabold text-lg">Mercado Pago</div>
-              <div className="text-xs text-gray-300 mt-0.5">
-                Status:{' '}
-                <span className="font-mono text-[#009EE3]">
-                  {String((establishment as any)?.mercadopago_access_token || '').trim()
-                    ? `Conectado (ID: ${String((establishment as any).mercadopago_user_id || '').slice(0, 8)}...)`
-                    : 'Não conectado'}
-                </span>
+        {!isRecebaNaHora && (
+          <>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-[#009EE3]/20 flex items-center justify-center">
+                  <span className="text-2xl">💳</span>
+                </div>
+                <div>
+                  <div className="text-white font-extrabold text-lg">Mercado Pago</div>
+                  <div className="text-xs text-gray-300 mt-0.5">
+                    Status:{' '}
+                    <span className="font-mono text-[#009EE3]">
+                      {isMpConnected
+                        ? `Conectado (ID: ${String((establishment as any).mercadopago_user_id || '').slice(0, 8)}...)`
+                        : 'Não conectado'}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
+
+            <p className="text-sm text-gray-300 mb-6 leading-relaxed">
+              Crie ou conecte sua conta Mercado Pago, e receba pagamentos adiantados no pix dos clientes, evite furos e
+              lucre mais.
+            </p>
+          </>
+        )}
+
+        {isRecebaNaHora && (
+          <div className="mb-5">
+            <h3 className="text-lg font-extrabold text-white mb-2">Conectar Mercado Pago</h3>
+            <p className="text-sm text-gray-300 leading-relaxed mb-3">
+              Receba pagamentos online no Pix ou cartão e reduza faltas nos agendamentos. Seu cliente pode pagar online
+              OU no local — você decide.
+            </p>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${
+                isMpConnected
+                  ? 'bg-green-500/15 text-green-200 border border-green-500/30'
+                  : 'bg-amber-500/15 text-amber-200 border border-amber-500/30'
+              }`}
+            >
+              {isMpConnected ? '✅ Conta conectada' : '⏳ Ainda não conectado'}
+            </span>
           </div>
-        </div>
+        )}
 
-        <p className="text-sm text-gray-300 mb-6 leading-relaxed">
-          Crie ou conecte sua conta Mercado Pago, e receba pagamentos adiantados no pix dos clientes, evite furos e lucre mais.
-        </p>
-
-        {/* Informações de Taxas e Exemplo */}
-        {String((establishment as any)?.mercadopago_access_token || '').trim() && (
+        {isMpConnected && !isRecebaNaHora && (
           <div className="mb-6 p-4 bg-gradient-to-br from-[#009EE3]/10 to-[#009EE3]/5 border border-[#009EE3]/20 rounded-lg">
             <div className="text-white font-bold text-sm mb-3 flex items-center gap-2">
               <span>💰</span>
@@ -3135,7 +3169,6 @@ const EstablishmentDashboard = () => {
               </div>
             </div>
 
-            {/* Exemplo de cálculo */}
             <div className="mt-4 p-3 bg-black/30 rounded-lg border border-[#009EE3]/20">
               <div className="text-white font-bold text-xs mb-2">📊 Exemplo: Serviço de R$ 50,00</div>
               <div className="space-y-1.5 text-xs">
@@ -3158,7 +3191,6 @@ const EstablishmentDashboard = () => {
               </div>
             </div>
 
-            {/* Informação sobre recebimento */}
             <div className="mt-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
               <div className="flex items-start gap-2">
                 <span className="text-lg">⚡</span>
@@ -3222,23 +3254,28 @@ const EstablishmentDashboard = () => {
           disabled={!establishment?.id}
           className="w-full px-5 py-3 bg-gradient-to-r from-[#009EE3] to-[#0088C7] text-white rounded-xl hover:from-[#0088C7] hover:to-[#0077B6] transition-all font-extrabold shadow-lg hover:shadow-xl transform hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
         >
-          {String((establishment as any)?.mercadopago_access_token || '').trim()
-            ? '🔄 Reconectar conta Mercado Pago'
-            : '🔗 Conectar conta Mercado Pago'}
+          {isRecebaNaHora
+            ? isMpConnected
+              ? '🔄 Reconectar Mercado Pago'
+              : '🚀 Conectar Mercado Pago'
+            : isMpConnected
+              ? '🔄 Reconectar conta Mercado Pago'
+              : '🔗 Conectar conta Mercado Pago'}
         </button>
 
-        {!String((establishment as any)?.mercadopago_access_token || '').trim() && (
+        {!isMpConnected && !isRecebaNaHora && (
           <div className="mt-4 bg-[#2a2b2c] border border-gray-700 rounded-lg p-3">{clientAfcoinsSettingsSection}</div>
         )}
 
-        {String((establishment as any)?.mercadopago_access_token || '').trim() && (
+        {isMpConnected && (
           <div className="mt-4 space-y-4">
             <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
               <p className="text-sm text-green-200 font-semibold flex items-center gap-2">
                 <span>✅</span>
                 <span>
-                  Sua conta do Mercado Pago está conectada. Os clientes poderão escolher pagar com Mercado Pago no
-                  checkout.
+                  {isRecebaNaHora
+                    ? 'Conta conectada! Seu cliente pode pagar online ou no local — você decide nas opções abaixo.'
+                    : 'Sua conta do Mercado Pago está conectada. Os clientes poderão escolher pagar com Mercado Pago no checkout.'}
                 </span>
               </p>
             </div>
@@ -3267,7 +3304,9 @@ const EstablishmentDashboard = () => {
                   className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-600 rounded"
                 />
                 <span className="text-white text-sm font-semibold">
-                  quero receber adiantado dos clientes via pix nos agendamentos
+                  {isRecebaNaHora
+                    ? 'Oferecer pagamento online (Pix/cartão) nos agendamentos'
+                    : 'quero receber adiantado dos clientes via pix nos agendamentos'}
                 </span>
               </label>
 
@@ -3287,7 +3326,11 @@ const EstablishmentDashboard = () => {
                   />
                   <div className="flex flex-col">
                     <div className="flex items-center gap-2">
-                      <span className="text-white text-xs">Não ser obrigatório cliente pagar no pix  para agendar</span>
+                      <span className="text-white text-xs">
+                        {isRecebaNaHora
+                          ? 'Cliente NÃO é obrigado a pagar online para agendar'
+                          : 'Não ser obrigatório cliente pagar no pix  para agendar'}
+                      </span>
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-600/20 border border-green-600/30 text-green-300 font-extrabold">
                         Recomendado
                       </span>
@@ -3299,7 +3342,9 @@ const EstablishmentDashboard = () => {
                 </label>
               )}
 
-              <div className="pt-3 mt-2 border-t border-gray-600/50">{clientAfcoinsSettingsSection}</div>
+              {!isRecebaNaHora && (
+                <div className="pt-3 mt-2 border-t border-gray-600/50">{clientAfcoinsSettingsSection}</div>
+              )}
             </div>
 
             <button
@@ -3386,6 +3431,53 @@ const EstablishmentDashboard = () => {
           </div>
         )}
 
+        {isRecebaNaHora && isMpConnected && (
+          <div className="mt-6 p-4 bg-gradient-to-br from-[#009EE3]/10 to-[#009EE3]/5 border border-[#009EE3]/20 rounded-lg">
+            <div className="text-white font-bold text-sm mb-3 flex items-center gap-2">
+              <span>💰</span>
+              <span>Taxas do Mercado Pago</span>
+            </div>
+            <div className="space-y-2 text-xs text-gray-300 mb-4">
+              <div className="flex justify-between items-center">
+                <span>PIX:</span>
+                <span className="font-semibold text-white">0,99%</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Débito:</span>
+                <span className="font-semibold text-white">1,99%</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Crédito:</span>
+                <span className="font-semibold text-white">4,99%</span>
+              </div>
+              <div className="flex justify-between items-center pt-2 border-t border-[#009EE3]/20">
+                <span>Taxa da plataforma:</span>
+                <span className="font-semibold text-white">R$ 1,00 fixo</span>
+              </div>
+            </div>
+            <div className="mt-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+              <div className="flex items-start gap-2">
+                <span className="text-lg">⚡</span>
+                <div className="flex-1 text-green-200/80 text-xs leading-relaxed">
+                  Pagamento online cai na hora na sua conta Mercado Pago.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isRecebaNaHora && (
+          <div className="mt-6 rounded-xl border border-[#E6C78B]/25 bg-gradient-to-br from-[#E6C78B]/8 to-black/40 p-4 sm:p-5">
+            <div className="mb-3">
+              <span className="inline-flex items-center rounded-full border border-[#E6C78B]/30 bg-[#E6C78B]/10 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-[#E6C78B]">
+                Benefício bônus
+              </span>
+              <p className="mt-2 text-xs text-gray-400">Extra do Agendei Fácil — opcional e separado do Mercado Pago.</p>
+            </div>
+            {clientAfcoinsSettingsSection}
+          </div>
+        )}
+
         {showAfcoinsDisableConfirmModal && (
           <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
             <div
@@ -3432,7 +3524,8 @@ const EstablishmentDashboard = () => {
         )}
       </div>
     </div>
-  );
+    );
+  };
 
   const getPagarmeDraftStorageKey = useCallback((establishmentId: string) => {
     return `pagarme_draft_${establishmentId}`;
@@ -26476,6 +26569,8 @@ Estamos te aguardando!`;
   })();
 
   // Renderização do dashboard quando há estabelecimento
+  const isPremiumFullscreenTab = activeTab === 'receber-adiantado' || activeTab === 'indication';
+
   return (
     // Fundo principal sempre claro; o toggle só controla sidebar/elementos, não o fundo geral
     <div className="min-h-screen overflow-x-hidden bg-white">
@@ -26930,9 +27025,9 @@ Estamos te aguardando!`;
         />
 
         {/* Conteúdo principal */}
-        <div className="flex-1 ml-0 transition-all duration-300 min-w-0 pt-0">
+        <div className={`flex-1 ml-0 transition-all duration-300 min-w-0 pt-0 ${isPremiumFullscreenTab ? 'bg-[#0a1628]' : ''}`}>
           {/* Imagem Melhor do Brasil - Topo Absoluto (Mobile) */}
-          {activeTab !== 'receber-adiantado' && (
+          {!isPremiumFullscreenTab && (
           <div className="w-full mb-4 flex justify-center md:hidden">
             <img
               src="/melhordobrasilcortado.png"
@@ -26942,9 +27037,9 @@ Estamos te aguardando!`;
           </div>
           )}
 
-          <div className={`w-full ${activeTab === 'receber-adiantado' ? 'py-0 px-0' : 'py-4 px-4 sm:py-8 sm:px-6'}`}>
+          <div className={`w-full ${isPremiumFullscreenTab ? 'py-0 px-0' : 'py-4 px-4 sm:py-8 sm:px-6'}`}>
             {/* Cabeçalho */}
-            {activeTab !== 'receber-adiantado' && (
+            {!isPremiumFullscreenTab && (
             <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-6 sm:mb-8">
               <div className="flex-1 min-w-0">
                 {activeTab !== 'appointments' && (
@@ -27008,7 +27103,7 @@ Estamos te aguardando!`;
             </div>
             )}
 
-            {!isTop1CardDismissedForCurrentMonth && activeTab !== 'receber-adiantado' && (isLoadingMonthlyTopWinner || monthlyTopWinner) && (
+            {!isTop1CardDismissedForCurrentMonth && !isPremiumFullscreenTab && (isLoadingMonthlyTopWinner || monthlyTopWinner) && (
               <div className="mb-5 sm:mb-6">
                 {isLoadingMonthlyTopWinner && !monthlyTopWinner ? (
                   <div className="w-full rounded-2xl border border-amber-300/30 bg-gradient-to-r from-amber-900/25 to-slate-900/40 p-4 sm:p-5 animate-pulse">
@@ -27028,7 +27123,7 @@ Estamos te aguardando!`;
             )}
 
             {/* Sino flutuante (somente mobile) - acima do botão de recarregar */}
-            {establishment && activeTab !== 'receber-adiantado' && (
+            {establishment && !isPremiumFullscreenTab && (
               <button
                 type="button"
                 onClick={() => {
@@ -29948,41 +30043,11 @@ Estamos te aguardando!`;
                 </div>
               )}
 
-              {/* Tab Receber adiantado — Mercado Pago (seção dedicada) */}
+              {/* Tab Receba na Hora — Mercado Pago (seção dedicada) */}
               {activeTab === 'receber-adiantado' && (
-                <div className="w-full">
-                  {/* Barra mínima mobile — só menu */}
-                  <div className="sticky top-0 z-20 flex items-center justify-between px-3 py-2.5 bg-[#0a1628]/95 backdrop-blur-sm border-b border-white/10 md:hidden">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const sidebar = document.querySelector('[data-sidebar-toggle]');
-                        if (sidebar) (sidebar as HTMLElement).click();
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-white/10 text-white text-xs font-semibold"
-                    >
-                      ☰ Menu
-                    </button>
-                    <span className="text-xs font-bold text-white/90 tracking-wide">Receber adiantado</span>
-                    <div className="w-[52px]" aria-hidden="true" />
-                  </div>
-
-                  {/* Banner — mesmo visual do popup (largura total, sem recorte) */}
-                  <div className="w-full bg-[#0a1628] leading-[0] md:flex md:justify-center">
-                    <img
-                      src="/mpconect.png"
-                      alt="Receber adiantado com Mercado Pago"
-                      className="w-full md:max-w-5xl lg:max-w-4xl h-auto object-contain block"
-                      loading="eager"
-                      decoding="async"
-                    />
-                  </div>
-
-                  {/* Card Mercado Pago — área de configuração */}
-                  <div className="px-3 sm:px-4 md:px-6 py-4 sm:py-5 max-w-5xl mx-auto w-full">
-                    <MercadoPagoCard wrapperClassName="" />
-                  </div>
-                </div>
+                <RecebaNaHoraPageLayout>
+                  <MercadoPagoCard wrapperClassName="" variant="receba-na-hora" />
+                </RecebaNaHoraPageLayout>
               )}
 
               {/* Tab Indique e Ganhe (Programa de Parceiros — Fase 1) */}

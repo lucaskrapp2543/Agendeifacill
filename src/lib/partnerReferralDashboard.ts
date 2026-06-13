@@ -354,6 +354,43 @@ export function formatPartnerReferralMoney(value: number): string {
   return `R$${value.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
+export function buildPartnerReferralMotivationMessage(summary: PartnerReferralsDashboardSummary): {
+  headline: string;
+  subline?: string;
+} {
+  if (summary.estimatedMonthlyProfitBrl > 0) {
+    return {
+      headline: `Você já está lucrando ${formatPartnerReferralMoney(summary.estimatedMonthlyProfitBrl)}/mês`,
+      subline: `${summary.activeCount} indicado${summary.activeCount === 1 ? '' : 's'} ativo${summary.activeCount === 1 ? '' : 's'} no total`,
+    };
+  }
+
+  const progress = summary.freeActiveProgress;
+  const target = summary.freeActiveTarget;
+  const remaining = target - progress;
+
+  if (progress >= target) {
+    return {
+      headline: '🎉 Sistema grátis ativo!',
+      subline: 'Indique mais para começar a lucrar R$8/mês por indicado.',
+    };
+  }
+
+  const headline = `${progress}/${target} indicados ativos`;
+
+  if (remaining === 3) {
+    return { headline, subline: 'Faltam 3 indicados para seu sistema ficar grátis.' };
+  }
+  if (remaining === 2) {
+    return { headline, subline: 'Faltam só 2 indicados.' };
+  }
+  if (remaining === 1) {
+    return { headline, subline: 'Falta só 1 indicado para sua mensalidade grátis 🔥' };
+  }
+
+  return { headline, subline: `Faltam ${remaining} indicados para seu sistema ficar grátis.` };
+}
+
 export type PartnerReferralCommissionBucket = 'mensalidade_gratis' | 'lucro' | 'pausado';
 
 export type PartnerReferredEstablishmentEnrichedRow = PartnerReferredEstablishmentRow & {

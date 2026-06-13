@@ -12,6 +12,7 @@ type PartnerFreeMonthlySectionProps = {
   paymentDueDate?: string | null;
   history?: PartnerFreeMonthlyHistoryRow[];
   isLoading?: boolean;
+  variant?: 'default' | 'compact';
 };
 
 const toneClass = (tone: PartnerFreeMonthlyView['statusTone']) => {
@@ -26,6 +27,7 @@ export const PartnerFreeMonthlySection: React.FC<PartnerFreeMonthlySectionProps>
   paymentDueDate,
   history = [],
   isLoading = false,
+  variant = 'default',
 }) => {
   const view = useMemo(() => {
     if (!summary) return null;
@@ -34,7 +36,13 @@ export const PartnerFreeMonthlySection: React.FC<PartnerFreeMonthlySectionProps>
 
   if (isLoading) {
     return (
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-6 text-center text-emerald-800/70">
+      <div
+        className={`rounded-2xl border p-6 text-center ${
+          variant === 'compact'
+            ? 'border-white/10 bg-white/[0.03] text-white/60'
+            : 'border-emerald-200 bg-emerald-50/40 text-emerald-800/70'
+        }`}
+      >
         Carregando mensalidade grátis...
       </div>
     );
@@ -43,6 +51,48 @@ export const PartnerFreeMonthlySection: React.FC<PartnerFreeMonthlySectionProps>
   if (!view || !summary) return null;
 
   const StatusIcon = view.isProtectedThisCycle ? ShieldCheck : view.lostBenefitHint ? ShieldOff : Shield;
+
+  if (variant === 'compact') {
+    return (
+      <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6 space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center shrink-0">
+            <StatusIcon className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h3 className="text-lg font-extrabold text-white">Mensalidade grátis</h3>
+            <p className="text-sm text-white/70">{view.statusLabel}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-300/80">Indicados ativos</p>
+            <p className="mt-1 text-2xl font-black text-white">{view.progressLabel}</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-[#0f172a]/60 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-white/50 flex items-center gap-1">
+              <Calendar className="w-3 h-3" />
+              Próximo vencimento
+            </p>
+            <p className="mt-1 text-lg font-black text-white">{view.nextDueDateLabel}</p>
+          </div>
+        </div>
+
+        <p
+          className={`rounded-xl border px-4 py-3 text-sm leading-relaxed ${
+            view.isProtectedThisCycle
+              ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'
+              : view.lostBenefitHint
+                ? 'border-red-400/30 bg-red-500/10 text-red-100'
+                : 'border-amber-400/30 bg-amber-500/10 text-amber-100'
+          }`}
+        >
+          {view.protectionMessage}
+        </p>
+      </section>
+    );
+  }
 
   return (
     <div className="rounded-2xl border-2 border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-amber-50 p-5 sm:p-6 shadow-lg space-y-4">

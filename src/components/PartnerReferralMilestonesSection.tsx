@@ -39,8 +39,7 @@ export const PartnerReferralMilestonesSection: React.FC<PartnerReferralMilestone
         <div>
           <h3 className="text-xl sm:text-2xl font-extrabold text-white leading-tight">🏆 Metas e Premiações</h3>
           <p className="mt-2 text-sm sm:text-base text-amber-100/90 leading-relaxed">
-            Acompanhe seu progresso e desbloqueie reconhecimentos exclusivos conforme seus indicados ativos
-            crescem.
+            Acompanhe seu progresso e desbloqueie reconhecimentos exclusivos conforme seus indicados ativos crescem.
           </p>
           <p className="mt-1 text-xs text-gray-400">Somente visual — premiações entregues manualmente pelo AF.</p>
         </div>
@@ -71,7 +70,7 @@ export const PartnerReferralMilestonesSection: React.FC<PartnerReferralMilestone
                     <strong className="text-amber-300">
                       {formatPartnerReferralMilestoneCount(progress.remainingToNext)}
                     </strong>{' '}
-                    cliente{progress.remainingToNext === 1 ? '' : 's'} ativo
+                    indicado{progress.remainingToNext === 1 ? '' : 's'} ativo
                     {progress.remainingToNext === 1 ? '' : 's'}
                   </p>
                 </>
@@ -129,7 +128,7 @@ export const PartnerReferralMilestonesSection: React.FC<PartnerReferralMilestone
                 <p className="text-2xl">{milestone.emoji}</p>
                 <p className="text-sm font-black text-gray-900 leading-snug">{milestone.title}</p>
                 <p className="text-xs font-bold text-amber-700">
-                  {formatPartnerReferralMilestoneCount(milestone.threshold)} clientes ativos
+                  {formatPartnerReferralMilestoneCount(milestone.threshold)} indicados ativos
                 </p>
                 <p className="text-xs text-gray-600 leading-relaxed">{milestone.subtitle}</p>
                 {milestone.estimateLabel && (

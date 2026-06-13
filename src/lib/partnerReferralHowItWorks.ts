@@ -101,3 +101,37 @@ export const PARTNER_REFERRAL_PROFIT_EXAMPLES = [4, 10, 50, 100].map((count) => 
   activeCount: count,
   profitLabel: formatPartnerReferralProfitLabel(count),
 }));
+
+export type PartnerReferralV2EarningsScenario = {
+  activeCount: number;
+  emoji: string;
+  profitLabel: string;
+  isFree?: boolean;
+  isHighlight?: boolean;
+};
+
+export const PARTNER_REFERRAL_V2_HOW_IT_WORKS_STEPS: Array<{
+  emoji: string;
+  label: string;
+  highlight?: boolean;
+}> = [
+  { emoji: '1️⃣', label: 'Compartilhe seu cupom/link' },
+  { emoji: '2️⃣', label: 'Outro barbeiro entra pelo seu link' },
+  { emoji: '3️⃣', label: 'Você ganha R$8 por mês por cada indicado ativo', highlight: true },
+];
+
+export const PARTNER_REFERRAL_V2_HOW_IT_WORKS_FOOTNOTE =
+  'Enquanto ele continuar usando o Agendei Fácil, você continua recebendo.';
+
+export const PARTNER_REFERRAL_V2_EARNINGS_SCENARIOS: PartnerReferralV2EarningsScenario[] = [
+  { activeCount: 3, emoji: '🆓', profitLabel: 'Sistema grátis', isFree: true },
+  { activeCount: 10, emoji: '💰', profitLabel: formatPartnerReferralProfitLabel(10) },
+  { activeCount: 50, emoji: '💰', profitLabel: formatPartnerReferralProfitLabel(50) },
+  { activeCount: 100, emoji: '💰', profitLabel: formatPartnerReferralProfitLabel(100) },
+  {
+    activeCount: 500,
+    emoji: '🔥',
+    profitLabel: 'Quase R$4 mil/mês',
+    isHighlight: true,
+  },
+];

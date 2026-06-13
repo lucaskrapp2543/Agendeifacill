@@ -651,6 +651,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     icon: LucideIcon;
     isActive?: boolean;
     featured?: boolean;
+    featuredTone?: 'cyan' | 'emerald' | 'sky';
     lockedByPlan?: boolean;
     showBadge?: boolean;
     badgeCount?: number | string;
@@ -658,10 +659,11 @@ const Sidebar: React.FC<SidebarProps> = ({
   }> = [
     {
       id: 'receber-adiantado',
-      label: 'Receber adiantado',
-      description: 'Configure Mercado Pago e receba pagamentos antecipados.',
+      label: '💰 Receba na Hora',
+      description: 'Cliente escolhe pagar online ou no local. Menos faltas e dinheiro na conta na hora.',
       icon: CreditCard,
       featured: true,
+      featuredTone: 'sky',
       isActive: activeTab === 'receber-adiantado' || isReceberAdiantadoOpen,
       onClick: () => {
         if (onboardingStep < 4) {
@@ -669,6 +671,23 @@ const Sidebar: React.FC<SidebarProps> = ({
           return;
         }
         handleItemClick(openReceberAdiantadoSection);
+        setShowAdminMenu(false);
+      },
+    },
+    {
+      id: 'indication',
+      label: '💰 Ganhe Dinheiro',
+      description: '3 indicados = sistema grátis. 500 indicados = quase R$4 mil/mês.',
+      icon: Gift,
+      featured: true,
+      featuredTone: 'emerald',
+      isActive: activeTab === 'indication',
+      onClick: () => {
+        if (isItemLocked('indication')) {
+          onBlockedItemClick?.();
+          return;
+        }
+        handleItemClick(() => onTabChange('indication'));
         setShowAdminMenu(false);
       },
     },
@@ -728,6 +747,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const ADMIN_MENU_PANEL_ORDER: string[] = [
     'receber-adiantado',
+    'indication',
     'clients',
     'service-categories',
     'professionals',
@@ -742,7 +762,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     'client-page',
     'placa-barbearia',
     'config',
-    'indication',
   ];
   const adminMenuPanelItems: Array<
     | { kind: 'menu'; item: (typeof menuItems)[number] }
@@ -764,7 +783,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     notifications: 'Veja avisos de agendamentos, cancelamentos e compras de assinaturas.',
     appointments: 'Veja seus agendamentos, crie reservas e acompanhe o dia.',
     'whatsapp-reminders': 'Conecte o WhatsApp por QR ou código e ative lembretes automáticos para seus clientes.',
-    indication: 'Ganhe R$8/mês por indicação ativa no Diamante. Com 3 ativos, mensalidade grátis; do 4º em diante, lucro.',
+    indication: '3 indicados = sistema grátis. 500 indicados = quase R$4 mil/mês.',
     clients: 'Cadastre clientes, veja histórico e anotações importantes.',
     subscribers: 'Gerencie assinantes e planos mensais do seu estabelecimento.',
     'service-categories': 'Crie e organize seus serviços e preços (cupons de descontos e etc).',
@@ -885,18 +904,18 @@ const Sidebar: React.FC<SidebarProps> = ({
         className: mobileActionCardClass,
       },
       {
-        id: 'indication',
-        label: '💰 Indique e Ganhe',
-        icon: Gift,
-        onClick: () => executeMobileAction('indication', () => onTabChange('indication')),
-        className: mobileActionCardClass,
-      },
-      {
         id: 'receber-adiantado',
-        label: 'Receber adiantado',
+        label: '💰 Receba na Hora',
         icon: CreditCard,
         onClick: () => executeMobileAction('receber-adiantado', openReceberAdiantadoSection),
-        className: 'bg-gradient-to-r from-[#009EE3] to-[#0077B6] border border-cyan-400/40',
+        className: 'bg-gradient-to-r from-sky-500 to-blue-600 border border-sky-400/40',
+      },
+      {
+        id: 'indication',
+        label: '💰 Ganhe Dinheiro',
+        icon: Gift,
+        onClick: () => executeMobileAction('indication', () => onTabChange('indication')),
+        className: 'bg-gradient-to-r from-emerald-600 to-amber-500 border border-emerald-400/40',
       },
       {
         id: 'fila-espera',
@@ -1556,6 +1575,25 @@ const Sidebar: React.FC<SidebarProps> = ({
               const isPlanLocked = Boolean(item.lockedByPlan);
               const isOnboardingLocked = !isPlanLocked && isItemLockedByOnboarding(item.id);
               const isFeatured = Boolean(item.featured);
+              const featuredTone = item.featuredTone || 'cyan';
+              const featuredActiveClass =
+                featuredTone === 'emerald'
+                  ? 'bg-gradient-to-r from-emerald-600 to-amber-500 text-white border-emerald-300 shadow-lg shadow-emerald-500/20'
+                  : featuredTone === 'sky'
+                    ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white border-sky-300 shadow-lg shadow-sky-500/20'
+                    : 'bg-gradient-to-r from-[#009EE3] to-[#0077B6] text-white border-cyan-300 shadow-lg shadow-cyan-500/20';
+              const featuredIdleLightClass =
+                featuredTone === 'emerald'
+                  ? 'bg-gradient-to-r from-emerald-50 to-amber-50 text-emerald-950 border-emerald-400 hover:from-emerald-100 hover:to-amber-100 shadow-md shadow-emerald-200/60'
+                  : featuredTone === 'sky'
+                    ? 'bg-gradient-to-r from-sky-50 to-blue-50 text-sky-950 border-sky-400 hover:from-sky-100 hover:to-blue-100 shadow-md shadow-sky-200/60'
+                    : 'bg-gradient-to-r from-cyan-50 to-sky-100 text-cyan-950 border-cyan-400 hover:from-cyan-100 hover:to-sky-200 shadow-md shadow-cyan-200/60';
+              const featuredIdleDarkClass =
+                featuredTone === 'emerald'
+                  ? 'bg-gradient-to-r from-emerald-500/30 to-amber-500/15 text-white border-emerald-400/70 hover:from-emerald-500/40 hover:to-amber-500/25 shadow-md shadow-emerald-500/10'
+                  : featuredTone === 'sky'
+                    ? 'bg-gradient-to-r from-sky-500/30 to-blue-600/20 text-white border-sky-400/70 hover:from-sky-500/40 hover:to-blue-600/30 shadow-md shadow-sky-500/10'
+                    : 'bg-gradient-to-r from-[#009EE3]/30 to-cyan-500/15 text-white border-cyan-400/70 hover:from-[#009EE3]/40 hover:to-cyan-500/25 shadow-md shadow-cyan-500/10';
               return (
                 <button
                   key={`admin-shortcut-${item.id}`}
@@ -1564,7 +1602,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   className={`relative w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
                     item.isActive
                       ? isFeatured
-                        ? 'bg-gradient-to-r from-[#009EE3] to-[#0077B6] text-white border-cyan-300 shadow-lg shadow-cyan-500/20'
+                        ? featuredActiveClass
                         : isLight
                           ? 'bg-gray-900 text-white border-gray-900'
                           : 'bg-white text-black border-white'
@@ -1574,8 +1612,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                           : 'bg-white/5 text-white/45 border-white/10'
                         : isFeatured
                           ? isLight
-                            ? 'bg-gradient-to-r from-cyan-50 to-sky-100 text-cyan-950 border-cyan-400 hover:from-cyan-100 hover:to-sky-200 shadow-md shadow-cyan-200/60'
-                            : 'bg-gradient-to-r from-[#009EE3]/30 to-cyan-500/15 text-white border-cyan-400/70 hover:from-[#009EE3]/40 hover:to-cyan-500/25 shadow-md shadow-cyan-500/10'
+                            ? featuredIdleLightClass
+                            : featuredIdleDarkClass
                           : isLight
                             ? 'bg-white text-gray-900 hover:bg-gray-50 border-gray-200'
                             : 'bg-white/5 text-white hover:bg-white/10 border-white/10'
@@ -1926,10 +1964,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                       }}
                       className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen
                           ? 'bg-white text-black shadow-md'
-                          : 'bg-gradient-to-r from-[#009EE3] to-[#0077B6] text-white hover:from-[#0088C7] hover:to-[#006AA3] shadow-md'
+                          : 'bg-gradient-to-r from-sky-500 to-blue-600 text-white hover:from-sky-600 hover:to-blue-700 shadow-md shadow-sky-500/20 border border-sky-400/40'
                         }`}
-                      title={isExpanded ? '' : 'Receber adiantado'}
-                      aria-label="Receber adiantado"
+                      title={isExpanded ? '' : 'Receba na Hora'}
+                      aria-label="Receba na Hora"
                     >
                       <CreditCard
                         className={`h-5 w-5 flex-shrink-0 ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen ? 'text-black' : 'text-white'
@@ -1938,7 +1976,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                       {isExpanded && (
                         <>
                           <span className={`text-sm font-medium whitespace-nowrap ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen ? 'text-black' : 'text-white'}`}>
-                            Receber adiantado
+                            💰 Receba na Hora
                           </span>
                           <ChevronRight className={`h-4 w-4 flex-shrink-0 opacity-60 ml-auto ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen ? 'text-black' : 'text-white'}`} />
                         </>
@@ -1948,7 +1986,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     {/* Tooltip para menu recolhido */}
                     {!isExpanded && (
                       <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
-                        Receber adiantado
+                        💰 Receba na Hora
                       </div>
                     )}
 

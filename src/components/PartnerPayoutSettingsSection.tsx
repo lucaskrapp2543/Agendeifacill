@@ -17,6 +17,7 @@ type PartnerPayoutSettingsSectionProps = {
   isLoading?: boolean;
   onSaved?: (settings: PartnerPayoutSettingsRow) => void;
   readOnly?: boolean;
+  variant?: 'default' | 'ganhe-dinheiro';
 };
 
 export const PartnerPayoutSettingsSection: React.FC<PartnerPayoutSettingsSectionProps> = ({
@@ -25,6 +26,7 @@ export const PartnerPayoutSettingsSection: React.FC<PartnerPayoutSettingsSection
   isLoading = false,
   onSaved,
   readOnly = false,
+  variant = 'default',
 }) => {
   const [pixKeyType, setPixKeyType] = useState<PartnerPixKeyType>('cpf_cnpj');
   const [pixKey, setPixKey] = useState('');
@@ -76,9 +78,17 @@ export const PartnerPayoutSettingsSection: React.FC<PartnerPayoutSettingsSection
     }
   };
 
+  const isDark = variant === 'ganhe-dinheiro';
+
   if (isLoading) {
     return (
-      <div className="rounded-2xl border border-teal-200 bg-teal-50/50 p-6 text-center text-teal-800/70">
+      <div
+        className={`rounded-2xl border p-6 text-center ${
+          isDark
+            ? 'border-white/10 bg-white/[0.03] text-white/60'
+            : 'border-teal-200 bg-teal-50/50 text-teal-800/70'
+        }`}
+      >
         Carregando dados para saque...
       </div>
     );
@@ -109,23 +119,33 @@ export const PartnerPayoutSettingsSection: React.FC<PartnerPayoutSettingsSection
   }
 
   return (
-    <div className="rounded-2xl border border-teal-200/80 bg-gradient-to-br from-teal-50 via-white to-cyan-50 p-5 sm:p-6 shadow-lg space-y-4">
+    <div
+      className={`rounded-2xl border p-5 sm:p-6 space-y-4 ${
+        isDark
+          ? 'border-white/10 bg-white/[0.03]'
+          : 'border-teal-200/80 bg-gradient-to-br from-teal-50 via-white to-cyan-50 shadow-lg'
+      }`}
+    >
       <div className="flex items-start gap-3">
-        <div className="w-11 h-11 rounded-xl bg-teal-600 flex items-center justify-center shrink-0 shadow-md">
+        <div
+          className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 shadow-md ${
+            isDark ? 'bg-emerald-600' : 'bg-teal-600'
+          }`}
+        >
           <Wallet className="w-6 h-6 text-white" />
         </div>
         <div>
-          <h3 className="text-xl font-extrabold text-gray-900">💸 Dados para saque</h3>
-          <p className="text-sm text-gray-600 mt-1">
-            Cadastre sua chave Pix para receber os lucros das suas indicações.
+          <h3 className={`text-xl font-extrabold ${isDark ? 'text-white' : 'text-gray-900'}`}>💸 Dados para saque</h3>
+          <p className={`text-sm mt-1 ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
+            Cadastre sua chave Pix para receber seus ganhos.
           </p>
         </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <label htmlFor="partner-pix-type" className="block text-sm font-semibold text-gray-800">
-            Tipo da chave Pix
+          <label htmlFor="partner-pix-type" className={`block text-sm font-semibold ${isDark ? 'text-white/90' : 'text-gray-800'}`}>
+            Tipo de chave
           </label>
           <select
             id="partner-pix-type"
@@ -135,7 +155,11 @@ export const PartnerPayoutSettingsSection: React.FC<PartnerPayoutSettingsSection
               setPixKey('');
               setError(null);
             }}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-gray-900 focus:border-teal-500 focus:ring-2 focus:ring-teal-200 outline-none"
+            className={`w-full rounded-xl border px-3 py-2.5 outline-none focus:ring-2 ${
+              isDark
+                ? 'border-white/20 bg-[#0f172a]/80 text-white focus:border-emerald-500 focus:ring-emerald-500/30'
+                : 'border-gray-300 text-gray-900 focus:border-teal-500 focus:ring-teal-200'
+            }`}
           >
             {PARTNER_PIX_KEY_TYPE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -146,7 +170,7 @@ export const PartnerPayoutSettingsSection: React.FC<PartnerPayoutSettingsSection
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="partner-pix-key" className="block text-sm font-semibold text-gray-800">
+          <label htmlFor="partner-pix-key" className={`block text-sm font-semibold ${isDark ? 'text-white/90' : 'text-gray-800'}`}>
             Chave Pix
           </label>
           <input
@@ -158,13 +182,17 @@ export const PartnerPayoutSettingsSection: React.FC<PartnerPayoutSettingsSection
               setError(null);
             }}
             placeholder={getPartnerPixKeyPlaceholder(pixKeyType)}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-gray-900 focus:border-teal-500 focus:ring-2 focus:ring-teal-200 outline-none"
+            className={`w-full rounded-xl border px-3 py-2.5 outline-none focus:ring-2 ${
+              isDark
+                ? 'border-white/20 bg-[#0f172a]/80 text-white placeholder:text-white/30 focus:border-emerald-500 focus:ring-emerald-500/30'
+                : 'border-gray-300 text-gray-900 focus:border-teal-500 focus:ring-teal-200'
+            }`}
           />
         </div>
 
         <div className="space-y-2 sm:col-span-2">
-          <label htmlFor="partner-receiver-name" className="block text-sm font-semibold text-gray-800">
-            Nome do recebedor <span className="font-normal text-gray-500">(opcional)</span>
+          <label htmlFor="partner-receiver-name" className={`block text-sm font-semibold ${isDark ? 'text-white/90' : 'text-gray-800'}`}>
+            Nome recebedor <span className={`font-normal ${isDark ? 'text-white/50' : 'text-gray-500'}`}>(opcional)</span>
           </label>
           <input
             id="partner-receiver-name"
@@ -173,19 +201,25 @@ export const PartnerPayoutSettingsSection: React.FC<PartnerPayoutSettingsSection
             onChange={(e) => setReceiverName(e.target.value)}
             placeholder="João Barbearia"
             maxLength={120}
-            className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-gray-900 focus:border-teal-500 focus:ring-2 focus:ring-teal-200 outline-none"
+            className={`w-full rounded-xl border px-3 py-2.5 outline-none focus:ring-2 ${
+              isDark
+                ? 'border-white/20 bg-[#0f172a]/80 text-white placeholder:text-white/30 focus:border-emerald-500 focus:ring-emerald-500/30'
+                : 'border-gray-300 text-gray-900 focus:border-teal-500 focus:ring-teal-200'
+            }`}
           />
         </div>
       </div>
 
-      {error && <p className="text-sm text-red-700 font-medium">{error}</p>}
-      {success && <p className="text-sm text-emerald-700 font-medium">{success}</p>}
+      {error && <p className={`text-sm font-medium ${isDark ? 'text-red-300' : 'text-red-700'}`}>{error}</p>}
+      {success && <p className={`text-sm font-medium ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>{success}</p>}
 
       <button
         type="button"
         disabled={isSaving || !establishmentId}
         onClick={() => void handleSave()}
-        className="inline-flex items-center justify-center rounded-xl bg-teal-600 px-6 py-3 text-sm font-bold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+        className={`inline-flex items-center justify-center rounded-xl px-6 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50 ${
+          isDark ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-teal-600 hover:bg-teal-700'
+        }`}
       >
         {isSaving ? 'Salvando...' : 'Salvar dados'}
       </button>
