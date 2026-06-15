@@ -5,9 +5,11 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { buildSubscriberAttendanceSnapshotFields, computeSubscriberRepassValue, findClientSubscriptionForAppointment, findExistingSubscriberAttendance, insertSubscriberAttendanceOnce, removeSubscriberAttendanceForCancelledAppointment, resolveAppointmentProfessionalForSubscriber } from '../lib/subscriberSystem';
 import {
+  buildCompletionPaymentPatch,
   clientNameHasSubscriberLabel,
   isDateInsidePaidSubscription,
   isSubscriberAppointmentFromFields,
+  resolveEffectivePaymentMethod,
   sanitizeAppointmentServiceDisplay,
   shouldAutoRegisterSubscriberAttendanceFromAppointment,
 } from '../lib/subscriberAppointmentFlags';
@@ -3388,6 +3390,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
               ...(newStatus === 'pending' || newStatus === 'confirmed'
                 ? { manual_status_override: true }
                 : { manual_status_override: false }),
+              ...(newStatus === 'completed' && appointment
+                ? buildCompletionPaymentPatch(appointment as any)
+                : {}),
             } as Record<string, unknown>);
 
         let { error } = await supabase.from('appointments').update(cancelPayload as any).eq('id', appointmentId);
@@ -3406,7 +3411,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
         if (error && newStatus === 'completed' && isTodayAppointment && isBlockedByHourError(error)) {
           const retry = await supabase
             .from('appointments')
-            .update({ status: newStatus, allow_blocked_override: true } as any)
+            .update({
+              status: newStatus,
+              allow_blocked_override: true,
+              ...(appointment ? buildCompletionPaymentPatch(appointment as any) : {}),
+            } as any)
             .eq('id', appointmentId);
           error = retry.error;
         }
@@ -4723,7 +4732,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         }, {});
       }
 
-      const method = String(apt.payment_method || '').trim() || 'pagar_local';
+      const method = resolveEffectivePaymentMethod(apt as any);
       return { [method]: calculateTotalPrice(apt) };
     };
 

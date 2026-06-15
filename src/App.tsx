@@ -5,11 +5,8 @@ import { CacheBuster } from './components/CacheBuster';
 import { AppStandbyGuard } from './components/AppStandbyGuard';
 import { ConnectionStatus } from './components/ConnectionStatus';
 import { EnvironmentError } from './components/EnvironmentError';
-import ErrorBoundary from './components/ErrorBoundary';
 import { RefreshButton } from './components/RefreshButton';
 import { UpdateNotification } from './components/UpdateNotification';
-import { AuthProvider } from './context/AuthContext';
-import { SupabaseProvider } from './context/SupabaseContext';
 import { registerServiceWorker } from './utils/serviceWorker';
 import { shouldDisableAggressiveReloads } from './utils/browserEnv';
 
@@ -86,8 +83,7 @@ function App() {
   }
 
   return (
-    <ErrorBoundary>
-      <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground">
         <CacheBuster />
         <ConnectionStatus />
         <UpdateNotification />
@@ -106,8 +102,6 @@ function App() {
             }
           }}
         />
-        <SupabaseProvider>
-          <AuthProvider>
             <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
               <PWARedirect />
               <AppStandbyGuard />
@@ -201,10 +195,7 @@ function App() {
                   <Route path="*" element={<NotFound />} />
               </Routes>
             </Router>
-          </AuthProvider>
-        </SupabaseProvider>
-      </div>
-    </ErrorBoundary>
+    </div>
   );
 }
 

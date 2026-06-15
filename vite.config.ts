@@ -44,6 +44,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+    dedupe: ['react', 'react-dom'],
   },
   // Configuração para servir o index.html em todas as rotas
   build: {

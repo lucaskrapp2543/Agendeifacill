@@ -74,33 +74,27 @@ export function normalizeSubscriberNameKey(value: unknown): string {
     .toLowerCase();
 }
 
-export function isSubscriberAppointmentFromFields(apt: SubscriberAppointmentLike | null | undefined): boolean {
+export function isStrictSubscriberAppointment(apt: SubscriberAppointmentLike | null | undefined): boolean {
   if (!apt) return false;
+  if (parseSubscriberBoolean(apt.is_loyalty_reward)) return false;
+
+  const baseServicePrice = Number(apt.price ?? 0);
+  if (!Number.isFinite(baseServicePrice) || baseServicePrice > 0) return false;
+
   if (parseSubscriberBoolean(apt.is_subscriber)) return true;
+  if (clientNameHasSubscriberLabel(apt.client_name)) return true;
 
   const paymentMethod = String(apt.payment_method || '').trim().toLowerCase();
   if (paymentMethod === 'assinante') return true;
 
-  if (String(apt.subscription_id || '').trim()) return true;
   if (String(apt.subscriber_service_id || '').trim()) return true;
   if (String(apt.subscriber_service_name || '').trim()) return true;
 
-  const clientName = String(apt.client_name || '').trim();
-  const clientNameLower = clientName.toLowerCase();
-  // Label explícito na agenda — "(ASSINANTE)" (contagem manual do estabelecimento).
-  if (/\(\s*assinante\s*\)/i.test(clientName)) return true;
+  return false;
+}
 
-  const hasSubscriberLabel = clientNameLower.includes('assinante');
-  const basePrice = Number(apt.price || 0);
-  const totalPrice = Number(apt.total_price ?? apt.price ?? 0);
-  const isZeroValue =
-    Number.isFinite(basePrice) &&
-    Number.isFinite(totalPrice) &&
-    basePrice <= 0 &&
-    totalPrice <= 0 &&
-    apt.is_loyalty_reward !== true;
-
-  return hasSubscriberLabel && isZeroValue;
+export function isSubscriberAppointmentFromFields(apt: SubscriberAppointmentLike | null | undefined): boolean {
+  return isStrictSubscriberAppointment(apt);
 }
 
 /** Label "(ASSINANTE)" persistido ou visível no nome do cliente na agenda. */
@@ -120,18 +114,7 @@ export function isSubscriberAppointmentForProfessionalControl(
 ): boolean {
   if (!apt) return false;
   if (String(apt.status || '').trim().toLowerCase() !== 'completed') return false;
-  if (parseSubscriberBoolean(apt.is_loyalty_reward)) return false;
-
-  const baseServicePrice = Number(apt.price ?? 0);
-  if (!Number.isFinite(baseServicePrice) || baseServicePrice > 0) return false;
-
-  if (parseSubscriberBoolean(apt.is_subscriber)) return true;
-  if (clientNameHasSubscriberLabel(apt.client_name)) return true;
-
-  const paymentMethod = String(apt.payment_method || '').trim().toLowerCase();
-  if (paymentMethod === 'assinante') return true;
-
-  return false;
+  return isStrictSubscriberAppointment(apt);
 }
 
 /** @deprecated Use isSubscriberAppointmentForProfessionalControl */
@@ -227,39 +210,24 @@ export function enrichAppointmentsWithSubscriberFlags<T extends SubscriberAppoin
 
   return appointments.map((apt) => {
     const next = { ...apt } as T & SubscriberAppointmentLike;
-    next.is_subscriber = parseSubscriberBoolean(next.is_subscriber);
+    next.is_subscriber = isStrictSubscriberAppointment(next);
 
-    if (next.is_subscriber) return next as T;
+    if (!next.is_subscriber) {
+      return next as T;
+    }
+
+    if (!String(next.subscription_id || '').trim()) {
+      const matchedSubscription = findMatchingSubscriptionForAppointment(next, subscriptionsByPhone, subscriptionsByName);
+      if (matchedSubscription) {
+        next.subscription_id =
+          String(matchedSubscription?.subscription_id || matchedSubscription?.id || '').trim() || null;
+      }
+    }
 
     const paymentMethod = String(next.payment_method || '').toLowerCase().trim();
-    const hasExplicitSubscriptionLink =
-      paymentMethod === 'assinante' || Boolean(String(next.subscription_id || '').trim());
-    const basePrice = Number(next.price || 0);
-    const totalPrice = Number(next.total_price ?? next.price ?? 0);
-    const isZeroValueAppointment =
-      Number.isFinite(basePrice) &&
-      Number.isFinite(totalPrice) &&
-      basePrice <= 0 &&
-      totalPrice <= 0 &&
-      next.is_loyalty_reward !== true;
-
-    if (!hasExplicitSubscriptionLink && !isZeroValueAppointment && !String(next.subscriber_service_id || '').trim()) {
-      return next as T;
-    }
-
-    const matchedSubscription = findMatchingSubscriptionForAppointment(next, subscriptionsByPhone, subscriptionsByName);
-    if (!matchedSubscription && !hasExplicitSubscriptionLink && !String(next.subscriber_service_id || '').trim()) {
-      return next as T;
-    }
-
-    next.is_subscriber = true;
     if (paymentMethod !== 'assinante') {
       next.payment_method = 'assinante';
     }
-    next.subscription_id =
-      String(next.subscription_id || '').trim() ||
-      String(matchedSubscription?.subscription_id || matchedSubscription?.id || '').trim() ||
-      null;
 
     return next as T;
   });
@@ -313,5 +281,33 @@ export function sanitizeAppointmentServiceDisplay(service: unknown): string {
 }
 
 export function shouldAutoRegisterSubscriberAttendanceFromAppointment(apt: SubscriberAppointmentLike): boolean {
-  return isSubscriberAppointmentFromFields(apt);
+  return isSubscriberAppointmentForProfessionalControl(apt);
+}
+
+/** Forma de pagamento efetiva para exibição/financeiro (vazio → dinheiro em avulsos). */
+export function resolveEffectivePaymentMethod(apt: SubscriberAppointmentLike | null | undefined): string {
+  if (isStrictSubscriberAppointment(apt)) {
+    const method = String(apt?.payment_method || '').trim().toLowerCase();
+    return method === 'assinante' ? 'assinante' : method || 'assinante';
+  }
+
+  const method = String(apt?.payment_method || '').trim().toLowerCase();
+  if (!method || method === 'pendente' || method === 'assinante') return 'dinheiro';
+  return method;
+}
+
+/** Ao concluir avulso sem forma definida (ou com assinante inconsistente), gravar dinheiro. */
+export function buildCompletionPaymentPatch(
+  apt: SubscriberAppointmentLike | null | undefined
+): Record<string, unknown> {
+  if (!apt || isStrictSubscriberAppointment(apt)) return {};
+
+  const method = String(apt.payment_method || '').trim().toLowerCase();
+  if (method && method !== 'pendente' && method !== 'assinante') return {};
+
+  const patch: Record<string, unknown> = { payment_method: 'dinheiro' };
+  if (parseSubscriberBoolean(apt.is_subscriber)) {
+    patch.is_subscriber = false;
+  }
+  return patch;
 }

@@ -1,3 +1,5 @@
+import { isStrictSubscriberAppointment } from '../lib/subscriberAppointmentFlags';
+
 export type AppointmentPaymentChannel =
   | 'system_online_pix'
   | 'system_online_card'
@@ -36,7 +38,7 @@ export function resolveAppointmentPaymentChannel(appointment: any): AppointmentP
   const method = String(appointment?.payment_method || '').trim().toLowerCase();
   const pixStatus = String(appointment?.pix_payment_status || '').trim().toLowerCase();
 
-  if (method === 'assinante' || appointment?.is_subscriber === true) {
+  if (isStrictSubscriberAppointment(appointment)) {
     return 'subscriber';
   }
 

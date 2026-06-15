@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import { shouldDisableAggressiveReloads } from './utils/browserEnv';
+import ErrorBoundary from './components/ErrorBoundary';
+import { AuthProvider } from './context/AuthContext';
+import { SupabaseProvider } from './context/SupabaseContext';
 
 // ✅ DEV/LOCALHOST: remover Service Worker/caches antes de renderizar (evita UI “presa” em versão antiga)
 // Proteção: faz isso só 1x por sessão para não criar loop de reload.
@@ -256,7 +259,13 @@ if (!rootElement) {
     const root = createRoot(rootElement);
     root.render(
       <StrictMode>
-        <App />
+        <ErrorBoundary>
+          <SupabaseProvider>
+            <AuthProvider>
+              <App />
+            </AuthProvider>
+          </SupabaseProvider>
+        </ErrorBoundary>
       </StrictMode>
     );
 

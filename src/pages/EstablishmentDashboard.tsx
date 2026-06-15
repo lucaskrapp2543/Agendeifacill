@@ -48,9 +48,12 @@ import { createIndependentSubscriber, insertSubscriberAttendance, persistSubscri
 import { syncSubscribersToManualClients } from '../lib/manualClientsSync';
 import {
   enrichAppointmentsWithSubscriberFlags,
+  isStrictSubscriberAppointment,
+  isSubscriberAppointmentForProfessionalControl,
   isSubscriberAppointmentFromFields,
   mergeAppointmentPreservingSubscriberFlags,
   parseSubscriberBoolean,
+  resolveEffectivePaymentMethod,
   type ClientSubscriptionRowLite,
 } from '../lib/subscriberAppointmentFlags';
 import {
@@ -12178,14 +12181,8 @@ Estamos te aguardando!`;
     return raw === 'true' || raw === '1' || raw === 't' || raw === 'yes' || raw === 'sim' || raw === 'on';
   };
 
-  const shouldAutoRegisterSubscriberAttendanceForAppointment = (apt: Appointment): boolean => {
-    if ((apt as any)?.is_subscriber === true) return true;
-    const nameRaw = String((apt as any)?.client_name || '').trim().toLowerCase();
-    const hasSubscriberLabel = nameRaw.includes('assinante');
-    const basePrice = Number((apt as any)?.price || 0);
-    const totalPrice = Number((apt as any)?.total_price || 0);
-    return hasSubscriberLabel && (basePrice <= 0 || totalPrice <= 0);
-  };
+  const shouldAutoRegisterSubscriberAttendanceForAppointment = (apt: Appointment): boolean =>
+    isSubscriberAppointmentForProfessionalControl(apt as any);
 
   const autoRegisterSubscriberAttendanceForAppointment = async (apt: Appointment): Promise<void> => {
     const appointmentId = String((apt as any)?.id || '').trim();
@@ -13117,7 +13114,10 @@ Estamos te aguardando!`;
           );
 
           const repairCandidates = appointmentsData
-            .filter((apt: any) => isSubscriberAppointmentFromFields(apt) && !parseSubscriberBoolean(apt?.__persisted_is_subscriber))
+            .filter(
+              (apt: any) =>
+                isStrictSubscriberAppointment(apt) && !parseSubscriberBoolean(apt?.__persisted_is_subscriber)
+            )
             .slice(0, 25);
 
           for (const apt of repairCandidates) {
@@ -13125,7 +13125,7 @@ Estamos te aguardando!`;
             if (beforePersist) continue;
             const { updated } = await persistSubscriberAppointmentFlagsIfNeeded(String(apt.id || ''), {
               is_subscriber: true,
-              payment_method: String(apt.payment_method || 'assinante'),
+              payment_method: resolveEffectivePaymentMethod(apt as any),
               subscription_id: String(apt.subscription_id || '').trim() || null,
               subscriber_service_id: String(apt.subscriber_service_id || '').trim() || null,
               subscriber_service_name: String(apt.subscriber_service_name || '').trim() || null,
@@ -17920,24 +17920,13 @@ Estamos te aguardando!`;
     }
   };
 
-  const isSubscriberAppointment = (appointment?: Partial<Appointment> | null) => {
-    if (!appointment) return false;
-    if ((appointment as any).is_subscriber === true) return true;
-    const paymentMethod = String((appointment as any).payment_method || '').trim().toLowerCase();
-    if (paymentMethod === 'assinante') return true;
-    const subscriberServiceId = String((appointment as any).subscriber_service_id || '').trim();
-    const subscriberServiceName = String((appointment as any).subscriber_service_name || '').trim();
-    return subscriberServiceId.length > 0 || subscriberServiceName.length > 0;
-  };
+  const isSubscriberAppointment = (appointment?: Partial<Appointment> | null) =>
+    isStrictSubscriberAppointment(appointment as any);
 
   // Base oficial de "atendimentos financeiros" do dashboard:
-  // concluído + não assinante + não assinante pago detectado por telefone.
+  // concluído + assinante estrito (R$ 0 no serviço + label/método de assinante).
   function shouldExcludeFromFinancialAttendanceBase(appointment?: Partial<Appointment> | null): boolean {
-    if (!appointment) return false;
-    if (isSubscriberAppointment(appointment)) return true;
-    const cleanWhatsapp = String((appointment as any)?.client_whatsapp || '').replace(/\D/g, '');
-    const isPaidSubscriberByPhone = Boolean(cleanWhatsapp) && paidSubscribers.has(cleanWhatsapp);
-    return isPaidSubscriberByPhone;
+    return isSubscriberAppointmentForProfessionalControl(appointment as any);
   }
 
   // Função SIMPLES para verificar se um WhatsApp é de assinante pago
@@ -26510,7 +26499,9 @@ Estamos te aguardando!`;
     } else if (detailedRevenueFilter === 'todos' || detailedRevenueFilter === 'servicos_mais_feitos') {
       filteredRows = completedRows;
     } else {
-      filteredRows = completedRows.filter((apt) => String(apt.payment_method || '').trim() === detailedRevenueFilter);
+      filteredRows = completedRows.filter(
+        (apt) => resolveEffectivePaymentMethod(apt as any) === detailedRevenueFilter
+      );
     }
 
     const professionalByAppointmentId = new Map<string, any | null>();
@@ -35435,6 +35426,11 @@ Estamos te aguardando!`;
                             {isLoadingProfessionalRevenueAppointments
                               ? 'Carregando período...'
                               : `${professionalRevenueDiagnostics.mappedCount} atendimento(s) concluído(s) mapeado(s) no período`}
+                            {!isLoadingProfessionalRevenueAppointments && (
+                              <span className="block sm:inline sm:ml-2 text-gray-500">
+                                (avulsos + assinantes somam no total de cada profissional; lista azul = só avulsos)
+                              </span>
+                            )}
                           </span>
                           {!isLoadingProfessionalRevenueAppointments && professionalRevenueDiagnostics.unmatchedCount > 0 && (
                             <span className="text-[11px] text-amber-300">
@@ -35473,10 +35469,20 @@ Estamos te aguardando!`;
                             !shouldExcludeFromFinancialAttendanceBase(apt)
                         );
 
+                        const professionalCompletedAll = professionalRevenueAppointments.filter(
+                          (apt) =>
+                            appointmentBelongsToProfessional(apt, professional) &&
+                            isCompletedAppointmentStatus(apt)
+                        );
+                        const avulsoCompletedCount = professionalCompletedAll.filter(
+                          (apt) => !isSubscriberAppointmentForProfessionalControl(apt)
+                        ).length;
+                        const assinanteCompletedCount = professionalCompletedAll.filter((apt) =>
+                          isSubscriberAppointmentForProfessionalControl(apt)
+                        ).length;
+                        const totalAtendimentosMes = avulsoCompletedCount + assinanteCompletedCount;
+
                         const professionalRevenue = professionalAppointments.reduce((total, apt) => {
-                          if (isSubscriberAppointment(apt)) {
-                            return total; // Não adiciona ao faturamento se for assinante pago
-                          }
                           const appointmentValue = getAppointmentRevenueBase(apt);
                           return total + appointmentValue;
                         }, 0);
@@ -35534,13 +35540,23 @@ Estamos te aguardando!`;
                                   {professional.name}
                                 </p>
                                 <div className="text-sm text-gray-300 mt-1 bg-[#0b0e13]/80 border border-gray-700 rounded-lg px-3 py-2 inline-block">
-                                  <p className="flex items-center gap-2">
-                                    <span className="font-medium">{professionalAppointments.length} agendamento(s)</span>
+                                  <p className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-semibold text-white">
+                                      {totalAtendimentosMes} atendimento(s) no mês
+                                    </span>
                                     <span className="text-gray-500">•</span>
                                     {isOwnerProfessional(professional) ? (
                                       <span className="text-emerald-300 font-semibold bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-md">Dono (100%)</span>
                                     ) : (
                                       <span className="text-cyan-300 font-medium bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 rounded-md">{normalizeProfessionalPercentage(professional.percentage)}%</span>
+                                    )}
+                                  </p>
+                                  <p className="mt-1.5 text-xs text-gray-400">
+                                    {avulsoCompletedCount} avulso{avulsoCompletedCount === 1 ? '' : 's'} (R$ no serviço)
+                                    {assinanteCompletedCount > 0 && (
+                                      <>
+                                        {' '}• {assinanteCompletedCount} assinante{assinanteCompletedCount === 1 ? '' : 's'} (R$ 0 + ASSINANTE)
+                                      </>
                                     )}
                                   </p>
                                   {(subscriberProfessionalFinancial.totalAccumulated > 0 || subscriberProfessionalFinancial.totalPaid > 0) && (
@@ -35669,9 +35685,9 @@ Estamos te aguardando!`;
                                     <div className="w-full rounded-lg border border-blue-700 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 flex items-center justify-between transition-colors">
                                       <div className="flex items-center gap-2">
                                         <span>📋</span>
-                                        <span className="font-semibold text-sm">Clique aqui para ver serviços feitos</span>
+                                        <span className="font-semibold text-sm">Clique aqui para ver serviços avulsos feitos</span>
                                         <span className="text-[11px] bg-white/20 px-2 py-0.5 rounded">
-                                          {professionalAppointments.length}
+                                          {avulsoCompletedCount}
                                         </span>
                                       </div>
                                       <span className="text-xs font-bold group-open:rotate-180 transition-transform">▼</span>
@@ -35903,7 +35919,7 @@ Estamos te aguardando!`;
                                     ) : (
                                       professionalAppointments
                                         .filter(apt => isCompletedAppointmentStatus(apt))
-                                        .filter(apt => paymentFilter === 'todos' || apt.payment_method === paymentFilter)
+                                        .filter(apt => paymentFilter === 'todos' || resolveEffectivePaymentMethod(apt as any) === paymentFilter)
                                         .map((apt, index) => {
                                           const baseValue = getAppointmentRevenueBase(apt);
                                           let netValue;
@@ -35949,7 +35965,9 @@ Estamos te aguardando!`;
                                             'debito': 'Débito',
                                             'pendente': 'Pendente'
                                           };
-                                          const paymentMethodLabel = paymentMethodMap[apt.payment_method || 'pendente'] || apt.payment_method || 'Pendente';
+                                          const effectivePaymentMethod = resolveEffectivePaymentMethod(apt as any);
+                                          const paymentMethodLabel =
+                                            paymentMethodMap[effectivePaymentMethod] || effectivePaymentMethod || 'Dinheiro';
 
                                           return (
                                             <div key={index} className="bg-[#121722] border border-gray-700 rounded-lg p-3 mb-3 last:mb-0">
