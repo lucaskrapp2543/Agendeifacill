@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { addMonths } from 'date-fns';
 import type { Database } from '../types/supabase';
+import { getWhatsappLookupKeys } from './subscriberAppointmentFlags';
 import { dlog } from '../utils/debugConsole';
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
 import { getSubscriptionUsageDateRange } from '../utils/subscriptionUsagePeriod';
@@ -2196,6 +2197,26 @@ const normalizePhoneNumber = (phone: string): string => {
   return phone.replace(/\D/g, ''); // Remove tudo que não é dígito
 };
 
+const buildWhatsappMatchKeySet = (raw: string): Set<string> => {
+  const keys = new Set<string>();
+  getWhatsappLookupKeys(String(raw || '')).forEach((key) => {
+    const digits = String(key || '').replace(/\D/g, '');
+    if (digits) keys.add(digits);
+  });
+  const direct = normalizePhoneNumber(raw);
+  if (direct) keys.add(direct);
+  return keys;
+};
+
+const whatsappKeysOverlap = (a: string, b: string): boolean => {
+  const setA = buildWhatsappMatchKeySet(a);
+  if (setA.size === 0) return false;
+  for (const key of buildWhatsappMatchKeySet(b)) {
+    if (setA.has(key)) return true;
+  }
+  return false;
+};
+
 // Função para verificar se um WhatsApp é assinante ativo
 export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId: string) => {
   try {
@@ -2255,12 +2276,14 @@ export const checkWhatsAppSubscriber = async (whatsapp: string, establishmentId:
       })[0] || null;
     };
 
-    // Buscar por número normalizado (verificar tanto client_whatsapp quanto subscriber_whatsapp)
-    const matchingSubscribers = (data || []).filter(sub => {
-      const clientPhone = normalizePhoneNumber(sub.client_whatsapp || '');
-      const subscriberPhone = normalizePhoneNumber(sub.subscriber_whatsapp || '');
-
-      return clientPhone === normalizedWhatsapp || subscriberPhone === normalizedWhatsapp;
+    // Buscar por número normalizado (55/DDD, com ou sem 9 extra)
+    const matchingSubscribers = (data || []).filter((sub) => {
+      const clientPhone = String(sub.client_whatsapp || '');
+      const subscriberPhone = String(sub.subscriber_whatsapp || '');
+      return (
+        whatsappKeysOverlap(normalizedWhatsapp, clientPhone) ||
+        whatsappKeysOverlap(normalizedWhatsapp, subscriberPhone)
+      );
     });
     const subscriber = resolveBestSubscriber(matchingSubscribers);
 

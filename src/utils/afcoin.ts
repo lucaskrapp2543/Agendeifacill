@@ -1,5 +1,10 @@
 import { supabase } from '../lib/supabase';
-import { isAppointmentEligibleForAfcoins, resolveAppointmentPaymentChannel } from './appointmentPayment';
+import { getWhatsappLookupKeys } from '../lib/subscriberAppointmentFlags';
+import {
+  computeAfcoinPointsForAppointment,
+  isAppointmentEligibleForAfcoins,
+  resolveAppointmentPaymentChannel,
+} from './appointmentPayment';
 
 export type AfcoinBookingRule =
   | 'name_phone_5'
@@ -163,6 +168,172 @@ export async function fetchAfcoinClientWallets(params: {
     console.warn('AFCoins: erro inesperado ao buscar carteiras:', error);
     return [];
   }
+}
+
+function registerAfcoinBalanceKey(map: Map<string, number>, rawKey: string, balance: number): void {
+  const digits = String(rawKey || '').replace(/\D/g, '');
+  if (!digits) return;
+  map.set(digits, Math.max(map.get(digits) ?? 0, balance));
+  const normalized = normalizeAfcoinPhone(digits);
+  if (normalized) map.set(normalized, Math.max(map.get(normalized) ?? 0, balance));
+  if (digits.startsWith('55') && digits.length > 2) {
+    const local = digits.slice(2);
+    map.set(local, Math.max(map.get(local) ?? 0, balance));
+  }
+  if (!digits.startsWith('55') && digits.length >= 10 && digits.length <= 11) {
+    map.set(`55${digits}`, Math.max(map.get(`55${digits}`) ?? 0, balance));
+  }
+}
+
+/** Índice de saldo por variantes de telefone (mesma regra do RPC / Meus Agendamentos). */
+export function buildAfcoinBalanceIndex(
+  rows: Array<{ customer_phone?: string | null; balance?: number | null }>
+): Map<string, number> {
+  const map = new Map<string, number>();
+  rows.forEach((row) => {
+    const balance = Number(row?.balance || 0);
+    if (!Number.isFinite(balance)) return;
+    const raw = String(row?.customer_phone || '').trim();
+    registerAfcoinBalanceKey(map, raw, balance);
+    buildAfcoinPhoneVariants(raw).forEach((variant) => registerAfcoinBalanceKey(map, variant, balance));
+    getWhatsappLookupKeys(raw).forEach((variant) => registerAfcoinBalanceKey(map, variant, balance));
+  });
+  return map;
+}
+
+export function lookupAfcoinBalanceInIndex(whatsapp: string, index: Map<string, number>): number {
+  let best = 0;
+  collectAfcoinPhoneProbeKeys(whatsapp).forEach((key) => {
+    if (index.has(key)) best = Math.max(best, index.get(key)!);
+  });
+  return best;
+}
+
+function collectAfcoinPhoneProbeKeys(raw: string): Set<string> {
+  const probes = new Set<string>();
+  const add = (value: string) => {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (digits) probes.add(digits);
+    const normalized = normalizeAfcoinPhone(value);
+    if (normalized) probes.add(normalized);
+    if (digits.startsWith('55') && digits.length > 2) probes.add(digits.slice(2));
+    if (!digits.startsWith('55') && digits.length >= 10 && digits.length <= 11) {
+      probes.add(`55${digits}`);
+    }
+  };
+
+  add(raw);
+  buildAfcoinPhoneVariants(raw).forEach(add);
+  getWhatsappLookupKeys(raw).forEach(add);
+  return probes;
+}
+
+/** Mesma base do "Meus Agendamentos": soma 18/60 por agendamento elegível. */
+export function buildAfcoinBalanceByPhoneKeyFromAppointments(
+  appointments: any[],
+  establishment: unknown
+): Map<string, number> {
+  const map = new Map<string, number>();
+  if (!isClientAfcoinsEnabledForEstablishment(establishment)) return map;
+  if (!Array.isArray(appointments)) return map;
+
+  appointments.forEach((apt) => {
+    const enriched = {
+      ...apt,
+      establishments: apt?.establishments || establishment,
+    };
+    const points = computeAfcoinPointsForAppointment(enriched);
+    if (points <= 0) return;
+
+    collectAfcoinPhoneProbeKeys(String(apt?.client_whatsapp || '')).forEach((key) => {
+      map.set(key, (map.get(key) || 0) + points);
+    });
+  });
+
+  return map;
+}
+
+export function lookupAfcoinBalanceInPhoneKeyMap(whatsapp: string, map: Map<string, number>): number {
+  let best = 0;
+  collectAfcoinPhoneProbeKeys(whatsapp).forEach((key) => {
+    if (map.has(key)) best = Math.max(best, map.get(key)!);
+  });
+  return best;
+}
+
+/** Saldo exibido = carteira persistida OU soma dos agendamentos (o que o cliente já vê). */
+export function resolveClientAfcoinBalanceDisplay(params: {
+  whatsapp: string;
+  walletIndex: Map<string, number>;
+  appointmentIndex: Map<string, number>;
+}): number {
+  const wallet = lookupAfcoinBalanceInIndex(params.whatsapp, params.walletIndex);
+  const fromAppointments = lookupAfcoinBalanceInPhoneKeyMap(params.whatsapp, params.appointmentIndex);
+  return Math.max(wallet, fromAppointments);
+}
+
+/** Carrega saldos AFCoins do estabelecimento (tabela + RPC por telefone dos clientes). */
+export async function loadEstablishmentAfcoinBalanceIndex(
+  establishmentId: string,
+  clientPhones: string[]
+): Promise<Map<string, number>> {
+  const estId = String(establishmentId || '').trim();
+  if (!estId) return new Map();
+
+  const index = new Map<string, number>();
+  const mergeRows = (rows: Array<{ customer_phone?: string | null; balance?: number | null }>) => {
+    buildAfcoinBalanceIndex(rows).forEach((balance, key) => {
+      index.set(key, Math.max(index.get(key) ?? 0, balance));
+    });
+  };
+
+  try {
+    const pageSize = 1000;
+    let from = 0;
+    const directRows: Array<{ customer_phone?: string; balance?: number }> = [];
+    while (true) {
+      const { data, error } = await supabase
+        .from('afcoin_wallets')
+        .select('customer_phone, balance')
+        .eq('establishment_id', estId)
+        .range(from, from + pageSize - 1);
+
+      if (error) {
+        console.warn('AFCoins: falha ao listar carteiras do estabelecimento:', error.message);
+        break;
+      }
+      const batch = Array.isArray(data) ? data : [];
+      directRows.push(...batch);
+      if (batch.length < pageSize) break;
+      from += pageSize;
+    }
+    mergeRows(directRows);
+  } catch (error) {
+    console.warn('AFCoins: erro ao listar carteiras do estabelecimento:', error);
+  }
+
+  const normalizedPhones = new Set<string>();
+  clientPhones.forEach((phone) => {
+    buildAfcoinPhoneVariants(phone).forEach((variant) => {
+      const normalized = normalizeAfcoinPhone(variant);
+      if (normalized) normalizedPhones.add(normalized);
+    });
+  });
+
+  const phones = Array.from(normalizedPhones);
+  const chunkSize = 120;
+  for (let i = 0; i < phones.length; i += chunkSize) {
+    const chunk = phones.slice(i, i + chunkSize);
+    const rpcRows = await fetchAfcoinClientWallets({ establishmentIds: [estId], phoneVariants: chunk });
+    mergeRows(
+      rpcRows.map((row) => ({
+        customer_phone: row.customer_phone,
+        balance: row.balance,
+      }))
+    );
+  }
+
+  return index;
 }
 
 export { isLocalAfcoinPaymentMethod } from './appointmentPayment';

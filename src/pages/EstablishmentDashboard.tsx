@@ -7,6 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import * as XLSX from 'xlsx';
 import AdditionalProductModal from '../components/AdditionalProductModal';
+import { ClientAfcoinBadge } from '../components/AfcoinClientModals';
 import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
 import { ChangeAppointmentServiceModal } from '../components/ChangeAppointmentServiceModal';
 import { ConfigPasswordModal } from '../components/ConfigPasswordModal';
@@ -43,14 +44,29 @@ import { ValidityHeader } from '../components/ValidityHeader';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../hooks/useNotifications';
 import { addExpense, createEstablishment, deleteExpense, getEstablishmentGoals, getEstablishmentPremiumSubscribers, getExpensesByMonth, getProfessionalGoal, getSubscriptions, isNewClient, setProfessionalGoal, supabase, updateEstablishment } from '../lib/supabase';
-import { createIndependentSubscriber, insertSubscriberAttendance, removeSubscriberAttendanceForCancelledAppointment, resolveAppointmentProfessionalForSubscriber } from '../lib/subscriberSystem';
+import { createIndependentSubscriber, insertSubscriberAttendance, persistSubscriberAppointmentFlagsIfNeeded, removeSubscriberAttendanceForCancelledAppointment, resolveAppointmentProfessionalForSubscriber } from '../lib/subscriberSystem';
+import { syncSubscribersToManualClients } from '../lib/manualClientsSync';
+import {
+  enrichAppointmentsWithSubscriberFlags,
+  isSubscriberAppointmentFromFields,
+  mergeAppointmentPreservingSubscriberFlags,
+  parseSubscriberBoolean,
+  type ClientSubscriptionRowLite,
+} from '../lib/subscriberAppointmentFlags';
 import {
   formatReviewCustomAnswerDisplay,
   isMissingReviewCustomAnswersColumnError,
   isMissingReviewProfessionalColumnsError,
   parseReviewCustomAnswers,
 } from '../lib/reviewQuestions';
+import { resolveAuditActorName } from '../lib/appointmentAuditLog';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
+import {
+  buildAfcoinBalanceByPhoneKeyFromAppointments,
+  isClientAfcoinsEnabledForEstablishment,
+  loadEstablishmentAfcoinBalanceIndex,
+  resolveClientAfcoinBalanceDisplay,
+} from '../utils/afcoin';
 import {
   buildStalePaymentDetail,
   CANCELLATION_SOURCE,
@@ -455,6 +471,8 @@ interface Client {
   lastAppointmentProfessionalName?: string;
   /** Exibição em Meus Clientes: pago ou vencido */
   subscriberPaymentStatus?: 'paid' | 'expired' | null;
+  /** Saldo AFCoins já persistido em afcoin_wallets (somente leitura). */
+  afcoinBalance?: number;
 }
 
 interface ProfessionalDormantClient {
@@ -775,7 +793,7 @@ const EstablishmentDashboard = () => {
         establishment_id: establishmentId,
         appointment_id: appointmentId,
         changed_by_user_id: String(user?.id || '').trim() || null,
-        changed_by_name: String(user?.email || '').trim() || null,
+        changed_by_name: resolveAuditActorName({ user }),
         event_type: params.eventType,
         description: String(params.description || '').trim() || null,
         old_values: params.oldValues || null,
@@ -861,6 +879,7 @@ const EstablishmentDashboard = () => {
     atMs: 0,
   });
   const lastPaidSubscribersFetchRef = useRef<{ key: string; atMs: number }>({ key: '', atMs: 0 });
+  const subscriberSubscriptionsCacheRef = useRef<ClientSubscriptionRowLite[]>([]);
   const paidSubscribersInFlightRef = useRef<Promise<void> | null>(null);
   const lastExpensesFetchRef = useRef<{ key: string; atMs: number }>({ key: '', atMs: 0 });
   const expensesInFlightRef = useRef<Promise<void> | null>(null);
@@ -3877,6 +3896,12 @@ const EstablishmentDashboard = () => {
     Boolean(professionalAccessSession?.pinVerified) && Boolean(professionalAccessSession?.uniqueAccessEnabled)
       ? String(professionalAccessSession?.professionalId || '').trim()
       : '';
+  const auditActorDisplayName = useMemo(() => {
+    const profId = uniqueAccessAuthenticatedProfessionalId;
+    if (!profId) return null;
+    const prof = professionals.find((p) => String(p?.id || '').trim() === profId);
+    return String(prof?.name || '').trim() || null;
+  }, [uniqueAccessAuthenticatedProfessionalId, professionals]);
   const hiddenUniqueProfessionalIdsForSession = useMemo(() => {
     const selectedProfessionalId = String(professionalAccessSession?.professionalId || '').trim();
     if (!selectedProfessionalId) return [];
@@ -13062,9 +13087,7 @@ Estamos te aguardando!`;
         console.warn('⚠️ Falha ao enriquecer CPF/endereço dos agendamentos:', contactError);
       }
 
-      // Enriquecer marcação visual de assinante sem alterar o banco.
-      // Alguns agendamentos antigos chegam sem is_subscriber, mas têm telefone de assinante
-      // e valor zerado. A regra abaixo só marca quando há assinatura paga válida na data.
+      // Enriquecer marcação visual de assinante + corrigir registros inconsistentes no banco.
       try {
         const appointmentWhatsappKeys = Array.from(
           new Set(
@@ -13075,73 +13098,43 @@ Estamos te aguardando!`;
           )
         );
 
-        if (appointmentWhatsappKeys.length > 0) {
+        if (appointmentWhatsappKeys.length > 0 || appointmentsData.length > 0) {
           const { data: subscriptionRows, error: subscriptionRowsError } = await supabase
             .from('client_subscriptions')
-            .select('id, subscription_id, payment_status, start_date, end_date, subscriber_whatsapp, client_whatsapp')
+            .select('id, subscription_id, payment_status, start_date, end_date, subscriber_whatsapp, client_whatsapp, subscriber_name, client_name_override')
             .eq('establishment_id', establishment.id)
             .limit(10000);
 
           if (subscriptionRowsError) throw subscriptionRowsError;
 
-          const subscriptionsByPhone = new Map<string, any[]>();
-          ((subscriptionRows || []) as any[]).forEach((row) => {
-            const phoneKeys = [
-              ...getWhatsappLookupKeys(String(row?.subscriber_whatsapp || '')),
-              ...getWhatsappLookupKeys(String(row?.client_whatsapp || '')),
-            ]
-              .map((key) => normalizePhoneDigits(key))
-              .filter(Boolean);
-            phoneKeys.forEach((key) => {
-              const list = subscriptionsByPhone.get(key) || [];
-              list.push(row);
-              subscriptionsByPhone.set(key, list);
-            });
-          });
-
-          const isDateInsideSubscription = (aptDateRaw: unknown, sub: any): boolean => {
-            const aptDate = String(aptDateRaw || '').slice(0, 10);
-            const startDate = String(sub?.start_date || '').slice(0, 10);
-            const endDate = String(sub?.end_date || '').slice(0, 10);
-            if (!aptDate) return false;
-            if (startDate && startDate > aptDate) return false;
-            if (endDate && endDate < aptDate) return false;
-            return String(sub?.payment_status || '').toLowerCase().trim() === 'paid';
-          };
-
+          subscriberSubscriptionsCacheRef.current = (subscriptionRows || []) as ClientSubscriptionRowLite[];
           appointmentsData.forEach((apt: any) => {
-            if (apt?.is_subscriber === true) return;
-
-            const paymentMethod = String(apt?.payment_method || '').toLowerCase().trim();
-            const hasExplicitSubscriptionLink =
-              paymentMethod === 'assinante' || Boolean(String(apt?.subscription_id || '').trim());
-            const basePrice = Number(apt?.price || 0);
-            const totalPrice = Number(apt?.total_price ?? apt?.price ?? 0);
-            const isZeroValueAppointment =
-              Number.isFinite(basePrice) &&
-              Number.isFinite(totalPrice) &&
-              basePrice <= 0 &&
-              totalPrice <= 0 &&
-              apt?.is_loyalty_reward !== true;
-
-            if (!hasExplicitSubscriptionLink && !isZeroValueAppointment) return;
-
-            const aptKeys = getWhatsappLookupKeys(String(apt?.client_whatsapp || ''))
-              .map((key) => normalizePhoneDigits(key))
-              .filter(Boolean);
-            const matchedSubscription = aptKeys
-              .flatMap((key) => subscriptionsByPhone.get(key) || [])
-              .find((sub) => isDateInsideSubscription(apt?.appointment_date, sub));
-
-            if (!matchedSubscription && !hasExplicitSubscriptionLink) return;
-
-            apt.is_subscriber = true;
-            apt.payment_method = paymentMethod === 'assinante' ? apt.payment_method : 'assinante';
-            apt.subscription_id =
-              String(apt?.subscription_id || '').trim() ||
-              String(matchedSubscription?.subscription_id || matchedSubscription?.id || '').trim() ||
-              null;
+            apt.__persisted_is_subscriber = parseSubscriberBoolean(apt?.is_subscriber);
           });
+          appointmentsData = enrichAppointmentsWithSubscriberFlags(
+            appointmentsData,
+            subscriberSubscriptionsCacheRef.current
+          );
+
+          const repairCandidates = appointmentsData
+            .filter((apt: any) => isSubscriberAppointmentFromFields(apt) && !parseSubscriberBoolean(apt?.__persisted_is_subscriber))
+            .slice(0, 25);
+
+          for (const apt of repairCandidates) {
+            const beforePersist = parseSubscriberBoolean((apt as any)?.__persisted_is_subscriber);
+            if (beforePersist) continue;
+            const { updated } = await persistSubscriberAppointmentFlagsIfNeeded(String(apt.id || ''), {
+              is_subscriber: true,
+              payment_method: String(apt.payment_method || 'assinante'),
+              subscription_id: String(apt.subscription_id || '').trim() || null,
+              subscriber_service_id: String(apt.subscriber_service_id || '').trim() || null,
+              subscriber_service_name: String(apt.subscriber_service_name || '').trim() || null,
+            });
+            if (updated) {
+              (apt as any).__persisted_is_subscriber = true;
+            }
+          }
+
         }
       } catch (subscriberVisualError) {
         console.warn('⚠️ Falha ao enriquecer agendamentos de assinante:', subscriberVisualError);
@@ -14789,6 +14782,24 @@ Estamos te aguardando!`;
           normalizedIncomingAppointments = liveAutoCompletionResult.appointments as any[];
           const liveAutoCompletedCount = liveAutoCompletionResult.updatedCount;
 
+          if (subscriberSubscriptionsCacheRef.current.length === 0) {
+            try {
+              const { data: subscriptionRows } = await supabase
+                .from('client_subscriptions')
+                .select('id, subscription_id, payment_status, start_date, end_date, subscriber_whatsapp, client_whatsapp, subscriber_name, client_name_override')
+                .eq('establishment_id', establishment.id)
+                .limit(10000);
+              subscriberSubscriptionsCacheRef.current = (subscriptionRows || []) as ClientSubscriptionRowLite[];
+            } catch {
+              // Mantém cache vazio; merge ainda preserva flags locais.
+            }
+          }
+
+          normalizedIncomingAppointments = enrichAppointmentsWithSubscriberFlags(
+            normalizedIncomingAppointments as any[],
+            subscriberSubscriptionsCacheRef.current
+          ) as any[];
+
           const hasUpdatesInExistingAppointments = normalizedIncomingAppointments.some((incomingApp: any) => {
             const previousApp: any = previousAppointments.find((prev: any) => prev.id === incomingApp.id);
             if (!previousApp) return false;
@@ -14845,13 +14856,9 @@ Estamos te aguardando!`;
             const mergedCurrent = currentList.map((currentItem: any) => {
               const incomingItem = incomingById.get(currentItem.id);
               if (!incomingItem) return currentItem;
-              return {
-                ...currentItem,
-                ...incomingItem,
-              };
+              return mergeAppointmentPreservingSubscriberFlags(currentItem, incomingItem);
             });
 
-            // Adicionar os novos itens que ainda não existiam na lista atual
             const newAppointmentsToAdd = normalizedIncomingAppointments.filter(
               (incomingItem: any) => !currentIds.has(incomingItem.id)
             );
@@ -14859,7 +14866,12 @@ Estamos te aguardando!`;
             const mergedList = newAppointmentsToAdd.length > 0
               ? [...mergedCurrent, ...newAppointmentsToAdd]
               : mergedCurrent;
-            return dedupeAppointmentsById(mergedList);
+            return dedupeAppointmentsById(
+              enrichAppointmentsWithSubscriberFlags(
+                mergedList as any[],
+                subscriberSubscriptionsCacheRef.current
+              ) as any[]
+            );
           });
 
           if (hasUpdatesInExistingAppointments) {
@@ -19517,6 +19529,10 @@ Estamos te aguardando!`;
     };
 
     try {
+      const appointment = appointments.find((apt) => String(apt.id) === String(appointmentId));
+      const oldDate = String(appointment?.appointment_date || '').slice(0, 10);
+      const oldTime = String(appointment?.appointment_time || '');
+
       try {
         await tryUpdate();
       } catch (firstError: any) {
@@ -19524,6 +19540,21 @@ Estamos te aguardando!`;
         await new Promise((resolve) => setTimeout(resolve, 450));
         await tryUpdate();
       }
+
+      const eventType = oldDate && newDate && oldDate !== newDate ? 'date_changed' : 'rescheduled';
+      await writeAppointmentChangeLog({
+        appointmentId,
+        eventType,
+        description: eventType === 'date_changed' ? 'Data do agendamento alterada.' : 'Horário do agendamento alterado.',
+        oldValues: {
+          appointment_date: oldDate || null,
+          appointment_time: oldTime || null,
+        },
+        newValues: {
+          appointment_date: newDate,
+          appointment_time: newTime,
+        },
+      });
 
       toast('Horário alterado com sucesso!', 'success');
 
@@ -19774,6 +19805,20 @@ Estamos te aguardando!`;
         return;
       }
 
+      await writeAppointmentChangeLog({
+        appointmentId,
+        eventType: 'professional_transferred',
+        description: `Agendamento transferido de ${fromProfessional.name} para ${toProfessional.name}.`,
+        oldValues: {
+          professional: fromProfessionalId,
+          professional_name: fromProfessional.name,
+        },
+        newValues: {
+          professional: toProfessionalId,
+          professional_name: toProfessional.name,
+        },
+      });
+
       // Recarregar dados
       await fetchAppointments();
 
@@ -19807,8 +19852,14 @@ Estamos te aguardando!`;
     if (!establishment) return;
 
     try {
+      // Assinantes em "Meus assinantes" também viram contato em "Meus Clientes" (retrocompatível).
+      await syncSubscribersToManualClients(establishment.id).catch((syncError) => {
+        console.warn('⚠️ Falha ao sincronizar assinantes em Meus Clientes:', syncError);
+      });
+
       // Busca todos os agendamentos do estabelecimento para obter os clientes + estatísticas.
       const appointmentsSelectVariants = [
+        'client_id, client_name, client_whatsapp, status, service, price, total_price, appointment_date, appointment_time, professional, professional_id, professional_name, payment_method, payment_status, pix_payment_status, payment_transaction_id, is_subscriber',
         'client_id, client_name, client_whatsapp, status, service, price, total_price, appointment_date, appointment_time, professional, professional_id, professional_name',
         'client_id, client_name, client_whatsapp, status, service, price, total_price, appointment_date, appointment_time, professional, professional_id',
         'client_id, client_name, client_whatsapp, status, service, price, total_price, appointment_date, appointment_time, professional, professional_name',
@@ -20453,6 +20504,28 @@ Estamos te aguardando!`;
         }
       } catch (e) {
         console.warn('⚠️ Falha ao mesclar faltas no fetchClients:', e);
+      }
+
+      if (isClientAfcoinsEnabledForEstablishment(establishment)) {
+        try {
+          const appointmentAfcoinIndex = buildAfcoinBalanceByPhoneKeyFromAppointments(
+            appointmentsData || [],
+            establishment
+          );
+          const walletAfcoinIndex = await loadEstablishmentAfcoinBalanceIndex(
+            establishment.id,
+            uniqueClients.map((c) => c.whatsapp)
+          );
+          uniqueClients.forEach((client) => {
+            client.afcoinBalance = resolveClientAfcoinBalanceDisplay({
+              whatsapp: client.whatsapp,
+              walletIndex: walletAfcoinIndex,
+              appointmentIndex: appointmentAfcoinIndex,
+            });
+          });
+        } catch (e) {
+          console.warn('⚠️ Falha ao carregar saldos AFCoins em Meus Clientes:', e);
+        }
       }
 
       setClients(uniqueClients);
@@ -23920,6 +23993,20 @@ Estamos te aguardando!`;
 
       if (error) throw error;
 
+      await writeAppointmentChangeLog({
+        appointmentId,
+        eventType: 'price_changed',
+        description: `Valor alterado de R$ ${oldValue.toFixed(2).replace('.', ',')} para R$ ${newValue.toFixed(2).replace('.', ',')}.`,
+        oldValues: {
+          price: oldValue,
+          total_price: Number((currentAppointment as any)?.total_price || oldValue),
+        },
+        newValues: {
+          price: newValue,
+          total_price: correctTotal,
+        },
+      });
+
       // Atualizar histórico de valores
       setAppointmentValueHistory(prev => {
         const currentHistory = prev[appointmentId] || {
@@ -24062,14 +24149,28 @@ Estamos te aguardando!`;
     if (!selectedAppointmentForObservation || !establishment) return;
 
     try {
+      const currentAppointment = appointments.find((apt) => apt.id === selectedAppointmentForObservation);
+      const oldObservation = String(currentAppointment?.establishment_observation || '').trim() || null;
+      const newObservation = observationText.trim() || null;
+
       const { error } = await supabase
         .from('appointments')
         .update({
-          establishment_observation: observationText.trim() || null
+          establishment_observation: newObservation
         })
         .eq('id', selectedAppointmentForObservation);
 
       if (error) throw error;
+
+      if (oldObservation !== newObservation) {
+        await writeAppointmentChangeLog({
+          appointmentId: selectedAppointmentForObservation,
+          eventType: 'observation_changed',
+          description: 'Observações do estabelecimento alteradas.',
+          oldValues: { establishment_observation: oldObservation },
+          newValues: { establishment_observation: newObservation },
+        });
+      }
 
       // Atualizar o estado local
       setAppointments(prevAppointments =>
@@ -27498,6 +27599,7 @@ Estamos te aguardando!`;
                       bypassOwnerPinLocks={isUniqueOwnerAccessSession}
                       bypassFinancialPinForProfessionalId={uniqueAccessAuthenticatedProfessionalId || null}
                       hiddenProfessionalIds={hiddenUniqueProfessionalIdsForSession}
+                      auditActorName={auditActorDisplayName}
                       collaboratorAllowedAgendaIds={collaboratorAllowedAgendaIds}
                       isSecretaryModeActive={isSecretaryModeActive}
                     />
@@ -36360,7 +36462,7 @@ Estamos te aguardando!`;
                               </div>
                             </div>
 
-                            <div className="text-gray-700 flex items-center gap-2 mb-3">
+                            <div className="text-gray-700 flex items-center gap-2 mb-2">
                               <Phone className="h-4 w-4 text-gray-600" />
                               {editingClient === client.whatsapp ? (
                                 <input
@@ -36374,6 +36476,12 @@ Estamos te aguardando!`;
                                 <span className="text-gray-700">{client.whatsapp}</span>
                               )}
                             </div>
+
+                            {clientAfcoinsEnabled && client.afcoinBalance !== undefined && (
+                              <div className="mb-3">
+                                <ClientAfcoinBadge balance={client.afcoinBalance} />
+                              </div>
+                            )}
 
                             <div className="mb-3">
                               <button

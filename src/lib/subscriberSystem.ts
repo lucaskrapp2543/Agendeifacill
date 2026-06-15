@@ -4,6 +4,16 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import {
+  buildSubscriptionsByNameMap,
+  buildSubscriptionsByPhoneMap,
+  findMatchingSubscriptionForAppointment,
+  isSubscriberAppointmentForProfessionalControl,
+  isStrictSubscriberAppointmentForProfessionalControl,
+  isSubscriberAppointmentFromFields,
+  parseSubscriberBoolean,
+} from './subscriberAppointmentFlags';
+import { ensureManualClientFromContact } from './manualClientsSync';
 import { supabase } from './supabase';
 
 export interface SubscriberData {
@@ -180,6 +190,17 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
     if (error) {
       console.error('❌ Erro ao criar assinante:', error);
       throw error;
+    }
+
+    // Espelha automaticamente em "Meus Clientes" (manual_clients).
+    try {
+      await ensureManualClientFromContact({
+        establishmentId: data.establishment_id,
+        name: data.name,
+        whatsapp: normalizedWhatsapp,
+      });
+    } catch (syncError) {
+      console.warn('⚠️ Assinante salvo, mas falhou ao espelhar em Meus Clientes:', syncError);
     }
 
     console.log('✅ Assinante criado com sucesso:', result);
@@ -494,7 +515,7 @@ export function resolveAppointmentProfessionalForSubscriber(
   return { professionalId: null, professionalName: 'Profissional' };
 }
 
-/** Agrupa atendimentos de assinatura por profissional (ID primeiro, nome normalizado como fallback). */
+/** Agrupa atendimentos de assinatura por profissional ativo (ID primeiro, nome normalizado como fallback). */
 export function resolveSubscriberAttendanceProfessionalGroup(
   attendance: { professional_id?: string | null; professional_name?: string | null },
   professionals: EstablishmentProfessionalRef[],
@@ -502,34 +523,77 @@ export function resolveSubscriberAttendanceProfessionalGroup(
 ): { groupKey: string; displayName: string; professionalId: string | null } {
   const storedId = String(attendance.professional_id || '').trim();
   const storedName = String(attendance.professional_name || '').trim();
-  const allById = new Map<string, EstablishmentProfessionalRef>();
 
-  [...professionals, ...deletedProfessionals].forEach((pro) => {
+  const activeById = new Map<string, EstablishmentProfessionalRef>();
+  professionals.forEach((pro) => {
     const id = String(pro.id || '').trim();
-    if (id) allById.set(id, pro);
+    if (id) activeById.set(id, pro);
   });
 
-  if (storedId && allById.has(storedId)) {
-    const pro = allById.get(storedId)!;
+  const deletedById = new Map<string, EstablishmentProfessionalRef>();
+  deletedProfessionals.forEach((pro) => {
+    const id = String(pro.id || '').trim();
+    if (id && !activeById.has(id)) deletedById.set(id, pro);
+  });
+
+  const activeIdSet = new Set(activeById.keys());
+
+  const findActiveByNameKey = (nameKey: string): EstablishmentProfessionalRef | null => {
+    if (!nameKey) return null;
+    return (
+      professionals.find((pro) => normalizeProfessionalNameKey(pro.name) === nameKey) || null
+    );
+  };
+
+  const toActiveGroup = (active: EstablishmentProfessionalRef) => {
+    const id = String(active.id || '').trim();
+    const displayName = String(active.name || storedName || 'Profissional').trim() || 'Profissional';
     return {
-      groupKey: `id:${storedId}`,
-      displayName: String(pro.name || storedName || 'Profissional').trim() || 'Profissional',
-      professionalId: storedId,
+      groupKey: `id:${id}`,
+      displayName,
+      professionalId: id,
     };
+  };
+
+  const redirectDeletedToActiveByName = (deletedRef?: EstablishmentProfessionalRef | null) => {
+    const nameCandidates = [String(deletedRef?.name || '').trim(), storedName].filter(Boolean);
+    for (const candidate of nameCandidates) {
+      const nameKey = normalizeProfessionalNameKey(candidate);
+      const activeMatch = findActiveByNameKey(nameKey);
+      if (activeMatch?.id) return toActiveGroup(activeMatch);
+    }
+    return null;
+  };
+
+  if (storedId && activeById.has(storedId)) {
+    return toActiveGroup(activeById.get(storedId)!);
   }
 
-  const nameKey = normalizeProfessionalNameKey(storedName);
-  if (nameKey) {
-    const activeMatch = professionals.find(
-      (pro) => normalizeProfessionalNameKey(pro.name) === nameKey
-    );
-    if (activeMatch?.id) {
-      return {
-        groupKey: `id:${String(activeMatch.id)}`,
-        displayName: String(activeMatch.name).trim() || storedName,
-        professionalId: String(activeMatch.id),
-      };
-    }
+  // Backfill legado gravou UUID em professional_name — resolver pelo cadastro ativo.
+  if (storedName && PROFESSIONAL_UUID_REGEX.test(storedName) && activeById.has(storedName)) {
+    return toActiveGroup(activeById.get(storedName)!);
+  }
+
+  const storedNameKey = normalizeProfessionalNameKey(storedName);
+  if (storedNameKey) {
+    const activeByStoredName = findActiveByNameKey(storedNameKey);
+    if (activeByStoredName) return toActiveGroup(activeByStoredName);
+  }
+
+  // Fallback: excluído com mesmo nome de um ativo → financeiro vai para o ativo.
+  if (storedId && deletedById.has(storedId)) {
+    const redirected = redirectDeletedToActiveByName(deletedById.get(storedId));
+    if (redirected) return redirected;
+  }
+
+  if (storedName && PROFESSIONAL_UUID_REGEX.test(storedName) && deletedById.has(storedName)) {
+    const redirected = redirectDeletedToActiveByName(deletedById.get(storedName));
+    if (redirected) return redirected;
+  }
+
+  if (storedId && !activeIdSet.has(storedId)) {
+    const redirected = redirectDeletedToActiveByName(null);
+    if (redirected) return redirected;
   }
 
   if (storedId) {
@@ -540,9 +604,9 @@ export function resolveSubscriberAttendanceProfessionalGroup(
     };
   }
 
-  if (nameKey) {
+  if (storedNameKey) {
     return {
-      groupKey: `name:${nameKey}`,
+      groupKey: `name:${storedNameKey}`,
       displayName: storedName || 'Profissional',
       professionalId: null,
     };
@@ -598,6 +662,319 @@ export async function insertSubscriberAttendance(payload: Record<string, unknown
     }
   }
   return { error: lastError };
+}
+
+export async function findExistingSubscriberAttendance(params: {
+  establishmentId: string;
+  appointmentId?: string | null;
+  clientSubscriptionId?: string | null;
+  attendanceDate?: string | null;
+  professionalId?: string | null;
+  professionalName?: string | null;
+}): Promise<string | null> {
+  const establishmentId = String(params.establishmentId || '').trim();
+  if (!establishmentId) return null;
+
+  const appointmentId = String(params.appointmentId || '').trim();
+  if (appointmentId) {
+    try {
+      const { data, error } = await supabase
+        .from('subscriber_attendances')
+        .select('id')
+        .eq('establishment_id', establishmentId)
+        .eq('appointment_id', appointmentId)
+        .limit(1);
+      if (!error && Array.isArray(data) && data[0]?.id) {
+        return String(data[0].id);
+      }
+    } catch {
+      // Coluna appointment_id pode não existir em bancos legados.
+    }
+  }
+
+  const clientSubscriptionId = String(params.clientSubscriptionId || '').trim();
+  const attendanceDate = String(params.attendanceDate || '').slice(0, 10);
+  if (!clientSubscriptionId || !attendanceDate) return null;
+
+  try {
+    let query = supabase
+      .from('subscriber_attendances')
+      .select('id')
+      .eq('establishment_id', establishmentId)
+      .eq('client_subscription_id', clientSubscriptionId)
+      .eq('attendance_date', attendanceDate);
+
+    const professionalId = String(params.professionalId || '').trim();
+    const professionalName = String(params.professionalName || '').trim();
+    if (professionalId) {
+      query = query.eq('professional_id', professionalId);
+    } else if (professionalName) {
+      query = query.eq('professional_name', professionalName);
+    }
+
+    const { data, error } = await query.limit(1);
+    if (!error && Array.isArray(data) && data[0]?.id) {
+      return String(data[0].id);
+    }
+  } catch {
+    // segue
+  }
+
+  return null;
+}
+
+/** Evita duplicar atendimento (corrida de polling/backfill/conclusão). */
+export async function insertSubscriberAttendanceOnce(
+  payload: Record<string, unknown>
+): Promise<{ error: any; inserted: boolean; existingId?: string | null }> {
+  const existingId = await findExistingSubscriberAttendance({
+    establishmentId: String(payload.establishment_id || ''),
+    appointmentId: String(payload.appointment_id || ''),
+    clientSubscriptionId: String(payload.client_subscription_id || ''),
+    attendanceDate: String(payload.attendance_date || ''),
+    professionalId: String(payload.professional_id || ''),
+    professionalName: String(payload.professional_name || ''),
+  });
+  if (existingId) {
+    return { error: null, inserted: false, existingId };
+  }
+
+  const { error } = await insertSubscriberAttendance(payload);
+  return { error, inserted: !error, existingId: null };
+}
+
+/** Remove linhas duplicadas já gravadas (ex.: backfill repetido). Mantém o registro mais completo/antigo. */
+export function dedupeSubscriberAttendanceRows<T extends Record<string, any>>(rows: T[]): T[] {
+  const byKey = new Map<string, T>();
+
+  const scoreRow = (row: T): number => {
+    let score = 0;
+    if (String(row?.appointment_id || '').trim()) score += 4;
+    if (String(row?.professional_id || '').trim()) score += 2;
+    if (Number(row?.repass_value || 0) > 0) score += 1;
+    return score;
+  };
+
+  for (const row of rows || []) {
+    const appointmentId = String(row?.appointment_id || '').trim();
+    const key = appointmentId
+      ? `apt:${appointmentId}`
+      : [
+          'day',
+          String(row?.establishment_id || ''),
+          String(row?.client_subscription_id || ''),
+          String(row?.attendance_date || '').slice(0, 10),
+          String(row?.professional_id || row?.professional_name || '').trim().toLowerCase(),
+        ].join(':');
+
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, row);
+      continue;
+    }
+
+    const existingScore = scoreRow(existing);
+    const rowScore = scoreRow(row);
+    if (rowScore > existingScore) {
+      byKey.set(key, row);
+      continue;
+    }
+    if (rowScore < existingScore) continue;
+
+    const existingTs = Date.parse(String(existing?.created_at || '')) || Number.MAX_SAFE_INTEGER;
+    const rowTs = Date.parse(String(row?.created_at || '')) || Number.MAX_SAFE_INTEGER;
+    if (rowTs < existingTs) byKey.set(key, row);
+  }
+
+  return Array.from(byKey.values());
+}
+
+const MANUAL_SUBSCRIBER_ATTENDANCE_PROFESSIONAL = 'Adicionado em Meus Assinantes';
+
+const chunkArray = <T,>(items: T[], size: number): T[][] => {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+};
+
+/** Só entra no financeiro: atendimento ligado a agendamento concluído de assinante, ou lançamento manual explícito. */
+export async function filterSubscriberAttendancesForFinance(
+  rows: any[],
+  establishmentId: string
+): Promise<any[]> {
+  const deduped = dedupeSubscriberAttendanceRows(Array.isArray(rows) ? rows : []);
+  const establishmentKey = String(establishmentId || '').trim();
+  if (!establishmentKey || deduped.length === 0) return [];
+
+  const linkedRows = deduped.filter((row) => String(row?.appointment_id || '').trim());
+  const appointmentIds = Array.from(
+    new Set(linkedRows.map((row) => String(row.appointment_id).trim()).filter(Boolean))
+  );
+
+  const validAppointmentIds = new Set<string>();
+  for (const chunk of chunkArray(appointmentIds, 150)) {
+    try {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('id, status, client_name, price, is_loyalty_reward, is_subscriber, payment_method, subscription_id, subscriber_service_id, subscriber_service_name')
+        .eq('establishment_id', establishmentKey)
+        .in('id', chunk)
+        .eq('status', 'completed');
+      if (error) throw error;
+      (data || []).forEach((apt: any) => {
+        if (isSubscriberAppointmentForProfessionalControl(apt)) {
+          validAppointmentIds.add(String(apt.id));
+        }
+      });
+    } catch (error) {
+      console.warn('Falha ao validar atendimentos de assinatura contra agendamentos:', error);
+    }
+  }
+
+  return deduped.filter((row) => {
+    const appointmentId = String(row?.appointment_id || '').trim();
+    if (appointmentId) return validAppointmentIds.has(appointmentId);
+    return String(row?.professional_name || '').trim() === MANUAL_SUBSCRIBER_ATTENDANCE_PROFESSIONAL;
+  });
+}
+
+/** Completa o financeiro com agendamentos concluídos marcados como assinante na agenda (fallback). */
+export async function mergeSubscriberAttendancesWithCompletedAppointments(params: {
+  establishmentId: string;
+  monthStart: string;
+  monthEnd: string;
+  existingRows: any[];
+  professionals?: EstablishmentProfessionalRef[];
+}): Promise<any[]> {
+  const establishmentId = String(params.establishmentId || '').trim();
+  const monthStart = String(params.monthStart || '').slice(0, 10);
+  const monthEnd = String(params.monthEnd || '').slice(0, 10);
+  if (!establishmentId || !monthStart || !monthEnd) {
+    return dedupeSubscriberAttendanceRows(params.existingRows || []);
+  }
+
+  const existing = dedupeSubscriberAttendanceRows(params.existingRows || []);
+  const coveredAppointmentIds = new Set(
+    existing.map((row) => String(row?.appointment_id || '').trim()).filter(Boolean)
+  );
+
+  const { data: appointments, error: appointmentsError } = await supabase
+    .from('appointments')
+    .select(`
+      id,
+      client_name,
+      client_whatsapp,
+      appointment_date,
+      appointment_time,
+      status,
+      professional,
+      price,
+      is_subscriber,
+      payment_method,
+      subscription_id,
+      subscriber_service_id,
+      subscriber_service_name,
+      service,
+      is_loyalty_reward
+    `)
+    .eq('establishment_id', establishmentId)
+    .eq('status', 'completed')
+    .gte('appointment_date', monthStart)
+    .lte('appointment_date', monthEnd);
+
+  if (appointmentsError || !Array.isArray(appointments) || appointments.length === 0) {
+    return existing;
+  }
+
+  let clientSubscriptionRows: any[] = [];
+  try {
+    const { data, error } = await supabase
+      .from('client_subscriptions')
+      .select(`
+        id,
+        subscription_id,
+        monthly_limit,
+        payment_status,
+        start_date,
+        end_date,
+        subscriber_name,
+        subscriber_whatsapp,
+        client_name_override,
+        client_whatsapp,
+        subscriptions (
+          id,
+          name,
+          value,
+          fixed_commission_value,
+          divide_total_enabled,
+          divide_total_attendances,
+          divided_services
+        )
+      `)
+      .eq('establishment_id', establishmentId);
+    if (!error && Array.isArray(data)) clientSubscriptionRows = data;
+  } catch {
+    // segue sem match de plano
+  }
+
+  const subscriptionsByPhone = buildSubscriptionsByPhoneMap(clientSubscriptionRows as any[]);
+  const subscriptionsByName = buildSubscriptionsByNameMap(clientSubscriptionRows as any[]);
+  const professionals = params.professionals || [];
+  const validAppointmentIds = new Set<string>();
+  const synthetic: any[] = [];
+
+  for (const apt of appointments) {
+    const appointmentId = String(apt?.id || '').trim();
+    if (!appointmentId) continue;
+    if (!isSubscriberAppointmentForProfessionalControl(apt as any)) continue;
+
+    validAppointmentIds.add(appointmentId);
+
+    if (coveredAppointmentIds.has(appointmentId)) continue;
+
+    const matched = findMatchingSubscriptionForAppointment(
+      apt as any,
+      subscriptionsByPhone,
+      subscriptionsByName
+    );
+    const professionalRecord = resolveAppointmentProfessionalForSubscriber(apt as any, professionals);
+    const subscription = (matched as any)?.subscriptions || null;
+    const repassValue = computeSubscriberRepassValue({
+      subscription,
+      monthlyLimit: Number((matched as any)?.monthly_limit || 0),
+      appointmentPrice: Number((apt as any)?.price || 0),
+    });
+
+    synthetic.push({
+      id: `apt:${appointmentId}`,
+      appointment_id: appointmentId,
+      establishment_id: establishmentId,
+      client_subscription_id: matched?.id ? String(matched.id) : null,
+      professional_id: professionalRecord.professionalId,
+      professional_name: professionalRecord.professionalName,
+      attendance_date: String((apt as any)?.appointment_date || '').slice(0, 10),
+      repass_value: repassValue,
+      client_name_snapshot: String((apt as any)?.client_name || '').trim() || 'Cliente',
+      subscription_name_snapshot:
+        String((apt as any)?.service || (apt as any)?.subscriber_service_name || 'Atendimento assinatura').trim() ||
+        'Atendimento assinatura',
+      __synthetic_from_appointment: true,
+    });
+    coveredAppointmentIds.add(appointmentId);
+  }
+
+  const filteredExisting = existing.filter((row) => {
+    const aptId = String(row?.appointment_id || '').trim();
+    if (!aptId) {
+      return String(row?.professional_name || '').trim() === MANUAL_SUBSCRIBER_ATTENDANCE_PROFESSIONAL;
+    }
+    if (validAppointmentIds.size === 0) return false;
+    return validAppointmentIds.has(aptId);
+  });
+
+  return dedupeSubscriberAttendanceRows([...filteredExisting, ...synthetic]);
 }
 
 export type RemoveSubscriberAttendanceForAppointmentParams = {
@@ -873,3 +1250,182 @@ export const removeSubscriber = async (subscriberId: string) => {
     return { data: null, error };
   }
 };
+
+export async function findClientSubscriptionForAppointment(params: {
+  establishmentId: string;
+  clientWhatsapp?: string | null;
+  clientName?: string | null;
+  appointmentDate?: string | null;
+}) {
+  const establishmentId = String(params.establishmentId || '').trim();
+  if (!establishmentId) return null;
+
+  const { data, error } = await supabase
+    .from('client_subscriptions')
+    .select(`
+      id,
+      subscription_id,
+      monthly_limit,
+      payment_status,
+      start_date,
+      end_date,
+      updated_at,
+      created_at,
+      subscriber_name,
+      subscriber_whatsapp,
+      client_name_override,
+      client_whatsapp,
+      subscriptions (
+        id,
+        name,
+        value,
+        fixed_commission_value,
+        divide_total_enabled,
+        divide_total_attendances,
+        divided_services
+      )
+    `)
+    .eq('establishment_id', establishmentId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+
+  const rows = Array.isArray(data) ? data : [];
+  const subscriptionsByPhone = buildSubscriptionsByPhoneMap(rows as any[]);
+  const subscriptionsByName = buildSubscriptionsByNameMap(rows as any[]);
+
+  return findMatchingSubscriptionForAppointment(
+    {
+      client_whatsapp: params.clientWhatsapp,
+      client_name: params.clientName,
+      appointment_date: params.appointmentDate,
+    },
+    subscriptionsByPhone,
+    subscriptionsByName
+  );
+}
+
+export async function persistSubscriberAppointmentFlagsIfNeeded(
+  appointmentId: string,
+  fields: {
+    is_subscriber?: boolean;
+    payment_method?: string | null;
+    subscription_id?: string | null;
+    subscriber_service_id?: string | null;
+    subscriber_service_name?: string | null;
+  }
+): Promise<{ updated: boolean; error: any }> {
+  const id = String(appointmentId || '').trim();
+  if (!id || !fields.is_subscriber) return { updated: false, error: null };
+
+  const payload: Record<string, unknown> = {
+    is_subscriber: true,
+    payment_method: fields.payment_method || 'assinante',
+  };
+  if (fields.subscription_id) payload.subscription_id = fields.subscription_id;
+  if (fields.subscriber_service_id) payload.subscriber_service_id = fields.subscriber_service_id;
+  if (fields.subscriber_service_name) payload.subscriber_service_name = fields.subscriber_service_name;
+
+  let { error } = await supabase.from('appointments').update(payload as any).eq('id', id);
+
+  if (error) {
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('subscription_id') || msg.includes('subscriber_service_')) {
+      const fallback = { is_subscriber: true, payment_method: 'assinante' };
+      ({ error } = await supabase.from('appointments').update(fallback as any).eq('id', id));
+    }
+  }
+
+  return { updated: !error, error };
+}
+
+const resolveMaxLimitFromDividedServices = (subscription: any): number => {
+  try {
+    const raw = subscription?.divided_services;
+    const arr = Array.isArray(raw) ? raw : typeof raw === 'string' ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return 0;
+    const limits = arr
+      .map((s: any) => Math.floor(Number(s?.limit || 0)))
+      .filter((n: number) => Number.isFinite(n) && n > 0);
+    return limits.length > 0 ? Math.max(...limits) : 0;
+  } catch {
+    return 0;
+  }
+};
+
+/** Repasse financeiro por atendimento (mensalidade ÷ limite, ou repasse fixo por visita). */
+export const computeSubscriberRepassValue = (params: {
+  subscription: any;
+  monthlyLimit: number;
+  appointmentPrice: number;
+}): number => {
+  const subscription = params.subscription || {};
+  const divideEnabledExplicit = parseSubscriberBoolean(subscription?.divide_total_enabled);
+  const fixedCommission = Number(subscription?.fixed_commission_value || 0);
+  const subscriptionValue = Number(subscription?.value || 0);
+  const fallbackFromAppointmentPrice = Number(params.appointmentPrice || 0);
+  const monthlyLimit = Math.floor(Number(params.monthlyLimit || 0)) || 0;
+  const limitFromServices = resolveMaxLimitFromDividedServices(subscription);
+
+  const pointsModeSubscription = !divideEnabledExplicit && !(fixedCommission > 0);
+  if (pointsModeSubscription) return 0;
+
+  let baseFixed = 0;
+  if (Number.isFinite(fixedCommission) && fixedCommission > 0) {
+    baseFixed = fixedCommission;
+  } else if (divideEnabledExplicit) {
+    baseFixed =
+      Number.isFinite(subscriptionValue) && subscriptionValue > 0
+        ? subscriptionValue
+        : Number.isFinite(fallbackFromAppointmentPrice) && fallbackFromAppointmentPrice > 0
+          ? fallbackFromAppointmentPrice
+          : 0;
+  }
+
+  const divideFromSubscription = Math.floor(Number(subscription?.divide_total_attendances || 0)) || 0;
+  let divideCount =
+    divideFromSubscription > 0
+      ? divideFromSubscription
+      : monthlyLimit > 0
+        ? monthlyLimit
+        : limitFromServices > 0
+          ? limitFromServices
+          : 0;
+
+  const round2 = (v: number) => Math.round(v * 100) / 100;
+  const fullMonthlyRepass = subscriptionValue > 0 && baseFixed >= subscriptionValue * 0.95;
+
+  // Plano mensal (ex.: R$80 com "2 no mês") sem "Dividir valor total" no plano:
+  // reparte o repasse total pelo limite do cliente/serviço.
+  let effectiveDivide = divideEnabledExplicit;
+  if (!effectiveDivide && fullMonthlyRepass && divideCount > 1) {
+    effectiveDivide = true;
+  }
+
+  // Config incompleta: divide ligado com qtd=1 mas cliente/serviço permite mais.
+  if (effectiveDivide && fullMonthlyRepass) {
+    if (monthlyLimit > divideCount && divideFromSubscription <= 1) {
+      divideCount = monthlyLimit;
+    } else if (divideCount <= 1 && limitFromServices > 1) {
+      divideCount = limitFromServices;
+    }
+  }
+
+  if (effectiveDivide && divideCount <= 0) return 0;
+
+  let repassValue = round2(baseFixed);
+  if (effectiveDivide && divideCount > 0) {
+    repassValue = round2(repassValue / divideCount);
+  }
+  return repassValue;
+};
+
+/** Repara atendimentos faltantes — DESATIVADO: gerava registros fantasma no financeiro. Use auto-registro ao concluir na agenda. */
+export async function backfillMissingSubscriberAttendancesForAppointments(_params: {
+  establishmentId: string;
+  appointments: Array<Record<string, unknown>>;
+  professionals?: EstablishmentProfessionalRef[];
+  limit?: number;
+}): Promise<{ inserted: number }> {
+  return { inserted: 0 };
+}

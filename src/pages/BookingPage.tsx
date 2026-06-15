@@ -1,5 +1,5 @@
 import { format } from 'date-fns';
-import { Accessibility, AlertCircle, Armchair, CalendarDays, CarFront, ChevronDown, ChevronLeft, ChevronRight, Coffee, CupSoda, Download, Home, LogOut, Music2, Snowflake, Star, ThumbsUp, Tv, Users, UtensilsCrossed, Wifi, type LucideIcon } from 'lucide-react';
+import { Accessibility, AlertCircle, Armchair, CalendarDays, CarFront, ChevronDown, ChevronLeft, ChevronRight, Coffee, CupSoda, Download, LogOut, Music2, Snowflake, Star, Tv, UtensilsCrossed, Wifi, type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -3425,27 +3425,16 @@ export default function BookingPage() {
               <ChevronLeft className="w-5 h-5 shrink-0" />
               <span className="truncate">Voltar</span>
             </Link>
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {user && (
               <button
                 type="button"
-                onClick={handleGoToMyAppointments}
-                aria-label="Ver meus agendamentos"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#E6C78B]/55 bg-[#E6C78B]/12 px-2.5 py-1.5 text-xs sm:text-sm font-semibold text-[#F5E7C2] hover:bg-[#E6C78B]/22 hover:border-[#E6C78B]/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#E6C78B]/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0B0B]"
+                onClick={handleLogout}
+                className="flex items-center gap-1.5 text-white/80 hover:text-white transition-colors text-sm shrink-0"
               >
-                <CalendarDays className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 opacity-90" aria-hidden />
-                <span className="whitespace-nowrap">Meus Agendamentos</span>
+                <LogOut className="w-5 h-5 shrink-0" />
+                <span>Sair</span>
               </button>
-              {user && (
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="flex items-center gap-1.5 text-white/80 hover:text-white transition-colors text-sm"
-                >
-                  <LogOut className="w-5 h-5 shrink-0" />
-                  <span>Sair</span>
-                </button>
-              )}
-            </div>
+            )}
           </div>
 
           {/* Mensagem de Demonstração (apenas para IDs 3814 e 3315) */}
@@ -3566,15 +3555,6 @@ export default function BookingPage() {
                 Agendando com {exclusiveProfessionalName}
               </p>
             )}
-            {!isSimpleBookingPageEnabled && establishment?.description && (
-              <p className="text-white/70">
-                <ReadMore
-                  text={establishment.description}
-                  maxLength={60}
-                  className="text-white/70"
-                />
-              </p>
-            )}
 
             {!isSimpleBookingPageEnabled && !establishment?.hide_booking_reviews && (
               <div className="flex items-center justify-center">
@@ -3599,131 +3579,104 @@ export default function BookingPage() {
               </div>
             )}
 
-            {/* Botões de Ação Principal */}
-            <div className="mt-6 flex flex-col space-y-6 relative z-10">
-              {/* Card premium (estilo do exemplo) */}
+            {/* Bloco premium de ação — foco em agendar */}
+            <div className="mt-5 flex flex-col space-y-4 relative z-10">
               <div
-                className="w-full rounded-2xl overflow-hidden border shadow-[0_18px_55px_rgba(0,0,0,0.55)]"
+                className="w-full rounded-2xl overflow-hidden border shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
                 style={{
-                  borderColor: 'rgba(230,199,139,0.20)',
+                  borderColor: 'rgba(230,199,139,0.28)',
                   background:
-                    'radial-gradient(140% 140% at 50% 0%, rgba(230,199,139,0.14) 0%, rgba(0,0,0,0.35) 45%, rgba(0,0,0,0.65) 100%)',
+                    'radial-gradient(120% 120% at 50% 0%, rgba(230,199,139,0.12) 0%, rgba(18,18,20,0.92) 55%, rgba(10,10,12,0.98) 100%)',
                 }}
               >
-                <div className="px-4 pt-5 pb-4 text-center">
-                  <div
-                    className="text-base text-white/80"
-                    style={{ fontFamily: "'Segoe Script','Brush Script MT',cursive" }}
-                  >
-                    Bem-vindo ao nosso
-                  </div>
-                  <div className="mt-1 text-3xl sm:text-4xl font-extrabold tracking-wide text-[#E6C78B] drop-shadow">
-                    ESTABELECIMENTO
+                <div className="px-3 pt-3.5 pb-3.5 sm:px-5 sm:pt-5 sm:pb-5">
+                  <div className="flex items-center justify-center gap-1.5 sm:gap-2">
+                    <CalendarDays className="h-4 w-4 sm:h-5 sm:w-5 text-[#E6C78B] shrink-0" aria-hidden />
+                    <h2 className="text-sm sm:text-lg font-extrabold uppercase tracking-[0.1em] sm:tracking-[0.12em] text-[#F5E7C2]">
+                      Reserve seu horário
+                    </h2>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-3 gap-3">
-                    {/* Item 1 */}
-                    <div className="flex flex-col items-center">
-                      <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
-                        <div className="-rotate-45">
-                          <Home className="w-6 h-6 text-[#E6C78B]" />
-                        </div>
-                      </div>
-                      <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
-                        Ambiente<br />Aconchegante
-                      </div>
+                  <div className="mt-2.5 grid grid-cols-3 gap-1 sm:gap-2">
+                    <div className="flex flex-col items-center justify-start gap-0.5 text-center px-0.5">
+                      <span className="text-xs sm:text-sm leading-none" aria-hidden>⚡</span>
+                      <span className="text-[9px] sm:text-[11px] leading-tight text-white/55 font-medium">
+                        Agendamento rápido
+                      </span>
                     </div>
-
-                    {/* Item 2 */}
-                    <div className="flex flex-col items-center">
-                      <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
-                        <div className="-rotate-45">
-                          <Users className="w-6 h-6 text-[#E6C78B]" />
-                        </div>
-                      </div>
-                      <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
-                        Profissionais<br />Experientes
-                      </div>
+                    <div className="flex flex-col items-center justify-start gap-0.5 text-center px-0.5 border-x border-white/[0.06]">
+                      <span className="text-xs sm:text-sm leading-none" aria-hidden>🕒</span>
+                      <span className="text-[9px] sm:text-[11px] leading-tight text-white/55 font-medium">
+                        Em poucos segundos
+                      </span>
                     </div>
-
-                    {/* Item 3 */}
-                    <div className="flex flex-col items-center">
-                      <div className="w-14 h-14 rotate-45 rounded-xl border border-[#E6C78B]/35 bg-black/25 shadow-[0_10px_30px_rgba(0,0,0,0.55)] flex items-center justify-center">
-                        <div className="-rotate-45">
-                          <ThumbsUp className="w-6 h-6 text-[#E6C78B]" />
-                        </div>
-                      </div>
-                      <div className="mt-2 text-[11px] leading-tight font-semibold text-white/75">
-                        Atendimento<br />de Qualidade
-                      </div>
+                    <div className="flex flex-col items-center justify-start gap-0.5 text-center px-0.5">
+                      <span className="text-xs sm:text-sm leading-none" aria-hidden>⭐</span>
+                      <span className="text-[9px] sm:text-[11px] leading-tight text-white/55 font-medium">
+                        Atendimento de qualidade
+                      </span>
                     </div>
                   </div>
-                </div>
 
-                <div className="-mt-2">
-                  {/* CTA igual ao exemplo: tarja grande + botão menor escuro "encaixado" */}
-                  <div className="px-6 pt-3 pb-7 flex justify-center">
-                    <div className="w-full max-w-[520px]">
-                      {/* Tarja grande dourada */}
+                  <div className="mt-3 sm:mt-4 flex flex-col gap-2 sm:gap-2.5">
+                    <button
+                      type="button"
+                      onClick={handleAgendarClick}
+                      className="w-full font-extrabold py-3 sm:py-3.5 px-4 sm:px-5 text-xs sm:text-base uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-2 text-black rounded-xl border border-[#f3e7c7]/60 bg-gradient-to-r from-[#e6d7b1] via-[#d9c08c] to-[#c9a86c] shadow-[0_10px_32px_rgba(230,199,139,0.25)] hover:brightness-105 hover:shadow-[0_14px_40px_rgba(230,199,139,0.35)] active:scale-[0.99]"
+                    >
+                      <span aria-hidden>✂️</span>
+                      Reservar horário
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleGoToMyAppointments}
+                      className="w-full font-bold py-2.5 sm:py-3 px-4 sm:px-5 text-xs sm:text-sm uppercase tracking-[0.06em] sm:tracking-[0.08em] transition-all duration-300 flex items-center justify-center gap-2 rounded-xl border border-[#E6C78B]/35 bg-white/[0.04] text-[#E6C78B] hover:bg-[#E6C78B]/10 hover:border-[#E6C78B]/55 active:scale-[0.99]"
+                    >
+                      <CalendarDays className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 opacity-90" aria-hidden />
+                      Meus agendamentos
+                    </button>
+                  </div>
+
+                  {!isSimpleBookingPageEnabled && filaEsperaAtiva && (
+                    <div className="mt-2.5">
                       <button
-                        onClick={handleAgendarClick}
-                        className="w-full font-extrabold py-4 px-6 text-base sm:text-lg uppercase tracking-wide transition-all duration-300 flex items-center justify-center text-black rounded-2xl border border-[#f3e7c7]/60 bg-gradient-to-r from-[#e6d7b1] to-[#d9c08c] shadow-[0_18px_45px_rgba(0,0,0,0.40)] hover:brightness-105 active:scale-[0.99]"
+                        type="button"
+                        onClick={() => {
+                          if (filaEsperaFechada) return;
+                          setShowWaitlistModal(true);
+                          setShowJoinWaitlistForm(false);
+                        }}
+                        className={`w-full font-semibold py-2.5 px-4 text-xs uppercase tracking-[0.14em] rounded-xl transition-all duration-300 border active:scale-[0.99] ${
+                          filaEsperaFechada
+                            ? 'border-white/10 bg-white/5 text-white/45 cursor-not-allowed'
+                            : 'border-white/15 bg-white/5 text-white/80 hover:bg-white/10'
+                        }`}
                       >
-                        AGENDE SEU HORÁRIO
+                        {filaEsperaFechada ? 'Fila fechada' : 'Fila de espera'}
                       </button>
-
-                      {/* Botão menor escuro "encaixado" (SEM cortar no rodapé do card) */}
-                      <div className="flex justify-center -mt-4">
-                        <button
-                          onClick={handleAgendarClick}
-                          className="w-[230px] sm:w-[260px] font-extrabold py-2.5 px-4 text-sm uppercase tracking-[0.18em] rounded-2xl transition-all duration-300 border border-[#f3e7c7]/60 bg-[#0b0c0f] text-[#E6C78B] hover:bg-black/70 active:scale-[0.99] agf-heartbeat-cta"
-                        >
-                          RESERVAR AGORA
-                        </button>
-                      </div>
-
-                      {/* ✅ Botão Fila de Espera (aba/modal) */}
-                      {!isSimpleBookingPageEnabled && filaEsperaAtiva && (
-                        <div className="flex justify-center mt-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (filaEsperaFechada) return;
-                              setShowWaitlistModal(true);
-                              setShowJoinWaitlistForm(false);
-                            }}
-                            className={`w-[230px] sm:w-[260px] font-extrabold py-2.5 px-4 text-sm uppercase tracking-[0.18em] rounded-2xl transition-all duration-300 border border-white/15 active:scale-[0.99] ${filaEsperaFechada
-                              ? 'bg-white/5 text-white/50 cursor-not-allowed'
-                              : 'bg-white/5 text-white/90 hover:bg-white/10'
-                              }`}
-                          >
-                            {filaEsperaFechada ? 'FILA FECHADA' : 'FILA DE ESPERA'}
-                          </button>
-                        </div>
-                      )}
-
-                      {/* ✅ Link Segunda Unidade: só mostra se o código estiver preenchido (não zerado) */}
-                      {!isSimpleBookingPageEnabled && (() => {
-                        const code = String((establishment as any)?.second_unit_booking_code ?? '').trim();
-                        return code.length > 0;
-                      })() && (
-                          <div className="flex justify-center mt-4">
-                            <a
-                              href={`https://agendeifacil.com/booking/${String((establishment as any).second_unit_booking_code).trim()}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="w-full max-w-[340px] rounded-2xl border-2 border-[#E6C78B]/50 bg-gradient-to-b from-[#E6C78B]/15 to-[#d9c08c]/10 py-3 px-4 text-center flex flex-col gap-1 shadow-lg hover:from-[#E6C78B]/25 hover:to-[#d9c08c]/20 hover:border-[#E6C78B]/70 transition-all duration-200 hover:scale-[1.02] active:scale-[0.99]"
-                            >
-                              <span className="text-[11px] uppercase tracking-[0.2em] font-bold text-[#E6C78B]">Agendar outra unidade</span>
-                              <span className="font-bold text-white text-base leading-tight">{secondUnitName || 'Segunda Unidade'}</span>
-                              {(establishment as any)?.second_unit_label && (
-                                <span className="text-xs font-medium text-white/80">{(establishment as any).second_unit_label}</span>
-                              )}
-                            </a>
-                          </div>
-                        )}
                     </div>
-                  </div>
+                  )}
+
+                  {!isSimpleBookingPageEnabled && (() => {
+                    const code = String((establishment as any)?.second_unit_booking_code ?? '').trim();
+                    return code.length > 0;
+                  })() && (
+                    <div className="mt-3">
+                      <a
+                        href={`https://agendeifacil.com/booking/${String((establishment as any).second_unit_booking_code).trim()}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block w-full rounded-xl border border-[#E6C78B]/40 bg-gradient-to-b from-[#E6C78B]/12 to-transparent py-2.5 px-4 text-center transition-all duration-200 hover:from-[#E6C78B]/20 hover:border-[#E6C78B]/60 active:scale-[0.99]"
+                      >
+                        <span className="text-[10px] uppercase tracking-[0.18em] font-bold text-[#E6C78B]">Agendar outra unidade</span>
+                        <span className="block font-bold text-white text-sm leading-tight mt-0.5">{secondUnitName || 'Segunda Unidade'}</span>
+                        {(establishment as any)?.second_unit_label && (
+                          <span className="text-[11px] font-medium text-white/70">{(establishment as any).second_unit_label}</span>
+                        )}
+                      </a>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -4411,6 +4364,16 @@ export default function BookingPage() {
                       </div>
                       <div className="h-px w-10 bg-[#E6C78B]/40" />
                     </div>
+
+                    {!isSimpleBookingPageEnabled && establishment?.description && (
+                      <p className="mb-4 text-center text-sm text-white/65 leading-relaxed px-1">
+                        <ReadMore
+                          text={establishment.description}
+                          maxLength={60}
+                          className="text-white/65"
+                        />
+                      </p>
+                    )}
 
                     <div className="overflow-x-auto scrollbar-hide">
                       <div className="flex items-start justify-center gap-5 pb-1 min-w-max px-1">

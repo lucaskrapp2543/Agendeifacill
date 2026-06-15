@@ -1,14 +1,41 @@
 import { addMonths, endOfMonth, format, isPast, parse, parseISO, startOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronDown, ChevronUp, Edit, Eye, EyeOff, FileDown, History, Link2, Plus, Send, Trash2, Users, X } from 'lucide-react';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BarChart3,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  DollarSign,
+  Edit,
+  Eye,
+  EyeOff,
+  FileDown,
+  History,
+  Link2,
+  Plus,
+  RefreshCw,
+  Scissors,
+  Send,
+  Star,
+  Trash2,
+  Users,
+  Wallet,
+  X,
+} from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { syncSubscribersToManualClients } from '../lib/manualClientsSync';
 import {
   buildSubscriberAttendanceSnapshotFields,
+  computeSubscriberRepassValue,
   createIndependentSubscriber,
+  dedupeSubscriberAttendanceRows,
+  filterSubscriberAttendancesForFinance,
+  mergeSubscriberAttendancesWithCompletedAppointments,
   deactivateSubscriber,
   getEstablishmentSubscribers,
-  insertSubscriberAttendance,
+  insertSubscriberAttendanceOnce,
   isArchivedSubscriber,
   isDeactivatedSubscriber,
   reactivateSubscriber,
@@ -17,6 +44,7 @@ import {
   resolveSubscriberAttendanceProfessionalGroup,
   subscriberAttendanceMatchesProfessionalGroup,
 } from '../lib/subscriberSystem';
+import { clientNameHasSubscriberLabel } from '../lib/subscriberAppointmentFlags';
 import { createSubscription, deleteSubscription, getClientSubscriptions, getSubscriptions, supabase } from '../lib/supabase'; // Adicionar esta importação
 import { Database } from '../types/supabase';
 import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
@@ -28,6 +56,7 @@ import {
   isIsoDateWithinRange,
 } from '../utils/subscriptionUsagePeriod';
 import { downloadSubscriberAccountantReport } from '../utils/subscriberAccountantReport';
+import { ProfessionalAttendedClientsModal } from './ProfessionalAttendedClientsModal';
 import { ClientRecoveryModal } from './ClientRecoveryModal';
 import { useToast } from './ui/Toaster';
 
@@ -403,6 +432,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [showNaoPagosBreakdown, setShowNaoPagosBreakdown] = useState(false);
   const [isCreatingRecurringLinkByClientId, setIsCreatingRecurringLinkByClientId] = useState<Record<string, boolean>>({});
   const [recurringActivationLinkByClientId, setRecurringActivationLinkByClientId] = useState<Record<string, string>>({});
+  const [isRefreshingRecurringList, setIsRefreshingRecurringList] = useState(false);
 
   const normalizeNameKey = (value: string): string =>
     String(value || '')
@@ -433,41 +463,37 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return Number.isFinite(timestamp) ? timestamp : 0;
   };
 
+  const getSubscriberPhoneKeyFromRow = (cs: ClientSubscription | Record<string, unknown>): string => {
+    return normalizePhoneDigits(String((cs as any)?.subscriber_whatsapp || (cs as any)?.client_whatsapp || ''));
+  };
+
+  const isPaymentStatusPaid = (cs: ClientSubscription | Record<string, unknown>): boolean => {
+    return String((cs as any)?.payment_status || '').toLowerCase().trim() === 'paid';
+  };
+
+  const isPaymentStatusUnpaid = (cs: ClientSubscription | Record<string, unknown>): boolean => {
+    const status = String((cs as any)?.payment_status || '').toLowerCase().trim();
+    return status === 'unpaid' || status === 'pending' || status === '';
+  };
+
+  const scoreSubscriberRowForDedup = (row: ClientSubscription | Record<string, unknown>): number => {
+    const paidBoost = isPaymentStatusPaid(row) ? 1e15 : 0;
+    const end = toTime((row as any)?.end_date);
+    const updated = toTime((row as any)?.updated_at) || toTime((row as any)?.created_at);
+    return paidBoost + end * 1000 + updated;
+  };
+
   const deduplicateSubscriberRows = (rows: ClientSubscription[]): ClientSubscription[] => {
     const byKey = new Map<string, ClientSubscription>();
 
     for (const row of rows || []) {
       const current = row as any;
-      const phone = normalizePhoneDigits(String(current?.subscriber_whatsapp || current?.client_whatsapp || ''));
+      const phone = getSubscriberPhoneKeyFromRow(row);
       const nameKey = normalizeNameKey(String(current?.subscriber_name || current?.profiles?.full_name || ''));
       const key = phone || (nameKey ? `name:${nameKey}` : `id:${String(current?.id || '')}`);
 
       const previous = byKey.get(key);
-      if (!previous) {
-        byKey.set(key, row);
-        continue;
-      }
-
-      const prevAny = previous as any;
-      const curAny = current;
-
-      const prevEnd = toTime(prevAny?.end_date);
-      const curEnd = toTime(curAny?.end_date);
-      if (curEnd !== prevEnd) {
-        if (curEnd > prevEnd) byKey.set(key, row);
-        continue;
-      }
-
-      const prevPaid = String(prevAny?.payment_status || '').toLowerCase() === 'paid' ? 1 : 0;
-      const curPaid = String(curAny?.payment_status || '').toLowerCase() === 'paid' ? 1 : 0;
-      if (curPaid !== prevPaid) {
-        if (curPaid > prevPaid) byKey.set(key, row);
-        continue;
-      }
-
-      const prevUpdated = toTime(prevAny?.updated_at) || toTime(prevAny?.created_at);
-      const curUpdated = toTime(curAny?.updated_at) || toTime(curAny?.created_at);
-      if (curUpdated > prevUpdated) {
+      if (!previous || scoreSubscriberRowForDedup(row) > scoreSubscriberRowForDedup(previous)) {
         byKey.set(key, row);
       }
     }
@@ -700,24 +726,78 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return Number.isFinite(months) && months === 1;
   };
 
+  const isMercadoPagoPreapprovalActiveStatus = (rawStatus: unknown): boolean => {
+    const status = String(rawStatus || '').toLowerCase().trim();
+    return status === 'authorized' || status === 'approved' || status === 'active' || status === 'paid';
+  };
+
+  const activeRecurringIdentityKeys = useMemo(() => {
+    const phones = new Set<string>();
+    const emails = new Set<string>();
+    const names = new Set<string>();
+
+    clientSubscriptions.forEach((cs) => {
+      if (isArchivedSubscriber(cs) || isDeactivatedSubscriber(cs)) return;
+
+      const provider = String((cs as any)?.subscription_payment_provider || '').toLowerCase().trim();
+      if (provider !== 'mercadopago_card_recurring') return;
+
+      const phone = getSubscriberPhoneKeyFromRow(cs);
+      const email = getSubscriberEmailForRecurring(cs);
+      const nameKey = normalizeNameKey(getSubscriberDisplayName(cs));
+      if (phone) phones.add(phone);
+      if (email) emails.add(email);
+      if (nameKey) names.add(nameKey);
+    });
+
+    return { phones, emails, names };
+  }, [clientSubscriptions]);
+
+  const deactivatedSubscriberPhoneKeysForRecurring = useMemo(() => {
+    const keys = new Set<string>();
+    clientSubscriptions.forEach((cs) => {
+      if (isArchivedSubscriber(cs) || !isDeactivatedSubscriber(cs)) return;
+      const phone = getSubscriberPhoneKeyFromRow(cs);
+      if (phone) keys.add(phone);
+    });
+    return keys;
+  }, [clientSubscriptions]);
+
   // Elegível para "reativar recorrência":
   // - já pagou a mensalidade
   // - fluxo foi cartão Mercado Pago sem recorrência ativa
   // - plano mensal
-  const isRecurringActivationCandidate = (clientSubscription: ClientSubscription): boolean => {
-    const paymentStatus = String(clientSubscription?.payment_status || '').toLowerCase().trim();
-    if (paymentStatus !== 'paid') return false;
+  // - não arquivado/desativado
+  // - fallback: outro registro do mesmo telefone/e-mail/nome já tem recorrência ativa
+  const isRecurringActivationCandidate = useCallback(
+    (clientSubscription: ClientSubscription): boolean => {
+      if (isArchivedSubscriber(clientSubscription) || isDeactivatedSubscriber(clientSubscription)) return false;
 
-    const provider = String((clientSubscription as any)?.subscription_payment_provider || '').toLowerCase().trim();
-    const isPendingProvider =
-      provider === 'mercadopago_card' || provider === 'mercadopago_card_recurring_pending';
-    if (!isPendingProvider) return false;
+      const paymentStatus = String(clientSubscription?.payment_status || '').toLowerCase().trim();
+      if (paymentStatus !== 'paid') return false;
 
-    const method = String((clientSubscription as any)?.subscriber_payment_method || '').toLowerCase().trim();
-    if (method && method !== 'credito' && method !== 'credit_card') return false;
+      const provider = String((clientSubscription as any)?.subscription_payment_provider || '').toLowerCase().trim();
+      if (provider === 'mercadopago_card_recurring') return false;
 
-    return isMonthlySubscriptionPlan(clientSubscription);
-  };
+      const isPendingProvider =
+        provider === 'mercadopago_card' || provider === 'mercadopago_card_recurring_pending';
+      if (!isPendingProvider) return false;
+
+      const phone = getSubscriberPhoneKeyFromRow(clientSubscription);
+      const email = getSubscriberEmailForRecurring(clientSubscription);
+      const nameKey = normalizeNameKey(getSubscriberDisplayName(clientSubscription));
+      if (phone && activeRecurringIdentityKeys.phones.has(phone)) return false;
+      if (email && activeRecurringIdentityKeys.emails.has(email)) return false;
+      if (nameKey && activeRecurringIdentityKeys.names.has(nameKey)) return false;
+      if (phone && deactivatedSubscriberPhoneKeysForRecurring.has(phone)) return false;
+
+      const method = String((clientSubscription as any)?.subscriber_payment_method || '').toLowerCase().trim();
+      if (method && method !== 'credito' && method !== 'credit_card') return false;
+
+      return isMonthlySubscriptionPlan(clientSubscription);
+    },
+    [activeRecurringIdentityKeys, deactivatedSubscriberPhoneKeysForRecurring]
+  );
 
   const recurringActivationCandidates = useMemo(() => {
     return clientSubscriptions
@@ -727,7 +807,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         const bTs = new Date(String((b as any)?.last_payment_date || (b as any)?.updated_at || (b as any)?.created_at || '')).getTime() || 0;
         return bTs - aTs;
       });
-  }, [clientSubscriptions]);
+  }, [clientSubscriptions, isRecurringActivationCandidate]);
 
   const createRecurringActivationLink = async (clientSubscription: ClientSubscription): Promise<string | null> => {
     if (!establishmentId) {
@@ -996,20 +1076,27 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   const getAttendanceEffectiveRepass = (attendance: any): number => {
     const clientSubId = String(attendance?.client_subscription_id || '').trim();
-    // Modo pontos: não soma valor financeiro no controle (mesmo se registro antigo tiver repasse cheio por bug).
     if (clientSubId && isClientSubscriptionPointsMode(clientSubId)) {
       return 0;
     }
 
-    // Compatibilidade: se já existe repasse salvo no atendimento, ele deve prevalecer.
-    const storedValue = Number(attendance?.repass_value || 0);
-    if (Number.isFinite(storedValue) && storedValue > 0) {
-      return storedValue;
+    const cs = (clientSubscriptions || []).find((c: any) => String(c?.id) === clientSubId);
+    if (cs) {
+      const nested = (cs as any)?.subscriptions;
+      const sub =
+        nested && (nested as any).id != null
+          ? nested
+          : subscriptions.find((s: any) => String(s.id) === String((cs as any).subscription_id));
+      if (sub) {
+        return computeSubscriberRepassValue({
+          subscription: sub,
+          monthlyLimit: Number((cs as any).monthly_limit || 0),
+          appointmentPrice: 0,
+        });
+      }
     }
 
-    if (clientSubId && divideEnabledByClientSubscriptionId[clientSubId] === false) {
-      return 0;
-    }
+    const storedValue = Number(attendance?.repass_value || 0);
     return Number.isFinite(storedValue) ? storedValue : 0;
   };
 
@@ -1037,6 +1124,23 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [professionalPayments, setProfessionalPayments] = useState<any[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedProfessionalForHistory, setSelectedProfessionalForHistory] = useState<string>('');
+  const [professionalClientsModal, setProfessionalClientsModal] = useState<{
+    professional: string;
+    groupKey: string;
+    exclusiveSubscriberIds: Set<string>;
+  } | null>(null);
+
+  const openProfessionalClientsModal = (
+    professionalName: string,
+    professionalGroupKey: string,
+    exclusiveList: Array<{ id: string; name: string }>
+  ) => {
+    setProfessionalClientsModal({
+      professional: professionalName,
+      groupKey: professionalGroupKey,
+      exclusiveSubscriberIds: new Set(exclusiveList.map((item) => item.id)),
+    });
+  };
 
   const clientNameBySubIdMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -1082,6 +1186,128 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       establishmentProfessionalsForGrouping,
       deletedProfessionalsForGrouping
     );
+
+  type ProfessionalControlGroupData = {
+    groupKey: string;
+    displayName: string;
+    professionalId: string | null;
+    totalValue: number;
+    pointsFromAttendances: number;
+    attendanceCount: number;
+    uniqueClientIds: Set<string>;
+    saleCommissionCount: number;
+  };
+
+  const activeProfessionalIdSet = useMemo(
+    () =>
+      new Set(
+        establishmentProfessionalsForGrouping
+          .map((pro) => String(pro?.id || '').trim())
+          .filter(Boolean)
+      ),
+    [establishmentProfessionalsForGrouping]
+  );
+
+  const professionalControlGroups = useMemo(() => {
+    const acc: Record<string, ProfessionalControlGroupData> = {};
+
+    subscriberAttendances.forEach((attendance: any) => {
+      const group = getProfessionalGroupFromAttendance(attendance);
+      const groupKey = group.groupKey;
+      if (!group.professionalId || !activeProfessionalIdSet.has(String(group.professionalId))) return;
+      if (!acc[groupKey]) {
+        acc[groupKey] = {
+          groupKey,
+          displayName: group.displayName,
+          professionalId: group.professionalId,
+          totalValue: 0,
+          pointsFromAttendances: 0,
+          attendanceCount: 0,
+          uniqueClientIds: new Set<string>(),
+          saleCommissionCount: 0,
+        };
+      }
+      acc[groupKey].totalValue += getAttendanceEffectiveRepass(attendance);
+      acc[groupKey].attendanceCount += 1;
+
+      const clientSubId = String(attendance.client_subscription_id || '');
+      const snapshotName = String(attendance.client_name_snapshot || '').trim();
+      const clientKey = clientSubId || (snapshotName ? `snap:${snapshotName}` : '');
+      if (clientKey) {
+        acc[groupKey].uniqueClientIds.add(clientKey);
+        if (clientSubId && isClientSubscriptionPointsMode(clientSubId)) {
+          acc[groupKey].pointsFromAttendances += 1;
+        }
+      }
+    });
+
+    subscriptionSaleCommissions.forEach((item: any) => {
+      const group = getProfessionalGroupFromAttendance(item);
+      const groupKey = group.groupKey;
+      if (!group.professionalId || !activeProfessionalIdSet.has(String(group.professionalId))) return;
+      if (!acc[groupKey]) {
+        acc[groupKey] = {
+          groupKey,
+          displayName: group.displayName,
+          professionalId: group.professionalId,
+          totalValue: 0,
+          pointsFromAttendances: 0,
+          attendanceCount: 0,
+          uniqueClientIds: new Set<string>(),
+          saleCommissionCount: 0,
+        };
+      }
+      acc[groupKey].totalValue += parseFloat(item.commission_amount) || 0;
+      acc[groupKey].saleCommissionCount += 1;
+    });
+
+    return Object.values(acc).sort((a, b) => b.totalValue - a.totalValue || b.attendanceCount - a.attendanceCount);
+  }, [
+    subscriberAttendances,
+    subscriptionSaleCommissions,
+    establishmentProfessionalsForGrouping,
+    deletedProfessionalsForGrouping,
+    activeProfessionalIdSet,
+  ]);
+
+  const exclusiveSubscribersByGroupKey = useMemo(() => {
+    const map = new Map<string, Array<{ id: string; name: string }>>();
+
+    (clientSubscriptions || []).forEach((cs: any) => {
+      const profId = String(cs?.subscriber_professional_id || '').trim();
+      const profName = String(cs?.subscriber_professional_name || '').trim();
+      if (!profId && !profName) return;
+
+      let groupKey = '';
+      if (profId) {
+        groupKey = `id:${profId}`;
+      } else {
+        const activeMatch = establishmentProfessionalsForGrouping.find(
+          (pro) => normalizeNameKey(pro.name) === normalizeNameKey(profName)
+        );
+        groupKey = activeMatch?.id ? `id:${activeMatch.id}` : `name:${normalizeNameKey(profName)}`;
+      }
+
+      const subscriberName =
+        String(cs?.client_name_override || cs?.subscriber_name || cs?.profiles?.full_name || 'Assinante').trim() ||
+        'Assinante';
+
+      const list = map.get(groupKey) || [];
+      if (!list.some((item) => item.id === String(cs.id))) {
+        list.push({ id: String(cs.id), name: subscriberName });
+      }
+      map.set(groupKey, list);
+    });
+
+    map.forEach((list, key) => {
+      map.set(
+        key,
+        [...list].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+      );
+    });
+
+    return map;
+  }, [clientSubscriptions, establishmentProfessionalsForGrouping]);
 
   const isOwnerProfessionalByName = (professionalNameRaw: string): boolean => {
     const key = normalizeNameKey(professionalNameRaw);
@@ -1589,13 +1815,26 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   // Função para buscar atendimentos de assinantes (do mês selecionado)
   const fetchSubscriberAttendances = async (month?: number, year?: number) => {
-    try {
-      // Usar mês/ano selecionado ou mês atual como padrão
-      const targetMonth = month !== undefined ? month : selectedMonth;
-      const targetYear = year !== undefined ? year : selectedYear;
-      const firstDayOfMonth = new Date(targetYear, targetMonth, 1);
-      const lastDayOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
+    const targetMonth = month !== undefined ? month : selectedMonth;
+    const targetYear = year !== undefined ? year : selectedYear;
+    const firstDayOfMonth = new Date(targetYear, targetMonth, 1);
+    const lastDayOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
+    const monthStart = firstDayOfMonth.toISOString().split('T')[0];
+    const monthEnd = lastDayOfMonth.toISOString().split('T')[0];
 
+    const applyRows = async (rows: any[] | null | undefined) => {
+      const filtered = await filterSubscriberAttendancesForFinance(rows || [], establishmentId);
+      const merged = await mergeSubscriberAttendancesWithCompletedAppointments({
+        establishmentId,
+        monthStart,
+        monthEnd,
+        existingRows: filtered,
+        professionals: establishmentProfessionalsForGrouping,
+      });
+      setSubscriberAttendances(merged);
+    };
+
+    try {
       const { data, error } = await supabase
         .from('subscriber_attendances')
         .select(`
@@ -1605,11 +1844,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           attendance_date,
           repass_value,
           created_at,
-          client_subscription_id
+          client_subscription_id,
+          appointment_id,
+          client_name_snapshot,
+          subscription_name_snapshot
         `)
         .eq('establishment_id', establishmentId)
-        .gte('attendance_date', firstDayOfMonth.toISOString().split('T')[0])
-        .lte('attendance_date', lastDayOfMonth.toISOString().split('T')[0])
+        .gte('attendance_date', monthStart)
+        .lte('attendance_date', monthEnd)
         .order('attendance_date', { ascending: false });
 
       if (error && String((error as any)?.message || '').toLowerCase().includes('professional_id')) {
@@ -1621,26 +1863,47 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             attendance_date,
             repass_value,
             created_at,
-            client_subscription_id
+            client_subscription_id,
+            appointment_id,
+            client_name_snapshot,
+            subscription_name_snapshot
           `)
           .eq('establishment_id', establishmentId)
-          .gte('attendance_date', firstDayOfMonth.toISOString().split('T')[0])
-          .lte('attendance_date', lastDayOfMonth.toISOString().split('T')[0])
+          .gte('attendance_date', monthStart)
+          .lte('attendance_date', monthEnd)
           .order('attendance_date', { ascending: false });
         if (fallback.error) {
           console.error('Erro ao buscar atendimentos de assinantes:', fallback.error);
           return;
         }
-        setSubscriberAttendances(fallback.data || []);
+        await applyRows(fallback.data || []);
         return;
       }
 
       if (error) {
-        console.error('Erro ao buscar atendimentos de assinantes:', error);
+        const legacyFallback = await supabase
+          .from('subscriber_attendances')
+          .select(`
+            id,
+            professional_name,
+            attendance_date,
+            repass_value,
+            created_at,
+            client_subscription_id
+          `)
+          .eq('establishment_id', establishmentId)
+          .gte('attendance_date', monthStart)
+          .lte('attendance_date', monthEnd)
+          .order('attendance_date', { ascending: false });
+        if (legacyFallback.error) {
+          console.error('Erro ao buscar atendimentos de assinantes:', error);
+          return;
+        }
+        await applyRows(legacyFallback.data || []);
         return;
       }
 
-      setSubscriberAttendances(data || []);
+      await applyRows(data || []);
     } catch (error) {
       console.error('Erro ao buscar atendimentos de assinantes:', error);
     }
@@ -1731,7 +1994,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       const max = end.toISOString().split('T')[0];
 
       const { data, error } = await supabase
-        .from('subscriber_attendances')
         .select('client_subscription_id, attendance_date')
         .eq('establishment_id', establishmentId)
         .gte('attendance_date', min)
@@ -2439,7 +2701,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         repassValueToSave = Math.round((repassValueToSave / divideCount) * 100) / 100;
       }
 
-      const { error } = await insertSubscriberAttendance({
+      const { error } = await insertSubscriberAttendanceOnce({
           establishment_id: establishmentId,
           client_subscription_id: selectedClientForAttendance.id,
           professional_name: attendanceProfessionalToSave,
@@ -2583,6 +2845,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         }
         const dedupedOldData = deduplicateSubscriberRows((oldData || []) as ClientSubscription[]);
         setClientSubscriptions(dedupedOldData);
+        void syncSubscribersToManualClients(establishmentId).catch((syncError) => {
+          console.warn('⚠️ Falha ao sincronizar assinantes em Meus Clientes:', syncError);
+        });
         return;
       }
 
@@ -2599,9 +2864,178 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       const dedupedSubscribers = deduplicateSubscriberRows(transformedSubscribers as ClientSubscription[]);
       setClientSubscriptions(dedupedSubscribers);
+      void syncSubscribersToManualClients(establishmentId).catch((syncError) => {
+        console.warn('⚠️ Falha ao sincronizar assinantes em Meus Clientes:', syncError);
+      });
     } catch (error) {
       console.error('Erro ao buscar assinantes:', error);
       toast.error('Erro ao carregar assinantes.');
+    }
+  };
+
+  const fetchMercadoPagoPreapprovalStatus = async (
+    preapprovalId: string
+  ): Promise<{ status: string; active: boolean }> => {
+    const endpoint = import.meta.env.PROD
+      ? '/.netlify/functions/mercadopago-get-preapproval-status'
+      : '/api/mercadopago/get-preapproval-status';
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        establishmentId: String(establishmentId),
+        preapprovalId,
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const msg = String((payload as any)?.error || `Erro ${response.status}`).trim();
+      throw new Error(msg || 'Não foi possível consultar recorrência no Mercado Pago.');
+    }
+
+    const status = String((payload as any)?.preapproval?.status || '').trim();
+    return { status, active: isMercadoPagoPreapprovalActiveStatus(status) };
+  };
+
+  const refreshRecurringActivationList = async () => {
+    if (!establishmentId) {
+      toast.error('Estabelecimento inválido para atualizar a lista.');
+      return;
+    }
+    if (!String(establishment?.mercadopago_access_token || '').trim()) {
+      toast.error('Conecte o Mercado Pago em Meus Assinantes para verificar recorrências.');
+      return;
+    }
+
+    setIsRefreshingRecurringList(true);
+    try {
+      const { data: rawRows, error: loadError } = await getEstablishmentSubscribers(establishmentId);
+      if (loadError) {
+        throw loadError;
+      }
+
+      const rows = deduplicateSubscriberRows(
+        ((rawRows || []) as ClientSubscription[]).map((subscriber: any) => ({
+          ...subscriber,
+          profiles: {
+            full_name: subscriber.subscriber_name || 'Cliente Desconhecido',
+            email: subscriber.subscriber_email || null,
+            is_subscriber: true,
+          },
+          client_whatsapp: subscriber.subscriber_whatsapp || 'N/A',
+        })) as ClientSubscription[]
+      );
+
+      const preapprovalIdsToCheck = new Set<string>();
+      const phoneToPreapprovalIds = new Map<string, Set<string>>();
+      const emailToPreapprovalIds = new Map<string, Set<string>>();
+
+      const registerPreapprovalForRow = (cs: ClientSubscription, orderId: string) => {
+        preapprovalIdsToCheck.add(orderId);
+        const phone = getSubscriberPhoneKeyFromRow(cs);
+        const email = getSubscriberEmailForRecurring(cs);
+        if (phone) {
+          if (!phoneToPreapprovalIds.has(phone)) phoneToPreapprovalIds.set(phone, new Set());
+          phoneToPreapprovalIds.get(phone)!.add(orderId);
+        }
+        if (email) {
+          if (!emailToPreapprovalIds.has(email)) emailToPreapprovalIds.set(email, new Set());
+          emailToPreapprovalIds.get(email)!.add(orderId);
+        }
+      };
+
+      for (const cs of rows) {
+        const orderId = String((cs as any)?.subscription_payment_order_id || '').trim();
+        if (!orderId) continue;
+        const provider = String((cs as any)?.subscription_payment_provider || '').toLowerCase();
+        if (!provider.includes('mercadopago')) continue;
+        registerPreapprovalForRow(cs, orderId);
+      }
+
+      for (const cs of rows) {
+        if (isArchivedSubscriber(cs) || isDeactivatedSubscriber(cs)) continue;
+
+        const provider = String((cs as any)?.subscription_payment_provider || '').toLowerCase().trim();
+        const isPendingProvider =
+          provider === 'mercadopago_card' || provider === 'mercadopago_card_recurring_pending';
+        if (!isPendingProvider) continue;
+
+        const paymentStatus = String(cs.payment_status || '').toLowerCase().trim();
+        if (paymentStatus !== 'paid') continue;
+
+        const orderId = String((cs as any)?.subscription_payment_order_id || '').trim();
+        if (orderId) continue;
+
+        const phone = getSubscriberPhoneKeyFromRow(cs);
+        const email = getSubscriberEmailForRecurring(cs);
+        if (phone && phoneToPreapprovalIds.has(phone)) {
+          phoneToPreapprovalIds.get(phone)!.forEach((pid) => preapprovalIdsToCheck.add(pid));
+        }
+        if (email && emailToPreapprovalIds.has(email)) {
+          emailToPreapprovalIds.get(email)!.forEach((pid) => preapprovalIdsToCheck.add(pid));
+        }
+      }
+
+      let activatedCount = 0;
+      let checkedCount = 0;
+      let stillPendingCount = 0;
+      let errorCount = 0;
+
+      for (const preapprovalId of preapprovalIdsToCheck) {
+        checkedCount += 1;
+        try {
+          const { active } = await fetchMercadoPagoPreapprovalStatus(preapprovalId);
+          if (active) {
+            const { error: updateError } = await supabase
+              .from('client_subscriptions')
+              .update({
+                subscription_payment_provider: 'mercadopago_card_recurring',
+                updated_at: new Date().toISOString(),
+              } as any)
+              .eq('establishment_id', establishmentId)
+              .eq('subscription_payment_order_id', preapprovalId);
+
+            if (updateError) {
+              console.error('Erro ao sincronizar recorrência ativa:', updateError);
+              errorCount += 1;
+            } else {
+              activatedCount += 1;
+            }
+          } else {
+            stillPendingCount += 1;
+          }
+        } catch (checkError) {
+          console.warn('Falha ao verificar preapproval no Mercado Pago:', preapprovalId, checkError);
+          errorCount += 1;
+        }
+      }
+
+      await fetchClientSubscriptions();
+
+      if (activatedCount > 0) {
+        toast.success(
+          `${activatedCount} recorrência(s) confirmada(s) no Mercado Pago. Cliente(s) removido(s) da lista pendente.`
+        );
+      } else if (checkedCount === 0) {
+        toast('Lista atualizada. Nenhuma recorrência pendente encontrada para consultar no Mercado Pago.');
+      } else if (stillPendingCount > 0 && errorCount === 0) {
+        toast(
+          `${checkedCount} verificação(ões) no Mercado Pago: ${stillPendingCount} ainda sem recorrência ativa (cliente realmente não finalizou o cadastro do cartão).`
+        );
+      } else {
+        toast('Lista atualizada com verificação no Mercado Pago.');
+      }
+    } catch (error: any) {
+      console.error('Erro ao atualizar lista de recorrência:', error);
+      toast.error(
+        [error?.message || 'Erro ao atualizar lista de recorrência.', error?.code ? `(código: ${error.code})` : null]
+          .filter(Boolean)
+          .join(' ')
+      );
+    } finally {
+      setIsRefreshingRecurringList(false);
     }
   };
 
@@ -2834,9 +3268,27 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         throw error;
       }
 
+      const renewedEndDate =
+        newStatus === 'paid' ? getRenewedEndDateFromPaymentDate(getPaymentDateForImmediateStatusChange()) : undefined;
+      const paymentDate = newStatus === 'paid' ? getPaymentDateForImmediateStatusChange() : undefined;
+
+      setClientSubscriptions((prev) =>
+        deduplicateSubscriberRows(
+          prev.map((cs) =>
+            String(cs.id) === String(clientSubscription.id)
+              ? ({
+                  ...cs,
+                  payment_status: newStatus,
+                  ...(renewedEndDate ? { end_date: renewedEndDate, last_payment_date: paymentDate } : {}),
+                  updated_at: new Date().toISOString(),
+                } as ClientSubscription)
+              : cs
+          )
+        )
+      );
+
       if (newStatus === 'paid') {
-        const renewedEndDate = getRenewedEndDateFromPaymentDate(getPaymentDateForImmediateStatusChange());
-        toast(`Status FORÇADO para Pago e vencimento renovado para ${formatIsoDateSafe(renewedEndDate, renewedEndDate)}!`, 'success');
+        toast(`Status FORÇADO para Pago e vencimento renovado para ${formatIsoDateSafe(renewedEndDate!, renewedEndDate!)}!`, 'success');
       } else {
         toast('Status FORÇADO para Não Pago!', 'success');
       }
@@ -3225,6 +3677,22 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     try {
       const { error } = await deactivateSubscriber(clientSubscriptionId);
       if (error) throw error;
+
+      const nowIso = new Date().toISOString();
+      const todayIso = nowIso.split('T')[0];
+      setClientSubscriptions((prev) =>
+        prev.map((cs) => {
+          if (String(cs.id) !== String(clientSubscriptionId)) return cs;
+          const currentEnd = String(cs.end_date || '').trim().slice(0, 10);
+          return {
+            ...cs,
+            deactivated_at: nowIso,
+            updated_at: nowIso,
+            ...( !currentEnd || currentEnd > todayIso ? { end_date: todayIso } : {} ),
+          } as ClientSubscription;
+        })
+      );
+
       toast('Assinante desativado com sucesso.', 'success');
       fetchClientSubscriptions();
     } catch (error: any) {
@@ -3241,6 +3709,15 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     try {
       const { error } = await reactivateSubscriber(clientSubscriptionId);
       if (error) throw error;
+
+      setClientSubscriptions((prev) =>
+        prev.map((cs) =>
+          String(cs.id) === String(clientSubscriptionId)
+            ? ({ ...cs, deactivated_at: null, updated_at: new Date().toISOString() } as ClientSubscription)
+            : cs
+        )
+      );
+
       toast('Assinante reativado com sucesso.', 'success');
       fetchClientSubscriptions();
     } catch (error: any) {
@@ -4110,9 +4587,44 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       .sort((a, b) => a.clientName.localeCompare(b.clientName, 'pt-BR'));
   }, [clientSubscriptions]);
 
+  const paidSubscriberPhoneKeys = useMemo(() => {
+    const keys = new Set<string>();
+    clientSubscriptions.forEach((cs) => {
+      if (isArchivedSubscriber(cs) || isDeactivatedSubscriber(cs)) return;
+      if (!isPaymentStatusPaid(cs)) return;
+      if (isPastIsoDateSafe(cs.end_date)) return;
+      const phone = getSubscriberPhoneKeyFromRow(cs);
+      if (phone) keys.add(phone);
+    });
+    return keys;
+  }, [clientSubscriptions]);
+
+  const deactivatedSubscriberPhoneKeys = useMemo(() => {
+    const keys = new Set<string>();
+    clientSubscriptions.forEach((cs) => {
+      if (isArchivedSubscriber(cs) || !isDeactivatedSubscriber(cs)) return;
+      const phone = getSubscriberPhoneKeyFromRow(cs);
+      if (phone) keys.add(phone);
+    });
+    return keys;
+  }, [clientSubscriptions]);
+
+  const isDelinquentSubscriber = useCallback(
+    (cs: ClientSubscription): boolean => {
+      if (isArchivedSubscriber(cs) || isDeactivatedSubscriber(cs)) return false;
+      if (isPaymentStatusPaid(cs)) return false;
+      if (!isPaymentStatusUnpaid(cs)) return false;
+      const phone = getSubscriberPhoneKeyFromRow(cs);
+      if (phone && paidSubscriberPhoneKeys.has(phone)) return false;
+      if (phone && deactivatedSubscriberPhoneKeys.has(phone)) return false;
+      return true;
+    },
+    [paidSubscriberPhoneKeys, deactivatedSubscriberPhoneKeys]
+  );
+
   const naoPagosBreakdown = useMemo(() => {
     return clientSubscriptions
-      .filter((cs) => String(cs.payment_status || '').toLowerCase() === 'unpaid')
+      .filter(isDelinquentSubscriber)
       .map((cs) => {
         const active = isSubscriptionActiveByEndDate(cs);
         return {
@@ -4125,7 +4637,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         };
       })
       .sort((a, b) => a.clientName.localeCompare(b.clientName, 'pt-BR'));
-  }, [clientSubscriptions]);
+  }, [clientSubscriptions, isDelinquentSubscriber]);
 
   const clientSubscriptionById = useMemo(() => {
     const map = new Map<string, ClientSubscription>();
@@ -4194,11 +4706,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   const totalAssinantes = clientSubscriptions.filter(cs => isSubscriptionActiveByEndDate(cs)).length;
 
-  // Contar assinantes não pagos (ativos e vencidos)
-  const assinantesNaoPagos = clientSubscriptions.filter(cs => {
-    if (isArchivedSubscriber(cs) || isDeactivatedSubscriber(cs)) return false;
-    return cs.payment_status === 'unpaid'; // Todos os não pagos, independente da data
-  }).length;
+  // Contar assinantes não pagos (ativos e vencidos), com fallback por telefone pago em dia
+  const assinantesNaoPagos = useMemo(
+    () => clientSubscriptions.filter(isDelinquentSubscriber).length,
+    [clientSubscriptions, isDelinquentSubscriber]
+  );
 
   const matchesSubscriberSearch = (cs: ClientSubscription): boolean => {
     if (!searchTerm.trim()) return true;
@@ -4753,98 +5265,47 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
         {/* Controle por Profissional */}
         {(subscriberAttendances.length > 0 || subscriptionSaleCommissions.length > 0) && (
-          <div className="mt-6 pt-6 border-t border-gray-700">
-            <h3 className="text-lg font-semibold mb-4">Controle por Profissional</h3>
-            <div className="space-y-3">
-              {Object.entries(
-                (() => {
-                  const acc: {
-                    [key: string]: {
-                      displayName: string;
-                      totalValue: number;
-                      pointsFromAttendances: number;
-                      attendanceCount: number;
-                      uniqueClientIds: Set<string>;
-                      saleCommissionCount: number;
-                    };
-                  } = {};
+          <div className="mt-6 pt-6 border-t border-gray-700/80">
+            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-5">
+              <div>
+                <h3 className="text-lg sm:text-xl font-semibold text-white">Controle por Profissional</h3>
+                <p className="text-xs sm:text-sm text-gray-400 mt-1">
+                  Repasses e atendimentos de {monthNames[selectedMonth]} {selectedYear}
+                </p>
+              </div>
+              <p className="text-xs text-gray-500">
+                {professionalControlGroups.length} profissional(is) com movimentação
+              </p>
+            </div>
 
-                  subscriberAttendances.forEach((attendance: any) => {
-                    const group = getProfessionalGroupFromAttendance(attendance);
-                    const groupKey = group.groupKey;
-                    if (!acc[groupKey]) {
-                      acc[groupKey] = {
-                        displayName: group.displayName,
-                        totalValue: 0,
-                        pointsFromAttendances: 0,
-                        attendanceCount: 0,
-                        uniqueClientIds: new Set<string>(),
-                        saleCommissionCount: 0,
-                      };
-                    }
-                    acc[groupKey].totalValue += getAttendanceEffectiveRepass(attendance);
-                    acc[groupKey].attendanceCount += 1;
-
-                    const clientSubId = String(attendance.client_subscription_id || '');
-                    const snapshotName = String(attendance.client_name_snapshot || '').trim();
-                    const clientKey = clientSubId || (snapshotName ? `snap:${snapshotName}` : '');
-                    if (clientKey) {
-                      acc[groupKey].uniqueClientIds.add(clientKey);
-                      if (clientSubId && isClientSubscriptionPointsMode(clientSubId)) {
-                        acc[groupKey].pointsFromAttendances += 1;
-                      }
-                    }
-                  });
-
-                  subscriptionSaleCommissions.forEach((item: any) => {
-                    const group = getProfessionalGroupFromAttendance(item);
-                    const groupKey = group.groupKey;
-                    if (!acc[groupKey]) {
-                      acc[groupKey] = {
-                        displayName: group.displayName,
-                        totalValue: 0,
-                        pointsFromAttendances: 0,
-                        attendanceCount: 0,
-                        uniqueClientIds: new Set<string>(),
-                        saleCommissionCount: 0,
-                      };
-                    }
-                    acc[groupKey].totalValue += parseFloat(item.commission_amount) || 0;
-                    acc[groupKey].saleCommissionCount += 1;
-                  });
-
-                  // Transformar em objeto simples para o Object.entries sem perder os Sets
-                  // (Sets seguem existindo dentro do objeto, só não fazemos JSON/stringify)
-                  return acc as any;
-                })()
-              ).map(([groupKey, info]) => {
-                const professional = String((info as any)?.displayName || '').trim() || 'Profissional';
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {professionalControlGroups.map((groupInfo) => {
+                const groupKey = groupInfo.groupKey;
+                const professional = String(groupInfo.displayName || '').trim() || 'Profissional';
                 const isOwnerProfessional = isOwnerProfessionalByName(professional);
-                const totalValue = (info as any)?.totalValue || 0;
-                const pointsFromAttendances = (info as any)?.pointsFromAttendances || 0;
-                const attendanceCount = (info as any)?.attendanceCount || 0;
-                const uniqueClientsCount = (info as any)?.uniqueClientIds?.size || 0;
-                const saleCommissionCount = (info as any)?.saleCommissionCount || 0;
-                const clientIdsForLabels = Array.from((info as any)?.uniqueClientIds || []) as string[];
+                const totalValue = groupInfo.totalValue || 0;
+                const pointsFromAttendances = groupInfo.pointsFromAttendances || 0;
+                const attendanceCount = groupInfo.attendanceCount || 0;
+                const saleCommissionCount = groupInfo.saleCommissionCount || 0;
+                const clientIdsForLabels = Array.from(groupInfo.uniqueClientIds || []) as string[];
                 const clientRowsForList = clientIdsForLabels.map((cid) => {
+                  const withAssinanteLabel = (rawName: string) => {
+                    const base = String(rawName || 'Cliente').trim() || 'Cliente';
+                    return clientNameHasSubscriberLabel(base) ? base : `${base} (ASSINANTE)`;
+                  };
                   if (cid.startsWith('snap:')) {
-                    return { cid, label: cid.slice(5) };
+                    return { cid, label: withAssinanteLabel(cid.slice(5)) };
                   }
                   const name = clientNameBySubIdMap.get(cid) || 'Cliente';
-                  if (!isClientSubscriptionPointsMode(cid)) return { cid, label: name };
+                  if (!isClientSubscriptionPointsMode(cid)) {
+                    return { cid, label: withAssinanteLabel(name) };
+                  }
                   const cs = (clientSubscriptions || []).find((c: any) => String(c?.id) === String(cid));
                   const monthly = cs ? getSubscriptionValue(cs as ClientSubscription) : 0;
-                  return { cid, label: `${name} (mensalidade ${fmtBRL(monthly)})` };
-                });
-                const preview = clientRowsForList
-                  .slice(0, 3)
-                  .map((r) => r.label)
-                  .join(', ');
-                const remaining = Math.max(0, clientRowsForList.length - 3);
+                  return { cid, label: `${withAssinanteLabel(name)} · mensalidade ${fmtBRL(monthly)}` };
+                }).sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+                const exclusiveSubscribers = exclusiveSubscribersByGroupKey.get(groupKey) || [];
 
-                // Calcular total pago para este profissional no mês atual
-                // IMPORTANTE: Considerar apenas pagamentos feitos via assinatura (payment_source = 'subscription')
-                // Pagamentos do dashboard financeiro (payment_source = 'normal' ou NULL) NÃO devem entrar aqui
                 const totalPaid = professionalPayments
                   .filter((p) => {
                     if (p.payment_source !== 'subscription') return false;
@@ -4860,123 +5321,222 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   })
                   .reduce((sum, p) => sum + (p.amount || 0), 0);
 
-                // Valor pendente = total acumulado - total pago
                 const pendingValue = isOwnerProfessional ? 0 : Math.max(0, totalValue - totalPaid);
+                const averageTicket =
+                  attendanceCount > 0 && totalValue > 0 ? totalValue / attendanceCount : 0;
+                const previewClients = clientRowsForList.slice(0, 3);
+                const remainingClients = Math.max(0, clientRowsForList.length - previewClients.length);
+                const previewExclusive = exclusiveSubscribers.slice(0, 4);
+                const remainingExclusive = Math.max(0, exclusiveSubscribers.length - previewExclusive.length);
+
+                const metricTile = (
+                  icon: React.ReactNode,
+                  label: string,
+                  value: React.ReactNode,
+                  accentClass = 'text-white'
+                ) => (
+                  <div className="rounded-xl border border-gray-700/50 bg-black/20 p-3 min-w-0">
+                    <div className="flex items-center gap-1.5 text-[11px] text-gray-400 mb-1.5">
+                      {icon}
+                      <span className="truncate">{label}</span>
+                    </div>
+                    <div className={`text-sm sm:text-base font-bold truncate ${accentClass}`}>{value}</div>
+                  </div>
+                );
 
                 return (
-                  <div key={groupKey} className="flex justify-between items-center bg-[#2a2b2c] rounded-lg p-3">
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-white">{professional}</p>
-                      {isOwnerProfessional && (
-                        <p className="text-[11px] text-emerald-400 mt-0.5">
-                          Dono (100%): não gera pagamento para si mesmo no controle de assinaturas.
-                        </p>
-                      )}
-                      <p className="text-xs text-gray-400">
-                        Valor total acumulado de {monthNames[selectedMonth]} {selectedYear}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        Atendimentos: <span className="text-white font-semibold">{attendanceCount}</span>
-                        {' '}• Assinantes atendidos: <span className="text-white font-semibold">{uniqueClientsCount}</span>
-                        {pointsFromAttendances > 0 ? (
-                          <>
-                            {' '}• <span className="text-amber-200 font-semibold">{pointsFromAttendances} ponto(s)</span>
-                            <span className="text-gray-500"> (repasse 0% sem dividir valor)</span>
-                          </>
-                        ) : null}
-                        {saleCommissionCount > 0 ? (
-                          <>
-                            {' '}• Vendas (bônus): <span className="text-white font-semibold">{saleCommissionCount}</span>
-                          </>
-                        ) : null}
-                      </p>
-                      {clientRowsForList.length > 0 && (
-                        <>
-                          {clientRowsForList.length <= 3 ? (
-                            <p className="text-[11px] text-gray-500 mt-1">
-                              Clientes:{' '}
-                              <span className="text-gray-300">
-                                {clientRowsForList.map((r) => r.label).join(', ')}
-                              </span>
-                            </p>
-                          ) : (
-                            <details className="mt-1">
-                              <summary className="text-[11px] text-gray-500 cursor-pointer select-none">
-                                Clientes: <span className="text-gray-300">{preview}{remaining > 0 ? ` +${remaining}` : ''}</span>{' '}
-                                <span className="text-gray-500">(ver lista)</span>
-                              </summary>
-                              <div className="mt-2 max-h-24 overflow-y-auto pr-1">
-                                <ul className="space-y-0.5">
-                                  {[...clientRowsForList]
-                                    .sort((a, b) => a.label.localeCompare(b.label))
-                                    .map((row) => (
-                                      <li key={row.cid} className="text-[11px] text-gray-300">
-                                        {row.label}
-                                      </li>
-                                    ))}
-                                </ul>
-                              </div>
-                            </details>
-                          )}
-                        </>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        {pointsFromAttendances > 0 && totalValue <= 0 && saleCommissionCount === 0 ? (
-                          <>
-                            <p className="text-lg font-bold text-amber-300">{pointsFromAttendances} ponto(s)</p>
-                            <p className="text-[10px] text-gray-500 max-w-[10rem] ml-auto leading-tight">
-                              Sem repasse em R$ neste modo; feche valores no fim do mês conforme a política da equipe.
-                            </p>
-                          </>
-                        ) : (
-                          <>
-                            <p className={`text-lg font-bold ${pendingValue > 0 ? 'text-green-400' : pointsFromAttendances > 0 ? 'text-amber-300' : 'text-gray-500'}`}>
-                              {pendingValue > 0 || totalValue > 0 || saleCommissionCount > 0
-                                ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pendingValue)
-                                : pointsFromAttendances > 0
-                                  ? `${pointsFromAttendances} ponto(s)`
-                                  : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(pendingValue)}
-                            </p>
-                            {pointsFromAttendances > 0 && (totalValue > 0 || saleCommissionCount > 0) && (
-                              <p className="text-xs text-amber-200/90">+ {pointsFromAttendances} ponto(s)</p>
-                            )}
-                          </>
-                        )}
-                        {totalPaid > 0 && (
-                          <p className="text-xs text-gray-500 line-through">
-                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalValue)}
+                  <div
+                    key={groupKey}
+                    className="rounded-2xl border border-gray-700/60 bg-gradient-to-br from-[#2d2e30] via-[#272829] to-[#1f2021] overflow-hidden shadow-lg shadow-black/20"
+                  >
+                    <div className="px-4 sm:px-5 py-4 border-b border-gray-700/50 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h4 className="text-base sm:text-lg font-bold text-white truncate">{professional}</h4>
+                        {isOwnerProfessional && (
+                          <p className="text-[11px] text-emerald-400 mt-1">
+                            Dono (100%): não gera pagamento para si mesmo no controle de assinaturas.
                           </p>
                         )}
+                        <p className="text-xs text-gray-500 mt-1">
+                          {monthNames[selectedMonth]} {selectedYear}
+                        </p>
                       </div>
+                      {pointsFromAttendances > 0 && totalValue <= 0 && saleCommissionCount === 0 ? (
+                        <span className="shrink-0 inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-200">
+                          {pointsFromAttendances} ponto(s)
+                        </span>
+                      ) : (
+                        <span
+                          className={`shrink-0 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                            pendingValue > 0
+                              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                              : 'border-gray-600 bg-gray-800/80 text-gray-300'
+                          }`}
+                        >
+                          {pendingValue > 0 ? 'Pendente' : 'Em dia'}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="px-4 sm:px-5 py-4 grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
+                      {metricTile(
+                        <DollarSign className="w-3.5 h-3.5 shrink-0" />,
+                        'Total do mês',
+                        fmtBRL(totalValue),
+                        'text-emerald-300'
+                      )}
+                      {metricTile(
+                        <Scissors className="w-3.5 h-3.5 shrink-0" />,
+                        'Visitas',
+                        attendanceCount
+                      )}
+                      {metricTile(
+                        <BarChart3 className="w-3.5 h-3.5 shrink-0" />,
+                        'Ticket médio',
+                        averageTicket > 0 ? fmtBRL(averageTicket) : '—'
+                      )}
+                      {metricTile(
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />,
+                        'Pago',
+                        fmtBRL(totalPaid),
+                        'text-sky-300'
+                      )}
+                      {metricTile(
+                        <Clock className="w-3.5 h-3.5 shrink-0" />,
+                        'Pendente',
+                        pointsFromAttendances > 0 && totalValue <= 0 && saleCommissionCount === 0
+                          ? `${pointsFromAttendances} ponto(s)`
+                          : fmtBRL(pendingValue),
+                        pendingValue > 0 ? 'text-amber-300' : 'text-gray-300'
+                      )}
+                    </div>
+
+                    {(pointsFromAttendances > 0 || saleCommissionCount > 0) && (
+                      <div className="px-4 sm:px-5 pb-3 flex flex-wrap gap-2 text-[11px]">
+                        {pointsFromAttendances > 0 && (
+                          <span className="inline-flex items-center rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-amber-200">
+                            {pointsFromAttendances} ponto(s) sem repasse em R$
+                          </span>
+                        )}
+                        {saleCommissionCount > 0 && (
+                          <span className="inline-flex items-center rounded-full border border-violet-500/25 bg-violet-500/10 px-2 py-0.5 text-violet-200">
+                            {saleCommissionCount} venda(s) com bônus
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="px-4 sm:px-5 pb-4">
+                      <div className="rounded-xl border border-gray-700/40 bg-black/15 p-3">
+                        <div className="flex items-center justify-between gap-2 mb-2.5">
+                          <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
+                            Clientes atendidos no mês
+                          </p>
+                          {clientRowsForList.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openProfessionalClientsModal(professional, groupKey, exclusiveSubscribers)
+                              }
+                              className="text-[11px] font-medium text-sky-400 hover:text-sky-300 transition-colors"
+                            >
+                              Ver detalhes ({clientRowsForList.length})
+                            </button>
+                          )}
+                        </div>
+                        {clientRowsForList.length === 0 ? (
+                          <p className="text-xs text-gray-500">Nenhum assinante atendido neste mês.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {previewClients.map((row) => (
+                              <span
+                                key={row.cid}
+                                className="inline-flex max-w-full items-center rounded-full border border-gray-600/70 bg-[#1a1b1c] px-2.5 py-1 text-[11px] text-gray-200 truncate"
+                                title={row.label}
+                              >
+                                {row.label}
+                              </span>
+                            ))}
+                            {remainingClients > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openProfessionalClientsModal(professional, groupKey, exclusiveSubscribers)
+                                }
+                                className="inline-flex items-center rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-[11px] font-semibold text-sky-300 hover:bg-sky-500/20 transition-colors"
+                              >
+                                +{remainingClients}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="px-4 sm:px-5 pb-4">
+                      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+                        <div className="flex items-center gap-1.5 mb-2.5">
+                          <Star className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                          <p className="text-xs font-semibold text-amber-100 uppercase tracking-wide">
+                            Assinantes exclusivos
+                          </p>
+                        </div>
+                        {exclusiveSubscribers.length === 0 ? (
+                          <p className="text-xs text-gray-500">
+                            Nenhum assinante configurado para agendar somente com este profissional.
+                          </p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {previewExclusive.map((subscriber) => (
+                              <span
+                                key={subscriber.id}
+                                className="inline-flex max-w-full items-center rounded-full border border-amber-500/25 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-100 truncate"
+                                title={subscriber.name}
+                              >
+                                {subscriber.name}
+                              </span>
+                            ))}
+                            {remainingExclusive > 0 && (
+                              <span className="inline-flex items-center rounded-full border border-amber-500/25 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-200">
+                                +{remainingExclusive}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="px-4 sm:px-5 pb-5 flex flex-wrap gap-2">
                       {pendingValue > 0 && (
-                        <>
-                          <button
-                            onClick={() => handlePayProfessional(professional, pendingValue)}
-                            className="px-3 py-1.5 bg-black hover:bg-gray-800 text-white text-sm font-medium rounded transition-colors"
-                          >
-                            Pagar
-                          </button>
-                        </>
+                        <button
+                          type="button"
+                          onClick={() => handlePayProfessional(professional, pendingValue)}
+                          className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2.5 transition-colors"
+                        >
+                          <Wallet className="w-4 h-4" />
+                          Pagar
+                        </button>
                       )}
                       <button
+                        type="button"
                         onClick={async () => {
                           setSelectedProfessionalForHistory(professional);
                           const history = await fetchProfessionalPaymentHistory(professional);
                           setProfessionalPaymentHistory(history);
                           setShowHistoryModal(true);
                         }}
-                        className="px-3 py-1.5 bg-black hover:bg-gray-800 text-white text-sm font-medium rounded transition-colors"
+                        className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-600 bg-[#1a1b1c] hover:bg-[#242526] text-white text-sm font-medium px-4 py-2.5 transition-colors"
                       >
+                        <History className="w-4 h-4" />
                         Histórico
                       </button>
                       <button
+                        type="button"
                         onClick={() => handleDeleteProfessionalFromControl(groupKey, professional)}
-                        className="px-3 py-1.5 bg-black hover:bg-gray-800 text-white text-sm font-medium rounded transition-colors flex items-center gap-1"
+                        className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-300 text-sm font-medium px-4 py-2.5 transition-colors"
                         title={`Apagar todos os registros deste profissional de ${monthNames[selectedMonth]} ${selectedYear}`}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="w-4 h-4" />
                         Apagar
                       </button>
                     </div>
@@ -6045,10 +6605,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             </p>
           )}
         </div>
-        {recurringActivationCandidates.length > 0 && (
+        {!!String(establishment?.mercadopago_access_token || '').trim() && (
           <div className="mb-4 sm:mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 sm:p-4">
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div>
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+              <div className="min-w-0 flex-1">
                 <h3 className="text-sm sm:text-base font-bold text-amber-200">
                   Ativação de recorrência pendente (Mercado Pago)
                 </h3>
@@ -6059,11 +6619,34 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   Esse link não cobra nada agora. Ele apenas salva/autoriza o cartão para cobrar no próximo mês, na data de renovação.
                 </p>
               </div>
-              <span className="px-2 py-1 rounded-full bg-amber-400/20 border border-amber-300/40 text-amber-100 text-xs font-bold">
-                {recurringActivationCandidates.length}
-              </span>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => { void refreshRecurringActivationList(); }}
+                  disabled={isRefreshingRecurringList}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${
+                    isRefreshingRecurringList
+                      ? 'bg-white/5 text-gray-400 border-gray-600 cursor-not-allowed'
+                      : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+                  }`}
+                  title="Consulta o Mercado Pago e atualiza quem já ativou a recorrência"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingRecurringList ? 'animate-spin' : ''}`} />
+                  {isRefreshingRecurringList ? 'Verificando...' : 'Atualizar lista'}
+                </button>
+                <span className="px-2 py-1 rounded-full bg-amber-400/20 border border-amber-300/40 text-amber-100 text-xs font-bold">
+                  {recurringActivationCandidates.length}
+                </span>
+              </div>
             </div>
 
+            {recurringActivationCandidates.length === 0 ? (
+              <p className="text-xs sm:text-sm text-gray-300">
+                {isRefreshingRecurringList
+                  ? 'Consultando Mercado Pago por telefone, e-mail e vínculos de pagamento...'
+                  : 'Nenhum pendente no momento. Se o barbeiro acha que alguém já ativou, clique em "Atualizar lista" para revalidar no Mercado Pago.'}
+              </p>
+            ) : (
             <div className="space-y-2">
               {recurringActivationCandidates.map((cs) => {
                 const id = String(cs.id || '');
@@ -6133,6 +6716,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 );
               })}
             </div>
+            )}
           </div>
         )}
         {clientSubscriptions.length === 0 ? (
@@ -6142,7 +6726,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         ) : (
           <div className="space-y-3">
             {filteredClientSubscriptions.map((cs) => {
-              const isPaid = cs.payment_status === 'paid';
+              const isPaid = isPaymentStatusPaid(cs);
               const isExpired = isPastIsoDateSafe(cs.end_date);
               const baseLimit = Number((cs as any)?.monthly_limit || 0);
               const effectiveLimit = subscriberEffectiveLimitByClientSubId[String(cs.id)] ?? (Number.isFinite(baseLimit) && baseLimit > 0 ? baseLimit : null);
@@ -7125,11 +7709,13 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   <div className="bg-[#2a2b2c] rounded-lg p-4">
                     <h4 className="text-sm font-medium text-white mb-3">Detalhamento dos Atendimentos</h4>
                     <div className="space-y-2">
-                      {clientAttendances.map((attendance) => (
+                      {clientAttendances.map((attendance) => {
+                        const attendanceProfessional = getProfessionalGroupFromAttendance(attendance).displayName;
+                        return (
                         <div key={attendance.id} className="flex justify-between items-center bg-[#1a1b1c] rounded-lg p-3">
                           <div className="flex-1">
                             <p className="text-sm font-medium text-white">
-                              {String(attendance.professional_name || '').trim() || 'Profissional não informado'}
+                              {attendanceProfessional || 'Profissional não informado'}
                             </p>
                             <p className="text-xs text-gray-400">
                               {format(parse(String(attendance.attendance_date || '').slice(0, 10), 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: ptBR })}
@@ -7149,7 +7735,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                               type="button"
                               onClick={() => handleRemoveAttendance(
                                 attendance.id,
-                                String(attendance.professional_name || '').trim() || 'Profissional não informado',
+                                attendanceProfessional || 'Profissional não informado',
                                 attendance.attendance_date,
                                 getAttendanceEffectiveRepass(attendance)
                               )}
@@ -7160,7 +7746,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                             </button>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -7905,6 +8492,23 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           </div>
         </div>
       )}
+
+      <ProfessionalAttendedClientsModal
+        open={Boolean(professionalClientsModal)}
+        onClose={() => setProfessionalClientsModal(null)}
+        professional={professionalClientsModal?.professional || ''}
+        groupKey={professionalClientsModal?.groupKey || ''}
+        subscriberAttendances={subscriberAttendances}
+        clientSubscriptions={clientSubscriptions as any[]}
+        selectedMonth={selectedMonth}
+        selectedYear={selectedYear}
+        monthLabel={`${monthNames[selectedMonth]} ${selectedYear}`}
+        establishmentId={establishmentId}
+        fmtBRL={fmtBRL}
+        getProfessionalGroupFromAttendance={getProfessionalGroupFromAttendance}
+        getAttendanceEffectiveRepass={getAttendanceEffectiveRepass}
+        exclusiveSubscriberIds={professionalClientsModal?.exclusiveSubscriberIds || new Set()}
+      />
 
       {/* Modal de Histórico de Pagamentos */}
       {showHistoryModal && selectedProfessionalForHistory && (

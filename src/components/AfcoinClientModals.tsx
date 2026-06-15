@@ -524,3 +524,39 @@ export function AfcoinBookingExplainModal({ isOpen, onClose }: AfcoinBookingExpl
     </div>
   );
 }
+
+export function ClientAfcoinBadge({ balance }: { balance: number }) {
+  const safe = Number.isFinite(balance) ? Math.max(0, Math.floor(balance)) : 0;
+  const isReady = safe >= AFCOIN_REDEEM_THRESHOLD;
+  const formatted = safe.toLocaleString('pt-BR');
+  const label = isReady
+    ? `${(Math.floor(safe / 1000) * 1000).toLocaleString('pt-BR')}+ AFCoins`
+    : `${formatted} AFCoins`;
+  const prefix = isReady ? '🎁 ' : '';
+
+  return (
+    <div
+      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border ${
+        isReady
+          ? 'bg-gradient-to-r from-amber-50 via-[#fff8eb] to-amber-50/80 text-amber-950 border-amber-400/60 shadow-[0_0_16px_rgba(230,199,139,0.4)]'
+          : safe === 0
+            ? 'bg-gray-50/90 text-gray-500 border-gray-200'
+            : 'bg-gradient-to-r from-[#faf8f3] to-white text-[#6b5210] border-[#E6C78B]/55 shadow-[0_0_10px_rgba(230,199,139,0.2)]'
+      }`}
+      title={
+        isReady
+          ? 'Cliente pode resgatar benefícios AFCoins'
+          : safe === 0
+            ? 'Cliente ainda não acumulou AFCoins neste estabelecimento'
+            : 'Saldo AFCoins neste estabelecimento'
+      }
+    >
+      <img
+        src="/afcoin.png"
+        alt=""
+        className={`shrink-0 object-contain ${isReady ? 'h-5 w-5' : 'h-4 w-4'}`}
+      />
+      <span className="text-xs sm:text-sm font-bold leading-none">{prefix}{label}</span>
+    </div>
+  );
+}

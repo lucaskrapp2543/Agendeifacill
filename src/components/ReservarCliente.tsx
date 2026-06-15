@@ -1,10 +1,26 @@
-import { CheckCircle, Clock, Scissors, Search, User } from 'lucide-react';
+import { CheckCircle, Clock, Scissors, Search, Star, User } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
+import { isDateInsidePaidSubscription } from '../lib/subscriberAppointmentFlags';
+import { syncSubscribersToManualClients } from '../lib/manualClientsSync';
 import { checkWhatsAppSubscriber, supabase } from '../lib/supabase';
 import { getScheduleIntervalMinutes } from '../utils/scheduleGrid';
 import { PaymentModal } from './PaymentModal';
+import {
+  ReservarChoiceCard,
+  ReservarEmptyState,
+  ReservarKnownClientCard,
+  ReservarModalFrame,
+  ReservarPlanCard,
+  ReservarSearchField,
+  ReservarStepHeader,
+  ReservarSubscriberClientCard,
+  ReservarSubscriberServicesSection,
+  SubscriberFlowBanner,
+  formatLastVisitLabel,
+  getReservarModalHeader,
+} from './ReservarClienteUI';
 
 interface Professional {
   id: string;
@@ -76,7 +92,30 @@ interface Client {
   name: string;
   whatsapp: string;
   appointmentCount?: number;
+  isSubscriber?: boolean;
+  subscriberPlanName?: string;
+  subscriberSubscriptionId?: string;
 }
+
+interface SubscriberClientOption {
+  id: string;
+  client_id?: string;
+  name: string;
+  whatsapp: string;
+  lastVisitDate?: string | null;
+  visitCount?: number;
+}
+
+type ReservationMode = 'known' | 'avulso' | 'subscriber' | null;
+type ReservarStep =
+  | 'initial'
+  | 'subscriber_plan'
+  | 'subscriber_client'
+  | 'client'
+  | 'professional'
+  | 'service'
+  | 'time'
+  | 'confirm';
 
 interface ReservarClienteProps {
   establishmentId: string;
@@ -103,7 +142,8 @@ export default function ReservarCliente({
   onAppointmentCreated,
 }: ReservarClienteProps) {
   const { user } = useAuth();
-  const [step, setStep] = useState<'initial' | 'client' | 'professional' | 'service' | 'time' | 'confirm'>('initial');
+  const [step, setStep] = useState<ReservarStep>('initial');
+  const [reservationMode, setReservationMode] = useState<ReservationMode>(null);
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
@@ -135,6 +175,12 @@ export default function ReservarCliente({
     serviceLimit: number;
   } | null>(null);
   const [selectedClientActiveSubscriptionId, setSelectedClientActiveSubscriptionId] = useState<string | null>(null);
+  const [selectedSubscriberPlanId, setSelectedSubscriberPlanId] = useState<string | null>(null);
+  const [subscriberClients, setSubscriberClients] = useState<SubscriberClientOption[]>([]);
+  const [loadingSubscriberClients, setLoadingSubscriberClients] = useState(false);
+  const [subscriberClientSearch, setSubscriberClientSearch] = useState('');
+  const [subscriberPlanSearch, setSubscriberPlanSearch] = useState('');
+  const [subscriberCountByPlan, setSubscriberCountByPlan] = useState<Record<string, number>>({});
 
   // Estados para seleção de cliente conhecido
   const [clients, setClients] = useState<Client[]>([]);
@@ -459,6 +505,11 @@ export default function ReservarCliente({
     setLoadingClients(true);
     try {
 
+      // Assinantes cadastrados só em "Meus assinantes" também entram em "Meus Clientes".
+      await syncSubscribersToManualClients(establishmentId).catch((syncError) => {
+        console.warn('⚠️ Falha ao sincronizar assinantes em Meus Clientes:', syncError);
+      });
+
       // Buscar todos os agendamentos do estabelecimento com paginação
       // (Não filtrar is_avulso aqui, senão a lista pode ficar vazia mesmo tendo clientes no "Meus Clientes")
       const appointmentPageSize = 1000;
@@ -604,8 +655,49 @@ export default function ReservarCliente({
 
       const clientsArray = Array.from(clientsMap.values());
 
-      // Ordenar por nome
-      clientsArray.sort((a, b) => a.name.localeCompare(b.name));
+      // Marcar assinantes ativos (mesma regra de "Meus assinantes")
+      try {
+        const { data: subsRows, error: subsError } = await supabase
+          .from('client_subscriptions')
+          .select(
+            'client_whatsapp, subscriber_whatsapp, subscription_id, payment_status, start_date, end_date, subscriptions(name)'
+          )
+          .eq('establishment_id', establishmentId);
+
+        if (!subsError && Array.isArray(subsRows)) {
+          const todayStr = new Date().toISOString().slice(0, 10);
+          const subByPhone = new Map<string, { planName: string; subscriptionId: string }>();
+          subsRows.forEach((row: any) => {
+            if (!isDateInsidePaidSubscription(todayStr, row)) return;
+            const planName = String(row?.subscriptions?.name || 'Assinatura').trim() || 'Assinatura';
+            const subscriptionId = String(row?.subscription_id || '').trim();
+            if (!subscriptionId) return;
+            for (const rawPhone of [row?.client_whatsapp, row?.subscriber_whatsapp]) {
+              const key = normalizeWhatsappKey(rawPhone);
+              if (key && !subByPhone.has(key)) {
+                subByPhone.set(key, { planName, subscriptionId });
+              }
+            }
+          });
+          clientsArray.forEach((client) => {
+            const match = subByPhone.get(normalizeWhatsappKey(client.whatsapp));
+            if (match) {
+              client.isSubscriber = true;
+              client.subscriberPlanName = match.planName;
+              client.subscriberSubscriptionId = match.subscriptionId;
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('⚠️ Falha ao marcar assinantes na lista de clientes:', e);
+      }
+
+      // Assinantes primeiro, depois por nome
+      clientsArray.sort((a, b) => {
+        const subDiff = Number(Boolean(b.isSubscriber)) - Number(Boolean(a.isSubscriber));
+        if (subDiff !== 0) return subDiff;
+        return a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
+      });
 
       setClients(clientsArray);
     } catch (error) {
@@ -1214,8 +1306,15 @@ export default function ReservarCliente({
   ]);
 
   const handleClientSelect = (client: Client) => {
+    setReservationMode('known');
+    setSelectedSubscriberPlanId(null);
     setSelectedClient(client);
-    // Ao trocar cliente, limpamos seleção de assinatura anterior para evitar cruzamento de planos.
+    // Plano já conhecido na lista — evita esperar validação async para exibir assinatura.
+    setSelectedClientActiveSubscriptionId(
+      client.isSubscriber && client.subscriberSubscriptionId
+        ? String(client.subscriberSubscriptionId)
+        : null
+    );
     setSelectedSubscription(null);
     setSelectedSubscriberPlanMeta(null);
     if (selectedProfessional && String(selectedProfessional.id || '').trim().length > 0) {
@@ -1224,6 +1323,130 @@ export default function ReservarCliente({
     }
     setStep('professional');
   };
+
+  const loadSubscriberClientsForPlan = async (planId: string) => {
+    if (!establishmentId || !planId) return;
+    setLoadingSubscriberClients(true);
+    try {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const { data, error } = await supabase
+        .from('client_subscriptions')
+        .select(
+          'id, client_id, subscriber_name, subscriber_whatsapp, client_whatsapp, client_name_override, payment_status, start_date, end_date'
+        )
+        .eq('establishment_id', establishmentId)
+        .eq('subscription_id', planId);
+
+      if (error) throw error;
+
+      const clientsBase = (data || [])
+        .filter((row: any) => isDateInsidePaidSubscription(todayStr, row))
+        .map((row: any) => ({
+          id: String(row?.id || ''),
+          client_id: String(row?.client_id || '').trim() || undefined,
+          name: String(row?.client_name_override || row?.subscriber_name || '').trim() || 'Cliente',
+          whatsapp: String(row?.subscriber_whatsapp || row?.client_whatsapp || '').trim(),
+        }))
+        .filter((row) => row.id.length > 0);
+
+      const visitStatsByKey = new Map<string, { lastDate: string; count: number }>();
+      try {
+        const { data: recentApts } = await supabase
+          .from('appointments')
+          .select('client_whatsapp, appointment_date, status')
+          .eq('establishment_id', establishmentId)
+          .eq('status', 'completed')
+          .order('appointment_date', { ascending: false })
+          .limit(800);
+
+        (recentApts || []).forEach((apt: any) => {
+          const key = normalizeWhatsappKey(apt?.client_whatsapp);
+          const dateStr = String(apt?.appointment_date || '').slice(0, 10);
+          if (!key || !dateStr) return;
+          const prev = visitStatsByKey.get(key);
+          if (!prev) {
+            visitStatsByKey.set(key, { lastDate: dateStr, count: 1 });
+            return;
+          }
+          visitStatsByKey.set(key, { lastDate: prev.lastDate, count: prev.count + 1 });
+        });
+      } catch (statsError) {
+        console.warn('Não foi possível carregar histórico recente dos assinantes:', statsError);
+      }
+
+      const clients = clientsBase
+        .map((client) => {
+          const key = normalizeWhatsappKey(client.whatsapp);
+          const stats = key ? visitStatsByKey.get(key) : undefined;
+          return {
+            ...client,
+            lastVisitDate: stats?.lastDate || null,
+            visitCount: stats?.count || 0,
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
+
+      setSubscriberClients(clients);
+    } catch (error) {
+      console.error('Erro ao carregar assinantes do plano:', error);
+      toast.error('Erro ao carregar clientes desta assinatura.');
+      setSubscriberClients([]);
+    } finally {
+      setLoadingSubscriberClients(false);
+    }
+  };
+
+  const handleSubscriberPlanSelect = async (subscription: Subscription) => {
+    const planId = String(subscription.id || '').trim();
+    if (!planId) return;
+    setSelectedSubscriberPlanId(planId);
+    setSelectedClientActiveSubscriptionId(planId);
+    setSubscriberClientSearch('');
+    setSubscriberPlanSearch('');
+    setStep('subscriber_client');
+    await loadSubscriberClientsForPlan(planId);
+  };
+
+  const handleSubscriberClientSelect = (subClient: SubscriberClientOption) => {
+    setReservationMode('subscriber');
+    setSelectedClient({
+      id: subClient.client_id ? String(subClient.client_id) : `sub_${subClient.id}`,
+      name: subClient.name,
+      whatsapp: subClient.whatsapp,
+    });
+    setSelectedSubscription(null);
+    setSelectedSubscriberPlanMeta(null);
+    if (selectedSubscriberPlanId) {
+      setSelectedClientActiveSubscriptionId(selectedSubscriberPlanId);
+    }
+    if (selectedProfessional && String(selectedProfessional.id || '').trim().length > 0) {
+      setStep('service');
+      return;
+    }
+    setStep('professional');
+  };
+
+  const filteredSubscriberClients = subscriberClients.filter((client) => {
+    const q = String(subscriberClientSearch || '').trim();
+    if (!q) return true;
+    const qName = normalizeText(q);
+    const qDigits = q.replace(/\D/g, '');
+    const name = normalizeText(client.name);
+    const wpp = String(client.whatsapp || '').replace(/\D/g, '');
+    return (qName && name.includes(qName)) || (qDigits && wpp.includes(qDigits));
+  });
+
+  const selectedSubscriberPlan = subscriptions.find(
+    (sub) => String(sub.id) === String(selectedSubscriberPlanId || '')
+  );
+
+  const filteredSubscriberPlans = subscriptions.filter((subscription) => {
+    const q = normalizeText(subscriberPlanSearch);
+    if (!q) return true;
+    return normalizeText(subscription.name).includes(q);
+  });
+
+  const modalHeader = getReservarModalHeader(step);
 
   const handleCreateKnownClient = async () => {
     const trimmedName = String(newKnownClientName || '').trim();
@@ -1379,27 +1602,38 @@ export default function ReservarCliente({
   };
 
   // Filtrar clientes por busca
-  const filteredClients = clients.filter((client) => {
-    const q = String(clientSearchQuery || '').trim();
-    if (!q) return true;
-    const qName = normalizeText(q);
-    const qDigits = q.replace(/\D/g, '');
-    const name = normalizeText(client?.name);
-    const wpp = String(client?.whatsapp || '').replace(/\D/g, '');
-    return (qName && name.includes(qName)) || (qDigits && wpp.includes(qDigits));
-  });
+  const filteredClients = clients
+    .filter((client) => {
+      const q = String(clientSearchQuery || '').trim();
+      if (!q) return true;
+      const qName = normalizeText(q);
+      const qDigits = q.replace(/\D/g, '');
+      const name = normalizeText(client?.name);
+      const wpp = String(client?.whatsapp || '').replace(/\D/g, '');
+      return (qName && name.includes(qName)) || (qDigits && wpp.includes(qDigits));
+    })
+    .sort((a, b) => {
+      const subDiff = Number(Boolean(b.isSubscriber)) - Number(Boolean(a.isSubscriber));
+      if (subDiff !== 0) return subDiff;
+      return a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
+    });
   const hasKnownClients = clients.length > 0;
   const disableKnownClientOption = loadingClients || !hasKnownClients;
   const filteredSubscriptions = (() => {
+    // Fluxo dedicado "Reservar assinante": plano já escolhido antes de selecionar o cliente.
+    if (reservationMode === 'subscriber' && selectedSubscriberPlanId) {
+      return subscriptions.filter((sub) => String(sub.id) === String(selectedSubscriberPlanId));
+    }
+
+    // Cliente conhecido com assinatura ativa: só o plano vinculado ao WhatsApp dele.
     if (selectedClient && selectedClientActiveSubscriptionId) {
-      const onlyActivePlan = subscriptions.filter(
+      return subscriptions.filter(
         (sub) => String(sub.id) === String(selectedClientActiveSubscriptionId)
       );
-      // Compatibilidade: se o filtro não encontrar plano ativo, mantém lista completa
-      // para o profissional decidir manualmente.
-      return onlyActivePlan.length > 0 ? onlyActivePlan : subscriptions;
     }
-    return subscriptions;
+
+    // Cliente avulso, não assinante ou ainda sem plano validado: não listar assinaturas aqui.
+    return [];
   })();
 
   const normalizedServiceSearch = normalizeText(serviceSearchQuery);
@@ -1420,6 +1654,13 @@ export default function ReservarCliente({
     if (serviceMatchesSearch(subscription?.service_name)) return true;
     return getOfferedServicesFromSubscription(subscription).some((s) => serviceMatchesSearch(s.name));
   });
+  const offeredServicesBySubscription = Object.fromEntries(
+    filteredSubscriptionsBySearch.map((subscription) => [
+      String(subscription.id),
+      getOfferedServicesFromSubscription(subscription),
+    ])
+  );
+  const hasSubscriberServices = filteredSubscriptionsBySearch.length > 0;
 
   const validateSlotDurationMinutes = (totalMinutes: number): boolean => {
     const max = slotPrefill?.maxDurationMinutes;
@@ -2310,15 +2551,27 @@ export default function ReservarCliente({
     let cancelled = false;
 
     const loadSelectedClientActiveSubscription = async () => {
+      if (reservationMode === 'subscriber' && selectedSubscriberPlanId) {
+        setSelectedClientActiveSubscriptionId(selectedSubscriberPlanId);
+        return;
+      }
+
       if (!selectedClient || !establishmentId) {
         setSelectedClientActiveSubscriptionId(null);
         return;
       }
 
       try {
+        const fallbackPlanId =
+          selectedClient.isSubscriber && selectedClient.subscriberSubscriptionId
+            ? String(selectedClient.subscriberSubscriptionId)
+            : null;
+
         const { data: subscriberData, error } = await checkWhatsAppSubscriber(selectedClient.whatsapp, establishmentId);
-        if (cancelled || error || !subscriberData) {
-          setSelectedClientActiveSubscriptionId(null);
+        if (cancelled) return;
+
+        if (error || !subscriberData) {
+          setSelectedClientActiveSubscriptionId(fallbackPlanId);
           return;
         }
 
@@ -2338,9 +2591,15 @@ export default function ReservarCliente({
           ''
         ).trim();
 
-        setSelectedClientActiveSubscriptionId(activeSubscriptionId || null);
+        setSelectedClientActiveSubscriptionId(activeSubscriptionId || fallbackPlanId);
       } catch {
-        if (!cancelled) setSelectedClientActiveSubscriptionId(null);
+        if (!cancelled) {
+          const fallbackPlanId =
+            selectedClient.isSubscriber && selectedClient.subscriberSubscriptionId
+              ? String(selectedClient.subscriberSubscriptionId)
+              : null;
+          setSelectedClientActiveSubscriptionId(fallbackPlanId);
+        }
       }
     };
 
@@ -2348,7 +2607,40 @@ export default function ReservarCliente({
     return () => {
       cancelled = true;
     };
-  }, [establishmentId, selectedClient]);
+  }, [establishmentId, selectedClient, reservationMode, selectedSubscriberPlanId]);
+
+  useEffect(() => {
+    if (step !== 'subscriber_plan' || !establishmentId) return;
+
+    let cancelled = false;
+    const loadPlanCounts = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('client_subscriptions')
+          .select('subscription_id, payment_status, start_date, end_date')
+          .eq('establishment_id', establishmentId);
+
+        if (error || cancelled) return;
+
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const counts: Record<string, number> = {};
+        (data || []).forEach((row: any) => {
+          if (!isDateInsidePaidSubscription(todayStr, row)) return;
+          const planId = String(row?.subscription_id || '').trim();
+          if (!planId) return;
+          counts[planId] = (counts[planId] || 0) + 1;
+        });
+        if (!cancelled) setSubscriberCountByPlan(counts);
+      } catch (error) {
+        console.warn('Erro ao contar assinantes por plano:', error);
+      }
+    };
+
+    void loadPlanCounts();
+    return () => {
+      cancelled = true;
+    };
+  }, [step, establishmentId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2442,78 +2734,177 @@ export default function ReservarCliente({
   }, []);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10020] p-2 sm:p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full h-[92vh] sm:h-auto max-h-[94vh] sm:max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="bg-black text-white p-4 sm:p-6 rounded-t-lg">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <User className="h-6 w-6" />
-              <h2 className="text-xl font-bold">Reservar Cliente</h2>
-            </div>
-            <button onClick={onClose} className="text-white hover:text-gray-300 transition-colors">
-              ✕
-            </button>
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 min-h-0 p-4 sm:p-6 overflow-y-auto overscroll-contain pb-[max(1rem,env(safe-area-inset-bottom))]">
+    <>
+      <ReservarModalFrame
+        title={modalHeader.title}
+        subtitle={modalHeader.subtitle}
+        icon={modalHeader.icon}
+        onClose={onClose}
+      >
           {/* Step 0: Escolher tipo de reserva */}
           {step === 'initial' && (
-            <div>
-              <h3 className="text-lg font-semibold mb-6 flex items-center text-gray-800">
-                <User className="h-5 w-5 mr-2 text-gray-600" />
-                Como deseja reservar?
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <button
-                  onClick={() => {
-                    if (!disableKnownClientOption) setStep('client');
-                  }}
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4">
+                <ReservarChoiceCard
+                  variant="known"
+                  title="Cliente já cadastrado"
+                  description="Escolha um cliente da sua agenda e reserve rapidamente."
+                  cta="Selecionar cliente"
                   disabled={disableKnownClientOption}
-                  className={`p-6 border-2 rounded-lg transition-all text-left ${disableKnownClientOption
-                      ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
-                      : 'border-gray-300 hover:border-black hover:bg-gray-50'
-                    }`}
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${disableKnownClientOption ? 'bg-gray-200' : 'bg-gray-200'}`}>
-                      <User className={`h-6 w-6 ${disableKnownClientOption ? 'text-gray-400' : 'text-gray-700'}`} />
-                    </div>
-                    <div>
-                      <h4 className={`font-semibold ${disableKnownClientOption ? 'text-gray-500' : 'text-gray-800'}`}>Reservar conhecido</h4>
-                      <p className={`text-sm ${disableKnownClientOption ? 'text-gray-500' : 'text-gray-600'}`}>
-                        {loadingClients
-                          ? 'Carregando clientes...'
-                          : hasKnownClients
-                            ? 'Selecione um cliente da sua lista'
-                            : 'Disponivel quando houver ao menos 1 cliente salvo'}
-                      </p>
-                    </div>
-                  </div>
-                </button>
-                <button
+                  disabledHint={
+                    loadingClients
+                      ? 'Carregando clientes...'
+                      : 'Disponível quando houver ao menos 1 cliente salvo'
+                  }
                   onClick={() => {
+                    if (!disableKnownClientOption) {
+                      setReservationMode('known');
+                      setStep('client');
+                    }
+                  }}
+                />
+                <ReservarChoiceCard
+                  variant="avulso"
+                  title="Cliente rápido"
+                  description="Crie um agendamento sem precisar cadastrar cliente."
+                  cta="Criar reserva"
+                  onClick={() => {
+                    setReservationMode('avulso');
+                    setSelectedClient(null);
+                    setSelectedSubscriberPlanId(null);
+                    setSelectedClientActiveSubscriptionId(null);
                     if (selectedProfessional && String(selectedProfessional.id || '').trim().length > 0) {
                       setStep('service');
                       return;
                     }
                     setStep('professional');
                   }}
-                  className="p-6 border-2 border-gray-300 rounded-lg hover:border-black hover:bg-gray-50 transition-all text-left"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
-                      <User className="h-6 w-6 text-gray-700" />
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-gray-800">Reserva avulsa</h4>
-                      <p className="text-sm text-gray-600">Criar reserva para cliente avulso</p>
-                    </div>
-                  </div>
-                </button>
+                />
+                <ReservarChoiceCard
+                  variant="subscriber"
+                  title="Reservar assinante"
+                  description="Escolha a assinatura e selecione somente clientes vinculados a ela."
+                  cta="Selecionar assinatura"
+                  onClick={() => {
+                    setReservationMode('subscriber');
+                    setSelectedClient(null);
+                    setSelectedSubscription(null);
+                    setSelectedSubscriberPlanMeta(null);
+                    setSelectedSubscriberPlanId(null);
+                    setSelectedClientActiveSubscriptionId(null);
+                    setSubscriberClientSearch('');
+                    setSubscriberPlanSearch('');
+                    setStep('subscriber_plan');
+                  }}
+                />
               </div>
+            </div>
+          )}
+
+          {/* Step: Escolher assinatura */}
+          {step === 'subscriber_plan' && (
+            <div>
+              <ReservarStepHeader
+                title="Escolher assinatura"
+                subtitle="Selecione qual assinatura deseja usar neste atendimento."
+                icon={<Star className="h-5 w-5 text-amber-400" />}
+                onBack={() => {
+                  setStep('initial');
+                  setSelectedSubscriberPlanId(null);
+                  setReservationMode(null);
+                  setSubscriberPlanSearch('');
+                }}
+              />
+
+              {subscriptions.length === 0 ? (
+                <ReservarEmptyState
+                  icon={<Star className="h-10 w-10 text-gray-500" />}
+                  title="Nenhuma assinatura cadastrada ainda."
+                  description="Cadastre planos em Meus Assinantes para usar esta opção."
+                />
+              ) : (
+                <>
+                  <ReservarSearchField
+                    value={subscriberPlanSearch}
+                    onChange={setSubscriberPlanSearch}
+                    placeholder="Buscar assinatura..."
+                    accent="amber"
+                  />
+                  {filteredSubscriberPlans.length === 0 ? (
+                    <ReservarEmptyState
+                      title={`Nenhuma assinatura encontrada para "${subscriberPlanSearch}"`}
+                    />
+                  ) : (
+                    <div className="grid grid-cols-1 gap-3 max-h-[55vh] sm:max-h-[420px] overflow-y-auto pr-0.5">
+                      {filteredSubscriberPlans.map((subscription) => {
+                        const planValue = Number(subscription.value ?? subscription.price ?? 0);
+                        const activeCount = subscriberCountByPlan[String(subscription.id)] || 0;
+                        return (
+                          <ReservarPlanCard
+                            key={subscription.id}
+                            name={subscription.name}
+                            priceLabel={`${formatPrice(planValue)}/mês`}
+                            activeCount={activeCount}
+                            onClick={() => void handleSubscriberPlanSelect(subscription)}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Step: Escolher cliente assinante */}
+          {step === 'subscriber_client' && (
+            <div>
+              <ReservarStepHeader
+                title="Selecionar assinante"
+                subtitle="Mostrando somente clientes desta assinatura."
+                icon={<User className="h-5 w-5 text-amber-400" />}
+                onBack={() => {
+                  setStep('subscriber_plan');
+                  setSubscriberClients([]);
+                  setSubscriberClientSearch('');
+                }}
+              />
+
+              {selectedSubscriberPlan && (
+                <SubscriberFlowBanner planName={selectedSubscriberPlan.name} />
+              )}
+
+              <ReservarSearchField
+                value={subscriberClientSearch}
+                onChange={setSubscriberClientSearch}
+                placeholder="Buscar assinante..."
+                accent="amber"
+              />
+
+              {loadingSubscriberClients ? (
+                <div className="text-center py-10">
+                  <div className="animate-spin rounded-full h-9 w-9 border-2 border-amber-500 border-t-transparent mx-auto"></div>
+                  <p className="mt-3 text-sm text-gray-400">Carregando assinantes...</p>
+                </div>
+              ) : filteredSubscriberClients.length === 0 ? (
+                <ReservarEmptyState
+                  title="Nenhum cliente encontrado nessa assinatura."
+                />
+              ) : (
+                <div className="grid grid-cols-1 gap-3 max-h-[50vh] sm:max-h-[400px] overflow-y-auto pr-0.5">
+                  {filteredSubscriberClients.map((client) => (
+                    <ReservarSubscriberClientCard
+                      key={client.id}
+                      name={client.name}
+                      whatsapp={String(client.whatsapp || '').replace(/\D/g, '')}
+                      planName={selectedSubscriberPlan?.name}
+                      lastVisitLabel={formatLastVisitLabel(client.lastVisitDate)}
+                      isFrequent={(client.visitCount || 0) >= 3}
+                      onClick={() => handleSubscriberClientSelect(client)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -2650,30 +3041,27 @@ export default function ReservarCliente({
                   )}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[45vh] sm:max-h-[400px] overflow-y-auto">
-                  {filteredClients.map((client, index) => (
-                    <button
-                      key={client.whatsapp || `${client.id}_${index}`}
-                      onClick={() => handleClientSelect(client)}
-                      className="p-4 border-2 border-gray-300 rounded-lg hover:border-black hover:bg-gray-50 transition-all text-left"
-                    >
-                      <div className="flex items-center space-x-3">
-                        <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
-                          <User className="h-6 w-6 text-gray-500" />
-                        </div>
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-gray-800">{client.name}</h4>
-                          <p className="text-sm text-gray-600">{client.whatsapp}</p>
-                          {client.appointmentCount !== undefined && (
-                            <p className="text-xs text-gray-700 mt-1">
-                              {client.appointmentCount} agendamento{client.appointmentCount !== 1 ? 's' : ''}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
+                <>
+                  {clients.some((c) => c.isSubscriber) && (
+                    <p className="text-xs text-amber-200/80 mb-3 flex items-center gap-1.5">
+                      <span className="inline-block w-2 h-2 rounded-full bg-amber-400/80" aria-hidden />
+                      Clientes com destaque dourado são assinantes ativos
+                    </p>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[45vh] sm:max-h-[400px] overflow-y-auto pr-0.5">
+                    {filteredClients.map((client, index) => (
+                      <ReservarKnownClientCard
+                        key={client.whatsapp || `${client.id}_${index}`}
+                        name={client.name}
+                        whatsapp={client.whatsapp}
+                        appointmentCount={client.appointmentCount}
+                        isSubscriber={client.isSubscriber}
+                        subscriberPlanName={client.subscriberPlanName}
+                        onClick={() => handleClientSelect(client)}
+                      />
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -2681,10 +3069,20 @@ export default function ReservarCliente({
           {/* Step 2: Selecionar Profissional */}
           {step === 'professional' && (
             <div>
-              <h3 className="text-lg font-semibold mb-4 flex items-center text-gray-800">
-                <User className="h-5 w-5 mr-2 text-gray-600" />
-                Selecione o Profissional
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold flex items-center text-gray-800">
+                  <User className="h-5 w-5 mr-2 text-gray-600" />
+                  Selecione o Profissional
+                </h3>
+                {reservationMode === 'subscriber' && (
+                  <button
+                    onClick={() => setStep('subscriber_client')}
+                    className="text-gray-700 hover:text-black text-sm"
+                  >
+                    ← Voltar
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {professionals.length === 0 ? (
                   <div className="col-span-2 text-center py-8">
@@ -2742,6 +3140,18 @@ export default function ReservarCliente({
           {/* Step 3: Selecionar Serviço */}
           {step === 'service' && selectedProfessional && (
             <div>
+              {reservationMode === 'subscriber' && (
+                <SubscriberFlowBanner
+                  planName={selectedSubscriberPlan?.name}
+                  clientName={selectedClient?.name}
+                />
+              )}
+              {reservationMode === 'known' && selectedClient?.isSubscriber && selectedClientActiveSubscriptionId && (
+                <SubscriberFlowBanner
+                  planName={selectedClient.subscriberPlanName || filteredSubscriptions[0]?.name}
+                  clientName={selectedClient.name}
+                />
+              )}
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold flex items-center text-gray-800">
                   <Scissors className="h-5 w-5 mr-2 text-gray-600" />
@@ -2749,6 +3159,10 @@ export default function ReservarCliente({
                 </h3>
                 <button
                   onClick={() => {
+                    if (reservationMode === 'subscriber') {
+                      setStep('subscriber_client');
+                      return;
+                    }
                     if (selectedClient) {
                       setStep('client');
                     } else {
@@ -2774,6 +3188,26 @@ export default function ReservarCliente({
                   />
                 </div>
               </div>
+
+              {/* Assinatura do cliente — sempre no topo e destacada */}
+              {(hasSubscriberServices || (filteredSubscriptions.length > 0 && normalizedServiceSearch)) && (
+                <ReservarSubscriberServicesSection
+                  subscriptions={filteredSubscriptionsBySearch}
+                  offeredBySubscription={offeredServicesBySubscription}
+                  formatDuration={formatDuration}
+                  onSelectService={handleSubscriptionSelect}
+                  clientName={selectedClient?.name}
+                  emptySearch={!hasSubscriberServices && filteredSubscriptions.length > 0 && Boolean(normalizedServiceSearch)}
+                />
+              )}
+
+              {hasSubscriberServices && (
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="h-px flex-1 bg-gray-700" />
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">ou escolha serviço avulso</span>
+                  <div className="h-px flex-1 bg-gray-700" />
+                </div>
+              )}
 
               {/* Serviços Normais */}
               {services.length > 0 && (
@@ -2931,70 +3365,15 @@ export default function ReservarCliente({
                 </div>
               )}
 
-              {/* Clubes de Assinatura */}
-              {filteredSubscriptionsBySearch.length > 0 ? (
-                <div className="space-y-4 mt-6">
-                  <h4 className="text-md font-medium text-gray-700">Assinantes</h4>
-                  <div className="grid grid-cols-1 gap-4">
-                    {filteredSubscriptionsBySearch.map((subscription) => {
-                      const offered = getOfferedServicesFromSubscription(subscription);
-                      return (
-                        <div
-                          key={subscription.id}
-                          className="border-2 border-gray-300 rounded-lg p-3 bg-white space-y-2"
-                        >
-                          <div className="flex items-center justify-between gap-2 px-1">
-                            <h4 className="font-semibold text-gray-800">{subscription.name}</h4>
-                            <span className="text-gray-700 shrink-0" aria-hidden>
-                              👑
-                            </span>
-                          </div>
-                          {offered.length === 0 ? (
-                            <p className="text-sm text-amber-800 px-1">
-                              Nenhum serviço configurado neste plano. Edite a assinatura e defina os serviços oferecidos.
-                            </p>
-                          ) : (
-                            <div className="space-y-2">
-                              {offered.map((svc) => (
-                                <button
-                                  key={`${subscription.id}-${svc.id || 'noid'}-${svc.name}`}
-                                  type="button"
-                                  onClick={() => handleSubscriptionSelect(subscription, svc)}
-                                  className="w-full p-4 border-2 border-gray-300 rounded-lg hover:border-black hover:bg-gray-50 transition-all text-left"
-                                >
-                                  <div className="flex justify-between items-center gap-2">
-                                    <div className="min-w-0">
-                                      <p className="font-semibold text-gray-800 truncate">{svc.name}</p>
-                                      <p className="text-sm text-gray-600 mt-0.5">
-                                        {formatDuration(svc.duration)} •{' '}
-                                        <span className="text-gray-700 font-semibold">GRATUITO</span>
-                                        {svc.limit > 0 ? (
-                                          <span className="text-gray-500"> • até {svc.limit} uso(s) no ciclo</span>
-                                        ) : null}
-                                      </p>
-                                    </div>
-                                    <span className="text-gray-500 text-sm shrink-0">→</span>
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : filteredSubscriptions.length > 0 && normalizedServiceSearch ? (
-                <div className="mt-6">
-                  <p className="text-sm text-gray-600">Nenhuma assinatura encontrada para essa busca.</p>
-                </div>
-              ) : null}
             </div>
           )}
 
           {/* Step 4: Selecionar Horário */}
           {step === 'time' && (selectedService || selectedServices.length > 0) && (
             <div>
+              {reservationMode === 'subscriber' && (
+                <SubscriberFlowBanner planName={selectedSubscriberPlan?.name} />
+              )}
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold flex items-center text-gray-800">
                   <Clock className="h-5 w-5 mr-2 text-gray-600" />
@@ -3084,7 +3463,10 @@ export default function ReservarCliente({
           {/* Step 5: Confirmar Reserva */}
           {step === 'confirm' && selectedProfessional && (selectedService || selectedServices.length > 0) && selectedTime && (
             <div>
-              <h3 className="text-lg font-semibold mb-4 flex items-center text-gray-800">
+              {reservationMode === 'subscriber' && (
+                <SubscriberFlowBanner planName={selectedSubscriberPlan?.name} />
+              )}
+              <h3 className="text-lg font-semibold mb-4 flex items-center text-white">
                 <CheckCircle className="h-5 w-5 mr-2 text-gray-600" />
                 Confirmar Reserva
               </h3>
@@ -3277,8 +3659,7 @@ export default function ReservarCliente({
               </div>
             </div>
           )}
-        </div>
-      </div>
+      </ReservarModalFrame>
 
       {/* Modal: Selecionar dias da reserva mensal */}
       {showReservarMensalModal && (
@@ -3518,6 +3899,6 @@ export default function ReservarCliente({
           }}
         />
       )}
-    </div>
+    </>
   );
 }

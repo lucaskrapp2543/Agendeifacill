@@ -3,7 +3,14 @@ import { Calendar, CheckCircle2, ChevronLeft, ChevronRight, Clock, Coins, Crown,
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-import { buildSubscriberAttendanceSnapshotFields, insertSubscriberAttendance, removeSubscriberAttendanceForCancelledAppointment, resolveAppointmentProfessionalForSubscriber } from '../lib/subscriberSystem';
+import { buildSubscriberAttendanceSnapshotFields, computeSubscriberRepassValue, findClientSubscriptionForAppointment, findExistingSubscriberAttendance, insertSubscriberAttendanceOnce, removeSubscriberAttendanceForCancelledAppointment, resolveAppointmentProfessionalForSubscriber } from '../lib/subscriberSystem';
+import {
+  clientNameHasSubscriberLabel,
+  isDateInsidePaidSubscription,
+  isSubscriberAppointmentFromFields,
+  sanitizeAppointmentServiceDisplay,
+  shouldAutoRegisterSubscriberAttendanceFromAppointment,
+} from '../lib/subscriberAppointmentFlags';
 import { CANCELLATION_SOURCE, describeCancellationSourcePt } from '../utils/appointmentCancellationMeta';
 import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
 import {
@@ -11,9 +18,12 @@ import {
   isExclusiveBookingLinkEnabledForProfessional,
 } from '../utils/exclusiveProfessionalBookingLink';
 import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
+import { resolveAuditActorName } from '../lib/appointmentAuditLog';
+import { AppointmentAuditTimeline } from './AppointmentAuditTimeline';
 import { ChangeAppointmentServiceModal } from './ChangeAppointmentServiceModal';
 import { ProfessionalInfoModal } from './ProfessionalInfoModal';
 import { RescheduleAppointmentModal } from './RescheduleAppointmentModal';
+import { SqueezeServicePickerModal } from './SqueezeServicePickerModal';
 import { useToast } from './ui/Toaster';
 
 interface Professional {
@@ -223,6 +233,14 @@ interface SqueezeKnownClientOption {
   whatsapp: string;
 }
 
+interface SqueezeSubscriberClientOption {
+  id: string;
+  client_id?: string;
+  name: string;
+  whatsapp: string;
+  subscription_id: string;
+}
+
 interface AppointmentChangeLog {
   id: string;
   event_type: string;
@@ -320,6 +338,8 @@ interface AllProfessionalsAppointmentsViewProps {
   bypassOwnerPinLocks?: boolean;
   bypassFinancialPinForProfessionalId?: string | null;
   hiddenProfessionalIds?: string[];
+  /** Nome exibido no histórico de auditoria (ex.: profissional logado no PIN). */
+  auditActorName?: string | null;
 }
 
 export const AllProfessionalsAppointmentsView: React.FC<
@@ -376,6 +396,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   bypassOwnerPinLocks = false,
   bypassFinancialPinForProfessionalId = null,
   hiddenProfessionalIds = [],
+  auditActorName = null,
 }) => {
     const { toast } = useToast();
     const { user } = useAuth();
@@ -874,7 +895,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
           establishment_id: establishmentId,
           appointment_id: appointmentId,
           changed_by_user_id: String(user?.id || '').trim() || null,
-          changed_by_name: String(user?.email || '').trim() || null,
+          changed_by_name: resolveAuditActorName({
+            explicitName: auditActorName,
+            user,
+          }),
           event_type: String(params.eventType || '').trim() || null,
           description: String(params.description || '').trim() || null,
           old_values: params.oldValues || null,
@@ -1297,140 +1321,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
       setSelectedAppointmentForServiceChange(null);
     };
 
-    const getHistoryEventLabel = (eventType: string): string => {
-      const key = String(eventType || '').trim().toLowerCase();
-      if (key === 'service_changed') return 'Serviço alterado';
-      if (key === 'finished_early') return 'Terminou antes';
-      if (key === 'additional_service_added') return 'Extra adicionado';
-      if (key === 'additional_service_removed') return 'Extra removido';
-      if (key === 'status_changed') return 'Status alterado';
-      if (key === 'subscriber_attendance_marked') return 'Atendimento assinatura registrado';
-      if (key === 'subscriber_attendance_auto_failed') return 'Falha no auto-registro de assinatura';
-      if (key === 'subscriber_attendance_auto_skipped') return 'Auto-registro de assinatura ignorado';
-      return key || 'Evento';
-    };
-
-    const toFiniteNumberOrNull = (value: unknown): number | null => {
-      const n = Number(value);
-      return Number.isFinite(n) ? n : null;
-    };
-
-    const formatCurrencyMaybe = (value: unknown): string | null => {
-      const n = toFiniteNumberOrNull(value);
-      if (n === null) return null;
-      return formatCurrency(n);
-    };
-
-    const formatDurationMaybe = (value: unknown): string | null => {
-      const n = toFiniteNumberOrNull(value);
-      if (n === null) return null;
-      return `${Math.round(n)} min`;
-    };
-
-    const buildHistoryHighlights = (row: AppointmentChangeLog): string[] => {
-      const oldV = (row.old_values || {}) as Record<string, any>;
-      const newV = (row.new_values || {}) as Record<string, any>;
-      const meta = (row.metadata || {}) as Record<string, any>;
-      const lines: string[] = [];
-      const key = String(row.event_type || '').trim().toLowerCase();
-
-      if (key === 'service_changed') {
-        const oldService = String(oldV.service || '').trim();
-        const newService = String(newV.service || '').trim();
-        if (oldService || newService) lines.push(`Serviço: ${oldService || '-'} -> ${newService || '-'}`);
-
-        const oldPrice = formatCurrencyMaybe(oldV.price);
-        const newPrice = formatCurrencyMaybe(newV.price);
-        if (oldPrice || newPrice) lines.push(`Valor do serviço: ${oldPrice || '-'} -> ${newPrice || '-'}`);
-
-        const oldDuration = formatDurationMaybe(oldV.duration);
-        const newDuration = formatDurationMaybe(newV.duration);
-        if (oldDuration || newDuration) lines.push(`Duração: ${oldDuration || '-'} -> ${newDuration || '-'}`);
-
-        const oldTotal = formatCurrencyMaybe(oldV.total_price);
-        const newTotal = formatCurrencyMaybe(newV.total_price);
-        if (oldTotal || newTotal) lines.push(`Total para cobrar: ${oldTotal || '-'} -> ${newTotal || '-'}`);
-      } else if (key === 'finished_early') {
-        const oldDuration = formatDurationMaybe(oldV.duration);
-        const newDuration = formatDurationMaybe(newV.duration);
-        if (oldDuration || newDuration) lines.push(`Duração real: ${oldDuration || '-'} -> ${newDuration || '-'}`);
-
-        const released = toFiniteNumberOrNull(meta.time_released_minutes);
-        if (released !== null) lines.push(`Tempo liberado: ${Math.round(released)} min`);
-
-        const newEnd = String(meta.new_end_time || '').trim();
-        const oldEnd = String(meta.original_end_time || '').trim();
-        if (newEnd || oldEnd) lines.push(`Janela liberada: ${newEnd || '-'} até ${oldEnd || '-'}`);
-      } else if (key === 'additional_service_added') {
-        const p = (meta.product_added || {}) as Record<string, any>;
-        const pName = String(p.name || '').trim() || 'Extra';
-        const pPrice = formatCurrencyMaybe(p.price);
-        const pDuration = formatDurationMaybe(p.duration);
-        lines.push(`Item: ${pName}${pPrice ? ` • ${pPrice}` : ''}${pDuration ? ` • ${pDuration}` : ''}`);
-
-        const oldCount = toFiniteNumberOrNull(oldV.additional_products_count);
-        const newCount = toFiniteNumberOrNull(newV.additional_products_count);
-        if (oldCount !== null || newCount !== null) lines.push(`Qtd. de extras: ${oldCount ?? '-'} -> ${newCount ?? '-'}`);
-
-        const oldTotal = formatCurrencyMaybe(oldV.total_price);
-        const newTotal = formatCurrencyMaybe(newV.total_price);
-        if (oldTotal || newTotal) lines.push(`Total para cobrar: ${oldTotal || '-'} -> ${newTotal || '-'}`);
-      } else if (key === 'additional_service_removed') {
-        const p = (meta.product_removed || {}) as Record<string, any>;
-        const pName = String(p.name || '').trim() || 'Extra';
-        const pPrice = formatCurrencyMaybe(p.price);
-        const pDuration = formatDurationMaybe(p.duration);
-        lines.push(`Item removido: ${pName}${pPrice ? ` • ${pPrice}` : ''}${pDuration ? ` • ${pDuration}` : ''}`);
-
-        const oldCount = toFiniteNumberOrNull(oldV.additional_products_count);
-        const newCount = toFiniteNumberOrNull(newV.additional_products_count);
-        if (oldCount !== null || newCount !== null) lines.push(`Qtd. de extras: ${oldCount ?? '-'} -> ${newCount ?? '-'}`);
-
-        const oldTotal = formatCurrencyMaybe(oldV.total_price);
-        const newTotal = formatCurrencyMaybe(newV.total_price);
-        if (oldTotal || newTotal) lines.push(`Total para cobrar: ${oldTotal || '-'} -> ${newTotal || '-'}`);
-      } else if (key === 'status_changed') {
-        const oldStatus = String(oldV.status || '').trim().toUpperCase();
-        const newStatus = String(newV.status || '').trim().toUpperCase();
-        if (oldStatus || newStatus) lines.push(`Status: ${oldStatus || '-'} -> ${newStatus || '-'}`);
-
-        const action = String(meta.action || '').trim();
-        if (action) lines.push(`Ação: ${action}`);
-
-        const clickedAt = String(meta.clicked_at || '').trim();
-        if (clickedAt) lines.push(`Clique registrado em: ${clickedAt}`);
-      } else if (key === 'subscriber_attendance_marked') {
-        const oldStatus = String(oldV.status || '').trim().toUpperCase();
-        const newStatus = String(newV.status || '').trim().toUpperCase();
-        if (oldStatus || newStatus) lines.push(`Status: ${oldStatus || '-'} -> ${newStatus || '-'}`);
-
-        const subscriberName = String(meta.subscriber_name || '').trim();
-        if (subscriberName) lines.push(`Assinante: ${subscriberName}`);
-
-        const subscriberWhatsapp = String(meta.subscriber_whatsapp || '').trim();
-        if (subscriberWhatsapp) lines.push(`WhatsApp: ${subscriberWhatsapp}`);
-
-        const attendanceDate = String(meta.attendance_date || '').trim();
-        if (attendanceDate) lines.push(`Data do atendimento: ${attendanceDate}`);
-
-        const clickedAt = String(meta.clicked_at || '').trim();
-        if (clickedAt) lines.push(`Clique registrado em: ${clickedAt}`);
-      }
-
-      if (lines.length === 0 && row.description) lines.push(String(row.description));
-      return lines;
-    };
-
-    const formatJsonPreview = (value: unknown): string => {
-      try {
-        if (value === null || value === undefined) return '-';
-        if (typeof value === 'string') return value || '-';
-        return JSON.stringify(value, null, 2);
-      } catch {
-        return '-';
-      }
-    };
-
     const getAppointmentOriginLabel = (apt: Appointment): string => {
       const isInternalByFlag = Boolean((apt as any)?.is_establishment_booking === true);
       const isAvulsoLike = Boolean(apt.is_avulso) || Boolean(apt.is_squeeze);
@@ -1603,6 +1493,24 @@ export const AllProfessionalsAppointmentsView: React.FC<
         }
         if (error) throw error;
 
+        await writeAppointmentChangeLog({
+          appointmentId: apt.id,
+          eventType: 'service_changed',
+          description: 'Serviço do agendamento alterado.',
+          oldValues: {
+            service: String(apt.service || ''),
+            price: Number(apt.price || 0),
+            duration: Number(apt.duration || 0),
+            total_price: Number((apt as any).total_price || 0),
+          },
+          newValues: {
+            service: String(payload.service || ''),
+            price: Number(payload.price || 0),
+            duration: Number(payload.duration || 0),
+            total_price: Number(payload.total_price || 0),
+          },
+        });
+
         toast.success('Serviço alterado com sucesso!');
         if (onAppointmentUpdate) onAppointmentUpdate();
       } catch (e) {
@@ -1623,6 +1531,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     const handleRescheduleAppointment = async (appointmentId: string, newDate: string, newTime: string) => {
       try {
+        const appointment = appointments.find((apt) => String(apt.id) === String(appointmentId));
+        const oldDate = String(appointment?.appointment_date || '').slice(0, 10);
+        const oldTime = String(appointment?.appointment_time || '');
+
         const { error } = await supabase
           .from('appointments')
           .update({
@@ -1632,6 +1544,21 @@ export const AllProfessionalsAppointmentsView: React.FC<
           .eq('id', appointmentId);
 
         if (error) throw error;
+
+        const eventType = oldDate && newDate && oldDate !== newDate ? 'date_changed' : 'rescheduled';
+        await writeAppointmentChangeLog({
+          appointmentId,
+          eventType,
+          description: eventType === 'date_changed' ? 'Data do agendamento alterada.' : 'Horário do agendamento alterado.',
+          oldValues: {
+            appointment_date: oldDate || null,
+            appointment_time: oldTime || null,
+          },
+          newValues: {
+            appointment_date: newDate,
+            appointment_time: newTime,
+          },
+        });
 
         toast.success('Horário alterado com sucesso!');
         if (onAppointmentUpdate) onAppointmentUpdate();
@@ -1676,15 +1603,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
       return raw === 'true' || raw === '1' || raw === 't' || raw === 'yes' || raw === 'sim' || raw === 'on';
     };
 
-    const shouldAutoRegisterSubscriberAttendance = (apt: Appointment): boolean => {
-      if ((apt as any)?.is_subscriber === true) return true;
-      const nameRaw = String(apt.client_name || '').trim().toLowerCase();
-      const hasSubscriberLabel = nameRaw.includes('assinante');
-      const basePrice = Number((apt as any)?.price || 0);
-      const totalPrice = Number((apt as any)?.total_price || 0);
-      const looksLikeSubscriberCard = hasSubscriberLabel && (basePrice <= 0 || totalPrice <= 0);
-      return looksLikeSubscriberCard;
-    };
+    const shouldAutoRegisterSubscriberAttendance = (apt: Appointment): boolean =>
+      shouldAutoRegisterSubscriberAttendanceFromAppointment(apt as any);
 
     const resolveAutoSubscriberAttendanceContext = async (apt: Appointment): Promise<{
       clientSubscriptionId: string;
@@ -1696,70 +1616,28 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const establishmentId = String(establishment?.id || '').trim();
       if (!establishmentId) return null;
 
-      const appointmentPhone = normalizePhoneDigitsForSubscriber((apt as any)?.client_whatsapp);
-      if (!appointmentPhone) return null;
+      const appointmentDate = String((apt as any)?.appointment_date || '').slice(0, 10) || format(selectedDate, 'yyyy-MM-dd');
 
-      const { data, error } = await (supabase as any)
-        .from('client_subscriptions')
-        .select(`
-          id,
-          monthly_limit,
-          payment_status,
-          end_date,
-          updated_at,
-          created_at,
-          subscriber_name,
-          subscriber_whatsapp,
-          client_name_override,
-          client_whatsapp,
-          subscriptions (
-            id,
-            name,
-            value,
-            fixed_commission_value,
-            divide_total_enabled,
-            divide_total_attendances
-          )
-        `)
-        .eq('establishment_id', establishmentId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      const rows = (Array.isArray(data) ? data : []).filter((row: any) => {
-        const clientPhone = normalizePhoneDigitsForSubscriber(row?.client_whatsapp);
-        const subscriberPhone = normalizePhoneDigitsForSubscriber(row?.subscriber_whatsapp);
-        return clientPhone === appointmentPhone || subscriberPhone === appointmentPhone;
-      });
-      if (rows.length === 0) return null;
-
-      const toMs = (value: unknown): number => {
-        const dt = new Date(String(value || '').trim());
-        const ms = dt.getTime();
-        return Number.isFinite(ms) ? ms : 0;
-      };
-
-      rows.sort((a: any, b: any) => {
-        const aPaid = String(a?.payment_status || '').trim().toLowerCase() === 'paid' ? 1 : 0;
-        const bPaid = String(b?.payment_status || '').trim().toLowerCase() === 'paid' ? 1 : 0;
-        if (aPaid !== bPaid) return bPaid - aPaid;
-        const aEnd = toMs(a?.end_date);
-        const bEnd = toMs(b?.end_date);
-        if (aEnd !== bEnd) return bEnd - aEnd;
-        const aUpd = toMs(a?.updated_at) || toMs(a?.created_at);
-        const bUpd = toMs(b?.updated_at) || toMs(b?.created_at);
-        return bUpd - aUpd;
+      const matched = await findClientSubscriptionForAppointment({
+        establishmentId,
+        clientWhatsapp: String((apt as any)?.client_whatsapp || ''),
+        clientName: String(apt.client_name || ''),
+        appointmentDate,
       });
 
-      const selected = rows[0];
+      if (!matched?.id) return null;
+
       return {
-        clientSubscriptionId: String(selected?.id || ''),
-        subscriberName: String(selected?.client_name_override || selected?.subscriber_name || apt.client_name || '').trim(),
-        subscriberWhatsapp: String(selected?.client_whatsapp || selected?.subscriber_whatsapp || (apt as any)?.client_whatsapp || '').trim(),
-        monthlyLimit: Number(selected?.monthly_limit || 0),
-        subscription: selected?.subscriptions || null,
+        clientSubscriptionId: String(matched.id),
+        subscriberName: String(matched.client_name_override || matched.subscriber_name || apt.client_name || '').trim(),
+        subscriberWhatsapp: String(matched.client_whatsapp || matched.subscriber_whatsapp || (apt as any)?.client_whatsapp || '').trim(),
+        monthlyLimit: Number((matched as any).monthly_limit || 0),
+        subscription: (matched as any).subscriptions || null,
       };
     };
+
+    const getDisplayedService = (apt: Appointment): string =>
+      sanitizeAppointmentServiceDisplay((apt as any)?.service);
 
     const registerSubscriberAttendanceAutomatically = async (apt: Appointment): Promise<void> => {
       const appointmentId = String(apt?.id || '').trim();
@@ -1811,27 +1689,18 @@ export const AllProfessionalsAppointmentsView: React.FC<
         }
 
         try {
-          const alreadyMarked = await (supabase as any)
-            .from('appointment_change_logs')
-            .select('id')
-            .eq('establishment_id', establishmentId)
-            .eq('appointment_id', appointmentId)
-            .eq('event_type', 'subscriber_attendance_marked')
-            .limit(1);
-          if (!alreadyMarked.error && Array.isArray(alreadyMarked.data) && alreadyMarked.data.length > 0) {
-            const existingAttendance = await (supabase as any)
-              .from('subscriber_attendances')
-              .select('id')
-              .eq('establishment_id', establishmentId)
-              .eq('client_subscription_id', context.clientSubscriptionId)
-              .eq('attendance_date', attendanceDate)
-              .limit(1);
-            if (!existingAttendance.error && Array.isArray(existingAttendance.data) && existingAttendance.data.length > 0) {
-              return;
-            }
-          }
+          const professionalRecord = resolveAppointmentProfessionalRecord(apt);
+          const existingId = await findExistingSubscriberAttendance({
+            establishmentId,
+            appointmentId,
+            clientSubscriptionId: context.clientSubscriptionId,
+            attendanceDate,
+            professionalId: professionalRecord.professionalId,
+            professionalName: professionalRecord.professionalName,
+          });
+          if (existingId) return;
         } catch {
-          // Compatibilidade: se histórico não existir, segue sem bloquear.
+          // Compatibilidade: se colunas opcionais não existirem, segue para insert com guarda.
         }
 
         const monthStart = format(new Date(`${attendanceDate}T00:00:00`), 'yyyy-MM-01');
@@ -1869,19 +1738,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const fixedCommission = Number(context.subscription?.fixed_commission_value || 0);
         const pointsModeSubscription = !divideEnabled && !(fixedCommission > 0);
         const subscriptionValue = Number(context.subscription?.value || 0);
-        const fallbackFromAppointmentPrice = Number((apt as any)?.price || 0);
-
-        let baseFixed = 0;
-        if (Number.isFinite(fixedCommission) && fixedCommission > 0) {
-          baseFixed = fixedCommission;
-        } else if (divideEnabled) {
-          baseFixed =
-            Number.isFinite(subscriptionValue) && subscriptionValue > 0
-              ? subscriptionValue
-              : Number.isFinite(fallbackFromAppointmentPrice) && fallbackFromAppointmentPrice > 0
-                ? fallbackFromAppointmentPrice
-                : 0;
-        }
 
         let multiplier = 1;
         try {
@@ -1909,13 +1765,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
         const divideFromSubscription = Number(context.subscription?.divide_total_attendances || 0);
         const divideFallbackFromClientLimit = Number(context.monthlyLimit || 0);
-        const divideCount =
+        const divideCountPreview =
           Number.isFinite(divideFromSubscription) && divideFromSubscription > 0
             ? divideFromSubscription
             : Number.isFinite(divideFallbackFromClientLimit) && divideFallbackFromClientLimit > 0
               ? divideFallbackFromClientLimit
               : 0;
-        if (divideEnabled && (!Number.isFinite(divideCount) || divideCount <= 0)) {
+        if (divideEnabled && (!Number.isFinite(divideCountPreview) || divideCountPreview <= 0)) {
           await writeAutoSubscriberLog(
             'subscriber_attendance_auto_failed',
             'Auto-registro de assinatura falhou: assinatura com dividir valor total, mas sem quantidade de atendimentos.',
@@ -1928,8 +1784,23 @@ export const AllProfessionalsAppointmentsView: React.FC<
         }
 
         const round2 = (v: number) => Math.round(v * 100) / 100;
-        let repassValue = pointsModeSubscription ? 0 : round2(baseFixed * multiplier);
-        if (divideEnabled) repassValue = round2(repassValue / divideCount);
+        const baseRepass = computeSubscriberRepassValue({
+          subscription: context.subscription,
+          monthlyLimit: context.monthlyLimit,
+          appointmentPrice: Number((apt as any)?.price || 0),
+        });
+        if (!pointsModeSubscription && baseRepass <= 0) {
+          await writeAutoSubscriberLog(
+            'subscriber_attendance_auto_failed',
+            'Auto-registro de assinatura falhou: repasse não configurado ou inválido.',
+            {
+              reason: 'invalid_repass_value',
+              subscriber_id: context.clientSubscriptionId,
+            }
+          );
+          return;
+        }
+        const repassValue = round2(baseRepass * multiplier);
 
         const professionalRecord = resolveAppointmentProfessionalRecord(apt);
         const payload: Record<string, unknown> = {
@@ -1945,8 +1816,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
         };
         if (user?.id) payload.created_by = user.id;
 
-        const { error: insertError } = await insertSubscriberAttendance(payload);
+        const { error: insertError, inserted } = await insertSubscriberAttendanceOnce(payload);
         if (insertError) throw insertError;
+        if (!inserted) return;
 
         await writeAutoSubscriberLog(
           'subscriber_attendance_marked',
@@ -1994,7 +1866,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
               value,
               fixed_commission_value,
               divide_total_enabled,
-              divide_total_attendances
+              divide_total_attendances,
+              divided_services
             )
           `)
           .eq('establishment_id', String(establishment.id))
@@ -2199,8 +2072,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
         };
         if (user?.id) payload.created_by = user.id;
 
-        const { error: insErr } = await insertSubscriberAttendance(payload);
+        const { error: insErr, inserted: didInsert } = await insertSubscriberAttendanceOnce(payload);
         if (insErr) throw insErr;
+        if (!didInsert) {
+          toast('Atendimento de assinatura já estava registrado para este agendamento.', 'warning');
+          return;
+        }
 
         const subscriberPointsModeSuccess = !divideEnabled && !(Number(configuredFixed) > 0);
 
@@ -2246,7 +2123,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     const getDisplayedClientNameWithSubscriberLabel = (apt: Appointment): string => {
       const name = getDisplayedClientName(apt);
-      if (!apt.is_subscriber) return name;
+      if (!isSubscriberAppointmentFromFields(apt as any)) return name;
       const base = (name || '').trim().toUpperCase() === 'ASSINANTE' || !(name || '').trim() ? 'Assinante' : name;
       const alreadyHasLabel = (name || '').includes('(ASSINANTE)');
       return alreadyHasLabel ? `${base} 👑` : `${base} (ASSINANTE) 👑`;
@@ -2538,6 +2415,21 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [squeezeKnownClientsLoading, setSqueezeKnownClientsLoading] = useState(false);
     const [squeezeKnownClientSearch, setSqueezeKnownClientSearch] = useState('');
     const [selectedSqueezeKnownClientId, setSelectedSqueezeKnownClientId] = useState<string>('');
+    const [showSqueezeProfessionalModal, setShowSqueezeProfessionalModal] = useState(false);
+    const [showSqueezeSubscriberClientModal, setShowSqueezeSubscriberClientModal] = useState(false);
+    const [selectedSqueezeSubscriberClient, setSelectedSqueezeSubscriberClient] = useState<SqueezeSubscriberClientOption | null>(null);
+    const [squeezeSubscriptionClients, setSqueezeSubscriptionClients] = useState<SqueezeSubscriberClientOption[]>([]);
+    const [squeezeSubscriptionClientsLoading, setSqueezeSubscriptionClientsLoading] = useState(false);
+    const [squeezeSubscriptionClientSearch, setSqueezeSubscriptionClientSearch] = useState('');
+
+    const squeezeUsageAppointments = useMemo(() => {
+      const byKey = new Map<string, (typeof appointments)[number]>();
+      [...monthlyAppointments, ...appointments].forEach((apt) => {
+        const key = String(apt.id || `${apt.appointment_date}_${apt.appointment_time}_${apt.service}`);
+        if (!byKey.has(key)) byKey.set(key, apt);
+      });
+      return Array.from(byKey.values());
+    }, [monthlyAppointments, appointments]);
 
     // Modal: Horários disponíveis (somente visualização, para print)
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
@@ -3591,6 +3483,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
           .eq('id', appointment.id);
 
         if (!error) {
+          await writeAppointmentChangeLog({
+            appointmentId: appointment.id,
+            eventType: 'appointment_restored',
+            description: 'Agendamento cancelado restabelecido.',
+            oldValues: { status: String(appointment.status || 'cancelled') },
+            newValues: { status: 'confirmed' },
+          });
           toast('Agendamento restabelecido com sucesso');
           onAppointmentUpdate?.();
           return;
@@ -3651,6 +3550,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
           .eq('id', appointment.id);
         if (restoreError) throw restoreError;
 
+        await writeAppointmentChangeLog({
+          appointmentId: appointment.id,
+          eventType: 'appointment_restored',
+          description: 'Agendamento restabelecido após resolver conflito de horário.',
+          oldValues: { status: String(appointment.status || 'cancelled') },
+          newValues: { status: 'confirmed' },
+          metadata: {
+            conflicting_cancelled_count: conflictingAppointments.length,
+          },
+        });
+
         toast('Agendamento restabelecido com sucesso');
         onAppointmentUpdate?.();
       } catch (restoreError: any) {
@@ -3690,6 +3600,23 @@ export const AllProfessionalsAppointmentsView: React.FC<
           .eq('id', appointmentId);
 
         if (error) throw error;
+
+        const oldPrice = Number(appointment?.price || 0);
+        const oldTotal = Number((appointment as any)?.total_price || oldPrice);
+
+        await writeAppointmentChangeLog({
+          appointmentId,
+          eventType: 'price_changed',
+          description: `Valor alterado de ${formatCurrency(oldPrice)} para ${formatCurrency(numericValue)}.`,
+          oldValues: {
+            price: oldPrice,
+            total_price: oldTotal,
+          },
+          newValues: {
+            price: numericValue,
+            total_price: correctTotal,
+          },
+        });
 
         toast('Valor atualizado com sucesso!');
         setEditingAppointmentValue(null);
@@ -3872,14 +3799,45 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const appointment = appointments.find(apt => apt.id === appointmentId);
         if (!appointment || !appointment.additional_products) return;
 
-        const updatedProducts = appointment.additional_products.filter((_, index) => index !== productIndex);
+        const currentAdditionalProducts = appointment.additional_products;
+        const removedProduct = currentAdditionalProducts[productIndex];
+        const updatedProducts = currentAdditionalProducts.filter((_, index) => index !== productIndex);
+
+        const basePrice = Number(appointment.price || 0);
+        const soldProductsTotal = appointment.sold_products?.reduce((sum, p) => sum + (p.quantity * p.unit_price), 0) ?? 0;
+        const oldTotal = Number((appointment as any).total_price || basePrice);
+        const newTotal = basePrice + updatedProducts.reduce((sum, p) => sum + (p.price ?? 0), 0) + soldProductsTotal;
 
         const { error } = await supabase
           .from('appointments')
-          .update({ additional_products: updatedProducts })
+          .update({ additional_products: updatedProducts, total_price: newTotal })
           .eq('id', appointmentId);
 
         if (error) throw error;
+
+        await writeAppointmentChangeLog({
+          appointmentId,
+          eventType: 'additional_service_removed',
+          description: 'Serviço extra removido do agendamento.',
+          oldValues: {
+            additional_products_count: currentAdditionalProducts.length,
+            total_price: oldTotal,
+          },
+          newValues: {
+            additional_products_count: updatedProducts.length,
+            total_price: newTotal,
+          },
+          metadata: {
+            product_removed: removedProduct
+              ? {
+                name: String(removedProduct.name || ''),
+                price: Number(removedProduct.price || 0),
+                duration: Number((removedProduct as any).duration || 0),
+              }
+              : null,
+            removed_index: productIndex,
+          },
+        });
 
         toast('Produto removido com sucesso!');
 
@@ -3952,6 +3910,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
               .eq('id', establishment.id);
           }
         }
+
+        await writeAppointmentChangeLog({
+          appointmentId,
+          eventType: 'sold_product_removed',
+          description: `Produto removido: ${productName}.`,
+          oldValues: {
+            sold_products_count: appointment.sold_products.length,
+          },
+          newValues: {
+            sold_products_count: updatedProducts.length,
+          },
+          metadata: {
+            product_removed: {
+              name: String(productToRemove.name || productName),
+              price: Number(productToRemove.unit_price || 0) * Number(productToRemove.quantity || 1),
+              quantity: Number(productToRemove.quantity || 1),
+            },
+          },
+        });
 
         toast(`${productName} removido e devolvido ao estoque!`);
 
@@ -4056,6 +4033,23 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
         if (error) throw error;
 
+        await writeAppointmentChangeLog({
+          appointmentId: apt.id,
+          eventType: 'payment_method_changed',
+          description: 'Forma de pagamento múltipla registrada.',
+          oldValues: {
+            payment_method: String(apt.payment_method || '') || null,
+            status: String(apt.status || '') || null,
+          },
+          newValues: {
+            payment_method: 'multi',
+            status: 'completed',
+          },
+          metadata: {
+            split_details: cleanedRows,
+          },
+        });
+
         await registerSubscriberAttendanceAutomatically(apt);
 
         if (!showSplitPaymentModal) return;
@@ -4073,17 +4067,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const handlePaymentMethodChange = async (appointment: Appointment, paymentMethod: string) => {
-      await logAppointmentCardActionClick(
-        appointment,
-        'forma_pagamento_change_click',
-        'Alteração da forma de pagamento pelo card.',
-        { requested_payment_method: paymentMethod }
-      );
       if (paymentMethod === 'multi') {
         handleOpenSplitPaymentModal(appointment);
         return;
       }
       try {
+        const previousMethod = String(appointment.payment_method || '').trim() || null;
+        const previousStatus = String(appointment.status || '').trim() || null;
+
         let { error } = await supabase
           .from('appointments')
           .update({
@@ -4106,7 +4097,37 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
         if (error) throw error;
 
+        await writeAppointmentChangeLog({
+          appointmentId: appointment.id,
+          eventType: 'payment_method_changed',
+          description: 'Forma de pagamento alterada pelo card.',
+          oldValues: {
+            payment_method: previousMethod,
+            status: previousStatus,
+          },
+          newValues: {
+            payment_method: paymentMethod === 'pendente' ? null : paymentMethod,
+            status: paymentMethod === 'pendente' ? 'pending' : 'completed',
+          },
+        });
+
         toast('Forma de pagamento atualizada');
+
+        const completedNow = paymentMethod !== 'pendente';
+        if (completedNow) {
+          const enrichedAppointment = {
+            ...appointment,
+            status: 'completed',
+            payment_method: paymentMethod === 'pendente' ? null : paymentMethod,
+            is_subscriber: isSubscriberAppointmentFromFields({
+              ...appointment,
+              payment_method: paymentMethod,
+            } as any)
+              ? true
+              : (appointment as any)?.is_subscriber,
+          } as Appointment;
+          await registerSubscriberAttendanceAutomatically(enrichedAppointment);
+        }
 
         if (onAppointmentUpdate) {
           onAppointmentUpdate();
@@ -4120,20 +4141,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const handleCardBrandChange = async (appointmentId: string, cardBrand: string) => {
       try {
         const appointment = (appointments || []).find((apt) => String(apt.id) === String(appointmentId));
-        if (appointment) {
-          await logAppointmentCardActionClick(
-            appointment,
-            'bandeira_change_click',
-            'Alteração de bandeira do cartão pelo card.',
-            { requested_card_brand: cardBrand }
-          );
-        }
+        const previousBrand = String((appointment as any)?.card_brand || '').trim() || null;
+        const nextBrand = cardBrand === 'bandeira' ? null : cardBrand;
+
         const { error } = await supabase
           .from('appointments')
-          .update({ card_brand: cardBrand === 'bandeira' ? null : cardBrand })
+          .update({ card_brand: nextBrand })
           .eq('id', appointmentId);
 
         if (error) throw error;
+
+        if (appointment) {
+          await writeAppointmentChangeLog({
+            appointmentId,
+            eventType: 'card_brand_changed',
+            description: 'Bandeira do cartão alterada.',
+            oldValues: { card_brand: previousBrand },
+            newValues: { card_brand: nextBrand },
+          });
+        }
 
         if (onAppointmentUpdate) {
           onAppointmentUpdate();
@@ -4150,6 +4176,30 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
 
       try {
+        const appointment = appointments.find((apt) => String(apt.id) === String(appointmentId));
+
+        if (appointment) {
+          await writeAppointmentChangeLog({
+            appointmentId,
+            eventType: 'appointment_deleted',
+            description: 'Agendamento excluído permanentemente.',
+            oldValues: {
+              client_name: String(appointment.client_name || ''),
+              service: String(appointment.service || ''),
+              price: Number(appointment.price || 0),
+              total_price: Number((appointment as any).total_price || appointment.price || 0),
+              status: String(appointment.status || ''),
+            },
+            newValues: null,
+            metadata: {
+              client_name: String(appointment.client_name || ''),
+              service: String(appointment.service || ''),
+              appointment_date: String(appointment.appointment_date || '').slice(0, 10),
+              appointment_time: String(appointment.appointment_time || ''),
+            },
+          });
+        }
+
         const { error } = await supabase
           .from('appointments')
           .delete()
@@ -4309,19 +4359,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const getAppointmentDateOnly = (raw: unknown): string => String(raw || '').slice(0, 10);
       const getAppointmentMonthKey = (raw: unknown): string => String(raw || '').slice(0, 7);
       const getAppointmentStatus = (raw: unknown): string => String(raw || '').trim().toLowerCase();
-      const isSubscriberFinancialAppointment = (apt: Appointment): boolean => {
-        const paymentMethod = String((apt as any)?.payment_method || '').trim().toLowerCase();
-        if (Boolean((apt as any)?.is_subscriber) || paymentMethod === 'assinante') return true;
-        if (String((apt as any)?.subscription_id || '').trim()) return true;
-        if (String((apt as any)?.subscriber_service_id || '').trim()) return true;
-        if (String((apt as any)?.subscriber_service_name || '').trim()) return true;
-
-        const clientName = String((apt as any)?.client_name || '').trim().toLowerCase();
-        const hasSubscriberLabel = clientName.includes('assinante');
-        const basePrice = Number((apt as any)?.price || 0);
-        const totalPrice = Number((apt as any)?.total_price || 0);
-        return hasSubscriberLabel && (basePrice <= 0 || totalPrice <= 0);
-      };
+      const isSubscriberFinancialAppointment = (apt: Appointment): boolean =>
+        isSubscriberAppointmentFromFields(apt as any);
       const isAppointmentFromSelectedDay = (apt: Appointment) =>
         getAppointmentDateOnly(apt.appointment_date) === selectedDateStr;
 
@@ -4714,120 +4753,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const completedAppointmentsCount = completedDayAppointments.length;
     const cancelledAppointmentsCount = selectedDayAppointments.filter((apt) => apt.status === 'cancelled').length;
 
-    // Função para buscar serviços do estabelecimento
-    const fetchEstablishmentServices = async (professionalId?: string) => {
-      if (!establishment?.id) return [];
-
-      try {
-        const categoryServices: any[] = [];
-        const legacyServices: any[] = [];
-
-        // Buscar serviços de service_subcategories (sistema de categorias)
-        const { data: subcategoriesData } = await supabase
-          .from('service_subcategories')
-          .select(`
-          *,
-          service_categories!inner (
-            establishment_id
-          )
-        `)
-          .eq('service_categories.establishment_id', establishment.id)
-          .eq('is_active', true);
-
-        if (subcategoriesData) {
-          subcategoriesData.forEach((sub: any) => {
-            categoryServices.push({
-              id: sub.id,
-              name: sub.name,
-              price: Number(sub.price),
-              duration: Number(sub.duration || 30)
-            });
-          });
-        }
-
-        // Buscar serviços salvos em services_with_prices (sistema antigo)
-        const { data: establishmentData } = await supabase
-          .from('establishments')
-          .select('services_with_prices')
-          .eq('id', establishment.id)
-          .single();
-
-        if (establishmentData?.services_with_prices) {
-          establishmentData.services_with_prices.forEach((service: any) => {
-            legacyServices.push({
-              id: service.id,
-              name: service.name,
-              price: Number(service.price),
-              duration: Number(service.duration || 30)
-            });
-          });
-        }
-
-        // Serviços específicos do profissional selecionado (fallback quando não há "Meus Serviços")
-        const selectedProfessional = professionals.find((p) => p.id === professionalId);
-        const specificServicesRaw = Array.isArray((selectedProfessional as any)?.specific_services)
-          ? (selectedProfessional as any).specific_services
-          : [];
-        const specificServices = specificServicesRaw
-          .map((service: any, index: number) => ({
-            id: service?.id || `specific_${professionalId || 'professional'}_${index}`,
-            name: String(service?.name || '').trim(),
-            price: Number(service?.price || 0),
-            duration: Number(service?.duration || 30),
-          }))
-          .filter((service: any) => service.name.length > 0);
-
-        // ✅ Compatibilidade:
-        // 1) Se houver serviços de categorias (Meus Serviços), mantém o fluxo antigo (categorias + legado)
-        // 2) Se NÃO houver categorias e existir serviço específico do profissional, prioriza os específicos
-        const generalServices = [...categoryServices, ...legacyServices];
-        const selectedSource = categoryServices.length === 0 && specificServices.length > 0
-          ? specificServices
-          : generalServices;
-
-        // Remover duplicatas por ID
-        const uniqueServices = selectedSource.reduce((acc: any[], service: any) => {
-          if (!acc.find(s => s.id === service.id)) {
-            acc.push(service);
-          }
-          return acc;
-        }, []);
-
-        return uniqueServices;
-      } catch (error) {
-        console.error('Erro ao buscar serviços:', error);
-        return [];
-      }
-    };
-
-    // Opções de assinatura para encaixe (sem restrição por cliente)
-    const fetchEstablishmentSubscriptionsForSqueeze = async () => {
-      if (!establishment?.id) return [];
-      try {
-        const { data, error } = await supabase
-          .from('subscriptions')
-          .select('id, name, value, service_duration')
-          .eq('establishment_id', establishment.id)
-          .order('created_at', { ascending: true });
-
-        if (error) throw error;
-
-        return (data || [])
-          .map((sub: any) => ({
-            id: `subscription_${String(sub?.id || '')}`,
-            name: String(sub?.name || '').trim(),
-            price: 0,
-            duration: Number(sub?.service_duration || 30),
-            plan_value: Number(sub?.value || 0),
-            is_subscription: true,
-          }))
-          .filter((sub: any) => sub.name.length > 0);
-      } catch (error) {
-        console.error('Erro ao buscar assinaturas para encaixe:', error);
-        return [];
-      }
-    };
-
     // Função para calcular duração em minutos entre dois horários
     const calculateDuration = (startTime: string, endTime: string): number => {
       const [startHours, startMins] = startTime.split(':').map(Number);
@@ -5040,6 +4965,106 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
 
+    const getSqueezeSubscriptionPlanId = (service: any): string => {
+      const raw = String(service?.subscription_plan_id || '').trim();
+      if (raw) return raw;
+      const id = String(service?.id || '');
+      if (id.startsWith('subscription_')) return id.slice('subscription_'.length);
+      return '';
+    };
+
+    const formatSubscriberSqueezeClientName = (name: string): string => {
+      const base = String(name || '').trim() || 'Cliente';
+      return clientNameHasSubscriberLabel(base) ? base : `${base} (ASSINANTE)`;
+    };
+
+    const resetSqueezeFlowState = () => {
+      setShowSqueezeServiceModal(false);
+      setShowSqueezeTimeModal(false);
+      setShowSqueezeClientModal(false);
+      setShowSqueezeProfessionalModal(false);
+      setShowSqueezeSubscriberClientModal(false);
+      setSelectedSqueezeService(null);
+      setSelectedSqueezeSubscriberClient(null);
+      setSqueezeSubscriptionClients([]);
+      setSqueezeSubscriptionClientSearch('');
+      setSqueezeStartTime('');
+      setSqueezeEndTime('');
+      setSelectedSqueezeKnownClientId('');
+      setSqueezeKnownClientSearch('');
+      setSelectedProfessionalForSqueeze(null);
+    };
+
+    const loadSqueezeSubscriptionClients = async (subscriptionPlanId: string, professionalId: string) => {
+      if (!establishment?.id || !subscriptionPlanId) return;
+      setSqueezeSubscriptionClientsLoading(true);
+      try {
+        const dateStr = format(selectedDate, 'yyyy-MM-dd');
+        const { data, error } = await supabase
+          .from('client_subscriptions')
+          .select(
+            'id, subscription_id, client_id, subscriber_name, subscriber_whatsapp, client_whatsapp, client_name_override, payment_status, start_date, end_date, subscriber_professional_id'
+          )
+          .eq('establishment_id', establishment.id)
+          .eq('subscription_id', subscriptionPlanId);
+
+        if (error) throw error;
+
+        const clients = (data || [])
+          .filter((row: any) => isDateInsidePaidSubscription(dateStr, row))
+          .filter((row: any) => {
+            const linkedProId = String(row?.subscriber_professional_id || '').trim();
+            if (!linkedProId) return true;
+            return linkedProId === String(professionalId || '').trim();
+          })
+          .map((row: any) => {
+            const name =
+              String(row?.client_name_override || row?.subscriber_name || '').trim() || 'Cliente';
+            const whatsapp = String(row?.subscriber_whatsapp || row?.client_whatsapp || '').trim();
+            return {
+              id: String(row?.id || ''),
+              client_id: String(row?.client_id || '').trim() || undefined,
+              name,
+              whatsapp,
+              subscription_id: String(row?.subscription_id || subscriptionPlanId),
+            } satisfies SqueezeSubscriberClientOption;
+          })
+          .filter((row) => row.id.length > 0)
+          .sort((a, b) =>
+            String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR', { sensitivity: 'base' })
+          );
+
+        setSqueezeSubscriptionClients(clients);
+      } catch (error) {
+        console.error('Erro ao carregar assinantes do plano para encaixe:', error);
+        toast.error('Erro ao carregar assinantes deste plano');
+        setSqueezeSubscriptionClients([]);
+      } finally {
+        setSqueezeSubscriptionClientsLoading(false);
+      }
+    };
+
+    const handleSelectSqueezeProfessional = async (professionalId: string) => {
+      if (!selectedSqueezeService) return;
+      const planId = getSqueezeSubscriptionPlanId(selectedSqueezeService);
+      if (!planId) {
+        toast.error('Plano de assinatura inválido.');
+        return;
+      }
+      setSelectedProfessionalForSqueeze(professionalId);
+      setSelectedSqueezeSubscriberClient(null);
+      setSqueezeSubscriptionClientSearch('');
+      setShowSqueezeProfessionalModal(false);
+      await loadSqueezeSubscriptionClients(planId, professionalId);
+      setShowSqueezeSubscriberClientModal(true);
+    };
+
+    const handleSelectSqueezeSubscriberClient = (client: SqueezeSubscriberClientOption) => {
+      setSelectedSqueezeSubscriberClient(client);
+      setShowSqueezeSubscriberClientModal(false);
+      setShowSqueezeTimeModal(true);
+    };
+
     const loadSqueezeKnownClients = async () => {
       if (!establishment?.id) return;
       setSqueezeKnownClientsLoading(true);
@@ -5197,52 +5222,74 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
         const isSubscriptionSqueeze = Boolean((selectedSqueezeService as any)?.is_subscription);
         const squeezePrice = isSubscriptionSqueeze ? 0 : Number(selectedSqueezeService?.price || 0);
-        const clientName = selectedClient
-          ? String(selectedClient.name || 'Cliente').trim() || 'Cliente'
-          : 'ENCAIXE';
-        const clientWhatsapp = selectedClient
-          ? String(selectedClient.whatsapp || '').trim()
+        const subscriptionPlanId = isSubscriptionSqueeze
+          ? getSqueezeSubscriptionPlanId(selectedSqueezeService)
           : '';
-        const knownClientId = selectedClient?.client_id ? String(selectedClient.client_id).trim() : '';
-        const clientIdForInsert = knownClientId && isUuid(knownClientId) ? knownClientId : fallbackClientId;
-        const isAvulsoSqueeze = !selectedClient;
 
-        const { error } = await supabase
-          .from('appointments')
-          .insert({
-            client_id: clientIdForInsert,
-            establishment_id: establishment.id,
-            professional: selectedProfessionalForSqueeze,
-            service: selectedSqueezeService.name,
-            client_name: clientName,
-            client_whatsapp: clientWhatsapp,
-            appointment_date: selectedDateStr,
-            appointment_time: squeezeStartTime,
-            status: 'confirmed',
-            price: squeezePrice,
-            total_price: squeezePrice,
-            duration: duration,
-            payment_method: isSubscriptionSqueeze ? 'assinante' : 'dinheiro',
-            is_avulso: isAvulsoSqueeze,
-            is_subscriber: isSubscriptionSqueeze,
-            is_squeeze: true, // Marcar como encaixe
-            is_establishment_booking: true,
-          });
+        let clientName = 'ENCAIXE';
+        let clientWhatsapp = '';
+        let knownClientId = '';
+        let isAvulsoSqueeze = true;
+
+        if (isSubscriptionSqueeze) {
+          const subClient = selectedSqueezeSubscriberClient;
+          if (!subClient) {
+            toast.error('Selecione o assinante deste plano.');
+            return;
+          }
+          if (!subscriptionPlanId) {
+            toast.error('Plano de assinatura inválido.');
+            return;
+          }
+          clientName = formatSubscriberSqueezeClientName(subClient.name);
+          clientWhatsapp = String(subClient.whatsapp || '').trim();
+          knownClientId = String(subClient.client_id || '').trim();
+          isAvulsoSqueeze = false;
+        } else if (selectedClient) {
+          clientName = String(selectedClient.name || 'Cliente').trim() || 'Cliente';
+          clientWhatsapp = String(selectedClient.whatsapp || '').trim();
+          knownClientId = String(selectedClient.client_id || '').trim();
+          isAvulsoSqueeze = false;
+        }
+
+        // Assinantes independentes têm client_id gerado (uuid) que não existe em auth.users.
+        // Encaixe interno usa owner/staff como client_id (mesmo padrão de ReservarCliente).
+        const clientIdForInsert = isSubscriptionSqueeze
+          ? fallbackClientId
+          : knownClientId && isUuid(knownClientId)
+            ? knownClientId
+            : fallbackClientId;
+
+        const insertPayload: Record<string, unknown> = {
+          client_id: clientIdForInsert,
+          establishment_id: establishment.id,
+          professional: selectedProfessionalForSqueeze,
+          service: selectedSqueezeService.name,
+          client_name: clientName,
+          client_whatsapp: clientWhatsapp,
+          appointment_date: selectedDateStr,
+          appointment_time: squeezeStartTime,
+          status: 'confirmed',
+          price: squeezePrice,
+          total_price: squeezePrice,
+          duration: duration,
+          payment_method: isSubscriptionSqueeze ? 'assinante' : 'dinheiro',
+          is_avulso: isAvulsoSqueeze,
+          is_subscriber: isSubscriptionSqueeze,
+          is_squeeze: true,
+          is_establishment_booking: true,
+        };
+        if (subscriptionPlanId) {
+          insertPayload.subscription_id = subscriptionPlanId;
+        }
+
+        const { error } = await supabase.from('appointments').insert(insertPayload);
 
         if (error) throw error;
 
         toast.success('Encaixe criado com sucesso!');
 
-        // Fechar modais e limpar estados
-        setShowSqueezeServiceModal(false);
-        setShowSqueezeTimeModal(false);
-        setShowSqueezeClientModal(false);
-        setSelectedSqueezeService(null);
-        setSqueezeStartTime('');
-        setSqueezeEndTime('');
-        setSelectedSqueezeKnownClientId('');
-        setSqueezeKnownClientSearch('');
-        setSelectedProfessionalForSqueeze(null);
+        resetSqueezeFlowState();
 
         // Atualizar agendamentos
         if (onAppointmentUpdate) {
@@ -5858,7 +5905,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             <div className="text-sm font-extrabold text-gray-900 truncate">
                               {String(getDisplayedClientName(apt) || apt.client_name || 'Cliente')}
                             </div>
-                            <div className="text-xs text-gray-700 truncate">{apt.service}</div>
+                            <div className="text-xs text-gray-700 truncate">{getDisplayedService(apt)}</div>
                             <div className="text-[11px] text-gray-600">
                               {String(apt.appointment_date || '').slice(0, 10).split('-').reverse().join('/')} às {apt.appointment_time} • {getProfessionalName(String(apt.professional || ''))}
                             </div>
@@ -5927,7 +5974,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             <div className="text-sm font-extrabold text-gray-900 truncate">
                               {String(getDisplayedClientName(apt) || apt.client_name || 'Cliente')}
                             </div>
-                            <div className="text-xs text-gray-700 truncate">{String(apt.service || 'Serviço não informado')}</div>
+                            <div className="text-xs text-gray-700 truncate">{getDisplayedService(apt) || 'Serviço não informado'}</div>
                             <div className="text-[11px] text-gray-700 mt-1">
                               Data: {String(apt.appointment_date || '').slice(0, 10).split('-').reverse().join('/')} • Horário: {String(apt.appointment_time || '--:--')}
                             </div>
@@ -6089,7 +6136,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               <div className="text-sm font-extrabold text-gray-900 truncate">
                                 {String(getDisplayedClientName(apt) || apt.client_name || 'Cliente')}
                               </div>
-                              <div className="text-xs text-gray-700 truncate">{String(apt.service || 'Serviço não informado')}</div>
+                              <div className="text-xs text-gray-700 truncate">{getDisplayedService(apt) || 'Serviço não informado'}</div>
                               <div className={`mt-2 inline-flex max-w-full items-center rounded-md border px-2 py-1 text-[11px] font-extrabold ${cancellationToneClass}`}>
                                 Quem cancelou: {cancellationActor.label}
                               </div>
@@ -6862,7 +6909,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             title="Etiqueta da assinatura"
                                           />
                                         )}
-                                        {apt.service}
+                                        {getDisplayedService(apt)}
                                       </div>
                                       <div className="text-white/70 text-xs mt-1">
                                         {getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos)} min • {isExpanded ? 'Ocultar' : 'Ver detalhes'}
@@ -7503,7 +7550,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <button
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              void logAppointmentCardActionClick(apt, 'ver_historico_click', 'Clique em Ver histórico.');
                                               void handleOpenAppointmentHistoryModal(apt);
                                             }}
                                             className="w-full px-2 py-1.5 text-xs bg-amber-700 text-white rounded hover:bg-amber-800"
@@ -7608,7 +7654,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 title="Etiqueta da assinatura"
                                               />
                                             )}
-                                            {apt.service}
+                                            {getDisplayedService(apt)}
                                           </div>
                                           {hiddenServiceLabels.length > 0 && (
                                             <div className="mt-1 flex items-center gap-1 flex-wrap">
@@ -7978,22 +8024,27 @@ export const AllProfessionalsAppointmentsView: React.FC<
           </div>
         )}
 
-        {/* Modal: Histórico do agendamento */}
+        {/* Modal: Histórico de auditoria do agendamento */}
         {showAppointmentHistoryModal && selectedAppointmentForHistory && (
-          <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
-            <div className="w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl border border-white/10 bg-white">
-              <div className="p-4 border-b border-gray-200">
+          <div className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4">
+            <div className="w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl border border-white/10 bg-[#1a1b1c] text-white">
+              <div className="p-4 border-b border-gray-700">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-gray-900 font-extrabold text-lg">Histórico do agendamento</div>
-                    <div className="text-xs text-gray-600 mt-1">
-                      {String(getDisplayedClientName(selectedAppointmentForHistory) || selectedAppointmentForHistory.client_name || 'Cliente')} • {selectedAppointmentForHistory.appointment_time}
+                    <div className="font-extrabold text-lg">Histórico de auditoria</div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      {String(getDisplayedClientName(selectedAppointmentForHistory) || selectedAppointmentForHistory.client_name || 'Cliente')} •{' '}
+                      {String(selectedAppointmentForHistory.appointment_date || '').slice(0, 10).split('-').reverse().join('/')} às{' '}
+                      {String(selectedAppointmentForHistory.appointment_time || '--:--')}
                     </div>
+                    <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                      Registro completo de alterações — valor, serviço, horário, produtos, status e pagamento.
+                    </p>
                   </div>
                   <button
                     type="button"
                     onClick={handleCloseAppointmentHistoryModal}
-                    className="h-9 w-9 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center"
+                    className="h-9 w-9 rounded-lg bg-gray-800 hover:bg-gray-700 flex items-center justify-center shrink-0"
                     title="Fechar"
                   >
                     <X className="h-5 w-5" />
@@ -8001,95 +8052,50 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 </div>
               </div>
 
-              <div className="p-4 max-h-[70vh] overflow-y-auto space-y-3">
-                <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                  <div className="text-xs font-extrabold text-gray-800 mb-2">Resumo do agendamento</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-700">
+              <div className="p-4 max-h-[72vh] overflow-y-auto space-y-4">
+                {(() => {
+                  const originLabel = getAppointmentOriginLabel(selectedAppointmentForHistory);
+                  const originLower = originLabel.toLowerCase();
+                  const originClass = originLower.includes('interno')
+                    ? 'text-amber-300 font-semibold'
+                    : originLower.includes('externo') || originLower.includes('booking')
+                      ? 'text-sky-300 font-semibold'
+                      : 'text-gray-300';
+
+                  return (
+                <div className="rounded-xl border border-gray-700/70 bg-[#141516] p-3">
+                  <div className="text-[10px] font-extrabold uppercase tracking-wide text-gray-500 mb-2">Resumo atual</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-300">
                     <div>
-                      <span className="font-semibold">Cliente:</span>{' '}
-                      {String(getDisplayedClientName(selectedAppointmentForHistory) || selectedAppointmentForHistory.client_name || 'Cliente')}
-                    </div>
-                    <div>
-                      <span className="font-semibold">Profissional:</span>{' '}
+                      <span className="text-gray-500">Profissional:</span>{' '}
                       {getProfessionalName(String(selectedAppointmentForHistory.professional || ''))}
                     </div>
                     <div>
-                      <span className="font-semibold">Agendado para:</span>{' '}
-                      {String(selectedAppointmentForHistory.appointment_date || '').slice(0, 10).split('-').reverse().join('/')} às {String(selectedAppointmentForHistory.appointment_time || '--:--')}
-                    </div>
-                    <div>
-                      <span className="font-semibold">Criado em:</span>{' '}
-                      {formatDateTimeSafe((selectedAppointmentForHistory as any)?.created_at)}
-                    </div>
-                    <div>
-                      <span className="font-semibold">Origem:</span>{' '}
-                      {getAppointmentOriginLabel(selectedAppointmentForHistory)}
-                    </div>
-                    <div>
-                      <span className="font-semibold">Tipo:</span>{' '}
-                      {selectedAppointmentForHistory.is_subscriber ? 'Assinante' : selectedAppointmentForHistory.is_avulso ? 'Avulso' : 'Normal'}
-                    </div>
-                    <div>
-                      <span className="font-semibold">Serviço:</span>{' '}
+                      <span className="text-gray-500">Serviço:</span>{' '}
                       {String(selectedAppointmentForHistory.service || 'Não informado')}
                     </div>
                     <div>
-                      <span className="font-semibold">Valor:</span>{' '}
-                      {formatCurrency(calculateTotalPrice(selectedAppointmentForHistory))}
+                      <span className="text-gray-500">Valor:</span>{' '}
+                      <span className="font-bold text-amber-300">{formatCurrency(calculateTotalPrice(selectedAppointmentForHistory))}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Status:</span>{' '}
+                      {getStatusLabel(selectedAppointmentForHistory.status)}
+                    </div>
+                    <div className="md:col-span-2">
+                      <span className="text-gray-500">Origem:</span>{' '}
+                      <span className={originClass}>{originLabel}</span>
                     </div>
                   </div>
                 </div>
+                  );
+                })()}
 
-                {isLoadingAppointmentHistory ? (
-                  <div className="text-sm text-gray-600">Carregando histórico...</div>
-                ) : appointmentHistoryRows.length === 0 ? (
-                  <div className="text-sm text-gray-600">Sem histórico para este agendamento.</div>
-                ) : (
-                  appointmentHistoryRows.map((row) => (
-                    <div key={row.id} className="rounded-lg border border-gray-200 p-3 bg-gray-50">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-sm font-extrabold text-gray-900">{getHistoryEventLabel(row.event_type)}</div>
-                        <div className="text-xs text-gray-600">
-                          {formatDateTimeSafe(row.created_at, 'N/A')}
-                        </div>
-                      </div>
-                      {row.description && (
-                        <div className="text-xs text-gray-700 mt-1">{row.description}</div>
-                      )}
-                      {row.changed_by_name && (
-                        <div className="text-[11px] text-gray-500 mt-1">Por: {row.changed_by_name}</div>
-                      )}
-
-                      <div className="mt-2 rounded border border-gray-200 bg-white p-2 space-y-1">
-                        {buildHistoryHighlights(row).map((line, idx) => (
-                          <div key={`${row.id}-line-${idx}`} className="text-xs text-gray-800">
-                            • {line}
-                          </div>
-                        ))}
-                      </div>
-
-                      <details className="mt-2 rounded border border-gray-200 bg-white p-2">
-                        <summary className="text-[11px] font-semibold text-gray-700 cursor-pointer">
-                          Ver detalhes técnicos
-                        </summary>
-                        <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2">
-                          <div className="rounded border border-gray-200 bg-gray-50 p-2">
-                            <div className="text-[11px] font-bold text-gray-700 mb-1">Antes</div>
-                            <pre className="text-[10px] text-gray-700 whitespace-pre-wrap break-words">{formatJsonPreview(row.old_values)}</pre>
-                          </div>
-                          <div className="rounded border border-gray-200 bg-gray-50 p-2">
-                            <div className="text-[11px] font-bold text-gray-700 mb-1">Depois</div>
-                            <pre className="text-[10px] text-gray-700 whitespace-pre-wrap break-words">{formatJsonPreview(row.new_values)}</pre>
-                          </div>
-                          <div className="rounded border border-gray-200 bg-gray-50 p-2">
-                            <div className="text-[11px] font-bold text-gray-700 mb-1">Detalhes</div>
-                            <pre className="text-[10px] text-gray-700 whitespace-pre-wrap break-words">{formatJsonPreview(row.metadata)}</pre>
-                          </div>
-                        </div>
-                      </details>
-                    </div>
-                  ))
-                )}
+                <AppointmentAuditTimeline
+                  rows={appointmentHistoryRows}
+                  isLoading={isLoadingAppointmentHistory}
+                  emptyMessage="Nenhuma alteração registrada ainda. Alterações feitas a partir de agora aparecerão aqui com detalhes."
+                />
               </div>
             </div>
           </div>
@@ -8524,40 +8530,158 @@ export const AllProfessionalsAppointmentsView: React.FC<
           )}
 
         {/* Modal de Seleção de Serviço para Encaixe */}
-        {showSqueezeServiceModal && (
+        <SqueezeServicePickerModal
+          open={showSqueezeServiceModal}
+          establishmentId={establishment?.id}
+          selectedProfessionalId={selectedProfessionalForSqueeze}
+          professionals={professionals}
+          appointments={squeezeUsageAppointments}
+          onSelect={(service) => {
+            setSelectedSqueezeService(service);
+            setSelectedSqueezeSubscriberClient(null);
+            setShowSqueezeServiceModal(false);
+            if (service?.is_subscription) {
+              setShowSqueezeProfessionalModal(true);
+            } else {
+              setShowSqueezeTimeModal(true);
+            }
+          }}
+          onClose={() => {
+            setShowSqueezeServiceModal(false);
+            setSelectedProfessionalForSqueeze(null);
+          }}
+        />
+
+        {/* Modal de Profissional para Encaixe de Assinatura */}
+        {showSqueezeProfessionalModal && selectedSqueezeService && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md mx-4 border border-gray-700">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-white">
-                  Qual serviço deseja adicionar como encaixe?
-                </h3>
+                <h3 className="text-lg font-semibold text-white">Escolher profissional do encaixe</h3>
                 <button
-                  onClick={() => {
-                    setShowSqueezeServiceModal(false);
-                    setSelectedProfessionalForSqueeze(null);
-                  }}
+                  onClick={() => resetSqueezeFlowState()}
                   className="text-gray-400 hover:text-white transition-colors"
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              <div className="max-h-96 overflow-y-auto">
-                <SqueezeServiceList
-                  establishment={establishment}
-                  selectedProfessionalId={selectedProfessionalForSqueeze}
-                  onSelectService={async (service) => {
-                    setSelectedSqueezeService(service);
-                    setShowSqueezeServiceModal(false);
-                    setShowSqueezeTimeModal(true);
-                  }}
-                  onClose={() => {
-                    setShowSqueezeServiceModal(false);
-                    setSelectedProfessionalForSqueeze(null);
-                  }}
-                  fetchServices={fetchEstablishmentServices}
-                  fetchSubscriptions={fetchEstablishmentSubscriptionsForSqueeze}
-                />
+              <p className="text-sm text-amber-200 mb-3">
+                Plano: <span className="text-white font-semibold">{selectedSqueezeService.name}</span>
+              </p>
+              <div className="max-h-72 overflow-y-auto space-y-2">
+                {professionals.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-4">Nenhum profissional cadastrado.</p>
+                ) : (
+                  professionals.map((pro) => {
+                    const isPreselected = String(selectedProfessionalForSqueeze || '') === String(pro.id);
+                    return (
+                      <button
+                        key={pro.id}
+                        type="button"
+                        onClick={() => void handleSelectSqueezeProfessional(pro.id)}
+                        className={`w-full text-left px-4 py-3 rounded-lg border transition-colors ${
+                          isPreselected
+                            ? 'bg-amber-900/40 border-amber-500 text-white'
+                            : 'bg-[#2a2b2c] border-gray-600 text-gray-200 hover:border-gray-500'
+                        }`}
+                      >
+                        <div className="font-semibold">{pro.name}</div>
+                        {isPreselected && (
+                          <div className="text-xs text-amber-200 mt-1">Profissional da coluna selecionada</div>
+                        )}
+                      </button>
+                    );
+                  })
+                )}
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSqueezeProfessionalModal(false);
+                  setShowSqueezeServiceModal(true);
+                }}
+                className="w-full mt-4 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Voltar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de Assinante do Plano para Encaixe */}
+        {showSqueezeSubscriberClientModal && selectedSqueezeService && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md mx-4 border border-gray-700">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-white">Escolher assinante do plano</h3>
+                <button
+                  onClick={() => resetSqueezeFlowState()}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <p className="text-sm text-gray-300 mb-2">
+                Plano: <span className="text-white">{selectedSqueezeService.name}</span>
+              </p>
+              <p className="text-xs text-gray-400 mb-3">
+                Somente assinantes ativos e pagos deste plano
+                {selectedProfessionalForSqueeze
+                  ? ' (vinculados ao profissional selecionado ou sem profissional fixo)'
+                  : ''}
+                .
+              </p>
+              <input
+                type="text"
+                value={squeezeSubscriptionClientSearch}
+                onChange={(e) => setSqueezeSubscriptionClientSearch(e.target.value)}
+                placeholder="Buscar por nome ou WhatsApp"
+                className="w-full px-3 py-2 mb-3 bg-[#2a2b2c] border border-gray-600 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-white"
+              />
+              <div className="max-h-56 overflow-y-auto space-y-2 border border-gray-700 rounded-lg p-2 bg-[#111213]">
+                {squeezeSubscriptionClientsLoading ? (
+                  <p className="text-sm text-gray-400 text-center py-4">Carregando assinantes...</p>
+                ) : (() => {
+                  const q = String(squeezeSubscriptionClientSearch || '').trim().toLowerCase();
+                  const qDigits = q.replace(/\D/g, '');
+                  const filtered = squeezeSubscriptionClients.filter((c) => {
+                    if (!q) return true;
+                    const name = String(c.name || '').toLowerCase();
+                    const digits = String(c.whatsapp || '').replace(/\D/g, '');
+                    return name.includes(q) || (qDigits && digits.includes(qDigits));
+                  });
+                  if (filtered.length === 0) {
+                    return (
+                      <p className="text-sm text-gray-400 text-center py-4">
+                        Nenhum assinante ativo encontrado neste plano para o profissional selecionado.
+                      </p>
+                    );
+                  }
+                  return filtered.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => handleSelectSqueezeSubscriberClient(c)}
+                      className="w-full text-left px-3 py-2 rounded-lg border bg-amber-900/20 border-amber-500/40 text-gray-100 hover:bg-amber-800/30 transition-colors"
+                    >
+                      <div className="text-sm font-semibold">👑 {c.name}</div>
+                      <div className="text-xs text-amber-200">
+                        {String(c.whatsapp || '').replace(/\D/g, '') || 'Sem WhatsApp'}
+                      </div>
+                    </button>
+                  ));
+                })()}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSqueezeSubscriberClientModal(false);
+                  setShowSqueezeProfessionalModal(true);
+                }}
+                className="w-full mt-4 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Voltar
+              </button>
             </div>
           </div>
         )}
@@ -8573,6 +8697,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 <button
                   onClick={() => {
                     setShowSqueezeTimeModal(false);
+                    if ((selectedSqueezeService as any)?.is_subscription) {
+                      setShowSqueezeSubscriberClientModal(true);
+                      return;
+                    }
                     setSelectedSqueezeService(null);
                     setSqueezeStartTime('');
                     setSqueezeEndTime('');
@@ -8590,6 +8718,23 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     Valor: <span className="text-white">{formatCurrency(selectedSqueezeService.price)}</span>
                   </label>
+                  {(selectedSqueezeService as any)?.is_subscription && selectedSqueezeSubscriberClient && (
+                    <>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                        Assinante:{' '}
+                        <span className="text-white">{selectedSqueezeSubscriberClient.name}</span>
+                      </label>
+                      {selectedProfessionalForSqueeze && (
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Profissional:{' '}
+                          <span className="text-white">
+                            {professionals.find((p) => p.id === selectedProfessionalForSqueeze)?.name ||
+                              'Profissional'}
+                          </span>
+                        </label>
+                      )}
+                    </>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -8616,6 +8761,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 <div className="flex gap-3 mt-6">
                   <button
                     onClick={() => {
+                      if ((selectedSqueezeService as any)?.is_subscription) {
+                        setShowSqueezeTimeModal(false);
+                        setShowSqueezeSubscriberClientModal(true);
+                        return;
+                      }
                       setShowSqueezeTimeModal(false);
                       setSelectedSqueezeService(null);
                       setSqueezeStartTime('');
@@ -8623,14 +8773,23 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     }}
                     className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
                   >
-                    Cancelar
+                    {(selectedSqueezeService as any)?.is_subscription ? 'Voltar' : 'Cancelar'}
                   </button>
-                  <button
-                    onClick={openSqueezeClientModal}
-                    className="flex-1 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
-                  >
-                    Escolher cliente
-                  </button>
+                  {(selectedSqueezeService as any)?.is_subscription ? (
+                    <button
+                      onClick={() => void handleCreateSqueeze()}
+                      className="flex-1 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+                    >
+                      Criar encaixe assinante
+                    </button>
+                  ) : (
+                    <button
+                      onClick={openSqueezeClientModal}
+                      className="flex-1 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
+                    >
+                      Escolher cliente
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -8861,87 +9020,3 @@ export const AllProfessionalsAppointmentsView: React.FC<
       </div>
     );
   };
-
-// Componente para lista de serviços no modal de encaixe
-const SqueezeServiceList: React.FC<{
-  establishment: any;
-  selectedProfessionalId?: string | null;
-  onSelectService: (service: any) => void;
-  onClose: () => void;
-  fetchServices: (professionalId?: string) => Promise<any[]>;
-  fetchSubscriptions: () => Promise<any[]>;
-}> = ({ onSelectService, onClose, fetchServices, fetchSubscriptions, selectedProfessionalId }) => {
-  const [services, setServices] = useState<any[]>([]);
-  const [subscriptions, setSubscriptions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const loadServices = async () => {
-      setLoading(true);
-      const [fetchedServices, fetchedSubscriptions] = await Promise.all([
-        fetchServices(selectedProfessionalId || undefined),
-        fetchSubscriptions()
-      ]);
-      setServices(fetchedServices);
-      setSubscriptions(fetchedSubscriptions);
-      setLoading(false);
-    };
-    loadServices();
-  }, [fetchServices, fetchSubscriptions, selectedProfessionalId]);
-
-  if (loading) {
-    return <div className="text-center py-4 text-gray-400">Carregando serviços...</div>;
-  }
-
-  if (services.length === 0 && subscriptions.length === 0) {
-    return (
-      <div className="text-center py-4 text-gray-400">
-        Nenhuma opção encontrada. Adicione serviços ou assinaturas.
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      {services.length > 0 && (
-        <>
-          {services.map((service) => (
-            <button
-              key={service.id}
-              onClick={() => onSelectService(service)}
-              className="w-full text-left px-4 py-3 bg-gray-800 hover:bg-gray-700 border border-gray-600 rounded-lg transition-colors"
-            >
-              <div className="font-semibold text-white">{service.name}</div>
-              <div className="text-sm text-gray-300">
-                {new Intl.NumberFormat('pt-BR', {
-                  style: 'currency',
-                  currency: 'BRL',
-                }).format(service.price)}
-              </div>
-            </button>
-          ))}
-        </>
-      )}
-
-      {subscriptions.length > 0 && (
-        <div className="pt-2">
-          <div className="text-xs font-bold text-amber-300 mb-2">ASSINATURAS (sem restrição)</div>
-          <div className="space-y-2">
-            {subscriptions.map((sub) => (
-              <button
-                key={sub.id}
-                onClick={() => onSelectService(sub)}
-                className="w-full text-left px-4 py-3 bg-amber-900/20 hover:bg-amber-800/30 border border-amber-500/40 rounded-lg transition-colors"
-              >
-                <div className="font-semibold text-white">👑 {sub.name}</div>
-                <div className="text-sm text-amber-200">
-                  Assinatura • {Number(sub.duration || 30)} min • GRATUITO
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
