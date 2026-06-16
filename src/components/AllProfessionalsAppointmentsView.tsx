@@ -592,6 +592,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
       ? `agendeifacil:appointments-visible-professionals:${establishment.id}`
       : '';
     const professionalVisibilityLoadedKeyRef = useRef('');
+    const datePickerContainerRef = useRef<HTMLDivElement>(null);
+    const datePickerInputRef = useRef<HTMLInputElement>(null);
+    const [showDatePicker, setShowDatePicker] = useState(false);
     const hasOwnerConfigPin = Boolean(
       establishment?.pin_password &&
       String(establishment.pin_password || '').trim().length > 0 &&
@@ -4385,7 +4388,42 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const handleDateInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const newDate = new Date(e.target.value + 'T00:00:00');
       onDateChange(newDate);
+      setShowDatePicker(false);
     };
+
+    useEffect(() => {
+      if (!showDatePicker) return;
+
+      const handleOutside = (event: MouseEvent | TouchEvent) => {
+        const target = event.target as Node | null;
+        if (datePickerContainerRef.current && target && !datePickerContainerRef.current.contains(target)) {
+          setShowDatePicker(false);
+        }
+      };
+
+      document.addEventListener('mousedown', handleOutside);
+      document.addEventListener('touchstart', handleOutside);
+
+      const timer = window.setTimeout(() => {
+        const input = datePickerInputRef.current;
+        if (!input) return;
+        try {
+          if (typeof input.showPicker === 'function') {
+            void input.showPicker();
+            return;
+          }
+        } catch {
+          // fallback abaixo
+        }
+        input.focus();
+      }, 80);
+
+      return () => {
+        document.removeEventListener('mousedown', handleOutside);
+        document.removeEventListener('touchstart', handleOutside);
+        window.clearTimeout(timer);
+      };
+    }, [showDatePicker]);
 
     const calendarToday = startOfDay(new Date());
     const selectedDay = startOfDay(selectedDate);
@@ -5561,19 +5599,34 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 <p className="text-xs md:text-sm font-semibold text-white/80 truncate capitalize">
                   {format(selectedDate, "EEEE, dd/MM/yyyy", { locale: ptBR })}
                 </p>
-                <label
-                  className="relative shrink-0 inline-flex items-center gap-1.5 overflow-hidden rounded-lg border border-white/15 bg-white/5 px-2 md:px-3 py-1 md:py-1.5 text-[11px] md:text-xs font-bold text-amber-200 hover:bg-white/10 cursor-pointer"
-                >
-                  <Calendar className="h-3.5 w-3.5 md:h-4 md:w-4 pointer-events-none" />
-                  <span className="pointer-events-none">Escolher data</span>
-                  <input
-                    type="date"
-                    value={format(selectedDate, 'yyyy-MM-dd')}
-                    onChange={handleDateInputChange}
-                    className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
-                    aria-label="Escolher data"
-                  />
-                </label>
+                <div ref={datePickerContainerRef} className="relative shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowDatePicker((open) => !open)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2 md:px-3 py-1 md:py-1.5 text-[11px] md:text-xs font-bold text-amber-200 hover:bg-white/10"
+                    aria-expanded={showDatePicker}
+                    aria-haspopup="dialog"
+                  >
+                    <Calendar className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                    Escolher data
+                  </button>
+
+                  {showDatePicker && (
+                    <div className="absolute right-0 top-[calc(100%+8px)] z-50 min-w-[220px] rounded-xl border border-white/15 bg-[#141516] p-3 shadow-2xl shadow-black/50">
+                      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/55">
+                        Selecionar data
+                      </p>
+                      <input
+                        ref={datePickerInputRef}
+                        type="date"
+                        value={format(selectedDate, 'yyyy-MM-dd')}
+                        onChange={handleDateInputChange}
+                        className="w-full rounded-lg border border-white/20 bg-[#0b0b0c] px-3 py-2 text-sm text-white [color-scheme:dark]"
+                        aria-label="Escolher data"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
