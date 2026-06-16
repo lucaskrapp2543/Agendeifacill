@@ -2,7 +2,7 @@
   "name": "Agendei Fácil - Sistema de Agendamentos",
   "short_name": "Agendei Fácil",
   "description": "Sistema completo de agendamentos para estabelecimentos e clientes",
-  "version": "20241219-v5",
+  "version": "20260610-v1",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
@@ -20,27 +20,27 @@
   "dir": "ltr",
   "icons": [
     {
-      "src": "/placeholder-image.svg?v=20260428",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/novo-icone.png?v=20260610",
+      "sizes": "500x500",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/placeholder-image.svg?v=20260428",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    },
-    {
-      "src": "/placeholder-image.svg?v=20260428",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/novo-icone-maskable.png?v=20260610",
+      "sizes": "500x500",
+      "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/placeholder-image.svg?v=20260428",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/novo-icone.png?v=20260610",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/novo-icone-maskable.png?v=20260610",
+      "sizes": "192x192",
+      "type": "image/png",
       "purpose": "maskable"
     }
   ],
@@ -52,9 +52,9 @@
       "url": "/dashboard/premium",
       "icons": [
         {
-          "src": "/placeholder-image.svg?v=20260428",
-          "sizes": "any",
-          "type": "image/svg+xml"
+          "src": "/novo-icone.png?v=20260610",
+          "sizes": "500x500",
+          "type": "image/png"
         }
       ]
     }

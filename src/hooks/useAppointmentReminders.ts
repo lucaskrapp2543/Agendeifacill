@@ -45,8 +45,8 @@ export function useAppointmentReminders(appointments: Appointment[]) {
 
     const notification = new Notification('🔔 Lembrete de Agendamento', {
       body: `Você tem um agendamento em 30 minutos!\n\n🏪 ${appointment.establishment_name}\n✂️ ${appointment.service_name}\n👨‍💼 ${appointment.professional_name || 'Profissional não especificado'}\n📅 ${format(parseISO(appointment.appointment_date), "dd/MM/yyyy", { locale: ptBR })}\n⏰ ${appointment.appointment_time}`,
-      icon: '/favicon.ico',
-      badge: '/favicon.ico',
+        icon: '/novo-icone.png',
+        badge: '/novo-icone.png',
       tag: `appointment-${appointment.id}`,
       requireInteraction: true,
       silent: false

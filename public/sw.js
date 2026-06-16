@@ -1,8 +1,8 @@
 // Service Worker para cache inteligente e atualizações forçadas
 // ⚠️ VERSÃO 2.3.0: NUNCA faz cache de HTML (sempre versão nova, sem precisar atualizar)
-const CACHE_NAME = 'agendafacil-v2.3.0';
-const STATIC_CACHE = 'agendafacil-static-v2.3.0';
-const DYNAMIC_CACHE = 'agendafacil-dynamic-v2.3.0';
+const CACHE_NAME = 'agendafacil-v2.3.1';
+const STATIC_CACHE = 'agendafacil-static-v2.3.1';
+const DYNAMIC_CACHE = 'agendafacil-dynamic-v2.3.1';
 
 // ✅ DEV/LOCALHOST: Service Worker NÃO deve controlar o app (evita UI “presa”).
 const IS_DEV_HOST = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
@@ -47,7 +47,9 @@ const ALWAYS_UPDATE = [
 const STATIC_FILES = [
   '/static/media/',
   '/favicon.ico',
-  '/manifest.json'
+  '/manifest.json',
+  '/novo-icone.png',
+  '/novo-icone-maskable.png'
 ];
 
 // Instalar Service Worker
