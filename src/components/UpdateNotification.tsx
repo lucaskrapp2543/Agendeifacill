@@ -1,6 +1,6 @@
 import { AlertTriangle, CheckCircle, Download, RefreshCw } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
-import { UpdateInfo, applyUpdate, checkForUpdates, getCurrentVersion, setStoredVersion } from '../utils/versionManager';
+import { UpdateInfo, applyUpdate, checkForUpdates, getCurrentVersion, setStoredVersion, shouldShowV30UpdatePrompt } from '../utils/versionManager';
 
 interface UpdateNotificationProps {
   className?: string;
@@ -165,6 +165,10 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
   };
 
   if (!isVisible || !updateInfo) {
+    return null;
+  }
+
+  if (shouldShowV30UpdatePrompt()) {
     return null;
   }
 

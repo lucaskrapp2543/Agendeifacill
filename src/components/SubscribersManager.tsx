@@ -26,28 +26,27 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { syncSubscribersToManualClients } from '../lib/manualClientsSync';
+import { clientNameHasSubscriberLabel } from '../lib/subscriberAppointmentFlags';
 import {
   buildSubscriberAttendanceSnapshotFields,
   computeSubscriberRepassValue,
   createIndependentSubscriber,
-  dedupeSubscriberAttendanceRows,
-  filterSubscriberAttendancesForFinance,
-  mergeSubscriberAttendancesWithCompletedAppointments,
   deactivateSubscriber,
+  filterSubscriberAttendancesForFinance,
   getEstablishmentSubscribers,
   insertSubscriberAttendanceOnce,
   isArchivedSubscriber,
   isDeactivatedSubscriber,
+  mergeSubscriberAttendancesWithCompletedAppointments,
   reactivateSubscriber,
   removeSubscriber,
-  resolveAppointmentProfessionalForSubscriber,
   resolveSubscriberAttendanceProfessionalGroup,
-  subscriberAttendanceMatchesProfessionalGroup,
+  subscriberAttendanceMatchesProfessionalGroup
 } from '../lib/subscriberSystem';
-import { clientNameHasSubscriberLabel } from '../lib/subscriberAppointmentFlags';
+import { buildProfessionalControlGroups, enrichVerifiedSubscriberControlAttendances, filterVerifiedSubscriptionSaleCommissions } from '../lib/professionalSubscriberControl';
 import { createSubscription, deleteSubscription, getClientSubscriptions, getSubscriptions, supabase } from '../lib/supabase'; // Adicionar esta importação
 import { Database } from '../types/supabase';
-import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
+import { downloadSubscriberAccountantReport } from '../utils/subscriberAccountantReport';
 import {
   buildCarryoverMonthlyLimit,
   clampDateRangeToSubscription,
@@ -55,9 +54,9 @@ import {
   getPreviousCalendarMonthDateRange,
   isIsoDateWithinRange,
 } from '../utils/subscriptionUsagePeriod';
-import { downloadSubscriberAccountantReport } from '../utils/subscriberAccountantReport';
-import { ProfessionalAttendedClientsModal } from './ProfessionalAttendedClientsModal';
+import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
 import { ClientRecoveryModal } from './ClientRecoveryModal';
+import { ProfessionalAttendedClientsModal } from './ProfessionalAttendedClientsModal';
 import { useToast } from './ui/Toaster';
 
 type Subscription = Database['public']['Tables']['subscriptions']['Row'];
@@ -1180,6 +1179,16 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     [establishment]
   );
 
+  const verifiedSubscriberAttendances = useMemo(
+    () => enrichVerifiedSubscriberControlAttendances(subscriberAttendances, clientSubscriptions),
+    [subscriberAttendances, clientSubscriptions]
+  );
+
+  const verifiedSubscriptionSaleCommissions = useMemo(
+    () => filterVerifiedSubscriptionSaleCommissions(subscriptionSaleCommissions, clientSubscriptions),
+    [subscriptionSaleCommissions, clientSubscriptions]
+  );
+
   const getProfessionalGroupFromAttendance = (attendance: any) =>
     resolveSubscriberAttendanceProfessionalGroup(
       attendance,
@@ -1187,88 +1196,25 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       deletedProfessionalsForGrouping
     );
 
-  type ProfessionalControlGroupData = {
-    groupKey: string;
-    displayName: string;
-    professionalId: string | null;
-    totalValue: number;
-    pointsFromAttendances: number;
-    attendanceCount: number;
-    uniqueClientIds: Set<string>;
-    saleCommissionCount: number;
-  };
-
-  const activeProfessionalIdSet = useMemo(
+  const professionalControlGroups = useMemo(
     () =>
-      new Set(
-        establishmentProfessionalsForGrouping
-          .map((pro) => String(pro?.id || '').trim())
-          .filter(Boolean)
-      ),
-    [establishmentProfessionalsForGrouping]
+      buildProfessionalControlGroups({
+        subscriberAttendances: verifiedSubscriberAttendances,
+        subscriptionSaleCommissions: verifiedSubscriptionSaleCommissions,
+        establishmentProfessionals: establishmentProfessionalsForGrouping,
+        deletedProfessionals: deletedProfessionalsForGrouping,
+        clientSubscriptions,
+        subscriptions,
+      }),
+    [
+      verifiedSubscriberAttendances,
+      verifiedSubscriptionSaleCommissions,
+      establishmentProfessionalsForGrouping,
+      deletedProfessionalsForGrouping,
+      clientSubscriptions,
+      subscriptions,
+    ]
   );
-
-  const professionalControlGroups = useMemo(() => {
-    const acc: Record<string, ProfessionalControlGroupData> = {};
-
-    subscriberAttendances.forEach((attendance: any) => {
-      const group = getProfessionalGroupFromAttendance(attendance);
-      const groupKey = group.groupKey;
-      if (!group.professionalId || !activeProfessionalIdSet.has(String(group.professionalId))) return;
-      if (!acc[groupKey]) {
-        acc[groupKey] = {
-          groupKey,
-          displayName: group.displayName,
-          professionalId: group.professionalId,
-          totalValue: 0,
-          pointsFromAttendances: 0,
-          attendanceCount: 0,
-          uniqueClientIds: new Set<string>(),
-          saleCommissionCount: 0,
-        };
-      }
-      acc[groupKey].totalValue += getAttendanceEffectiveRepass(attendance);
-      acc[groupKey].attendanceCount += 1;
-
-      const clientSubId = String(attendance.client_subscription_id || '');
-      const snapshotName = String(attendance.client_name_snapshot || '').trim();
-      const clientKey = clientSubId || (snapshotName ? `snap:${snapshotName}` : '');
-      if (clientKey) {
-        acc[groupKey].uniqueClientIds.add(clientKey);
-        if (clientSubId && isClientSubscriptionPointsMode(clientSubId)) {
-          acc[groupKey].pointsFromAttendances += 1;
-        }
-      }
-    });
-
-    subscriptionSaleCommissions.forEach((item: any) => {
-      const group = getProfessionalGroupFromAttendance(item);
-      const groupKey = group.groupKey;
-      if (!group.professionalId || !activeProfessionalIdSet.has(String(group.professionalId))) return;
-      if (!acc[groupKey]) {
-        acc[groupKey] = {
-          groupKey,
-          displayName: group.displayName,
-          professionalId: group.professionalId,
-          totalValue: 0,
-          pointsFromAttendances: 0,
-          attendanceCount: 0,
-          uniqueClientIds: new Set<string>(),
-          saleCommissionCount: 0,
-        };
-      }
-      acc[groupKey].totalValue += parseFloat(item.commission_amount) || 0;
-      acc[groupKey].saleCommissionCount += 1;
-    });
-
-    return Object.values(acc).sort((a, b) => b.totalValue - a.totalValue || b.attendanceCount - a.attendanceCount);
-  }, [
-    subscriberAttendances,
-    subscriptionSaleCommissions,
-    establishmentProfessionalsForGrouping,
-    deletedProfessionalsForGrouping,
-    activeProfessionalIdSet,
-  ]);
 
   const exclusiveSubscribersByGroupKey = useMemo(() => {
     const map = new Map<string, Array<{ id: string; name: string }>>();
@@ -2702,14 +2648,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       }
 
       const { error } = await insertSubscriberAttendanceOnce({
-          establishment_id: establishmentId,
-          client_subscription_id: selectedClientForAttendance.id,
-          professional_name: attendanceProfessionalToSave,
-          attendance_date: attendanceDateToSave,
-          repass_value: repassValueToSave,
-          created_by: user?.id,
-          ...buildSubscriberAttendanceSnapshotFields(selectedClientForAttendance),
-        });
+        establishment_id: establishmentId,
+        client_subscription_id: selectedClientForAttendance.id,
+        professional_name: attendanceProfessionalToSave,
+        attendance_date: attendanceDateToSave,
+        repass_value: repassValueToSave,
+        created_by: user?.id,
+        ...buildSubscriberAttendanceSnapshotFields(selectedClientForAttendance),
+      });
 
       if (error) {
         throw error;
@@ -3277,11 +3223,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           prev.map((cs) =>
             String(cs.id) === String(clientSubscription.id)
               ? ({
-                  ...cs,
-                  payment_status: newStatus,
-                  ...(renewedEndDate ? { end_date: renewedEndDate, last_payment_date: paymentDate } : {}),
-                  updated_at: new Date().toISOString(),
-                } as ClientSubscription)
+                ...cs,
+                payment_status: newStatus,
+                ...(renewedEndDate ? { end_date: renewedEndDate, last_payment_date: paymentDate } : {}),
+                updated_at: new Date().toISOString(),
+              } as ClientSubscription)
               : cs
           )
         )
@@ -3688,7 +3634,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             ...cs,
             deactivated_at: nowIso,
             updated_at: nowIso,
-            ...( !currentEnd || currentEnd > todayIso ? { end_date: todayIso } : {} ),
+            ...(!currentEnd || currentEnd > todayIso ? { end_date: todayIso } : {}),
           } as ClientSubscription;
         })
       );
@@ -4031,10 +3977,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       const ok = window.confirm(
         `Encontramos ${rows.length} agendamento(ns) futuro(s) deste plano (pendentes ou confirmados).\n\n` +
-          `${pendingUpdates.length} deles terão a DURAÇÃO recalculada conforme os serviços que você acabou de salvar (o horário de término na grade pode mudar).\n\n` +
-          `O plano já está salvo.\n\n` +
-          `Deseja aplicar essa sincronização na agenda agora?\n\n` +
-          `Cancelar = manter as durações antigas nesses agendamentos já marcados.`
+        `${pendingUpdates.length} deles terão a DURAÇÃO recalculada conforme os serviços que você acabou de salvar (o horário de término na grade pode mudar).\n\n` +
+        `O plano já está salvo.\n\n` +
+        `Deseja aplicar essa sincronização na agenda agora?\n\n` +
+        `Cancelar = manter as durações antigas nesses agendamentos já marcados.`
       );
       if (!ok) {
         toast.success('Plano salvo. Nenhum agendamento futuro foi alterado (sincronização da agenda cancelada).');
@@ -4481,16 +4427,16 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Calcular total de repasses (Lucro Líquido = Lucro Bruto - Repasses)
   // Inclui atendimentos + comissão de venda de assinatura (não é atendimento)
   const totalRepasses = useMemo(() => {
-    const attendancesSum = subscriberAttendances.reduce((sum, attendance) => {
+    const attendancesSum = verifiedSubscriberAttendances.reduce((sum, attendance) => {
       return sum + getAttendanceEffectiveRepass(attendance);
     }, 0);
 
-    const saleCommissionsSum = subscriptionSaleCommissions.reduce((sum, item) => {
+    const saleCommissionsSum = verifiedSubscriptionSaleCommissions.reduce((sum, item) => {
       return sum + (parseFloat(item.commission_amount) || 0);
     }, 0);
 
     return attendancesSum + saleCommissionsSum;
-  }, [subscriberAttendances, subscriptionSaleCommissions, divideEnabledByClientSubscriptionId, clientSubscriptions, subscriptions]);
+  }, [verifiedSubscriberAttendances, verifiedSubscriptionSaleCommissions, divideEnabledByClientSubscriptionId, clientSubscriptions, subscriptions]);
 
   // Líquido = Bruto - taxas de gateway/plataforma (assinaturas ativas)
   const liquidoAtivo = clientSubscriptions.reduce((sum, cs) => {
@@ -4741,11 +4687,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   });
 
   const handleGenerateAccountantReport = () => {
-    const repassesAtendimentos = subscriberAttendances.reduce(
+    const repassesAtendimentos = verifiedSubscriberAttendances.reduce(
       (sum, attendance) => sum + getAttendanceEffectiveRepass(attendance),
       0
     );
-    const repassesComissaoVenda = subscriptionSaleCommissions.reduce(
+    const repassesComissaoVenda = verifiedSubscriptionSaleCommissions.reduce(
       (sum, item) => sum + (parseFloat(String(item?.commission_amount || 0)) || 0),
       0
     );
@@ -4795,7 +4741,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       totalDescontos,
       novosAssinantesMes,
       renovacoesMes,
-      totalAtendimentosMes: subscriberAttendances.length,
+      totalAtendimentosMes: verifiedSubscriberAttendances.length,
       assinantesDesativados,
       emContaBreakdown,
       liquidoAtivoBreakdown,
@@ -4803,7 +4749,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         (row) => !isArchivedSubscriber(clientSubscriptionById.get(row.id)) && !isDeactivatedSubscriber(clientSubscriptionById.get(row.id))
       ),
       professionalPayments,
-      attendances: subscriberAttendances.map((attendance: any) => ({
+      attendances: verifiedSubscriberAttendances.map((attendance: any) => ({
         attendance_date: attendance?.attendance_date,
         professional_name: attendance?.professional_name,
         clientName:
@@ -4910,41 +4856,41 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               Gerar nota
             </button>
 
-          {/* Seletor de Mês/Ano */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            <button
-              onClick={goToPreviousMonth}
-              className="px-3 py-1.5 bg-[#2a2b2c] hover:bg-[#3a3b3c] text-white rounded-lg transition-colors text-sm font-medium"
-              title="Mês anterior"
-            >
-              ←
-            </button>
-
-            <div className="flex items-center gap-2 bg-[#2a2b2c] px-3 py-1.5 rounded-lg">
-              <span className="text-sm sm:text-base font-medium text-white">
-                {monthNames[selectedMonth]} {selectedYear}
-              </span>
-            </div>
-
-            <button
-              onClick={goToNextMonth}
-              className="px-3 py-1.5 bg-[#2a2b2c] hover:bg-[#3a3b3c] text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Próximo mês"
-              disabled={selectedMonth === new Date().getMonth() && selectedYear === new Date().getFullYear()}
-            >
-              →
-            </button>
-
-            {!isCurrentMonth && (
+            {/* Seletor de Mês/Ano */}
+            <div className="flex items-center gap-2 sm:gap-3">
               <button
-                onClick={goToCurrentMonth}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-xs sm:text-sm font-medium"
-                title="Voltar ao mês atual"
+                onClick={goToPreviousMonth}
+                className="px-3 py-1.5 bg-[#2a2b2c] hover:bg-[#3a3b3c] text-white rounded-lg transition-colors text-sm font-medium"
+                title="Mês anterior"
               >
-                Hoje
+                ←
               </button>
-            )}
-          </div>
+
+              <div className="flex items-center gap-2 bg-[#2a2b2c] px-3 py-1.5 rounded-lg">
+                <span className="text-sm sm:text-base font-medium text-white">
+                  {monthNames[selectedMonth]} {selectedYear}
+                </span>
+              </div>
+
+              <button
+                onClick={goToNextMonth}
+                className="px-3 py-1.5 bg-[#2a2b2c] hover:bg-[#3a3b3c] text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Próximo mês"
+                disabled={selectedMonth === new Date().getMonth() && selectedYear === new Date().getFullYear()}
+              >
+                →
+              </button>
+
+              {!isCurrentMonth && (
+                <button
+                  onClick={goToCurrentMonth}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-xs sm:text-sm font-medium"
+                  title="Voltar ao mês atual"
+                >
+                  Hoje
+                </button>
+              )}
+            </div>
           </div>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
@@ -5264,7 +5210,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         )}
 
         {/* Controle por Profissional */}
-        {(subscriberAttendances.length > 0 || subscriptionSaleCommissions.length > 0) && (
+        {(verifiedSubscriberAttendances.length > 0 || verifiedSubscriptionSaleCommissions.length > 0) && (
           <div className="mt-6 pt-6 border-t border-gray-700/80">
             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-5">
               <div>
@@ -5291,11 +5237,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 const clientRowsForList = clientIdsForLabels.map((cid) => {
                   const withAssinanteLabel = (rawName: string) => {
                     const base = String(rawName || 'Cliente').trim() || 'Cliente';
-                    return clientNameHasSubscriberLabel(base) ? base : `${base} (ASSINANTE)`;
+                    const withCrown = base.includes('👑') ? base : `👑 ${base}`;
+                    return clientNameHasSubscriberLabel(withCrown) ? withCrown : `${withCrown} (ASSINANTE)`;
                   };
-                  if (cid.startsWith('snap:')) {
-                    return { cid, label: withAssinanteLabel(cid.slice(5)) };
-                  }
                   const name = clientNameBySubIdMap.get(cid) || 'Cliente';
                   if (!isClientSubscriptionPointsMode(cid)) {
                     return { cid, label: withAssinanteLabel(name) };
@@ -5367,11 +5311,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         </span>
                       ) : (
                         <span
-                          className={`shrink-0 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                            pendingValue > 0
+                          className={`shrink-0 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${pendingValue > 0
                               ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
                               : 'border-gray-600 bg-gray-800/80 text-gray-300'
-                          }`}
+                            }`}
                         >
                           {pendingValue > 0 ? 'Pendente' : 'Em dia'}
                         </span>
@@ -5440,7 +5383,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                               }
                               className="text-[11px] font-medium text-sky-400 hover:text-sky-300 transition-colors"
                             >
-                              Ver detalhes ({clientRowsForList.length})
+                              Ver detalhes ({attendanceCount} visitas · {clientRowsForList.length} assinantes)
                             </button>
                           )}
                         </div>
@@ -6234,8 +6177,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       type="button"
                       onClick={() => handleToggleSubscriptionPaymentMethod(sub.id, 'pix')}
                       className={`px-2.5 py-1 rounded-md text-xs font-extrabold border transition-colors ${isSubscriptionPixEnabled(sub)
-                          ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30'
-                          : 'bg-white/5 border-white/20 text-gray-300 hover:bg-white/10'
+                        ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30'
+                        : 'bg-white/5 border-white/20 text-gray-300 hover:bg-white/10'
                         }`}
                       title={isSubscriptionPixEnabled(sub) ? 'Desativar PIX nesta assinatura' : 'Ativar PIX nesta assinatura'}
                     >
@@ -6245,8 +6188,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       type="button"
                       onClick={() => handleToggleSubscriptionPaymentMethod(sub.id, 'card')}
                       className={`px-2.5 py-1 rounded-md text-xs font-extrabold border transition-colors ${isSubscriptionCardEnabled(sub)
-                          ? 'bg-sky-600/20 border-sky-500/40 text-sky-300 hover:bg-sky-600/30'
-                          : 'bg-white/5 border-white/20 text-gray-300 hover:bg-white/10'
+                        ? 'bg-sky-600/20 border-sky-500/40 text-sky-300 hover:bg-sky-600/30'
+                        : 'bg-white/5 border-white/20 text-gray-300 hover:bg-white/10'
                         }`}
                       title={isSubscriptionCardEnabled(sub) ? 'Desativar Cartão nesta assinatura' : 'Ativar Cartão nesta assinatura'}
                     >
@@ -6624,11 +6567,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   type="button"
                   onClick={() => { void refreshRecurringActivationList(); }}
                   disabled={isRefreshingRecurringList}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${
-                    isRefreshingRecurringList
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${isRefreshingRecurringList
                       ? 'bg-white/5 text-gray-400 border-gray-600 cursor-not-allowed'
                       : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
-                  }`}
+                    }`}
                   title="Consulta o Mercado Pago e atualiza quem já ativou a recorrência"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingRecurringList ? 'animate-spin' : ''}`} />
@@ -6647,75 +6589,73 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   : 'Nenhum pendente no momento. Se o barbeiro acha que alguém já ativou, clique em "Atualizar lista" para revalidar no Mercado Pago.'}
               </p>
             ) : (
-            <div className="space-y-2">
-              {recurringActivationCandidates.map((cs) => {
-                const id = String(cs.id || '');
-                const generatedLink = String(recurringActivationLinkByClientId[id] || '').trim();
-                const isGeneratingLink = Boolean(isCreatingRecurringLinkByClientId[id]);
+              <div className="space-y-2">
+                {recurringActivationCandidates.map((cs) => {
+                  const id = String(cs.id || '');
+                  const generatedLink = String(recurringActivationLinkByClientId[id] || '').trim();
+                  const isGeneratingLink = Boolean(isCreatingRecurringLinkByClientId[id]);
 
-                return (
-                  <div
-                    key={`pending-recurring-${id}`}
-                    className="rounded-lg border border-amber-300/30 bg-black/20 p-3"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-bold text-white">
-                          {getSubscriberDisplayName(cs)}
-                        </p>
-                        <p className="text-xs text-gray-200">
-                          Plano: {getSubscriberPlanName(cs as any)} • Último pagamento: {formatIsoDateSafe((cs as any)?.last_payment_date || (cs as any)?.start_date)}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => { void createRecurringActivationLink(cs); }}
-                          disabled={isGeneratingLink}
-                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                            isGeneratingLink
-                              ? 'bg-amber-200/20 text-amber-100/70 cursor-not-allowed'
-                              : 'bg-amber-500 text-black hover:bg-amber-400'
-                          }`}
-                        >
-                          <Link2 className="h-3 w-3" />
-                          {isGeneratingLink ? 'Gerando...' : generatedLink ? 'Regenerar link' : 'Gerar link'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { void handleSendRecurringActivationOnWhatsApp(cs); }}
-                          disabled={isGeneratingLink}
-                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                            isGeneratingLink
-                              ? 'bg-emerald-200/20 text-emerald-100/70 cursor-not-allowed'
-                              : 'bg-emerald-600 text-white hover:bg-emerald-500'
-                          }`}
-                        >
-                          <Send className="h-3 w-3" />
-                          Enviar no WhatsApp
-                        </button>
-                        {generatedLink && (
+                  return (
+                    <div
+                      key={`pending-recurring-${id}`}
+                      className="rounded-lg border border-amber-300/30 bg-black/20 p-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-bold text-white">
+                            {getSubscriberDisplayName(cs)}
+                          </p>
+                          <p className="text-xs text-gray-200">
+                            Plano: {getSubscriberPlanName(cs as any)} • Último pagamento: {formatIsoDateSafe((cs as any)?.last_payment_date || (cs as any)?.start_date)}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
                           <button
                             type="button"
-                            onClick={async () => {
-                              try {
-                                await navigator.clipboard.writeText(generatedLink);
-                                toast.success('Link copiado!');
-                              } catch {
-                                toast.error('Não foi possível copiar automaticamente.');
-                              }
-                            }}
-                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/10 text-white hover:bg-white/20 transition-colors"
+                            onClick={() => { void createRecurringActivationLink(cs); }}
+                            disabled={isGeneratingLink}
+                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${isGeneratingLink
+                                ? 'bg-amber-200/20 text-amber-100/70 cursor-not-allowed'
+                                : 'bg-amber-500 text-black hover:bg-amber-400'
+                              }`}
                           >
-                            Copiar link
+                            <Link2 className="h-3 w-3" />
+                            {isGeneratingLink ? 'Gerando...' : generatedLink ? 'Regenerar link' : 'Gerar link'}
                           </button>
-                        )}
+                          <button
+                            type="button"
+                            onClick={() => { void handleSendRecurringActivationOnWhatsApp(cs); }}
+                            disabled={isGeneratingLink}
+                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${isGeneratingLink
+                                ? 'bg-emerald-200/20 text-emerald-100/70 cursor-not-allowed'
+                                : 'bg-emerald-600 text-white hover:bg-emerald-500'
+                              }`}
+                          >
+                            <Send className="h-3 w-3" />
+                            Enviar no WhatsApp
+                          </button>
+                          {generatedLink && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(generatedLink);
+                                  toast.success('Link copiado!');
+                                } catch {
+                                  toast.error('Não foi possível copiar automaticamente.');
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/10 text-white hover:bg-white/20 transition-colors"
+                            >
+                              Copiar link
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
@@ -7712,40 +7652,40 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       {clientAttendances.map((attendance) => {
                         const attendanceProfessional = getProfessionalGroupFromAttendance(attendance).displayName;
                         return (
-                        <div key={attendance.id} className="flex justify-between items-center bg-[#1a1b1c] rounded-lg p-3">
-                          <div className="flex-1">
-                            <p className="text-sm font-medium text-white">
-                              {attendanceProfessional || 'Profissional não informado'}
-                            </p>
-                            <p className="text-xs text-gray-400">
-                              {format(parse(String(attendance.attendance_date || '').slice(0, 10), 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: ptBR })}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <div className="text-right">
-                              <p className="text-sm font-bold text-blue-400">
-                                {viewClientPointsMode
-                                  ? '1 ponto'
-                                  : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
-                                      getAttendanceEffectiveRepass(attendance)
-                                    )}
+                          <div key={attendance.id} className="flex justify-between items-center bg-[#1a1b1c] rounded-lg p-3">
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-white">
+                                {attendanceProfessional || 'Profissional não informado'}
+                              </p>
+                              <p className="text-xs text-gray-400">
+                                {format(parse(String(attendance.attendance_date || '').slice(0, 10), 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: ptBR })}
                               </p>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveAttendance(
-                                attendance.id,
-                                attendanceProfessional || 'Profissional não informado',
-                                attendance.attendance_date,
-                                getAttendanceEffectiveRepass(attendance)
-                              )}
-                              className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-200 rounded-lg transition-colors"
-                              title="Remover atendimento"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+                            <div className="flex items-center gap-3">
+                              <div className="text-right">
+                                <p className="text-sm font-bold text-blue-400">
+                                  {viewClientPointsMode
+                                    ? '1 ponto'
+                                    : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+                                      getAttendanceEffectiveRepass(attendance)
+                                    )}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveAttendance(
+                                  attendance.id,
+                                  attendanceProfessional || 'Profissional não informado',
+                                  attendance.attendance_date,
+                                  getAttendanceEffectiveRepass(attendance)
+                                )}
+                                className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-200 rounded-lg transition-colors"
+                                title="Remover atendimento"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
                           </div>
-                        </div>
                         );
                       })}
                     </div>
@@ -8498,7 +8438,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         onClose={() => setProfessionalClientsModal(null)}
         professional={professionalClientsModal?.professional || ''}
         groupKey={professionalClientsModal?.groupKey || ''}
-        subscriberAttendances={subscriberAttendances}
+        subscriberAttendances={verifiedSubscriberAttendances}
         clientSubscriptions={clientSubscriptions as any[]}
         selectedMonth={selectedMonth}
         selectedYear={selectedYear}

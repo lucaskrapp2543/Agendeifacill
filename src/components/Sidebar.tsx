@@ -651,7 +651,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     icon: LucideIcon;
     isActive?: boolean;
     featured?: boolean;
-    featuredTone?: 'cyan' | 'emerald' | 'sky';
+    featuredTone?: 'cyan' | 'emerald' | 'sky' | 'violet';
     lockedByPlan?: boolean;
     showBadge?: boolean;
     badgeCount?: number | string;
@@ -688,6 +688,30 @@ const Sidebar: React.FC<SidebarProps> = ({
           return;
         }
         handleItemClick(() => onTabChange('indication'));
+        setShowAdminMenu(false);
+      },
+    },
+    {
+      id: 'subscribers',
+      label: '👑 Meus Assinantes',
+      description: 'Gerencie assinantes e planos mensais do seu estabelecimento.',
+      icon: Crown,
+      featured: true,
+      featuredTone: 'violet',
+      isActive: activeTab === 'subscribers',
+      lockedByPlan: isPlanLockedItem('subscribers'),
+      showBadge: pendingSubscribersCount > 0,
+      badgeCount: pendingSubscribersCount > 99 ? '99+' : pendingSubscribersCount,
+      onClick: () => {
+        if (isPlanLockedItem('subscribers')) {
+          openUpgradeModalMobileSafe();
+          return;
+        }
+        if (isItemLocked('subscribers')) {
+          onBlockedItemClick?.();
+          return;
+        }
+        handleItemClick(() => onTabChange('subscribers'));
         setShowAdminMenu(false);
       },
     },
@@ -748,6 +772,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const ADMIN_MENU_PANEL_ORDER: string[] = [
     'receber-adiantado',
     'indication',
+    'subscribers',
     'clients',
     'service-categories',
     'professionals',
@@ -755,7 +780,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     'dashboard',
     'expenses',
     'taxes',
-    'subscribers',
     'whatsapp-reminders',
     'fila-espera',
     'reviews',
@@ -1581,19 +1605,25 @@ const Sidebar: React.FC<SidebarProps> = ({
                   ? 'bg-gradient-to-r from-emerald-600 to-amber-500 text-white border-emerald-300 shadow-lg shadow-emerald-500/20'
                   : featuredTone === 'sky'
                     ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white border-sky-300 shadow-lg shadow-sky-500/20'
-                    : 'bg-gradient-to-r from-[#009EE3] to-[#0077B6] text-white border-cyan-300 shadow-lg shadow-cyan-500/20';
+                    : featuredTone === 'violet'
+                      ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white border-violet-300 shadow-lg shadow-violet-500/20'
+                      : 'bg-gradient-to-r from-[#009EE3] to-[#0077B6] text-white border-cyan-300 shadow-lg shadow-cyan-500/20';
               const featuredIdleLightClass =
                 featuredTone === 'emerald'
                   ? 'bg-gradient-to-r from-emerald-50 to-amber-50 text-emerald-950 border-emerald-400 hover:from-emerald-100 hover:to-amber-100 shadow-md shadow-emerald-200/60'
                   : featuredTone === 'sky'
                     ? 'bg-gradient-to-r from-sky-50 to-blue-50 text-sky-950 border-sky-400 hover:from-sky-100 hover:to-blue-100 shadow-md shadow-sky-200/60'
-                    : 'bg-gradient-to-r from-cyan-50 to-sky-100 text-cyan-950 border-cyan-400 hover:from-cyan-100 hover:to-sky-200 shadow-md shadow-cyan-200/60';
+                    : featuredTone === 'violet'
+                      ? 'bg-gradient-to-r from-violet-50 to-fuchsia-50 text-violet-950 border-violet-400 hover:from-violet-100 hover:to-fuchsia-100 shadow-md shadow-violet-200/60'
+                      : 'bg-gradient-to-r from-cyan-50 to-sky-100 text-cyan-950 border-cyan-400 hover:from-cyan-100 hover:to-sky-200 shadow-md shadow-cyan-200/60';
               const featuredIdleDarkClass =
                 featuredTone === 'emerald'
                   ? 'bg-gradient-to-r from-emerald-500/30 to-amber-500/15 text-white border-emerald-400/70 hover:from-emerald-500/40 hover:to-amber-500/25 shadow-md shadow-emerald-500/10'
                   : featuredTone === 'sky'
                     ? 'bg-gradient-to-r from-sky-500/30 to-blue-600/20 text-white border-sky-400/70 hover:from-sky-500/40 hover:to-blue-600/30 shadow-md shadow-sky-500/10'
-                    : 'bg-gradient-to-r from-[#009EE3]/30 to-cyan-500/15 text-white border-cyan-400/70 hover:from-[#009EE3]/40 hover:to-cyan-500/25 shadow-md shadow-cyan-500/10';
+                    : featuredTone === 'violet'
+                      ? 'bg-gradient-to-r from-violet-500/30 to-fuchsia-500/15 text-white border-violet-400/70 hover:from-violet-500/40 hover:to-fuchsia-500/25 shadow-md shadow-violet-500/10'
+                      : 'bg-gradient-to-r from-[#009EE3]/30 to-cyan-500/15 text-white border-cyan-400/70 hover:from-[#009EE3]/40 hover:to-cyan-500/25 shadow-md shadow-cyan-500/10';
               return (
                 <button
                   key={`admin-shortcut-${item.id}`}

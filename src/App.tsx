@@ -2,6 +2,7 @@ import React from 'react';
 import { Toaster } from 'react-hot-toast';
 import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { CacheBuster } from './components/CacheBuster';
+import { AgendeiFacil30UpdateModal } from './components/AgendeiFacil30UpdateModal';
 import { AppStandbyGuard } from './components/AppStandbyGuard';
 import { ConnectionStatus } from './components/ConnectionStatus';
 import { EnvironmentError } from './components/EnvironmentError';
@@ -86,6 +87,7 @@ function App() {
     <div className="min-h-screen bg-background text-foreground">
         <CacheBuster />
         <ConnectionStatus />
+        <AgendeiFacil30UpdateModal />
         <UpdateNotification />
         <RefreshButton />
         <Toaster

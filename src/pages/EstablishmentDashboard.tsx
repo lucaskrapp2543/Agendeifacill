@@ -10,6 +10,7 @@ import AdditionalProductModal from '../components/AdditionalProductModal';
 import { ClientAfcoinBadge } from '../components/AfcoinClientModals';
 import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
 import { ChangeAppointmentServiceModal } from '../components/ChangeAppointmentServiceModal';
+import DailyMorningMessageModal from '../components/DailyMorningMessageModal';
 import { ConfigPasswordModal } from '../components/ConfigPasswordModal';
 import { DiscountCouponsModal } from '../components/DiscountCouponsModal';
 import { EstablishmentBillingPaymentModal } from '../components/EstablishmentBillingPaymentModal';
@@ -56,6 +57,11 @@ import {
   resolveEffectivePaymentMethod,
   type ClientSubscriptionRowLite,
 } from '../lib/subscriberAppointmentFlags';
+import { readAppointmentsDayCache, writeAppointmentsDayCache } from '../lib/appointmentsDayCache';
+import {
+  resolveDailyMorningMessageEnabled,
+  writeDailyMorningMessageEnabledToLocal,
+} from '../lib/dailyMorningMessages';
 import {
   formatReviewCustomAnswerDisplay,
   isMissingReviewCustomAnswersColumnError,
@@ -236,6 +242,7 @@ interface Establishment {
   booking_chat_enabled?: boolean;
   booking_simple_page_enabled?: boolean;
   auto_complete_services_enabled?: boolean;
+  daily_morning_message_enabled?: boolean;
   show_best_of_brazil_image?: boolean;
   payment_methods_enabled?: string[];
   plan_prata_active?: boolean; // ✅ ativado via botão PRATA no Admin (limites de recursos)
@@ -4129,6 +4136,7 @@ const EstablishmentDashboard = () => {
   const [bookingMinCancelMinutes, setBookingMinCancelMinutes] = useState<number>(LEGACY_LIMITE_CANCELAMENTO_MINUTOS);
   const [limitClientPendingBooking, setLimitClientPendingBooking] = useState<boolean>(false);
   const [autoCompleteServicesEnabled, setAutoCompleteServicesEnabled] = useState<boolean>(true);
+  const [dailyMorningMessageEnabled, setDailyMorningMessageEnabled] = useState<boolean>(true);
   // Tempo fechado: mantém horários presos ao grid de exibição
   const [closedTimeEnabled, setClosedTimeEnabled] = useState<boolean>(false);
   const [bookingChatEnabled, setBookingChatEnabled] = useState<boolean>(true);
@@ -11232,6 +11240,7 @@ const EstablishmentDashboard = () => {
         use_20_minute_schedule: use20MinuteSchedule, // Configuração de horários de 20 em 20 minutos
         show_best_of_brazil_image: showBestOfBrazilImage, // Configuração da imagem "Melhor do Brasil"
         auto_complete_services_enabled: autoCompleteServicesEnabled, // Auto concluir atendimento ao final do horário
+        daily_morning_message_enabled: dailyMorningMessageEnabled,
         carousel_position: carouselPosition, // Posição do carrossel
         payment_methods_enabled: paymentMethodsEnabled, // Formas de pagamento ativas
       };
@@ -12571,7 +12580,21 @@ Estamos te aguardando!`;
     lastAppointmentsFetchRef.current = { key: requestKey, atMs: nowMs };
 
     const requestSeq = ++fetchAppointmentsRequestSeqRef.current;
-    setIsLoading(true);
+
+    const cachedDayAppointments = readAppointmentsDayCache(establishment.id, selectedDateKeySnapshot);
+    const visibleSameDayBeforeFetch = appointments.filter((apt) => {
+      const aptDate = String((apt as any)?.appointment_date || '').slice(0, 10);
+      const aptStatus = String((apt as any)?.status || '').toLowerCase().trim();
+      return aptDate === selectedDateKeySnapshot && aptStatus !== 'cancelled';
+    }).length;
+
+    if (cachedDayAppointments?.length && visibleSameDayBeforeFetch === 0) {
+      setAppointments(dedupeAppointmentsById(cachedDayAppointments as Appointment[]));
+    }
+
+    if (!cachedDayAppointments?.length && visibleSameDayBeforeFetch === 0) {
+      setIsLoading(true);
+    }
 
     try {
       const nowMaintenanceMs = Date.now();
@@ -13140,35 +13163,54 @@ Estamos te aguardando!`;
         console.warn('⚠️ Falha ao enriquecer agendamentos de assinante:', subscriberVisualError);
       }
 
-      // Buscar produtos vendidos para cada agendamento
-      for (const appointment of appointmentsData) {
-        const { data: appointmentProducts } = await supabase
-          .from('appointment_products')
-          .select(`
-            id,
-            product_id,
-            quantity,
-            unit_price,
-            professional_id,
-            establishment_products (
-              name,
-              sale_price
-            )
-          `)
-          .eq('appointment_id', appointment.id);
+      // Buscar produtos vendidos em lote (evita N queries sequenciais que deixam agenda "vazia" por segundos).
+      const appointmentIdsForProducts = appointmentsData
+        .map((row: any) => String(row?.id || '').trim())
+        .filter(Boolean);
+      if (appointmentIdsForProducts.length > 0) {
+        const productsByAppointmentId = new Map<string, any[]>();
+        const chunkSize = 150;
+        for (let i = 0; i < appointmentIdsForProducts.length; i += chunkSize) {
+          const chunk = appointmentIdsForProducts.slice(i, i + chunkSize);
+          const { data: appointmentProducts } = await supabase
+            .from('appointment_products')
+            .select(`
+              id,
+              appointment_id,
+              product_id,
+              quantity,
+              unit_price,
+              professional_id,
+              establishment_products (
+                name,
+                sale_price
+              )
+            `)
+            .in('appointment_id', chunk);
 
-        // Adicionar produtos vendidos ao agendamento
-        if (appointmentProducts && appointmentProducts.length > 0) {
-          (appointment as any).sold_products = appointmentProducts.map(ap => ({
+          (appointmentProducts || []).forEach((ap: any) => {
+            const appointmentId = String(ap?.appointment_id || '').trim();
+            if (!appointmentId) return;
+            const list = productsByAppointmentId.get(appointmentId) || [];
+            list.push(ap);
+            productsByAppointmentId.set(appointmentId, list);
+          });
+        }
+
+        appointmentsData.forEach((appointment: any) => {
+          const appointmentId = String(appointment?.id || '').trim();
+          const appointmentProducts = productsByAppointmentId.get(appointmentId) || [];
+          if (appointmentProducts.length === 0) return;
+          appointment.sold_products = appointmentProducts.map((ap: any) => ({
             id: ap.id,
             product_id: ap.product_id,
             name: (ap.establishment_products as any)?.name,
             quantity: ap.quantity,
             unit_price: ap.unit_price,
             professional_id: ap.professional_id,
-            total: ap.quantity * ap.unit_price
+            total: ap.quantity * ap.unit_price,
           }));
-        }
+        });
       }
 
       // Evita flicker: quando chegar vazio de forma transitória, confirma no banco antes
@@ -13779,6 +13821,12 @@ Estamos te aguardando!`;
         setBookingMinCancelMinutes(nextCancelMinutes);
         setLimitClientPendingBooking(Boolean((establishmentData as any).limit_client_pending_booking ?? false));
         setAutoCompleteServicesEnabled(Boolean((establishmentData as any).auto_complete_services_enabled ?? true));
+        setDailyMorningMessageEnabled(
+          resolveDailyMorningMessageEnabled(
+            (establishmentData as any).daily_morning_message_enabled,
+            establishmentData.id
+          )
+        );
         // Carrega configuração de tempo fechado (fallback: desativado)
         setClosedTimeEnabled(Boolean((establishmentData as any).closed_time_enabled ?? false));
         setBookingChatEnabled(Boolean((establishmentData as any).booking_chat_enabled ?? true));
@@ -14452,6 +14500,35 @@ Estamos te aguardando!`;
     void refreshAppointmentsData({ month: selectedMonth });
     fetchProducts(); // Carregar produtos automaticamente
   }, [establishment?.id]);
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    const dateKey = format(selectedDate, 'yyyy-MM-dd');
+    const sameDayAppointments = appointments.filter((apt) => {
+      const aptDate = String((apt as any)?.appointment_date || '').slice(0, 10);
+      const aptStatus = String((apt as any)?.status || '').toLowerCase().trim();
+      return aptDate === dateKey && aptStatus !== 'cancelled';
+    });
+    if (sameDayAppointments.length === 0) return;
+    writeAppointmentsDayCache(establishment.id, dateKey, sameDayAppointments as unknown[]);
+  }, [appointments, establishment?.id, selectedDate]);
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    const dateKey = format(selectedDate, 'yyyy-MM-dd');
+    const cached = readAppointmentsDayCache(establishment.id, dateKey);
+    if (!cached?.length) return;
+
+    setAppointments((prev) => {
+      const prevSameDayCount = prev.filter((apt) => {
+        const aptDate = String((apt as any)?.appointment_date || '').slice(0, 10);
+        const aptStatus = String((apt as any)?.status || '').toLowerCase().trim();
+        return aptDate === dateKey && aptStatus !== 'cancelled';
+      }).length;
+      if (prevSameDayCount > 0) return prev;
+      return dedupeAppointmentsById(cached as Appointment[]);
+    });
+  }, [establishment?.id, selectedDate, dedupeAppointmentsById]);
 
   useEffect(() => {
     if (!establishment?.id) return;
@@ -22619,6 +22696,29 @@ Estamos te aguardando!`;
     }
   }, [establishment, use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, bookingMinAdvanceMinutes, bookingMinCancelMinutes, limitClientPendingBooking, autoCompleteServicesEnabled, closedTimeEnabled, showBestOfBrazilImage, bookingChatEnabled, bookingSimplePageEnabled]);
 
+  const saveDailyMorningMessageEnabled = useCallback(
+    async (newValue: boolean) => {
+      if (!establishment?.id) return;
+
+      writeDailyMorningMessageEnabledToLocal(establishment.id, newValue);
+
+      try {
+        const { error } = await supabase
+          .from('establishments')
+          .update({ daily_morning_message_enabled: newValue })
+          .eq('id', establishment.id);
+
+        if (error) {
+          if (String(error.code || '') === '42703') return;
+          console.warn('Não foi possível salvar daily_morning_message_enabled:', error.message);
+        }
+      } catch (error) {
+        console.warn('Erro ao salvar daily_morning_message_enabled:', error);
+      }
+    },
+    [establishment?.id]
+  );
+
   const notifySettingsNeedManualSave = useCallback((showToastMessage = true) => {
     setShowSettingsSaveReminder(true);
 
@@ -27119,7 +27219,7 @@ Estamos te aguardando!`;
         {/* Conteúdo principal */}
         <div className={`flex-1 ml-0 transition-all duration-300 min-w-0 pt-0 ${isPremiumFullscreenTab ? 'bg-[#0a1628]' : ''}`}>
           {/* Imagem Melhor do Brasil - Topo Absoluto (Mobile) */}
-          {!isPremiumFullscreenTab && (
+          {!isPremiumFullscreenTab && activeTab !== 'appointments' && (
           <div className="w-full mb-4 flex justify-center md:hidden">
             <img
               src="/melhordobrasilcortado.png"
@@ -27129,29 +27229,111 @@ Estamos te aguardando!`;
           </div>
           )}
 
-          <div className={`w-full ${isPremiumFullscreenTab ? 'py-0 px-0' : 'py-4 px-4 sm:py-8 sm:px-6'}`}>
-            {/* Cabeçalho */}
-            {!isPremiumFullscreenTab && (
-            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-6 sm:mb-8">
-              <div className="flex-1 min-w-0">
-                {activeTab !== 'appointments' && (
-                  <>
-                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">{establishment.name}</h1>
-                    <div className="flex items-center gap-2 mt-2 flex-wrap">
-                      <span className="text-gray-700 text-sm sm:text-base">Código:</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-900 font-medium text-sm sm:text-base">{establishment.code}</span>
-                        <button
-                          onClick={copyCodeToClipboard}
-                          className="text-gray-600 hover:text-gray-900 transition-colors p-1"
-                          title="Copiar código"
-                        >
-                          {codeCopied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                        </button>
+          <div className={`w-full ${isPremiumFullscreenTab ? 'py-0 px-0' : activeTab === 'appointments' ? 'py-2 px-3 sm:px-6' : 'py-4 px-4 sm:py-8 sm:px-6'}`}>
+            {/* Topo compacto — Meus Agendamentos (WhatsApp + validade sempre visíveis) */}
+            {!isPremiumFullscreenTab && activeTab === 'appointments' && establishment && (
+              <div className="mb-2 space-y-2">
+                {/* Mobile: só menu no canto — notificações ficam no sino flutuante */}
+                <div className="flex md:hidden items-center justify-end">
+                  <button
+                    onClick={() => {
+                      const sidebar = document.querySelector('[data-sidebar-toggle]');
+                      if (sidebar) {
+                        (sidebar as HTMLElement).click();
+                      }
+                    }}
+                    className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                    title="Abrir menu"
+                  >
+                    <Menu className="h-5 w-5 text-gray-600" />
+                  </button>
+                </div>
+
+                {/* WhatsApp + validade — largura total */}
+                <div className="w-full space-y-2">
+                  {baileysDashboardStatus.loaded && (baileysDashboardStatus.connected || baileysWasConnectedOnce) && (
+                    <div
+                      className={`w-full rounded-xl border px-3 py-2 shadow-sm ${
+                        baileysDashboardStatus.connected
+                          ? 'border-emerald-200 bg-gradient-to-r from-emerald-50 to-emerald-100/80 text-emerald-900'
+                          : 'border-amber-300 bg-gradient-to-r from-amber-50 to-amber-100/80 text-amber-950'
+                      }`}
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-extrabold">
+                            <span
+                              className={`inline-flex h-2.5 w-2.5 shrink-0 rounded-full ${
+                                baileysDashboardStatus.connected ? 'bg-emerald-500' : 'bg-amber-500'
+                              }`}
+                            />
+                            <span className="whitespace-nowrap">
+                              {baileysDashboardStatus.connected
+                                ? 'Whats Conectado'
+                                : `Whats ${baileysDashboardStatus.apiError ? 'com alerta' : formatBaileysDashboardStatusLabel(baileysDashboardStatus.status)}`}
+                            </span>
+                            {baileysDashboardStatus.phone ? (
+                              <span className="text-xs font-semibold opacity-80 whitespace-nowrap">
+                                Número: {baileysDashboardStatus.phone}
+                              </span>
+                            ) : null}
+                          </div>
+                          {!baileysDashboardStatus.connected ? (
+                            <p className="mt-1 text-xs font-semibold leading-relaxed">
+                              Atenção: o WhatsApp não está em "Conectado" agora. Lembretes automáticos podem não ser enviados aos clientes.
+                              {baileysDashboardStatus.apiError ? ` ${baileysDashboardStatus.apiError}` : ''}
+                            </p>
+                          ) : null}
+                        </div>
+
+                        {!baileysDashboardStatus.connected ? (
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('whatsapp-reminders')}
+                            className="self-start rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-extrabold text-white transition-colors hover:bg-amber-700 sm:self-center shrink-0"
+                          >
+                            Ver conexão
+                          </button>
+                        ) : null}
                       </div>
                     </div>
-                  </>
-                )}
+                  )}
+
+                  <ValidityHeader establishmentId={establishment.id} compactPremium />
+                </div>
+
+                {/* Desktop: notificações abaixo do strip */}
+                <div className="hidden md:flex items-center justify-end gap-2">
+                  <NotificationPermission />
+                  <NotificationsPanel
+                    establishmentId={establishment.id}
+                    onUnreadCountChange={setUnreadNotificationsCount}
+                    buttonClassName="!inline-flex"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Cabeçalho — demais abas */}
+            {!isPremiumFullscreenTab && activeTab !== 'appointments' && (
+            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-6 sm:mb-8">
+              <div className="flex-1 min-w-0">
+                <>
+                  <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">{establishment.name}</h1>
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    <span className="text-gray-700 text-sm sm:text-base">Código:</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-900 font-medium text-sm sm:text-base">{establishment.code}</span>
+                      <button
+                        onClick={copyCodeToClipboard}
+                        className="text-gray-600 hover:text-gray-900 transition-colors p-1"
+                        title="Copiar código"
+                      >
+                        {codeCopied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </>
 
                 {/* Imagem Melhor do Brasil - Desktop, acima da validade (menor) */}
                 <div className="hidden md:flex mt-3 mb-1 justify-start">
@@ -27169,7 +27351,6 @@ Estamos te aguardando!`;
               </div>
 
               <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
-                {/* Botão de menu para mobile */}
                 <button
                   onClick={() => {
                     const sidebar = document.querySelector('[data-sidebar-toggle]');
@@ -27195,7 +27376,7 @@ Estamos te aguardando!`;
             </div>
             )}
 
-            {!isTop1CardDismissedForCurrentMonth && !isPremiumFullscreenTab && (isLoadingMonthlyTopWinner || monthlyTopWinner) && (
+            {!isTop1CardDismissedForCurrentMonth && !isPremiumFullscreenTab && activeTab !== 'appointments' && (isLoadingMonthlyTopWinner || monthlyTopWinner) && (
               <div className="mb-5 sm:mb-6">
                 {isLoadingMonthlyTopWinner && !monthlyTopWinner ? (
                   <div className="w-full rounded-2xl border border-amber-300/30 bg-gradient-to-r from-amber-900/25 to-slate-900/40 p-4 sm:p-5 animate-pulse">
@@ -27335,54 +27516,6 @@ Estamos te aguardando!`;
                     onPaid={handleBillingPaymentSuccess}
                   />
 
-                  {baileysDashboardStatus.loaded && (baileysDashboardStatus.connected || baileysWasConnectedOnce) && (
-                    <div
-                      className={`mb-4 rounded-xl border px-3 py-2 sm:px-4 sm:py-3 shadow-sm ${
-                        baileysDashboardStatus.connected
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                          : 'border-amber-300 bg-amber-50 text-amber-950'
-                      }`}
-                    >
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2 text-sm font-extrabold">
-                            <span
-                              className={`inline-flex h-2.5 w-2.5 rounded-full ${
-                                baileysDashboardStatus.connected ? 'bg-emerald-500' : 'bg-amber-500'
-                              }`}
-                            />
-                            <span>
-                              {baileysDashboardStatus.connected
-                                ? 'Whats Conectado'
-                                : `Whats ${baileysDashboardStatus.apiError ? 'com alerta' : formatBaileysDashboardStatusLabel(baileysDashboardStatus.status)}`}
-                            </span>
-                            {baileysDashboardStatus.phone ? (
-                              <span className="text-xs font-semibold opacity-80">
-                                Número: {baileysDashboardStatus.phone}
-                              </span>
-                            ) : null}
-                          </div>
-                          {!baileysDashboardStatus.connected ? (
-                            <p className="mt-1 text-xs font-semibold leading-relaxed">
-                              Atenção: o WhatsApp não está em "Conectado" agora. Lembretes automáticos podem não ser enviados aos clientes.
-                              {baileysDashboardStatus.apiError ? ` ${baileysDashboardStatus.apiError}` : ''}
-                            </p>
-                          ) : null}
-                        </div>
-
-                        {!baileysDashboardStatus.connected ? (
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab('whatsapp-reminders')}
-                            className="self-start rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-extrabold text-white transition-colors hover:bg-amber-700 sm:self-center"
-                          >
-                            Ver conexão
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  )}
-
                   {/* Popup de Propaganda */}
                   {showPromotionPopup && establishment && (
                     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3 sm:p-4 md:p-6">
@@ -27505,7 +27638,7 @@ Estamos te aguardando!`;
                   )}
 
                   {/* ===== NOVA VISUALIZAÇÃO - TODOS OS PROFISSIONAIS ===== */}
-                  <div className="mb-6">
+                  <div className={`${activeTab === 'appointments' ? 'mb-2' : 'mb-6'}`}>
                     <AllProfessionalsAppointmentsView
                       professionals={professionals || []}
                       appointments={appointments}
@@ -32706,6 +32839,35 @@ Estamos te aguardando!`;
                             <p className="text-xs text-gray-500 mt-2">
                               Desativado: o barbeiro conclui manualmente quando terminar o atendimento.
                             </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-amber-500/20">
+                          <input
+                            type="checkbox"
+                            id="dailyMorningMessageEnabled"
+                            checked={dailyMorningMessageEnabled}
+                            onChange={(e) => {
+                              const newValue = e.target.checked;
+                              setDailyMorningMessageEnabled(newValue);
+                              notifySettingsNeedManualSave(false);
+                              void saveDailyMorningMessageEnabled(newValue);
+                            }}
+                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
+                          />
+                          <div className="flex-1">
+                            <label htmlFor="dailyMorningMessageEnabled" className="block text-white font-medium mb-2">
+                              🌅 Ativar mensagens de bom dia no primeiro acesso do dia
+                            </label>
+                            {dailyMorningMessageEnabled ? (
+                              <p className="text-sm text-gray-400 leading-relaxed">
+                                Quando ativado, o sistema mostra uma mensagem bíblica/motivacional curta no primeiro acesso do dia.
+                              </p>
+                            ) : (
+                              <p className="text-sm text-gray-400 leading-relaxed">
+                                Ao desativar, você e sua equipe não verão mensagens de bom dia ao entrar no sistema.
+                              </p>
+                            )}
                           </div>
                         </div>
 
@@ -44719,6 +44881,17 @@ Estamos te aguardando!`;
           </div>
         </div>
       )}
+
+      <DailyMorningMessageModal
+        establishmentId={establishment?.id}
+        userId={user?.id}
+        professionalId={uniqueAccessAuthenticatedProfessionalId || undefined}
+        enabled={dailyMorningMessageEnabled}
+        blocked={
+          isEstablishmentLoading ||
+          (showProfessionalIdentityGate && hasAnyUniqueAccessProfessional)
+        }
+      />
 
       {/* ✅ Modal de upgrade (Plano Prata) */}
       {showPlanUpgradeModal && (

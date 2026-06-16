@@ -12,11 +12,13 @@ interface EstablishmentValidity {
 
 interface ValidityHeaderProps {
   establishmentId: string;
+  /** Visual premium compacto (Meus Agendamentos) — mesma lógica e textos */
+  compactPremium?: boolean;
 }
 
 const VALIDITY_FETCH_TIMEOUT_MS = 12000; // 12s - evita travar em "Carregando validade..." quando Supabase está lento
 
-export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId }) => {
+export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId, compactPremium = false }) => {
   const [validity, setValidity] = useState<EstablishmentValidity | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
@@ -71,21 +73,21 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
   };
 
   const getStatusColor = () => {
-    if (!validity) return 'text-gray-500';
+    if (!validity) return compactPremium ? 'text-gray-600' : 'text-gray-500';
     const normalizedStatus = String(validity.payment_status || '').toLowerCase().trim();
 
     if (normalizedStatus === 'expired' || daysRemaining < 0) {
-      return 'text-red-500';
+      return compactPremium ? 'text-red-800' : 'text-red-500';
     } else if (daysRemaining === 0) {
-      return 'text-red-600';
+      return compactPremium ? 'text-red-800' : 'text-red-600';
     } else if (normalizedStatus === 'paid') {
-      return 'text-green-600';
+      return compactPremium ? 'text-emerald-800' : 'text-green-600';
     } else if (daysRemaining <= 2) {
-      return 'text-red-600';
+      return compactPremium ? 'text-red-800' : 'text-red-600';
     } else if (daysRemaining <= 7) {
-      return 'text-yellow-500';
+      return compactPremium ? 'text-amber-800' : 'text-yellow-500';
     } else {
-      return 'text-green-500';
+      return compactPremium ? 'text-emerald-800' : 'text-green-500';
     }
   };
 
@@ -123,14 +125,38 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
     }
   };
 
+  const getPremiumPillClasses = () => {
+    if (!validity) return 'border-gray-200 bg-gray-50';
+    const normalizedStatus = String(validity.payment_status || '').toLowerCase().trim();
+
+    if (normalizedStatus === 'expired' || daysRemaining < 0) {
+      return 'border-red-200 bg-gradient-to-r from-red-50 to-red-100/80';
+    }
+    if (daysRemaining === 0 || daysRemaining <= 2) {
+      return 'border-red-200 bg-gradient-to-r from-red-50 to-red-100/80';
+    }
+    if (daysRemaining <= 7 && normalizedStatus !== 'paid') {
+      return 'border-amber-200 bg-gradient-to-r from-amber-50 to-amber-100/80';
+    }
+    return 'border-emerald-200 bg-gradient-to-r from-emerald-50 to-emerald-100/80';
+  };
+
   if (fetchError) {
     return (
-      <div className="flex flex-col gap-1">
-        <span className="text-xs text-amber-600">Falha ao carregar. Conexão lenta.</span>
+      <div
+        className={
+          compactPremium
+            ? 'w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 flex flex-col gap-1'
+            : 'flex flex-col gap-1'
+        }
+      >
+        <span className={`text-xs ${compactPremium ? 'text-amber-800' : 'text-amber-600'}`}>
+          Falha ao carregar. Conexão lenta.
+        </span>
         <button
           type="button"
           onClick={() => fetchValidity()}
-          className="text-xs text-blue-600 hover:underline"
+          className={`text-xs hover:underline ${compactPremium ? 'text-blue-700' : 'text-blue-600'}`}
         >
           Tentar novamente
         </button>
@@ -140,8 +166,14 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
 
   if (isLoading || !validity) {
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-500">
-        <Calendar className="h-4 w-4" />
+      <div
+        className={
+          compactPremium
+            ? 'w-full flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500'
+            : 'flex items-center gap-2 text-sm text-gray-500'
+        }
+      >
+        <Calendar className="h-4 w-4 shrink-0" />
         <span>Carregando validade...</span>
       </div>
     );
@@ -194,10 +226,16 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId 
 
   return (
     <>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className={`flex items-center gap-1 text-xs font-medium ${getStatusColor()} bg-white/80 px-2 py-1 rounded-full border`}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center w-full">
+        <div
+          className={
+            compactPremium
+              ? `w-full sm:w-auto flex items-center gap-2 text-sm font-semibold ${getStatusColor()} rounded-xl border px-3 py-2 shadow-sm ${getPremiumPillClasses()}`
+              : `flex items-center gap-1 text-xs font-medium ${getStatusColor()} bg-white/80 px-2 py-1 rounded-full border`
+          }
+        >
           {getStatusIcon()}
-          <span>{getStatusText()}</span>
+          <span className="leading-snug">{getStatusText()}</span>
         </div>
 
         {shouldShowPaymentButton ? (

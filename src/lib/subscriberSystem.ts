@@ -4,16 +4,14 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { ensureManualClientFromContact } from './manualClientsSync';
 import {
   buildSubscriptionsByNameMap,
   buildSubscriptionsByPhoneMap,
   findMatchingSubscriptionForAppointment,
   isSubscriberAppointmentForProfessionalControl,
-  isStrictSubscriberAppointmentForProfessionalControl,
-  isSubscriberAppointmentFromFields,
-  parseSubscriberBoolean,
+  parseSubscriberBoolean
 } from './subscriberAppointmentFlags';
-import { ensureManualClientFromContact } from './manualClientsSync';
 import { supabase } from './supabase';
 
 export interface SubscriberData {
@@ -377,10 +375,10 @@ export const getSubscriberDisplayName = (subscriber: any): string => {
   return (
     String(
       subscriber?.client_name_override ||
-        subscriber?.subscriber_name ||
-        subscriber?.profiles?.full_name ||
-        subscriber?.name ||
-        ''
+      subscriber?.subscriber_name ||
+      subscriber?.profiles?.full_name ||
+      subscriber?.name ||
+      ''
     ).trim() || 'Cliente'
   );
 };
@@ -760,12 +758,12 @@ export function dedupeSubscriberAttendanceRows<T extends Record<string, any>>(ro
     const key = appointmentId
       ? `apt:${appointmentId}`
       : [
-          'day',
-          String(row?.establishment_id || ''),
-          String(row?.client_subscription_id || ''),
-          String(row?.attendance_date || '').slice(0, 10),
-          String(row?.professional_id || row?.professional_name || '').trim().toLowerCase(),
-        ].join(':');
+        'day',
+        String(row?.establishment_id || ''),
+        String(row?.client_subscription_id || ''),
+        String(row?.attendance_date || '').slice(0, 10),
+        String(row?.professional_id || row?.professional_name || '').trim().toLowerCase(),
+      ].join(':');
 
     const existing = byKey.get(key);
     if (!existing) {
@@ -814,17 +812,39 @@ export async function filterSubscriberAttendancesForFinance(
   );
 
   const validAppointmentIds = new Set<string>();
+
+  let clientSubscriptionRows: any[] = [];
+  try {
+    const { data: subsData } = await supabase
+      .from('client_subscriptions')
+      .select(`
+        id,
+        subscription_id,
+        payment_status,
+        start_date,
+        end_date,
+        subscriber_name,
+        subscriber_whatsapp,
+        client_name_override,
+        client_whatsapp
+      `)
+      .eq('establishment_id', establishmentKey);
+    if (Array.isArray(subsData)) clientSubscriptionRows = subsData;
+  } catch {
+    // segue com fallback estrito se não carregar assinantes
+  }
+
   for (const chunk of chunkArray(appointmentIds, 150)) {
     try {
       const { data, error } = await supabase
         .from('appointments')
-        .select('id, status, client_name, price, is_loyalty_reward, is_subscriber, payment_method, subscription_id, subscriber_service_id, subscriber_service_name')
+        .select('id, status, client_name, client_whatsapp, appointment_date, price, is_loyalty_reward, is_subscriber, payment_method, subscription_id, subscriber_service_id, subscriber_service_name')
         .eq('establishment_id', establishmentKey)
         .in('id', chunk)
         .eq('status', 'completed');
       if (error) throw error;
       (data || []).forEach((apt: any) => {
-        if (isSubscriberAppointmentForProfessionalControl(apt)) {
+        if (isSubscriberAppointmentForProfessionalControl(apt, clientSubscriptionRows)) {
           validAppointmentIds.add(String(apt.id));
         }
       });
@@ -928,7 +948,7 @@ export async function mergeSubscriberAttendancesWithCompletedAppointments(params
   for (const apt of appointments) {
     const appointmentId = String(apt?.id || '').trim();
     if (!appointmentId) continue;
-    if (!isSubscriberAppointmentForProfessionalControl(apt as any)) continue;
+    if (!isSubscriberAppointmentForProfessionalControl(apt as any, clientSubscriptionRows)) continue;
 
     validAppointmentIds.add(appointmentId);
 
@@ -939,6 +959,10 @@ export async function mergeSubscriberAttendancesWithCompletedAppointments(params
       subscriptionsByPhone,
       subscriptionsByName
     );
+    const matchedSubscriptionId = String(matched?.id || '').trim();
+    // Só entra no financeiro se existir cadastro em Meus Assinantes.
+    if (!matchedSubscriptionId) continue;
+
     const professionalRecord = resolveAppointmentProfessionalForSubscriber(apt as any, professionals);
     const subscription = (matched as any)?.subscriptions || null;
     const repassValue = computeSubscriberRepassValue({
@@ -951,7 +975,7 @@ export async function mergeSubscriberAttendancesWithCompletedAppointments(params
       id: `apt:${appointmentId}`,
       appointment_id: appointmentId,
       establishment_id: establishmentId,
-      client_subscription_id: matched?.id ? String(matched.id) : null,
+      client_subscription_id: matchedSubscriptionId,
       professional_id: professionalRecord.professionalId,
       professional_name: professionalRecord.professionalName,
       attendance_date: String((apt as any)?.appointment_date || '').slice(0, 10),

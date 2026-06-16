@@ -1,9 +1,10 @@
 // Sistema de gerenciamento de versão e atualização forçada
 
-const APP_VERSION = '2.4.1'; // ✅ Correção crítica: Loop infinito no AppointmentForm resolvido - ATUALIZAÇÃO OBRIGATÓRIA
+const APP_VERSION = '3.0.0'; // Versão 3.0 — atualização única com limpeza de cache
 const VERSION_KEY = 'agendafacil_app_version';
 const LAST_UPDATE_CHECK_KEY = 'agendafacil_last_update_check';
 const UPDATING_FLAG_KEY = 'agendafacil_is_updating'; // Flag para evitar reloads múltiplos
+export const V30_UPDATE_DONE_KEY = 'agendafacil_v30_update_done';
 
 export interface UpdateInfo {
   hasUpdate: boolean;
@@ -15,6 +16,30 @@ export interface UpdateInfo {
 
 export const getCurrentVersion = (): string => {
   return APP_VERSION;
+};
+
+export const hasCompletedV30Update = (): boolean => {
+  try {
+    return localStorage.getItem(V30_UPDATE_DONE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+};
+
+export const markV30UpdateCompleted = (): void => {
+  try {
+    localStorage.setItem(V30_UPDATE_DONE_KEY, 'true');
+  } catch (error) {
+    console.warn('Erro ao marcar atualização 3.0:', error);
+  }
+};
+
+/** Exibe o aviso único da versão 3.0 até o usuário clicar em atualizar. */
+export const shouldShowV30UpdatePrompt = (): boolean => {
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return false;
+  }
+  return !hasCompletedV30Update();
 };
 
 export const getStoredVersion = (): string | null => {
@@ -129,7 +154,8 @@ const shouldForceUpdate = (oldVersion: string, newVersion: string): boolean => {
     '2.2.0', // ⚠️ CORREÇÃO CRÍTICA: Tela branca e erros de cache - OBRIGATÓRIA
     '2.3.0', // ⚠️ CORREÇÃO CRÍTICA: Bugs de login e cache - OBRIGATÓRIA
     '2.4.0',  // ⚠️ CORREÇÃO CRÍTICA: Sistema automático de limpeza de cache - OBRIGATÓRIA
-    '2.4.1'  // ✅ CORREÇÃO CRÍTICA: Loop infinito no AppointmentForm resolvido - OBRIGATÓRIA
+    '2.4.1',  // ✅ CORREÇÃO CRÍTICA: Loop infinito no AppointmentForm resolvido - OBRIGATÓRIA
+    '3.0.0'   // Versão 3.0 — atualização obrigatória de cache
   ];
 
   // Se a versão antiga for menor que 2.4.1, FORÇAR atualização
@@ -138,6 +164,10 @@ const shouldForceUpdate = (oldVersion: string, newVersion: string): boolean => {
 
   if (oldVersionNum < 2.4 && newVersionNum >= 2.4) {
     return true; // Forçar atualização para versão 2.4.0+
+  }
+
+  if (oldVersionNum < 3 && newVersionNum >= 3) {
+    return true; // Forçar atualização para versão 3.0.0+
   }
 
   return forceUpdateVersions.includes(newVersion);
@@ -309,7 +339,7 @@ export const forceCompleteCleanup = async (
 
       // Em fluxos automáticos de atualização, manter versão evita ruído/rechecagens.
       if (preserveVersion) {
-        keysToKeep.push(VERSION_KEY);
+        keysToKeep.push(VERSION_KEY, V30_UPDATE_DONE_KEY);
       }
 
       // Em limpezas automáticas mantemos login; na limpeza manual podemos zerar.

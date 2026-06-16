@@ -1,4 +1,5 @@
-import { format, parse } from 'date-fns';
+import { addDays, format, isSameDay, parse, startOfDay } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { Calendar, CheckCircle2, ChevronLeft, ChevronRight, Clock, Coins, Crown, Lock, Package, Phone, Plus, Trash2, User, UserPlus, Users, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
@@ -7,11 +8,16 @@ import { buildSubscriberAttendanceSnapshotFields, computeSubscriberRepassValue, 
 import {
   buildCompletionPaymentPatch,
   clientNameHasSubscriberLabel,
+  enrichAppointmentsWithSubscriberFlags,
+  formatSubscriberAgendaClientName,
   isDateInsidePaidSubscription,
+  isSubscriberAppointmentForAgendaDisplay,
+  isSubscriberAppointmentForProfessionalControl,
   isSubscriberAppointmentFromFields,
+  parseSubscriberBoolean,
   resolveEffectivePaymentMethod,
   sanitizeAppointmentServiceDisplay,
-  shouldAutoRegisterSubscriberAttendanceFromAppointment,
+  type ClientSubscriptionRowLite,
 } from '../lib/subscriberAppointmentFlags';
 import { CANCELLATION_SOURCE, describeCancellationSourcePt } from '../utils/appointmentCancellationMeta';
 import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
@@ -470,6 +476,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         .filter((m) => m.length > 0 && !defaultPaymentMethodSet.has(m));
     };
     const [expandedAppointments, setExpandedAppointments] = useState<{ [key: string]: boolean }>({});
+    const [agendaSubscriberRows, setAgendaSubscriberRows] = useState<ClientSubscriptionRowLite[]>([]);
     const [hiddenAppointmentsOpenByProfessional, setHiddenAppointmentsOpenByProfessional] = useState<Record<string, boolean>>({});
     const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>(
       professionals.length > 0 ? professionals[0].id : ''
@@ -478,7 +485,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [selectedProfessionalForInfo, setSelectedProfessionalForInfo] = useState<string | null>(null);
     const [selectedProfessionalForPhotoModal, setSelectedProfessionalForPhotoModal] = useState<string | null>(null);
     const [isUpdatingProfessionalPhoto, setIsUpdatingProfessionalPhoto] = useState(false);
-    const [showColorLegend, setShowColorLegend] = useState<'red' | 'yellow' | 'green' | null>(null);
+    const [showColorLegend, setShowColorLegend] = useState<'red' | 'yellow' | 'green' | 'gold' | null>(null);
     const [showReminderInfo, setShowReminderInfo] = useState(false);
     const [showPendingWarning, setShowPendingWarning] = useState(false);
     const [showMonthPendingModal, setShowMonthPendingModal] = useState(false);
@@ -585,6 +592,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
       ? `agendeifacil:appointments-visible-professionals:${establishment.id}`
       : '';
     const professionalVisibilityLoadedKeyRef = useRef('');
+    const mobileDatePickerRef = useRef<HTMLInputElement>(null);
     const hasOwnerConfigPin = Boolean(
       establishment?.pin_password &&
       String(establishment.pin_password || '').trim().length > 0 &&
@@ -694,6 +702,56 @@ export const AllProfessionalsAppointmentsView: React.FC<
         setSelectedProfessionalId(visibleProfessionals[0].id);
       }
     }, [selectedProfessionalId, visibleProfessionals]);
+
+    useEffect(() => {
+      const establishmentId = String(establishment?.id || '').trim();
+      if (!establishmentId) {
+        setAgendaSubscriberRows([]);
+        return;
+      }
+
+      let cancelled = false;
+      void (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('client_subscriptions')
+            .select(`
+              id,
+              subscription_id,
+              payment_status,
+              start_date,
+              end_date,
+              subscriber_name,
+              subscriber_whatsapp,
+              client_name_override,
+              client_whatsapp
+            `)
+            .eq('establishment_id', establishmentId);
+
+          if (cancelled) return;
+          if (error) throw error;
+          setAgendaSubscriberRows(Array.isArray(data) ? (data as ClientSubscriptionRowLite[]) : []);
+        } catch (error) {
+          console.warn('Falha ao carregar assinantes para selo da agenda:', error);
+          if (!cancelled) setAgendaSubscriberRows([]);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [establishment?.id]);
+
+    const appointmentsForDisplay = useMemo(
+      () => enrichAppointmentsWithSubscriberFlags(appointments || [], agendaSubscriberRows),
+      [appointments, agendaSubscriberRows]
+    );
+
+    const isAgendaSubscriberAppointment = useCallback(
+      (apt: Appointment | null | undefined) =>
+        isSubscriberAppointmentForAgendaDisplay(apt as any, agendaSubscriberRows),
+      [agendaSubscriberRows]
+    );
 
     useEffect(() => {
       if (!pendingVisibilityUnlockProfessionalId) return;
@@ -1606,7 +1664,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const shouldAutoRegisterSubscriberAttendance = (apt: Appointment): boolean =>
-      shouldAutoRegisterSubscriberAttendanceFromAppointment(apt as any);
+      isSubscriberAppointmentForProfessionalControl(apt as any, agendaSubscriberRows);
 
     const resolveAutoSubscriberAttendanceContext = async (apt: Appointment): Promise<{
       clientSubscriptionId: string;
@@ -2125,10 +2183,96 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     const getDisplayedClientNameWithSubscriberLabel = (apt: Appointment): string => {
       const name = getDisplayedClientName(apt);
-      if (!isSubscriberAppointmentFromFields(apt as any)) return name;
-      const base = (name || '').trim().toUpperCase() === 'ASSINANTE' || !(name || '').trim() ? 'Assinante' : name;
-      const alreadyHasLabel = (name || '').includes('(ASSINANTE)');
-      return alreadyHasLabel ? `${base} 👑` : `${base} (ASSINANTE) 👑`;
+      if (!isAgendaSubscriberAppointment(apt)) return name;
+      return formatSubscriberAgendaClientName(name);
+    };
+
+    const getAppointmentClientDisplayName = (apt: Appointment): string => {
+      if (apt.is_squeeze) {
+        return isAgendaSubscriberAppointment(apt) ? 'ENCAIXE ASSINANTE' : 'ENCAIXE';
+      }
+      return getDisplayedClientNameWithSubscriberLabel(apt);
+    };
+
+    const renderAppointmentClientNameRow = (
+      apt: Appointment,
+      serviceLabels: Array<{ name: string; color: string }>,
+      options?: { variant?: 'compact' | 'expanded' }
+    ) => {
+      const isSubscriber = isAgendaSubscriberAppointment(apt);
+      const displayName = getAppointmentClientDisplayName(apt);
+      const isCompleted = String(apt.status || '').toLowerCase() === 'completed';
+      const variant = options?.variant || 'compact';
+
+      const serviceLabelNodes = serviceLabels.map((label) => (
+        <span
+          key={`${variant}-${apt.id}-${label.name}-${label.color}`}
+          className="px-2 py-0.5 rounded-full text-[10px] font-extrabold border border-white/30 shrink-0"
+          style={{ backgroundColor: label.color, color: getLabelTextColor(label.color) }}
+          title={`Etiqueta: ${label.name}`}
+        >
+          {label.name}
+        </span>
+      ));
+
+      const avulsoEditButton =
+        isAvulsoLike(apt) && !apt.is_squeeze ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpandedAppointments((prev) => ({ ...prev, [apt.id]: true }));
+              startEditAvulsoName(apt);
+            }}
+            className="shrink-0 text-white/80 hover:text-white text-xs"
+            title="Editar nome do cliente avulso"
+          >
+            ✏️
+          </button>
+        ) : null;
+
+      if (!isSubscriber) {
+        if (variant === 'expanded') {
+          return <span className="text-white font-semibold">{displayName}</span>;
+        }
+        return (
+          <div className="text-white font-semibold text-sm mb-1 truncate">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="truncate">{displayName}</span>
+              {serviceLabelNodes}
+              {avulsoEditButton}
+            </div>
+          </div>
+        );
+      }
+
+      const subscriberBadge = isCompleted ? (
+        <span className="inline-flex shrink-0 items-center gap-0.5 rounded-md bg-green-600 px-1.5 py-0.5 text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wide text-white shadow-sm">
+          <CheckCircle2 className="w-3 h-3 shrink-0" />
+          Assinante atendido
+        </span>
+      ) : (
+        <span className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-amber-300/50 bg-amber-500/25 px-1.5 py-0.5 text-[9px] font-bold text-amber-100">
+          👑 Assinante
+        </span>
+      );
+
+      const goldNameStrip = (
+        <div className="rounded-lg border border-amber-400/70 bg-gradient-to-r from-amber-950/95 via-amber-900 to-yellow-950 px-2.5 py-1.5 ring-1 ring-amber-500/30 shadow-inner shadow-black/25">
+          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+            <span className="truncate text-amber-50 font-bold text-sm min-w-0 flex-1">{displayName}</span>
+            {subscriberBadge}
+            {serviceLabelNodes}
+            {avulsoEditButton}
+          </div>
+        </div>
+      );
+
+      if (variant === 'expanded') {
+        return goldNameStrip;
+      }
+
+      return <div className="mb-1.5">{goldNameStrip}</div>;
     };
 
     const handleOpenMonthPendingModal = async () => {
@@ -2964,14 +3108,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
 
       // Separar encaixes dos agendamentos normais
-      const normalAppointments = appointments.filter((apt) =>
+      const normalAppointments = appointmentsForDisplay.filter((apt) =>
         appointmentBelongsToProfessionalColumn(apt, professional) &&
         apt.appointment_date === selectedDateStr &&
         String(apt.status || '').toLowerCase() !== 'cancelled' &&
         !apt.is_squeeze
       );
 
-      const squeezeAppointments = appointments.filter((apt) =>
+      const squeezeAppointments = appointmentsForDisplay.filter((apt) =>
         appointmentBelongsToProfessionalColumn(apt, professional) &&
         apt.appointment_date === selectedDateStr &&
         String(apt.status || '').toLowerCase() !== 'cancelled' &&
@@ -4244,6 +4388,24 @@ export const AllProfessionalsAppointmentsView: React.FC<
       onDateChange(newDate);
     };
 
+    const calendarToday = startOfDay(new Date());
+    const selectedDay = startOfDay(selectedDate);
+    const isSelectedToday = isSameDay(selectedDay, calendarToday);
+    const isSelectedYesterday = isSameDay(selectedDay, addDays(calendarToday, -1));
+    const isSelectedTomorrow = isSameDay(selectedDay, addDays(calendarToday, 1));
+
+    const goToQuickDate = (target: 'yesterday' | 'today' | 'tomorrow') => {
+      if (target === 'today') {
+        onDateChange(calendarToday);
+        return;
+      }
+      if (target === 'yesterday') {
+        onDateChange(addDays(calendarToday, -1));
+        return;
+      }
+      onDateChange(addDays(calendarToday, 1));
+    };
+
     const runToggleSlotBlock = async (professionalId: string, slotTime: string, block: boolean) => {
       if (!onToggleProfessionalSlotBlocked) return;
       const busyKey = `${professionalId}__${slotTime}`;
@@ -4275,7 +4437,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const appointment = slot.appointment || slot.parentAppointment;
       if (!appointment) return 'bg-gray-100 border-gray-300';
 
-      // Se for encaixe, usar cinza escuro
+      // Encaixe: cinza (status segue cor normal só fora do encaixe)
       if (appointment.is_squeeze) {
         if (slot.isOccupied) {
           return 'bg-gray-700/60 border-gray-600';
@@ -5323,178 +5485,201 @@ export const AllProfessionalsAppointmentsView: React.FC<
     }
 
     return (
-      <div className="space-y-4">
-        {/* Cabeçalho com navegação de data - MOVIDO PARA O TOPO */}
-        <div className="bg-white rounded-lg p-2 sm:p-4 border border-gray-300 shadow-sm">
-          <h2 className="text-lg sm:text-2xl font-bold text-black mb-2 sm:mb-4">
-            Agendamentos do Dia
-          </h2>
-          <div className="flex items-center gap-1 sm:gap-2 md:gap-4">
-            <button
-              onClick={handlePreviousDay}
-              className="p-1.5 sm:p-2 md:p-3 rounded-lg bg-black hover:bg-gray-800 text-white transition-colors shadow-md flex-shrink-0"
-            >
-              <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6" />
-            </button>
-            <input
-              type="date"
-              value={format(selectedDate, 'yyyy-MM-dd')}
-              onChange={handleDateInputChange}
-              className="flex-1 px-2 sm:px-3 md:px-4 py-1.5 sm:py-2 md:py-3 text-xs sm:text-sm md:text-base font-semibold text-black bg-white border-2 border-gray-400 rounded-lg focus:ring-2 focus:ring-gray-600 focus:border-gray-600 transition-colors"
-            />
-            <button
-              onClick={handleNextDay}
-              className="p-1.5 sm:p-2 md:p-3 rounded-lg bg-black hover:bg-gray-800 text-white transition-colors shadow-md flex-shrink-0"
-            >
-              <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6" />
-            </button>
-          </div>
+      <div className="space-y-2 md:space-y-4">
+        {/* Cabeçalho compacto premium — mobile e desktop */}
+        <div className="sticky top-0 z-30 -mt-1 md:mt-0 mb-1 md:mb-2 rounded-2xl border border-white/10 bg-[#0b0b0c]/95 backdrop-blur-md shadow-lg shadow-black/30">
+          <div className="p-2.5 md:p-4 space-y-2.5 md:space-y-3">
+            {isCollaboratorView && isSecretaryModeActive && (
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
+                <p className="text-xs md:text-sm font-extrabold text-emerald-200">Modo secretaria ativo</p>
+                <p className="text-[11px] md:text-xs text-emerald-100/80 mt-0.5">
+                  Você pode acompanhar as agendas liberadas pelo estabelecimento.
+                </p>
+                {!canViewBarbershopCash && (
+                  <p className="text-[11px] text-emerald-200/70 mt-1">
+                    O caixa da barbearia pede a senha de 4 dígitos ao abrir.
+                  </p>
+                )}
+              </div>
+            )}
 
-          {isCollaboratorView && isSecretaryModeActive && (
-            <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <div className="text-sm font-extrabold text-emerald-900">Modo secretaria ativo</div>
-                  <div className="text-xs text-emerald-800 mt-1">
-                    Você pode acompanhar estas agendas liberadas pelo estabelecimento.
-                  </div>
+            {/* Data rápida */}
+            <div>
+              <p className="hidden md:block text-sm font-extrabold text-white/90 mb-2">
+                Agendamentos do dia
+              </p>
+              <div className="flex items-center gap-1 md:gap-2">
+                <button
+                  type="button"
+                  onClick={handlePreviousDay}
+                  className="shrink-0 p-2 md:p-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white transition-colors"
+                  aria-label="Dia anterior"
+                >
+                  <ChevronLeft className="h-4 w-4 md:h-5 md:w-5" />
+                </button>
+                <div className="flex-1 grid grid-cols-3 gap-1 md:gap-2">
+                  <button
+                    type="button"
+                    onClick={() => goToQuickDate('yesterday')}
+                    className={`px-1.5 md:px-3 py-2 md:py-2.5 rounded-xl text-[11px] md:text-sm font-bold transition-colors ${isSelectedYesterday
+                      ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
+                      : 'bg-white/5 text-white/75 border border-white/10 hover:bg-white/10'
+                      }`}
+                  >
+                    Ontem
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => goToQuickDate('today')}
+                    className={`px-1.5 md:px-3 py-2 md:py-2.5 rounded-xl text-[11px] md:text-sm font-extrabold transition-colors ${isSelectedToday
+                      ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-black shadow-md shadow-amber-500/20'
+                      : 'bg-white/5 text-white border border-white/10 hover:bg-white/10'
+                      }`}
+                  >
+                    HOJE
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => goToQuickDate('tomorrow')}
+                    className={`px-1.5 md:px-3 py-2 md:py-2.5 rounded-xl text-[11px] md:text-sm font-bold transition-colors ${isSelectedTomorrow
+                      ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
+                      : 'bg-white/5 text-white/75 border border-white/10 hover:bg-white/10'
+                      }`}
+                  >
+                    Amanhã
+                  </button>
                 </div>
                 <button
                   type="button"
-                  onClick={handleOpenBarbershopCash}
-                  data-tutorial-id="appointments-caixa"
-                  className="hidden md:inline-flex shrink-0 items-center justify-center rounded-lg bg-emerald-700 hover:bg-emerald-600 px-4 py-2 text-xs font-extrabold text-white transition-colors disabled:opacity-60"
-                  disabled={isLoadingBarbershopCashOpening}
+                  onClick={handleNextDay}
+                  className="shrink-0 p-2 md:p-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white transition-colors"
+                  aria-label="Próximo dia"
                 >
-                  {`CAIXA / GERAL (${format(selectedDate, 'dd/MM/yyyy')})`}
+                  <ChevronRight className="h-4 w-4 md:h-5 md:w-5" />
                 </button>
               </div>
-              {visibleProfessionals.length > 0 ? (
-                <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-                  {visibleProfessionals.map((professional) => (
-                    <span
-                      key={`secretary-visible-${professional.id}`}
-                      className="flex-shrink-0 rounded-full border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"
-                    >
-                      {professional.name}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                  Nenhuma agenda liberada para a secretaria neste acesso.
-                </div>
-              )}
-              {!canViewBarbershopCash && (
-                <p className="mt-2 text-[11px] text-emerald-800/80">
-                  O caixa da barbearia pede a senha de 4 dígitos ao abrir.
+              <div className="mt-1.5 md:mt-2 flex items-center justify-between gap-2">
+                <p className="text-xs md:text-sm font-semibold text-white/80 truncate capitalize">
+                  {format(selectedDate, "EEEE, dd/MM/yyyy", { locale: ptBR })}
                 </p>
-              )}
-            </div>
-          )}
-
-          {professionals.length > 1 && !isCollaboratorView && (
-            <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-sm font-extrabold text-gray-900">Profissionais na tela</div>
-                  <div className="text-xs text-gray-600">
-                    Marque quem deve aparecer nesta agenda. Essa escolha fica salva apenas neste aparelho.
-                  </div>
-                </div>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={selectAllProfessionals}
-                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-900 hover:bg-gray-100"
-                  >
-                    Mostrar todos
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleOpenBarbershopCash}
-                    data-tutorial-id="appointments-caixa"
-                    className="hidden md:inline-flex items-center justify-center rounded-lg bg-emerald-700 hover:bg-emerald-600 px-4 py-2 text-xs font-extrabold text-white transition-colors disabled:opacity-60"
-                    disabled={isLoadingBarbershopCashOpening}
-                  >
-                    {`CAIXA / GERAL (${format(selectedDate, 'dd/MM/yyyy')})`}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => mobileDatePickerRef.current?.showPicker?.() || mobileDatePickerRef.current?.click()}
+                  className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2 md:px-3 py-1 md:py-1.5 text-[11px] md:text-xs font-bold text-amber-200 hover:bg-white/10"
+                >
+                  <Calendar className="h-3.5 w-3.5 md:h-4 md:w-4" />
+                  Escolher data
+                </button>
+                <input
+                  ref={mobileDatePickerRef}
+                  type="date"
+                  value={format(selectedDate, 'yyyy-MM-dd')}
+                  onChange={handleDateInputChange}
+                  className="sr-only"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
               </div>
+            </div>
 
-              <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                {professionals.map((professional) => {
-                  const isVisible = visibleProfessionals.some((visibleProfessional) => visibleProfessional.id === professional.id);
-                  const isProtectedAndLocked =
-                    isProfessionalAppointmentsProtected(professional) && !isProfessionalAppointmentsUnlocked(professional.id);
-                  return (
+            {/* Profissionais */}
+            {professionals.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-1.5 md:mb-2">
+                  <p className="text-[11px] md:text-xs font-extrabold uppercase tracking-wide text-white/55">
+                    👤 Profissionais
+                  </p>
+                  {professionals.length > 1 && !isCollaboratorView && (
                     <button
-                      key={professional.id}
                       type="button"
-                      onClick={() => toggleProfessionalVisibility(professional.id)}
-                      onDoubleClick={() => selectOnlyProfessional(professional.id)}
-                      className={`flex-shrink-0 rounded-full border px-3 py-2 text-xs font-extrabold transition-colors ${isVisible
-                          ? 'border-emerald-600 bg-emerald-600 text-white shadow-sm'
-                          : isProtectedAndLocked
-                            ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
-                            : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-100'
-                        }`}
-                      title={
-                        isProtectedAndLocked
-                          ? 'Agenda protegida. Clique para digitar a senha e exibir este profissional.'
-                          : 'Clique para marcar/desmarcar. Dois cliques deixam somente este profissional.'
-                      }
+                      onClick={selectAllProfessionals}
+                      className="text-[10px] md:text-xs font-bold text-amber-300/90 hover:text-amber-200"
                     >
-                      {isVisible ? '✓ ' : isProtectedAndLocked ? '🔒 ' : ''}{professional.name}
+                      Todos
                     </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-2 text-[11px] text-gray-500">
-                Mostrando {visibleProfessionals.length} de {professionals.length} profissional(is).
-              </div>
-              {visibleProfessionals.length === 0 && (
-                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                  Nenhum profissional está aberto na tela. Profissionais com agenda protegida ficam desmarcados até digitar a senha deles.
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+                {professionals.length > 1 && !isCollaboratorView && (
+                  <p className="hidden md:block text-[11px] text-white/45 mb-2">
+                    Marque quem aparece na agenda. Dois cliques deixam somente um profissional.
+                  </p>
+                )}
+                {isCollaboratorView && isSecretaryModeActive ? (
+                  visibleProfessionals.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 md:gap-2">
+                      {visibleProfessionals.map((professional) => (
+                        <span
+                          key={`secretary-${professional.id}`}
+                          className="shrink-0 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2.5 md:px-3 py-1 md:py-1.5 text-[11px] md:text-xs font-bold text-emerald-200"
+                        >
+                          {professional.name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] md:text-xs text-amber-200/90">
+                      Nenhuma agenda liberada neste acesso.
+                    </p>
+                  )
+                ) : (
+                  <div className="flex flex-wrap gap-1.5 md:gap-2">
+                    {professionals.map((professional) => {
+                      const isVisible = visibleProfessionals.some(
+                        (visibleProfessional) => visibleProfessional.id === professional.id
+                      );
+                      const isProtectedAndLocked =
+                        isProfessionalAppointmentsProtected(professional) &&
+                        !isProfessionalAppointmentsUnlocked(professional.id);
+                      return (
+                        <button
+                          key={`pro-chip-${professional.id}`}
+                          type="button"
+                          onClick={() => toggleProfessionalVisibility(professional.id)}
+                          onDoubleClick={() => selectOnlyProfessional(professional.id)}
+                          title={
+                            isProtectedAndLocked
+                              ? 'Agenda protegida. Clique para digitar a senha e exibir este profissional.'
+                              : 'Clique para marcar/desmarcar. Dois cliques deixam somente este profissional.'
+                          }
+                          className={`shrink-0 rounded-full border px-2.5 md:px-3 py-1.5 md:py-2 text-[11px] md:text-xs font-extrabold transition-colors ${isVisible
+                            ? 'border-emerald-500/50 bg-emerald-500/20 text-emerald-100'
+                            : isProtectedAndLocked
+                              ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+                              : 'border-white/15 bg-white/5 text-white/60 hover:bg-white/10'
+                            }`}
+                        >
+                          {isVisible ? '✓ ' : isProtectedAndLocked ? '🔒 ' : ''}
+                          {professional.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {professionals.length > 1 && !isCollaboratorView && (
+                  <p className="mt-1.5 md:mt-2 text-[10px] md:text-[11px] text-white/40">
+                    Mostrando {visibleProfessionals.length} de {professionals.length} profissional(is).
+                  </p>
+                )}
+                {visibleProfessionals.length === 0 && (
+                  <div className="mt-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] md:text-xs font-semibold text-amber-200">
+                    Nenhum profissional aberto na tela. Com agenda protegida, digite a senha para exibir.
+                  </div>
+                )}
+              </div>
+            )}
 
-          {professionals.length <= 1 && (
-            <div className="mt-3 hidden md:flex justify-end">
-              <button
-                type="button"
-                onClick={handleOpenBarbershopCash}
-                data-tutorial-id="appointments-caixa"
-                className="inline-flex items-center justify-center rounded-lg bg-emerald-700 hover:bg-emerald-600 px-4 py-2 text-xs font-extrabold text-white transition-colors disabled:opacity-60"
-                disabled={isLoadingBarbershopCashOpening}
-              >
-                {`CAIXA / GERAL (${format(selectedDate, 'dd/MM/yyyy')})`}
-              </button>
-            </div>
-          )}
-
-          <div className="mt-3 flex flex-col items-center gap-2 md:hidden">
+            {/* Caixa geral */}
             <button
               type="button"
               onClick={handleOpenBarbershopCash}
               data-tutorial-id="appointments-caixa"
-              className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold transition-colors disabled:opacity-60"
               disabled={isLoadingBarbershopCashOpening}
+              className="w-full rounded-xl border border-emerald-500/35 bg-emerald-600/20 px-3 py-2.5 md:py-3 text-center transition-colors hover:bg-emerald-600/30 disabled:opacity-60"
             >
-              {`CAIXA / GERAL (${format(selectedDate, 'dd/MM/yyyy')})`}
+              <span className="text-sm md:text-base font-extrabold text-emerald-100">
+                CAIXA / GERAL ({format(selectedDate, 'dd/MM/yyyy')})
+              </span>
             </button>
-            {canViewBarbershopCash ? (
-              <p className="text-xs text-emerald-700 font-medium text-center">
-                Total esperado em caixa: {formatCurrency(barbershopCashTotal)} (abertura {formatCurrency(barbershopCashOpeningValue)} + dinheiro {formatCurrency(dailyCashSalesTotal)})
-              </p>
-            ) : (
-              <p className="text-xs text-gray-500 text-center">
-                Valor protegido por senha de 4 digitos.
-              </p>
-            )}
           </div>
         </div>
 
@@ -5760,23 +5945,28 @@ export const AllProfessionalsAppointmentsView: React.FC<
               <div className="text-center">
                 <div className={`w-16 h-16 mx-auto mb-4 rounded-lg flex items-center justify-center ${showColorLegend === 'red' ? 'bg-red-600' :
                   showColorLegend === 'yellow' ? 'bg-yellow-600' :
+                    showColorLegend === 'gold' ? 'bg-gradient-to-br from-amber-500 to-yellow-600' :
                     'bg-green-600'
                   }`}>
                   {showColorLegend === 'red' && <span className="text-white text-2xl">❌</span>}
                   {showColorLegend === 'yellow' && <span className="text-white text-2xl">⏳</span>}
                   {showColorLegend === 'green' && <span className="text-white text-2xl">✅</span>}
+                  {showColorLegend === 'gold' && <span className="text-white text-2xl">👑</span>}
                 </div>
 
                 <h3 className="text-xl font-bold text-white mb-2">
                   {showColorLegend === 'red' ? 'Agendamentos Cancelados' :
                     showColorLegend === 'yellow' ? 'Clientes que ainda não pagaram' :
+                      showColorLegend === 'gold' ? 'Faixa dourada = Assinante' :
                       'Agendamentos Concluídos ou Pagos'}
                 </h3>
 
                 <p className="text-gray-300 mb-4">
                   {showColorLegend === 'red' ? 'Agendamentos que foram cancelados pelo cliente ou estabelecimento.' :
                     showColorLegend === 'yellow' ? 'Agendamentos agendados mas ainda não realizados ou pagos.' :
-                      'Agendamentos que foram concluídos com sucesso e pagos.'}
+                      showColorLegend === 'gold'
+                        ? 'Card verde = concluído (igual avulso). A faixa dourada no nome mostra que é assinante 👑. Quando atendido, aparece o selo verde “Assinante atendido ✓”.'
+                        : 'Agendamentos concluídos com sucesso (verde). Assinante também fica verde — veja a faixa dourada no nome.'}
                 </p>
 
                 <button
@@ -6200,7 +6390,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         )}
 
         {/* Layout Horizontal Scrollável - MOBILE E DESKTOP */}
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden md:mt-0">
           <style>{`
           .scroll-container-top {
             overflow-x: auto;
@@ -6315,12 +6505,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   setShowAvailabilityModal(true);
                 };
                 const sideActionButtonClass = useLightLayout
-                  ? 'w-full min-h-[78px] px-2.5 py-2 text-xs sm:text-sm font-bold rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10'
-                  : 'w-full min-h-[78px] px-2.5 py-2 text-xs sm:text-sm font-bold rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10';
+                  ? 'w-full min-h-[64px] md:min-h-[78px] px-2.5 py-2 text-xs sm:text-sm font-bold rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10'
+                  : 'w-full min-h-[64px] md:min-h-[78px] px-2.5 py-2 text-xs sm:text-sm font-bold rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10';
                 const actionCardButtonClass = useLightLayout
-                  ? 'w-full min-h-[78px] px-3 py-2 rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10 active:scale-[0.98]'
-                  : 'w-full min-h-[78px] px-3 py-2 rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10 active:scale-[0.98]';
-                const statusCardButtonClass = 'w-full min-h-[58px] px-2 py-2 rounded-xl border text-white transition-colors';
+                  ? 'w-full min-h-[64px] md:min-h-[78px] px-3 py-2 rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10 active:scale-[0.98]'
+                  : 'w-full min-h-[64px] md:min-h-[78px] px-3 py-2 rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10 active:scale-[0.98]';
+                const statusCardButtonClass = 'w-full min-h-[44px] md:min-h-[58px] px-2 py-1.5 md:py-2 rounded-xl border text-white transition-colors';
 
                 const hiddenOpen =
                   hiddenAppointments.length > 0 &&
@@ -6333,13 +6523,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     data-tutorial-id="appointments-professional-area"
                     className="px-1.5 pb-3"
                   >
-                    {/* Cabeçalho do Profissional */}
-                    <div className={`p-2 sticky top-0 z-10 ${useLightLayout
+                    {/* Cabeçalho do Profissional + opções individuais */}
+                    <div className={`p-1.5 md:p-2 sticky top-0 z-10 ${useLightLayout
                       ? 'bg-white border border-gray-300 border-b-0 rounded-t-xl'
                       : 'bg-[#121419] border border-white/10 border-b-0 rounded-t-xl'
                       }`}>
                       <div className="flex flex-col items-center w-full">
-                        <div className="w-full flex items-center gap-3">
+                        <div className="w-full flex items-center gap-2 md:gap-3">
                           <button
                             onClick={() => setSelectedProfessionalForPhotoModal(professional.id)}
                             className="group relative shrink-0"
@@ -6349,11 +6539,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               <img
                                 src={professional.photo_url}
                                 alt={professional.name}
-                                className={`w-14 h-14 rounded-full object-cover border-2 group-hover:scale-105 transition-transform cursor-pointer ${useLightLayout ? 'border-gray-300' : 'border-slate-500'
+                                className={`w-10 h-10 md:w-14 md:h-14 rounded-full object-cover border-2 group-hover:scale-105 transition-transform cursor-pointer ${useLightLayout ? 'border-gray-300' : 'border-slate-500'
                                   }`}
                               />
                             ) : (
-                              <div className={`w-14 h-14 rounded-full bg-white flex items-center justify-center text-2xl border-2 group-hover:scale-105 transition-transform cursor-pointer ${useLightLayout ? 'border-gray-300' : 'border-slate-500'
+                              <div className={`w-10 h-10 md:w-14 md:h-14 rounded-full bg-white flex items-center justify-center text-xl md:text-2xl border-2 group-hover:scale-105 transition-transform cursor-pointer ${useLightLayout ? 'border-gray-300' : 'border-slate-500'
                                 }`}>
                                 👤
                               </div>
@@ -6368,11 +6558,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               </span>
                             </div>
                           </button>
-                          <div className="flex-1 px-3 py-2 text-center">
-                            <h3 className={`font-bold text-base leading-tight ${useLightLayout ? 'text-gray-900' : 'text-white'}`}>
+                          <div className="flex-1 px-1 md:px-3 py-1 md:py-2 text-center min-w-0">
+                            <h3 className={`font-bold text-sm md:text-base leading-tight truncate ${useLightLayout ? 'text-gray-900' : 'text-white'}`}>
                               {professional.name}
                             </h3>
-                            <p className={`text-xs mt-1 ${useLightLayout ? 'text-gray-600' : 'text-gray-300'}`}>
+                            <p className={`text-[11px] md:text-xs mt-0.5 md:mt-1 ${useLightLayout ? 'text-gray-600' : 'text-gray-300'}`}>
                               {appointmentsLocked ? 'agenda protegida' : `${professionalAppointmentsCount} agendamentos`}
                             </p>
                           </div>
@@ -6516,7 +6706,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                         )}
 
                         {/* Contadores de Status por Profissional */}
-                        <div className="mt-3 grid grid-cols-3 gap-2 text-xs w-full">
+                        <div className="mt-2 md:mt-3 grid grid-cols-3 gap-1.5 md:gap-2 text-xs w-full">
                           <button
                             type="button"
                             onClick={() => {
@@ -6614,7 +6804,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     </div>
 
                     {/* Todos os Horários (Livres e Ocupados) */}
-                    <div className={`p-2 min-h-[500px] rounded-b-xl border border-t-0 ${useLightLayout ? 'bg-gray-100 border-gray-300' : 'bg-[#121419] border-white/10'
+                    <div className={`p-1.5 md:p-2 min-h-0 md:min-h-[500px] rounded-b-xl border border-t-0 ${useLightLayout ? 'bg-gray-100 border-gray-300' : 'bg-[#121419] border-white/10'
                       }`}>
                       {appointmentsLocked ? (
                         <div className="rounded-lg border-2 border-amber-500/60 bg-amber-100 p-3 mb-2">
@@ -6764,7 +6954,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           >
                                             <div className="flex items-center justify-between mb-1">
                                               <span className="text-white font-bold text-sm">
-                                                {squeeze.appointment_time} 🟣 {squeeze.is_subscriber ? 'ENCAIXE ASSINANTE' : 'ENCAIXE'}
+                                                {squeeze.appointment_time} 🟣 {isAgendaSubscriberAppointment(squeeze) ? 'ENCAIXE ASSINANTE' : 'ENCAIXE'}
                                               </span>
                                               <span className="text-white text-xs font-bold">
                                                 {formatCurrency(calculateTotalPrice(squeeze))}
@@ -6784,7 +6974,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <div className="mb-3">
                                               <div className="flex items-center gap-2 mb-2">
                                                 <span className="text-white font-semibold">
-                                                  {squeeze.is_subscriber ? 'ENCAIXE ASSINANTE' : 'ENCAIXE'}
+                                                  {isAgendaSubscriberAppointment(squeeze) ? 'ENCAIXE ASSINANTE' : 'ENCAIXE'}
                                                 </span>
                                               </div>
                                             </div>
@@ -6876,40 +7066,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           {formatCurrency(calculateTotalPrice(apt))}
                                         </span>
                                       </div>
-                                      <div className="text-white font-semibold text-sm mb-1 truncate">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                          <span className="truncate">
-                                            {apt.is_squeeze
-                                              ? (apt.is_subscriber ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
-                                              : getDisplayedClientNameWithSubscriberLabel(apt)}
-                                          </span>
-                                          {serviceLabels.map((label) => (
-                                            <span
-                                              key={`${apt.id}-${label.name}-${label.color}`}
-                                              className="px-2 py-0.5 rounded-full text-[10px] font-extrabold border border-white/30 shrink-0"
-                                              style={{ backgroundColor: label.color, color: getLabelTextColor(label.color) }}
-                                              title={`Etiqueta: ${label.name}`}
-                                            >
-                                              {label.name}
-                                            </span>
-                                          ))}
-                                          {isAvulsoLike(apt) && !apt.is_squeeze && (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                // abrir detalhes e já focar edição
-                                                setExpandedAppointments((prev) => ({ ...prev, [apt.id]: true }));
-                                                startEditAvulsoName(apt);
-                                              }}
-                                              className="shrink-0 text-white/80 hover:text-white text-xs"
-                                              title="Editar nome do cliente avulso"
-                                            >
-                                              ✏️
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
+                                      {renderAppointmentClientNameRow(apt, serviceLabels, { variant: 'compact' })}
                                       <div className="text-white/90 text-xs truncate">
                                         {subscriptionLabelColor && (
                                           <span
@@ -6958,22 +7115,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                       {/* Cliente Info */}
                                       <div className="mb-3">
                                         <div className="flex items-center gap-2 mb-2">
-                                          <User className="w-4 h-4 text-white" />
-                                          <span className="text-white font-semibold">
-                                            {apt.is_squeeze
-                                              ? (apt.is_subscriber ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
-                                              : getDisplayedClientNameWithSubscriberLabel(apt)}
-                                          </span>
-                                          {serviceLabels.map((label) => (
-                                            <span
-                                              key={`expanded-${apt.id}-${label.name}-${label.color}`}
-                                              className="px-2 py-0.5 rounded-full text-[10px] font-extrabold border border-white/30"
-                                              style={{ backgroundColor: label.color, color: getLabelTextColor(label.color) }}
-                                              title={`Etiqueta: ${label.name}`}
-                                            >
-                                              {label.name}
-                                            </span>
-                                          ))}
+                                          <User className="w-4 h-4 text-white shrink-0" />
+                                          {renderAppointmentClientNameRow(apt, serviceLabels, { variant: 'expanded' })}
                                           {isAvulsoLike(apt) && !apt.is_squeeze && editingAvulsoNameId !== apt.id && (
                                             <button
                                               type="button"
@@ -7652,7 +7795,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         <div className="min-w-0">
                                           <div className="text-xs font-extrabold text-amber-900">
                                             ⛔ {apt.appointment_time} • {apt.is_squeeze
-                                              ? (apt.is_subscriber ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
+                                              ? (isAgendaSubscriberAppointment(apt) ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
                                               : (getDisplayedClientNameWithSubscriberLabel(apt) || 'Cliente')}
                                           </div>
                                           <div className="text-[11px] text-amber-900/90 truncate">
@@ -7868,7 +8011,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                       const badgeText = isAvulso
                         ? 'RESERVA'
                         : isSqueeze
-                          ? (Boolean((appointment as any)?.is_subscriber) ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
+                          ? (isAgendaSubscriberAppointment(appointment as Appointment) ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
                           : isPast
                             ? 'Já passou'
                             : isBlocked
@@ -8947,7 +9090,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
           <p className="text-xs text-white mb-3 text-center">Clique na cor para ver o significado</p>
 
           {/* Layout para mobile - 3 colunas */}
-          <div className="grid grid-cols-3 gap-2 sm:hidden">
+          <div className="grid grid-cols-2 gap-2 sm:hidden">
             <button
               onClick={() => setShowColorLegend('red')}
               className="px-2 py-2 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
@@ -8966,10 +9109,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
             >
               Concluído
             </button>
+            <button
+              onClick={() => setShowColorLegend('gold')}
+              className="px-2 py-2 bg-gradient-to-r from-amber-500 to-yellow-600 text-white text-xs rounded hover:from-amber-600 hover:to-yellow-700 transition-colors"
+            >
+              👑 Faixa assinante
+            </button>
           </div>
 
           {/* Layout para desktop - horizontal */}
-          <div className="hidden sm:flex justify-center gap-4">
+          <div className="hidden sm:flex justify-center gap-4 flex-wrap">
             <button
               onClick={() => setShowColorLegend('red')}
               className="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
@@ -8987,6 +9136,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
               className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
             >
               ✅ Concluído
+            </button>
+            <button
+              onClick={() => setShowColorLegend('gold')}
+              className="px-4 py-2 bg-gradient-to-r from-amber-500 to-yellow-600 text-white text-sm rounded hover:from-amber-600 hover:to-yellow-700 transition-colors"
+            >
+              👑 Faixa assinante
             </button>
           </div>
 

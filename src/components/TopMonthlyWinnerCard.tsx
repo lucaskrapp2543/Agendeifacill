@@ -80,7 +80,7 @@ export const TopMonthlyWinnerCard: React.FC<TopMonthlyWinnerCardProps> = ({ winn
             aria-label="Abrir Instagram do Top 1"
             title="Abrir Instagram do Top 1"
             onClick={(e) => e.stopPropagation()}
-            className="self-start sm:shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/15 text-white/80 transition-colors text-xs sm:text-sm"
+            className="self-start sm:shrink-0 hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/15 text-white/80 transition-colors text-xs sm:text-sm"
           >
             <Instagram className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <ExternalLink className="w-3 h-3 sm:w-3.5 sm:h-3.5" />

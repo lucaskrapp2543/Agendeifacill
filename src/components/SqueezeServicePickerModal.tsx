@@ -632,7 +632,6 @@ export const SqueezeServicePickerModal: React.FC<SqueezeServicePickerModalProps>
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Buscar serviço ou assinatura..."
                 className="w-full pl-10 pr-4 py-2.5 bg-[#1e1f20] border border-gray-700 rounded-xl text-white text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
-                autoFocus
               />
             </div>
 

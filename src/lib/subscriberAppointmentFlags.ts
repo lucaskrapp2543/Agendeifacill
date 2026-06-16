@@ -74,6 +74,20 @@ export function normalizeSubscriberNameKey(value: unknown): string {
     .toLowerCase();
 }
 
+const EXPLICIT_AVULSO_PAYMENT_METHODS = new Set([
+  'pix',
+  'pix_now',
+  'credito',
+  'credit_card',
+  'credit',
+  'debito',
+  'debit_card',
+  'dinheiro',
+  'pagar_local',
+  'transferencia',
+  'multi',
+]);
+
 export function isStrictSubscriberAppointment(apt: SubscriberAppointmentLike | null | undefined): boolean {
   if (!apt) return false;
   if (parseSubscriberBoolean(apt.is_loyalty_reward)) return false;
@@ -81,10 +95,15 @@ export function isStrictSubscriberAppointment(apt: SubscriberAppointmentLike | n
   const baseServicePrice = Number(apt.price ?? 0);
   if (!Number.isFinite(baseServicePrice) || baseServicePrice > 0) return false;
 
+  const paymentMethod = String(apt.payment_method || '').trim().toLowerCase();
+  // Avulso pago (dinheiro, pix, cartão…) nunca é visita de assinatura — mesmo com flag solta.
+  if (paymentMethod && paymentMethod !== 'assinante' && paymentMethod !== 'pendente') {
+    if (EXPLICIT_AVULSO_PAYMENT_METHODS.has(paymentMethod)) return false;
+  }
+
   if (parseSubscriberBoolean(apt.is_subscriber)) return true;
   if (clientNameHasSubscriberLabel(apt.client_name)) return true;
 
-  const paymentMethod = String(apt.payment_method || '').trim().toLowerCase();
   if (paymentMethod === 'assinante') return true;
 
   if (String(apt.subscriber_service_id || '').trim()) return true;
@@ -102,18 +121,67 @@ export function clientNameHasSubscriberLabel(clientName: unknown): boolean {
   return /\(\s*assinante\s*\)/i.test(String(clientName || '').trim());
 }
 
+/** Match em Meus Assinantes (telefone/nome + plano pago na data). Exige serviço base R$ 0. */
+export function resolveMeusAssinantesMatch(
+  apt: SubscriberAppointmentLike | null | undefined,
+  subscriptionRows: ClientSubscriptionRowLite[] = []
+): ClientSubscriptionRowLite | null {
+  if (!apt || parseSubscriberBoolean(apt.is_loyalty_reward)) return null;
+  const basePrice = Number(apt.price ?? 0);
+  if (!Number.isFinite(basePrice) || basePrice > 0) return null;
+  if (!Array.isArray(subscriptionRows) || subscriptionRows.length === 0) return null;
+
+  const subscriptionsByPhone = buildSubscriptionsByPhoneMap(subscriptionRows);
+  const subscriptionsByName = buildSubscriptionsByNameMap(subscriptionRows);
+  return findMatchingSubscriptionForAppointment(apt, subscriptionsByPhone, subscriptionsByName);
+}
+
+/** Selo na agenda: visita de assinatura (flags explícitas OU R$ 0 + cadastro em Meus Assinantes, nunca avulso pago). */
+export function isSubscriberAppointmentForAgendaDisplay(
+  apt: SubscriberAppointmentLike | null | undefined,
+  subscriptionRows: ClientSubscriptionRowLite[] = []
+): boolean {
+  if (!apt || parseSubscriberBoolean(apt.is_loyalty_reward)) return false;
+
+  const basePrice = Number(apt.price ?? 0);
+  if (!Number.isFinite(basePrice) || basePrice > 0) return false;
+
+  if (isStrictSubscriberAppointment(apt)) return true;
+
+  const paymentMethod = String(apt.payment_method || '').trim().toLowerCase();
+  if (paymentMethod && EXPLICIT_AVULSO_PAYMENT_METHODS.has(paymentMethod)) return false;
+
+  if (subscriptionRows.length > 0) {
+    return Boolean(resolveMeusAssinantesMatch(apt, subscriptionRows));
+  }
+
+  return false;
+}
+
+export function formatSubscriberAgendaClientName(clientName: unknown): string {
+  const name = String(clientName || '').trim();
+  const base = !name || name.toUpperCase() === 'ASSINANTE' ? 'Assinante' : name;
+  const alreadyHasLabel = clientNameHasSubscriberLabel(base);
+  return alreadyHasLabel ? `${base.replace(/\s*👑\s*/g, ' ').trim()} 👑` : `${base} (ASSINANTE) 👑`;
+}
+
 /**
- * Mesma regra visual da agenda (card com "(ASSINANTE)" + R$ 0 no serviço):
- * - Concluído
- * - price (serviço base) = R$ 0 — extra/produto pode aumentar total_price
- * - is_subscriber OU "(ASSINANTE)" no nome OU payment_method = assinante
- * NÃO entra: match por telefone/plano/subscription_id sozinho.
+ * Controle financeiro / repasse: concluído + R$ 0 + cadastro em Meus Assinantes.
+ * Com lista carregada, só entra quem existe em Meus Assinantes (nunca flag solta).
  */
 export function isSubscriberAppointmentForProfessionalControl(
-  apt: SubscriberAppointmentLike | null | undefined
+  apt: SubscriberAppointmentLike | null | undefined,
+  subscriptionRows: ClientSubscriptionRowLite[] = []
 ): boolean {
   if (!apt) return false;
   if (String(apt.status || '').trim().toLowerCase() !== 'completed') return false;
+  if (parseSubscriberBoolean(apt.is_loyalty_reward)) return false;
+  const basePrice = Number(apt.price ?? 0);
+  if (!Number.isFinite(basePrice) || basePrice > 0) return false;
+
+  if (subscriptionRows.length > 0) {
+    return Boolean(resolveMeusAssinantesMatch(apt, subscriptionRows));
+  }
   return isStrictSubscriberAppointment(apt);
 }
 
@@ -210,22 +278,26 @@ export function enrichAppointmentsWithSubscriberFlags<T extends SubscriberAppoin
 
   return appointments.map((apt) => {
     const next = { ...apt } as T & SubscriberAppointmentLike;
-    next.is_subscriber = isStrictSubscriberAppointment(next);
 
-    if (!next.is_subscriber) {
+    if (!isSubscriberAppointmentForAgendaDisplay(next, subscriptionRows)) {
       return next as T;
     }
 
-    if (!String(next.subscription_id || '').trim()) {
-      const matchedSubscription = findMatchingSubscriptionForAppointment(next, subscriptionsByPhone, subscriptionsByName);
-      if (matchedSubscription) {
-        next.subscription_id =
-          String(matchedSubscription?.subscription_id || matchedSubscription?.id || '').trim() || null;
-      }
+    next.is_subscriber = true;
+
+    const matchedSubscription = findMatchingSubscriptionForAppointment(
+      next,
+      subscriptionsByPhone,
+      subscriptionsByName
+    );
+
+    if (!String(next.subscription_id || '').trim() && matchedSubscription) {
+      next.subscription_id =
+        String(matchedSubscription?.subscription_id || matchedSubscription?.id || '').trim() || null;
     }
 
     const paymentMethod = String(next.payment_method || '').toLowerCase().trim();
-    if (paymentMethod !== 'assinante') {
+    if (paymentMethod !== 'assinante' && !EXPLICIT_AVULSO_PAYMENT_METHODS.has(paymentMethod)) {
       next.payment_method = 'assinante';
     }
 

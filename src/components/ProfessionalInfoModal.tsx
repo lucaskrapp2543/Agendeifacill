@@ -1,6 +1,12 @@
-import { BarChart3, CalendarDays, DollarSign, Eye, EyeOff, Flame, TrendingUp, X } from 'lucide-react';
+import { BarChart3, CheckCircle2, Clock, Crown, DollarSign, Eye, EyeOff, Flame, Gem, RefreshCw, Scissors, Star, TrendingUp, X } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  formatSubscriberPeriodFilterLabel,
+  type SubscriberPerformancePeriod,
+  useProfessionalSubscriberControl,
+} from '../hooks/useProfessionalSubscriberControl';
 import { supabase } from '../lib/supabase';
+import { ProfessionalAttendedClientsModal } from './ProfessionalAttendedClientsModal';
 
 interface ProfessionalInfoModalProps {
   professional: {
@@ -221,6 +227,18 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   const [isLoadingPayments, setIsLoadingPayments] = useState(false);
   const [paymentHistory, setPaymentHistory] = useState<ProfessionalPaymentHistoryItem[]>([]);
   const [showPaymentHistory, setShowPaymentHistory] = useState(true);
+  const [subscriberPerformancePeriod, setSubscriberPerformancePeriod] =
+    useState<SubscriberPerformancePeriod>('current');
+  const [showSubscriberPerformanceSection, setShowSubscriberPerformanceSection] = useState(false);
+  const [showSubscriberClientsModal, setShowSubscriberClientsModal] = useState(false);
+
+  const subscriberControl = useProfessionalSubscriberControl({
+    establishmentId,
+    professional,
+    referenceDate: selectedMonth,
+    period: subscriberPerformancePeriod,
+    enabled: Boolean(establishmentId && isAuthenticated),
+  });
 
   const handlePinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -242,12 +260,6 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
       currency: 'BRL',
     }).format(value);
   };
-  const hasSubscriberFinancial =
-    subscriberMonthlyAccumulated > 0 ||
-    subscriberMonthlyPaid > 0 ||
-    subscriberMonthlyPending > 0 ||
-    subscriberAttendanceCount > 0 ||
-    subscriberSalesCount > 0;
   const hideGrossInFinancial = professional.hide_gross_in_financial === true;
   const topServiceCount = serviceInsights[0]?.count || 1;
   const topCancelledServiceCount = cancelInsightsPeriod.byService[0]?.count || 1;
@@ -414,15 +426,6 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   const lastPaymentDate = paymentHistory.find((row) => row.amount > 0)?.payment_date || null;
   const reconciledMonthlyNet = totalPaidDisplay;
   const pendingToReceive = Math.max(0, Number(monthlyNet || 0) - totalPaidDisplay);
-  const subscriberPaidPercent = subscriberMonthlyAccumulated > 0
-    ? Math.min(100, Math.round((subscriberMonthlyPaid / subscriberMonthlyAccumulated) * 100))
-    : 0;
-  const subscriberPendingPercent = subscriberMonthlyAccumulated > 0
-    ? Math.max(0, 100 - subscriberPaidPercent)
-    : 0;
-  const subscriberAveragePerAttendance = subscriberAttendanceCount > 0
-    ? subscriberMonthlyAccumulated / subscriberAttendanceCount
-    : 0;
 
   const formatDateTime = (value: string) => {
     const dt = new Date(value);
@@ -1110,671 +1113,811 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   }
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-1.5 sm:p-4"
-      onClick={onClose}
-    >
+    <>
       <div
-        className="bg-white rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-[920px] max-h-[96vh] sm:max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-1.5 sm:p-4"
+        onClick={onClose}
       >
-        {/* Header */}
-        <div className="sticky top-0 z-10 bg-gradient-to-r from-gray-900 to-black text-white px-4 py-3 sm:p-6 rounded-t-xl sm:rounded-t-2xl flex justify-between items-center gap-3">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold mb-0.5 sm:mb-1">Informações do Profissional</h2>
-            <p className="text-gray-300 text-sm">{professional.name}</p>
-          </div>
-          <button
-            onClick={onClose}
-            data-tutorial-id="professional-info-close"
-            className="p-2 hover:bg-white/20 rounded-full transition-colors"
-          >
-            <X className="w-5 h-5 sm:w-6 sm:h-6" />
-          </button>
-        </div>
-
-        {/* Foto e Info Básica */}
-        <div className="flex flex-col items-center px-4 py-4 sm:p-6 bg-gradient-to-b from-gray-100 to-white">
-          {professional.photo_url ? (
-            <img
-              src={professional.photo_url}
-              alt={professional.name}
-              className="w-20 h-20 sm:w-32 sm:h-32 rounded-full object-cover border-4 border-gray-300 mb-3 sm:mb-4"
-            />
-          ) : (
-            <div className="w-20 h-20 sm:w-32 sm:h-32 rounded-full bg-gray-200 flex items-center justify-center text-4xl sm:text-6xl mb-3 sm:mb-4">
-              👤
+        <div
+          className="bg-white rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-[920px] max-h-[96vh] sm:max-h-[90vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="sticky top-0 z-10 bg-gradient-to-r from-gray-900 to-black text-white px-4 py-3 sm:p-6 rounded-t-xl sm:rounded-t-2xl flex justify-between items-center gap-3">
+            <div>
+              <h2 className="text-xl sm:text-2xl font-bold mb-0.5 sm:mb-1">Informações do Profissional</h2>
+              <p className="text-gray-300 text-sm">{professional.name}</p>
             </div>
-          )}
-          <h3 className="text-xl sm:text-2xl font-bold text-gray-800 mb-2">{professional.name}</h3>
-          {(professional.percentage !== undefined || basePercentage !== undefined) && (
-            <span className="px-3 py-1.5 sm:px-4 sm:py-2 bg-gray-200 text-gray-800 rounded-full font-semibold text-sm sm:text-base">
-              Percentual base: {Number(basePercentage ?? professional.percentage ?? 0).toFixed(2)}%
-            </span>
-          )}
-          {metaGoalReached && metaBonusPercentage > 0 && metaServiceCount > 0 && (
-            <span className="mt-2 px-4 py-2 bg-green-100 text-green-800 rounded-full font-semibold text-sm">
-              Meta ativa: serviços da meta em {Number(metaBonusPercentage).toFixed(2)}%
-            </span>
-          )}
-        </div>
-
-        {/* Content */}
-        <div className="px-3 py-3 sm:p-6 space-y-3 sm:space-y-4">
-          {/* Botão para mostrar/ocultar valores */}
-          <div className="flex justify-end">
             <button
-              onClick={() => setShowValues(!showValues)}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors text-sm text-gray-700"
+              onClick={onClose}
+              data-tutorial-id="professional-info-close"
+              className="p-2 hover:bg-white/20 rounded-full transition-colors"
             >
-              {showValues ? (
-                <>
-                  <EyeOff className="w-4 h-4" />
-                  Ocultar Valores
-                </>
-              ) : (
-                <>
-                  <Eye className="w-4 h-4" />
-                  Mostrar Valores
-                </>
-              )}
+              <X className="w-5 h-5 sm:w-6 sm:h-6" />
             </button>
           </div>
 
-          {/* Valores Diários */}
-          <div className="bg-gradient-to-r from-green-50 to-green-100 p-3 sm:p-5 rounded-xl border-2 border-green-200">
-            <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 flex items-center gap-2 text-green-800">
-              <DollarSign className="w-5 h-5" />
-              Valores do Dia
-            </h3>
-            <div className={`grid ${hideGrossInFinancial ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'} gap-3 sm:gap-4`}>
-              {!hideGrossInFinancial && (
-                <div className="bg-white p-3 sm:p-4 rounded-lg">
-                  <p className="text-sm text-gray-600 mb-1">Valor Bruto</p>
-                  <p className="text-xl sm:text-2xl font-bold text-green-600">
-                    {showValues ? formatCurrency(dailyGross) : '••••••'}
-                  </p>
-                </div>
-              )}
-              <div className="bg-white p-3 sm:p-4 rounded-lg">
-                <p className="text-sm text-gray-600 mb-1">Valor Líquido</p>
-                <p className="text-xl sm:text-2xl font-bold text-green-700">
-                  {showValues ? formatCurrency(dailyNet) : '••••••'}
-                </p>
-              </div>
-            </div>
-            <div className="mt-3 text-center">
-              <p className="text-xs sm:text-sm text-gray-600">
-                Atendimentos concluídos hoje: <span className="font-bold text-green-800">{appointmentsToday}</span>
-              </p>
-              {subscriberDailyAttendanceCount > 0 && (
-                <p className="text-xs sm:text-sm text-purple-700 mt-1">
-                  Assinaturas hoje:{' '}
-                  <span className="font-bold">{subscriberDailyAttendanceCount}</span>
-                  {subscriberDailyAccumulated > 0 && (
-                    <>
-                      {' '}• Repasse:{' '}
-                      <span className="font-bold">
-                        {showValues ? formatCurrency(subscriberDailyAccumulated) : '••••••'}
-                      </span>
-                    </>
-                  )}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Valores Mensais */}
-          <div className="bg-gradient-to-r from-gray-100 to-gray-200 p-3 sm:p-5 rounded-xl border-2 border-gray-300">
-            <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 flex items-center gap-2 text-gray-800">
-              <TrendingUp className="w-5 h-5" />
-              Valores do Mês
-            </h3>
-            <div className={`grid ${hideGrossInFinancial ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'} gap-3 sm:gap-4`}>
-              {!hideGrossInFinancial && (
-                <div className="bg-white p-3 sm:p-4 rounded-lg">
-                  <p className="text-sm text-gray-600 mb-1">Valor Bruto</p>
-                  <p className="text-xl sm:text-2xl font-bold text-gray-800">
-                    {showValues ? formatCurrency(monthlyGross) : '••••••'}
-                  </p>
-                </div>
-              )}
-              <div className="bg-white p-3 sm:p-4 rounded-lg">
-                <p className="text-sm text-gray-600 mb-1">Valor Pago</p>
-                <p className="text-xl sm:text-2xl font-bold text-gray-900">
-                  {showValues ? formatCurrency(reconciledMonthlyNet) : '••••••'}
-                </p>
-              </div>
-            </div>
-            {Math.abs(monthlyNet - reconciledMonthlyNet) > 0.01 && (
-              <div className="mt-2 text-xs text-gray-500">
-                Líquido do mês (total): {showValues ? formatCurrency(monthlyNet) : '••••••'}
+          {/* Foto e Info Básica */}
+          <div className="flex flex-col items-center px-4 py-4 sm:p-6 bg-gradient-to-b from-gray-100 to-white">
+            {professional.photo_url ? (
+              <img
+                src={professional.photo_url}
+                alt={professional.name}
+                className="w-20 h-20 sm:w-32 sm:h-32 rounded-full object-cover border-4 border-gray-300 mb-3 sm:mb-4"
+              />
+            ) : (
+              <div className="w-20 h-20 sm:w-32 sm:h-32 rounded-full bg-gray-200 flex items-center justify-center text-4xl sm:text-6xl mb-3 sm:mb-4">
+                👤
               </div>
             )}
-            <div className="mt-3 text-center">
-              <p className="text-xs sm:text-sm text-gray-600">
-                Agendamentos avulsos este mês:{' '}
-                <span className="font-bold text-gray-800">{appointmentsMonth}</span>
-              </p>
-              {subscriberAttendanceCount > 0 && (
-                <p className="text-xs sm:text-sm text-purple-700 mt-1">
-                  Atendimentos de assinatura no mês:{' '}
-                  <span className="font-bold">{subscriberAttendanceCount}</span>
-                </p>
-              )}
-            </div>
-            {hasSubscriberFinancial && (
-              <div className="mt-4 rounded-xl border-2 border-purple-300 bg-gradient-to-r from-purple-50 via-violet-50 to-fuchsia-50 p-4 shadow-sm">
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <p className="text-sm font-bold text-purple-900 uppercase tracking-wide">
-                    Assinaturas do mês
-                  </p>
-                  <span className="text-[11px] font-semibold px-2 py-1 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
-                    Financeiro de assinantes
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                  <div className="rounded-lg border border-purple-200 bg-white/90 p-3">
-                    <p className="text-[11px] text-purple-700 font-semibold uppercase">Acumulado</p>
-                    <p className="text-lg font-bold text-purple-900">
-                      {showValues ? formatCurrency(subscriberMonthlyAccumulated) : '••••••'}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
-                    <p className="text-[11px] text-emerald-700 font-semibold uppercase">Pago</p>
-                    <p className="text-lg font-bold text-emerald-800">
-                      {showValues ? formatCurrency(subscriberMonthlyPaid) : '••••••'}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3">
-                    <p className="text-[11px] text-amber-700 font-semibold uppercase">Pendente</p>
-                    <p className="text-lg font-bold text-amber-800">
-                      {showValues ? formatCurrency(subscriberMonthlyPending) : '••••••'}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-3">
-                  <div className="flex items-center justify-between text-[11px] mb-1">
-                    <span className="font-semibold text-purple-700">Progresso de pagamento</span>
-                    <span className="font-bold text-purple-900">{subscriberPaidPercent}% pago</span>
-                  </div>
-                  <div className="w-full h-2 rounded-full bg-purple-100 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-purple-500 to-emerald-500 transition-all"
-                      style={{ width: `${subscriberPaidPercent}%` }}
-                    />
-                  </div>
-                  {subscriberPendingPercent > 0 && (
-                    <p className="text-[11px] text-amber-700 mt-1">
-                      Ainda falta {subscriberPendingPercent}% para fechar o mês das assinaturas.
-                    </p>
-                  )}
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                  <div className="rounded-lg bg-white/80 border border-purple-100 px-2 py-2">
-                    <p className="text-[10px] text-gray-600 uppercase">Atendimentos</p>
-                    <p className="text-sm font-bold text-gray-900">{subscriberAttendanceCount}</p>
-                  </div>
-                  <div className="rounded-lg bg-white/80 border border-purple-100 px-2 py-2">
-                    <p className="text-[10px] text-gray-600 uppercase">Assinantes</p>
-                    <p className="text-sm font-bold text-gray-900">{subscriberClientsCount}</p>
-                  </div>
-                  <div className="rounded-lg bg-white/80 border border-purple-100 px-2 py-2">
-                    <p className="text-[10px] text-gray-600 uppercase">Média por atendimento</p>
-                    <p className="text-sm font-bold text-gray-900">
-                      {showValues ? formatCurrency(subscriberAveragePerAttendance) : '••••••'}
-                    </p>
-                  </div>
-                  <div className="rounded-lg bg-white/80 border border-purple-100 px-2 py-2">
-                    <p className="text-[10px] text-gray-600 uppercase">Vendas (bônus)</p>
-                    <p className="text-sm font-bold text-gray-900">{subscriberSalesCount}</p>
-                  </div>
-                </div>
-              </div>
+            <h3 className="text-xl sm:text-2xl font-bold text-gray-800 mb-2">{professional.name}</h3>
+            {(professional.percentage !== undefined || basePercentage !== undefined) && (
+              <span className="px-3 py-1.5 sm:px-4 sm:py-2 bg-gray-200 text-gray-800 rounded-full font-semibold text-sm sm:text-base">
+                Percentual base: {Number(basePercentage ?? professional.percentage ?? 0).toFixed(2)}%
+              </span>
+            )}
+            {metaGoalReached && metaBonusPercentage > 0 && metaServiceCount > 0 && (
+              <span className="mt-2 px-4 py-2 bg-green-100 text-green-800 rounded-full font-semibold text-sm">
+                Meta ativa: serviços da meta em {Number(metaBonusPercentage).toFixed(2)}%
+              </span>
             )}
           </div>
 
-          {/* Desempenho inteligente */}
-          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-3 sm:p-5 rounded-xl border-2 border-slate-700 text-white">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-cyan-300" />
-                📈 Desempenho
+          {/* Content */}
+          <div className="px-3 py-3 sm:p-6 space-y-3 sm:space-y-4">
+            {/* Botão para mostrar/ocultar valores */}
+            <div className="flex justify-end">
+              <button
+                onClick={() => setShowValues(!showValues)}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors text-sm text-gray-700"
+              >
+                {showValues ? (
+                  <>
+                    <EyeOff className="w-4 h-4" />
+                    Ocultar Valores
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-4 h-4" />
+                    Mostrar Valores
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Valores Diários */}
+            <div className="bg-gradient-to-r from-green-50 to-green-100 p-3 sm:p-5 rounded-xl border-2 border-green-200">
+              <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 flex items-center gap-2 text-green-800">
+                <DollarSign className="w-5 h-5" />
+                Valores do Dia
               </h3>
-              <button
-                type="button"
-                onClick={() => setShowPerformanceInsights((prev) => !prev)}
-                className="px-3 py-1.5 rounded-lg bg-white/10 text-white text-xs font-semibold border border-white/20 hover:bg-white/15"
-              >
-                {showPerformanceInsights ? 'Ocultar' : 'Mostrar'}
-              </button>
-            </div>
-            {showPerformanceInsights && (
-              <>
-                {isLoadingPerformanceInsights ? (
-                  <div className="space-y-2">
-                    <div className="h-14 rounded-lg bg-white/10 animate-pulse" />
-                    <div className="h-14 rounded-lg bg-white/10 animate-pulse" />
-                    <div className="h-14 rounded-lg bg-white/10 animate-pulse" />
+              <div className={`grid ${hideGrossInFinancial ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'} gap-3 sm:gap-4`}>
+                {!hideGrossInFinancial && (
+                  <div className="bg-white p-3 sm:p-4 rounded-lg">
+                    <p className="text-sm text-gray-600 mb-1">Valor Bruto</p>
+                    <p className="text-xl sm:text-2xl font-bold text-green-600">
+                      {showValues ? formatCurrency(dailyGross) : '••••••'}
+                    </p>
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="rounded-lg border border-white/15 bg-black/20 p-3">
-                      <p className="text-xs uppercase tracking-wide text-cyan-200 font-semibold mb-2">Histórico dos últimos 7 dias</p>
-                      <div className="space-y-2">
-                        {last7DaysPerformance.map((day) => (
-                          <div key={day.date} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="font-semibold text-white/90">
-                                {toDayLabel(day.date)} • {formatDateOnly(day.date)}
-                              </span>
-                              <span className="font-bold text-emerald-300">
-                                {showValues ? formatCurrency(day.net) : '••••••'}
-                              </span>
+                )}
+                <div className="bg-white p-3 sm:p-4 rounded-lg">
+                  <p className="text-sm text-gray-600 mb-1">Valor Líquido</p>
+                  <p className="text-xl sm:text-2xl font-bold text-green-700">
+                    {showValues ? formatCurrency(dailyNet) : '••••••'}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 text-center">
+                <p className="text-xs sm:text-sm text-gray-600">
+                  Atendimentos concluídos hoje: <span className="font-bold text-green-800">{appointmentsToday}</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Valores Mensais */}
+            <div className="bg-gradient-to-r from-gray-100 to-gray-200 p-3 sm:p-5 rounded-xl border-2 border-gray-300">
+              <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 flex items-center gap-2 text-gray-800">
+                <TrendingUp className="w-5 h-5" />
+                Valores do Mês
+              </h3>
+              <div className={`grid ${hideGrossInFinancial ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'} gap-3 sm:gap-4`}>
+                {!hideGrossInFinancial && (
+                  <div className="bg-white p-3 sm:p-4 rounded-lg">
+                    <p className="text-sm text-gray-600 mb-1">Valor Bruto</p>
+                    <p className="text-xl sm:text-2xl font-bold text-gray-800">
+                      {showValues ? formatCurrency(monthlyGross) : '••••••'}
+                    </p>
+                  </div>
+                )}
+                <div className="bg-white p-3 sm:p-4 rounded-lg">
+                  <p className="text-sm text-gray-600 mb-1">Valor Pago</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">
+                    {showValues ? formatCurrency(reconciledMonthlyNet) : '••••••'}
+                  </p>
+                </div>
+              </div>
+              {Math.abs(monthlyNet - reconciledMonthlyNet) > 0.01 && (
+                <div className="mt-2 text-xs text-gray-500">
+                  Líquido do mês (total): {showValues ? formatCurrency(monthlyNet) : '••••••'}
+                </div>
+              )}
+              <div className="mt-3 text-center">
+                <p className="text-xs sm:text-sm text-gray-600">
+                  Agendamentos avulsos este mês:{' '}
+                  <span className="font-bold text-gray-800">{appointmentsMonth}</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Desempenho inteligente */}
+            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-3 sm:p-5 rounded-xl border-2 border-slate-700 text-white">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-cyan-300" />
+                  📈 Desempenho atendimentos
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowPerformanceInsights((prev) => !prev)}
+                  className="px-3 py-1.5 rounded-lg bg-white/10 text-white text-xs font-semibold border border-white/20 hover:bg-white/15"
+                >
+                  {showPerformanceInsights ? 'Ocultar' : 'Mostrar'}
+                </button>
+              </div>
+              {showPerformanceInsights && (
+                <>
+                  {isLoadingPerformanceInsights ? (
+                    <div className="space-y-2">
+                      <div className="h-14 rounded-lg bg-white/10 animate-pulse" />
+                      <div className="h-14 rounded-lg bg-white/10 animate-pulse" />
+                      <div className="h-14 rounded-lg bg-white/10 animate-pulse" />
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-white/15 bg-black/20 p-3">
+                        <p className="text-xs uppercase tracking-wide text-cyan-200 font-semibold mb-2">Histórico dos últimos 7 dias</p>
+                        <div className="space-y-2">
+                          {last7DaysPerformance.map((day) => (
+                            <div key={day.date} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-semibold text-white/90">
+                                  {toDayLabel(day.date)} • {formatDateOnly(day.date)}
+                                </span>
+                                <span className="font-bold text-emerald-300">
+                                  {showValues ? formatCurrency(day.net) : '••••••'}
+                                </span>
+                              </div>
+                              <div className="mt-1 text-[11px] text-white/70">
+                                {day.attendances} atendimento(s)
+                              </div>
+                              <div className="mt-2 h-1.5 rounded bg-white/10 overflow-hidden">
+                                <div
+                                  className="h-1.5 rounded bg-gradient-to-r from-cyan-400 to-emerald-400"
+                                  style={{ width: `${Math.max(8, (day.net / topLast7DaysNet) * 100)}%` }}
+                                />
+                              </div>
                             </div>
-                            <div className="mt-1 text-[11px] text-white/70">
-                              {day.attendances} atendimento(s)
-                            </div>
-                            <div className="mt-2 h-1.5 rounded bg-white/10 overflow-hidden">
-                              <div
-                                className="h-1.5 rounded bg-gradient-to-r from-cyan-400 to-emerald-400"
-                                style={{ width: `${Math.max(8, (day.net / topLast7DaysNet) * 100)}%` }}
-                              />
-                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-amber-300/30 bg-amber-400/10 p-3">
+                        <p className="text-xs uppercase tracking-wide text-amber-200 font-semibold mb-1">🏆 Melhor dia do mês</p>
+                        {currentMonthBestDay ? (
+                          <div className="space-y-1 text-sm">
+                            <p className="font-extrabold text-white">{formatDateOnly(currentMonthBestDay.date)}</p>
+                            <p className="text-white/90">💰 Lucro líquido: <strong>{showValues ? formatCurrency(currentMonthBestDay.net) : '••••••'}</strong></p>
+                            <p className="text-white/90">👥 Clientes atendidos: <strong>{currentMonthBestDay.clients}</strong></p>
+                            <p className="text-white/90">✂️ Serviços realizados: <strong>{currentMonthBestDay.services}</strong></p>
+                            <span className="inline-flex mt-1 px-2 py-0.5 rounded-full bg-amber-300/20 border border-amber-300/40 text-[11px] font-bold text-amber-100">
+                              <Flame className="w-3 h-3 mr-1" /> Recorde do mês
+                            </span>
                           </div>
+                        ) : (
+                          <p className="text-sm text-white/70">Sem dados suficientes no mês atual.</p>
+                        )}
+                      </div>
+
+                      <div className="rounded-lg border border-emerald-300/30 bg-emerald-400/10 p-3">
+                        <p className="text-xs uppercase tracking-wide text-emerald-200 font-semibold mb-1">📊 Desempenho de hoje</p>
+                        <p className="text-sm text-white/90">
+                          Já realizado líquido: <strong>{showValues ? formatCurrency(dailyNet) : '••••••'}</strong>
+                        </p>
+                        <p className="text-sm text-white/90">
+                          Concluídos: <strong>{appointmentsToday}</strong> • Faltam: <strong>{remainingTodayRows.length}</strong>
+                        </p>
+                        <p className="text-sm text-white/90">
+                          Ainda pode ganhar: <strong>{showValues ? formatCurrency(remainingPotentialNet) : '••••••'}</strong>
+                        </p>
+                        <p className="text-sm text-cyan-200 mt-1">
+                          💸 Previsão final do dia: <strong>{showValues ? formatCurrency(predictedFinalTodayNet) : '••••••'}</strong>
+                        </p>
+                        <p className="text-[11px] text-white/70 mt-1">
+                          Previsão se todos os serviços forem concluídos.
+                        </p>
+                      </div>
+
+                      <div className="rounded-lg border border-white/15 bg-black/20 p-3">
+                        <p className="text-xs uppercase tracking-wide text-cyan-200 font-semibold mb-2">💰 Histórico salarial (últimos 5 meses)</p>
+                        <div className="space-y-2">
+                          {monthlyPerformanceHistory.map((month) => (
+                            <div key={month.key} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-semibold capitalize">{month.label}</span>
+                                <span className="font-bold text-emerald-300">
+                                  {showValues ? formatCurrency(month.net) : '••••••'}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between mt-1 text-[11px] text-white/70">
+                                <span>{month.attendances} atendimentos</span>
+                                <span>
+                                  {month.growthPercent == null
+                                    ? '—'
+                                    : month.growthPercent >= 0
+                                      ? `⬆️ +${month.growthPercent.toFixed(1)}%`
+                                      : `⬇️ ${month.growthPercent.toFixed(1)}%`}
+                                </span>
+                              </div>
+                              <div className="mt-2 h-1.5 rounded bg-white/10 overflow-hidden">
+                                <div
+                                  className="h-1.5 rounded bg-gradient-to-r from-violet-400 to-cyan-400"
+                                  style={{ width: `${Math.max(8, (month.net / topMonthlyNet) * 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Desempenho em Assinaturas — separado do avulso */}
+            <div className="bg-gradient-to-br from-[#141516] via-[#1c1028] to-[#101112] p-3 sm:p-5 rounded-xl border-2 border-violet-500/30 text-white shadow-lg shadow-violet-950/20">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div>
+                  <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2">
+                    <Crown className="w-5 h-5 text-violet-300" />
+                    💈 Desempenho em Assinaturas
+                  </h3>
+                  {showSubscriberPerformanceSection ? (
+                    <p className="text-xs text-violet-200/70 mt-1">
+                      Repasses e atendimentos de plano • {subscriberControl.periodLabel}
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSubscriberPerformanceSection((prev) => !prev)}
+                  className="px-3 py-1.5 rounded-lg bg-white/10 text-white text-xs font-semibold border border-white/20 hover:bg-white/15"
+                >
+                  {showSubscriberPerformanceSection ? 'Ocultar' : 'Mostrar'}
+                </button>
+              </div>
+
+              {showSubscriberPerformanceSection && (
+                <>
+                  <div className="flex flex-wrap items-center gap-2 mb-4">
+                    {(['current', 'previous', 'last3'] as SubscriberPerformancePeriod[]).map((key) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setSubscriberPerformancePeriod(key)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${subscriberPerformancePeriod === key
+                            ? 'bg-violet-600 border-violet-400 text-white'
+                            : 'bg-white/5 border-white/15 text-violet-100 hover:bg-white/10'
+                          }`}
+                      >
+                        {formatSubscriberPeriodFilterLabel(key)}
+                      </button>
+                    ))}
+                  </div>
+                  {subscriberControl.loading ? (
+                    <div className="space-y-2">
+                      <div className="h-16 rounded-xl bg-white/10 animate-pulse" />
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {[1, 2, 3, 4, 5].map((item) => (
+                          <div key={item} className="h-14 rounded-xl bg-white/10 animate-pulse" />
                         ))}
                       </div>
                     </div>
-
-                    <div className="rounded-lg border border-amber-300/30 bg-amber-400/10 p-3">
-                      <p className="text-xs uppercase tracking-wide text-amber-200 font-semibold mb-1">🏆 Melhor dia do mês</p>
-                      {currentMonthBestDay ? (
-                        <div className="space-y-1 text-sm">
-                          <p className="font-extrabold text-white">{formatDateOnly(currentMonthBestDay.date)}</p>
-                          <p className="text-white/90">💰 Lucro líquido: <strong>{showValues ? formatCurrency(currentMonthBestDay.net) : '••••••'}</strong></p>
-                          <p className="text-white/90">👥 Clientes atendidos: <strong>{currentMonthBestDay.clients}</strong></p>
-                          <p className="text-white/90">✂️ Serviços realizados: <strong>{currentMonthBestDay.services}</strong></p>
-                          <span className="inline-flex mt-1 px-2 py-0.5 rounded-full bg-amber-300/20 border border-amber-300/40 text-[11px] font-bold text-amber-100">
-                            <Flame className="w-3 h-3 mr-1" /> Recorde do mês
-                          </span>
-                        </div>
-                      ) : (
-                        <p className="text-sm text-white/70">Sem dados suficientes no mês atual.</p>
+                  ) : !subscriberControl.hasData ? (
+                    <div className="rounded-xl border border-violet-500/20 bg-black/20 p-6 text-center">
+                      <p className="text-sm text-violet-100/80">
+                        Nenhum atendimento de assinatura neste período para {professional.name}.
+                      </p>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Os dados seguem a mesma base do Controle por Profissional em Meus Assinantes.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {subscriberControl.isOwnerProfessional && (
+                        <p className="text-xs text-emerald-300 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2">
+                          Dono (100%): repasse de assinatura não gera pagamento para si mesmo.
+                        </p>
                       )}
-                    </div>
 
-                    <div className="rounded-lg border border-emerald-300/30 bg-emerald-400/10 p-3">
-                      <p className="text-xs uppercase tracking-wide text-emerald-200 font-semibold mb-1">📊 Desempenho de hoje</p>
-                      <p className="text-sm text-white/90">
-                        Já realizado líquido: <strong>{showValues ? formatCurrency(dailyNet) : '••••••'}</strong>
-                      </p>
-                      <p className="text-sm text-white/90">
-                        Concluídos: <strong>{appointmentsToday}</strong> • Faltam: <strong>{remainingTodayRows.length}</strong>
-                      </p>
-                      <p className="text-sm text-white/90">
-                        Ainda pode ganhar: <strong>{showValues ? formatCurrency(remainingPotentialNet) : '••••••'}</strong>
-                      </p>
-                      <p className="text-sm text-cyan-200 mt-1">
-                        💸 Previsão final do dia: <strong>{showValues ? formatCurrency(predictedFinalTodayNet) : '••••••'}</strong>
-                      </p>
-                      <p className="text-[11px] text-white/70 mt-1">
-                        Previsão se todos os serviços forem concluídos.
-                      </p>
-                    </div>
-
-                    <div className="rounded-lg border border-white/15 bg-black/20 p-3">
-                      <p className="text-xs uppercase tracking-wide text-cyan-200 font-semibold mb-2">💰 Histórico salarial (últimos 5 meses)</p>
-                      <div className="space-y-2">
-                        {monthlyPerformanceHistory.map((month) => (
-                          <div key={month.key} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="font-semibold capitalize">{month.label}</span>
-                              <span className="font-bold text-emerald-300">
-                                {showValues ? formatCurrency(month.net) : '••••••'}
-                              </span>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                        {[
+                          {
+                            icon: DollarSign,
+                            label: 'Total do mês',
+                            value: showValues
+                              ? subscriberControl.fmtBRL(subscriberControl.metrics.totalValue)
+                              : '••••••',
+                            accent: 'text-emerald-300',
+                          },
+                          {
+                            icon: BarChart3,
+                            label: 'Ticket médio',
+                            value:
+                              showValues && subscriberControl.metrics.averageTicket > 0
+                                ? subscriberControl.fmtBRL(subscriberControl.metrics.averageTicket)
+                                : '—',
+                            accent: 'text-violet-300',
+                          },
+                          {
+                            icon: CheckCircle2,
+                            label: 'Pago',
+                            value: showValues
+                              ? subscriberControl.fmtBRL(subscriberControl.metrics.totalPaid)
+                              : '••••••',
+                            accent: 'text-sky-300',
+                          },
+                          {
+                            icon: Clock,
+                            label: 'Pendente',
+                            value:
+                              subscriberControl.metrics.pointsFromAttendances > 0 &&
+                                subscriberControl.metrics.totalValue <= 0 &&
+                                subscriberControl.metrics.saleCommissionCount === 0
+                                ? `${subscriberControl.metrics.pointsFromAttendances} ponto(s)`
+                                : showValues
+                                  ? subscriberControl.fmtBRL(subscriberControl.metrics.pendingValue)
+                                  : '••••••',
+                            accent:
+                              subscriberControl.metrics.pendingValue > 0 ? 'text-amber-300' : 'text-gray-300',
+                          },
+                          {
+                            icon: Scissors,
+                            label: 'Visitas',
+                            value: String(subscriberControl.metrics.attendanceCount),
+                            accent: 'text-fuchsia-300',
+                          },
+                        ].map((tile) => (
+                          <div
+                            key={tile.label}
+                            className="rounded-xl border border-violet-500/20 bg-black/25 p-3 min-w-0"
+                          >
+                            <div className="flex items-center gap-1.5 text-[11px] text-violet-200/70 mb-1.5">
+                              <tile.icon className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">{tile.label}</span>
                             </div>
-                            <div className="flex items-center justify-between mt-1 text-[11px] text-white/70">
-                              <span>{month.attendances} atendimentos</span>
-                              <span>
-                                {month.growthPercent == null
-                                  ? '—'
-                                  : month.growthPercent >= 0
-                                    ? `⬆️ +${month.growthPercent.toFixed(1)}%`
-                                    : `⬇️ ${month.growthPercent.toFixed(1)}%`}
-                              </span>
-                            </div>
-                            <div className="mt-2 h-1.5 rounded bg-white/10 overflow-hidden">
-                              <div
-                                className="h-1.5 rounded bg-gradient-to-r from-violet-400 to-cyan-400"
-                                style={{ width: `${Math.max(8, (month.net / topMonthlyNet) * 100)}%` }}
-                              />
-                            </div>
+                            <p className={`text-sm sm:text-base font-bold truncate ${tile.accent}`}>{tile.value}</p>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
 
-          {/* Serviços mais realizados (mini BI do profissional) */}
-          <div className="bg-gradient-to-r from-indigo-50 to-cyan-50 p-3 sm:p-5 rounded-xl border-2 border-indigo-200">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <h3 className="text-base sm:text-lg font-semibold text-indigo-900">Serviços mais realizados</h3>
-              <button
-                type="button"
-                onClick={() => setShowServiceInsights((prev) => !prev)}
-                className="px-3 py-1.5 rounded-lg bg-white/90 text-indigo-700 text-xs font-semibold border border-indigo-200 hover:bg-white"
-              >
-                {showServiceInsights ? 'Ocultar' : 'Mostrar'}
-              </button>
-            </div>
-            {showServiceInsights && (
-              <>
-                {serviceInsights.length === 0 ? (
-                  <p className="text-sm text-gray-600">Sem atendimentos concluídos no período para montar ranking.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {serviceInsights.slice(0, 8).map((item, idx) => (
-                      <div key={`${item.name}-${idx}`} className="rounded-lg border border-indigo-100 bg-white p-3">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2 text-xs sm:text-sm">
-                          <span className="font-semibold text-gray-900">{idx + 1}. {item.name}</span>
-                          <span className="text-indigo-700 font-bold">{item.count} atendimento(s)</span>
-                        </div>
-                        <div className="mt-1 flex items-center justify-between text-xs text-gray-600">
-                          <span>Valor gerado</span>
-                          <span className="font-semibold text-emerald-700">{showValues ? formatCurrency(item.gross) : '••••••'}</span>
-                        </div>
-                        <div className="mt-2 h-2 rounded bg-indigo-100 overflow-hidden">
-                          <div
-                            className="h-2 rounded bg-gradient-to-r from-indigo-500 to-cyan-500"
-                            style={{ width: `${Math.max(8, (item.count / topServiceCount) * 100)}%` }}
-                          />
-                        </div>
-                        <div className="mt-1 text-[11px] text-indigo-700 font-semibold">
-                          Participação: {item.sharePercent.toFixed(1)}%
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* Cancelamentos (com seletor de período) */}
-          <div className="bg-gradient-to-r from-rose-50 to-orange-50 p-3 sm:p-5 rounded-xl border-2 border-rose-200">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <h3 className="text-base sm:text-lg font-semibold text-rose-900">📅 Cancelamentos do período</h3>
-              <button
-                type="button"
-                onClick={() => setShowCancelledInsights((prev) => !prev)}
-                className="px-3 py-1.5 rounded-lg bg-white/90 text-rose-700 text-xs font-semibold border border-rose-200 hover:bg-white"
-              >
-                {showCancelledInsights ? 'Ocultar' : 'Mostrar'}
-              </button>
-            </div>
-            {showCancelledInsights && (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-rose-800 mb-1">Data inicial</label>
-                    <input
-                      type="date"
-                      value={cancelStartDate}
-                      onChange={(e) => setCancelStartDate(e.target.value)}
-                      className="w-full rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm text-gray-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-rose-800 mb-1">Data final</label>
-                    <input
-                      type="date"
-                      value={cancelEndDate}
-                      onChange={(e) => setCancelEndDate(e.target.value)}
-                      className="w-full rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm text-gray-900"
-                    />
-                  </div>
-                </div>
-                {cancelStartDate > cancelEndDate && (
-                  <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-                    A data inicial não pode ser maior que a data final.
-                  </div>
-                )}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
-                  <div className="rounded-lg border border-rose-200 bg-white p-3">
-                    <p className="text-xs text-gray-600">Cancelamentos</p>
-                    <p className="text-lg sm:text-xl font-bold text-rose-700">{cancelInsightsPeriod.totalCancelled}</p>
-                  </div>
-                  <div className="rounded-lg border border-rose-200 bg-white p-3">
-                    <p className="text-xs text-gray-600">Perdido bruto</p>
-                    <p className="text-lg sm:text-xl font-bold text-rose-700">
-                      {showValues ? formatCurrency(cancelInsightsPeriod.lostGross) : '••••••'}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-orange-200 bg-white p-3">
-                    <p className="text-xs text-gray-600">Perdido líquido (comissão)</p>
-                    <p className="text-lg sm:text-xl font-bold text-orange-700">
-                      {showValues ? formatCurrency(cancelInsightsPeriod.lostNet) : '••••••'}
-                    </p>
-                  </div>
-                </div>
-
-                {cancelInsightsPeriod.byService.length > 0 ? (
-                  <div className="space-y-2">
-                    {cancelInsightsPeriod.byService.slice(0, 6).map((item, idx) => (
-                      <div key={`cancel-${item.name}-${idx}`} className="rounded-lg border border-rose-100 bg-white p-3">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2 text-xs sm:text-sm">
-                          <span className="font-semibold text-gray-900">{idx + 1}. {item.name}</span>
-                          <span className="text-rose-700 font-bold">{item.count} cancelado(s)</span>
-                        </div>
-                        <div className="mt-1 flex items-center justify-between text-xs text-gray-600">
-                          <span>Perda bruta</span>
-                          <span className="font-semibold text-rose-700">{showValues ? formatCurrency(item.gross) : '••••••'}</span>
-                        </div>
-                        <div className="mt-2 h-2 rounded bg-rose-100 overflow-hidden">
-                          <div
-                            className="h-2 rounded bg-gradient-to-r from-rose-500 to-orange-500"
-                            style={{ width: `${Math.max(8, (item.count / topCancelledServiceCount) * 100)}%` }}
-                          />
-                        </div>
-                        <div className="mt-1 text-[11px] text-rose-700 font-semibold">
-                          Participação nos cancelamentos: {item.sharePercent.toFixed(1)}%
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-600">Sem cancelamentos no período.</p>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* Clientes sumidos */}
-          <div className="bg-gradient-to-r from-slate-50 to-gray-100 p-3 sm:p-5 rounded-xl border-2 border-slate-200">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <h3 className="text-base sm:text-lg font-semibold text-slate-900">Clientes sumidos (+30 dias)</h3>
-              <button
-                type="button"
-                onClick={() => { void handleToggleDormantClients(); }}
-                className="px-3 py-1.5 rounded-lg bg-white/90 text-slate-700 text-xs font-semibold border border-slate-200 hover:bg-white"
-              >
-                {showDormantClients ? 'Ocultar' : 'Mostrar'}
-              </button>
-            </div>
-            {showDormantClients && (
-              <>
-                {dismissedDormantKeys.length > 0 && (
-                  <div className="mb-2 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={handleRestoreHiddenDormantClients}
-                      className="px-2.5 py-1 rounded-md bg-white text-slate-700 text-xs font-semibold border border-slate-200 hover:bg-slate-50"
-                    >
-                      Reexibir ocultados
-                    </button>
-                  </div>
-                )}
-                {(isRefreshingDormantSource || (!hasDormantClientsSource && isLoadingDormantClients)) ? (
-                  <p className="text-sm text-gray-600">Carregando clientes sumidos...</p>
-                ) : visibleDormantClients.length === 0 ? (
-                  <p className="text-sm text-gray-600">Nenhum cliente acima de 30 dias sem agendar com este profissional.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {visibleDormantClients.map((client, idx) => {
-                      const whatsappUrl = buildWhatsappLink(client.whatsapp);
-                      const whatsappDisplay = formatWhatsappDisplay(client.whatsapp);
-                      return (
-                      <div key={`${client.name}-${idx}`} className="rounded-lg border border-slate-200 bg-white p-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm font-semibold text-gray-900">{client.name}</p>
-                          <div className="flex items-center gap-1.5">
-                            {whatsappUrl && (
-                              <a
-                                href={whatsappUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="px-2 py-1 rounded-md bg-green-600 text-white text-[11px] font-semibold hover:bg-green-700"
-                              >
-                                WhatsApp
-                              </a>
+                      {(subscriberControl.metrics.pointsFromAttendances > 0 ||
+                        subscriberControl.metrics.saleCommissionCount > 0) && (
+                          <div className="flex flex-wrap gap-2 text-[11px]">
+                            {subscriberControl.metrics.pointsFromAttendances > 0 && (
+                              <span className="inline-flex items-center rounded-full border border-amber-500/25 bg-amber-500/10 px-2.5 py-1 text-amber-200">
+                                {subscriberControl.metrics.pointsFromAttendances} ponto(s) sem repasse em R$
+                              </span>
                             )}
+                            {subscriberControl.metrics.saleCommissionCount > 0 && (
+                              <span className="inline-flex items-center rounded-full border border-violet-500/25 bg-violet-500/10 px-2.5 py-1 text-violet-200">
+                                {subscriberControl.metrics.saleCommissionCount} venda(s) com bônus
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                      <div className="rounded-xl border border-violet-500/20 bg-black/20 p-4">
+                        <div className="flex items-center justify-between gap-2 mb-3">
+                          <p className="text-xs font-semibold text-violet-100 uppercase tracking-wide">
+                            Clientes de assinatura atendidos
+                          </p>
+                          {subscriberControl.metrics.uniqueClientsCount > 0 && (
                             <button
                               type="button"
-                              onClick={() => handleDismissDormantClient(client)}
-                              className="px-2 py-1 rounded-md bg-slate-100 text-slate-700 text-[11px] font-semibold border border-slate-200 hover:bg-slate-200"
-                              title="Ocultar cliente desta lista"
+                              onClick={() => setShowSubscriberClientsModal(true)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-200 hover:bg-sky-500/20 transition-colors"
                             >
-                              X
+                              Ver detalhes ({subscriberControl.metrics.attendanceCount} visitas · {subscriberControl.metrics.uniqueClientsCount} assinantes)
                             </button>
+                          )}
+                        </div>
+                        {subscriberControl.metrics.uniqueClientsCount === 0 ? (
+                          <p className="text-xs text-gray-500">Nenhum assinante atendido neste período.</p>
+                        ) : (
+                          <p className="text-xs text-gray-400">
+                            Abra o detalhamento para ver cada atendimento com data, horário, serviço e mensalidade.
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="rounded-xl border border-amber-500/25 bg-gradient-to-br from-amber-500/10 to-orange-500/5 p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Star className="w-4 h-4 text-amber-300" />
+                          <p className="text-xs font-semibold text-amber-100 uppercase tracking-wide">
+                            Assinantes exclusivos
+                          </p>
+                        </div>
+                        {subscriberControl.exclusiveSubscribers.length === 0 ? (
+                          <p className="text-xs text-gray-500">
+                            Nenhum assinante configurado para agendar somente com este profissional.
+                          </p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {subscriberControl.exclusiveSubscribers.map((subscriber) => (
+                              <span
+                                key={subscriber.id}
+                                title={subscriber.name}
+                                className="group inline-flex max-w-full items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-amber-50 transition-all hover:border-amber-300/60 hover:bg-amber-400/20 hover:shadow-md hover:shadow-amber-500/10"
+                              >
+                                <Gem className="w-3.5 h-3.5 text-amber-300 shrink-0 group-hover:scale-110 transition-transform" />
+                                <span className="truncate">{subscriber.name}</span>
+                                <span className="hidden sm:inline rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-200">
+                                  EXCLUSIVO
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => void subscriberControl.refresh()}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-medium text-gray-200 hover:bg-white/10 transition-colors"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${subscriberControl.loading ? 'animate-spin' : ''}`} />
+                          Atualizar assinaturas
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Serviços mais realizados (mini BI do profissional) */}
+            <div className="bg-gradient-to-r from-indigo-50 to-cyan-50 p-3 sm:p-5 rounded-xl border-2 border-indigo-200">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <h3 className="text-base sm:text-lg font-semibold text-indigo-900">Serviços mais realizados</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowServiceInsights((prev) => !prev)}
+                  className="px-3 py-1.5 rounded-lg bg-white/90 text-indigo-700 text-xs font-semibold border border-indigo-200 hover:bg-white"
+                >
+                  {showServiceInsights ? 'Ocultar' : 'Mostrar'}
+                </button>
+              </div>
+              {showServiceInsights && (
+                <>
+                  {serviceInsights.length === 0 ? (
+                    <p className="text-sm text-gray-600">Sem atendimentos concluídos no período para montar ranking.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {serviceInsights.slice(0, 8).map((item, idx) => (
+                        <div key={`${item.name}-${idx}`} className="rounded-lg border border-indigo-100 bg-white p-3">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2 text-xs sm:text-sm">
+                            <span className="font-semibold text-gray-900">{idx + 1}. {item.name}</span>
+                            <span className="text-indigo-700 font-bold">{item.count} atendimento(s)</span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between text-xs text-gray-600">
+                            <span>Valor gerado</span>
+                            <span className="font-semibold text-emerald-700">{showValues ? formatCurrency(item.gross) : '••••••'}</span>
+                          </div>
+                          <div className="mt-2 h-2 rounded bg-indigo-100 overflow-hidden">
+                            <div
+                              className="h-2 rounded bg-gradient-to-r from-indigo-500 to-cyan-500"
+                              style={{ width: `${Math.max(8, (item.count / topServiceCount) * 100)}%` }}
+                            />
+                          </div>
+                          <div className="mt-1 text-[11px] text-indigo-700 font-semibold">
+                            Participação: {item.sharePercent.toFixed(1)}%
                           </div>
                         </div>
-                        {whatsappDisplay && (
-                          <p className="text-xs text-gray-600 mt-1">WhatsApp: {whatsappDisplay}</p>
-                        )}
-                        <p className="text-xs text-gray-600 mt-1">
-                          Última visita: {formatDateOnly(client.lastVisitDate)} ({client.daysWithoutBooking} dias sem aparecer)
-                        </p>
-                        <p className="text-xs text-gray-600">Serviço recorrente: {client.favoriteService}</p>
-                        <p className="text-xs text-gray-700 font-semibold mt-1">
-                          Total gasto: {showValues ? formatCurrency(client.totalSpent) : '••••••'}
-                        </p>
-                      </div>
-                    );
-                    })}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* Histórico financeiro do colaborador (igual ao financeiro) */}
-          <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-3 sm:p-5 rounded-xl border-2 border-blue-200">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3 sm:mb-4">
-              <h3 className="text-base sm:text-lg font-semibold text-blue-800">Histórico de pagamentos do mês</h3>
-              <button
-                onClick={() => setShowPaymentHistory((prev) => !prev)}
-                className="px-3 py-1.5 rounded-lg bg-white/80 text-blue-700 text-xs font-semibold border border-blue-200 hover:bg-white"
-              >
-                {showPaymentHistory ? 'Ocultar histórico' : 'Mostrar histórico'}
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-              <div className="bg-white rounded-lg p-3 border border-blue-100">
-                <p className="text-xs text-gray-600">Total pago</p>
-                <p className="text-lg sm:text-xl font-bold text-green-700">
-                  {showValues ? formatCurrency(totalPaidDisplay) : '••••••'}
-                </p>
-              </div>
-              <div className="bg-white rounded-lg p-3 border border-blue-100">
-                <p className="text-xs text-gray-600">Pendente para receber</p>
-                <p className="text-lg sm:text-xl font-bold text-blue-800">
-                  {showValues ? formatCurrency(pendingToReceive) : '••••••'}
-                </p>
-              </div>
-              <div className="bg-white rounded-lg p-3 border border-blue-100">
-                <p className="text-xs text-gray-600">Status</p>
-                <p className={`text-lg sm:text-xl font-bold ${pendingToReceive > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
-                  {pendingToReceive > 0 ? 'Pendente' : 'Em dia'}
-                </p>
-              </div>
-            </div>
-
-            <div className="text-xs text-blue-800 mb-3">
-              {paymentCount} pagamento(s) no mês
-              {lastPaymentDate ? ` • Último pagamento: ${formatDateTime(lastPaymentDate)}` : ''}
-              {totalWithdrawnDisplay > 0 ? ` • Retirado: ${showValues ? formatCurrency(totalWithdrawnDisplay) : '••••••'}` : ''}
-            </div>
-
-            {showPaymentHistory && (
-              <div className="bg-white rounded-lg border border-blue-100 p-3 max-h-56 overflow-y-auto space-y-2">
-                {isLoadingPayments ? (
-                  <p className="text-sm text-gray-500">Carregando histórico...</p>
-                ) : paymentHistory.length === 0 ? (
-                  <p className="text-sm text-gray-500">Nenhum pagamento registrado neste mês.</p>
-                ) : (
-                  paymentHistory.map((row) => (
-                    <div key={row.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-2 rounded border border-gray-100 bg-gray-50">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-800">
-                          {showValues
-                            ? formatCurrency(Math.abs(row.amount))
-                            : '••••••'}
-                        </p>
-                        <p className="text-xs text-gray-500">{formatDateTime(row.payment_date)}</p>
-                      </div>
-                      <span className={`text-xs font-semibold ${row.amount >= 0 ? 'text-green-600' : 'text-orange-600'}`}>
-                        {row.amount >= 0 ? 'Pago' : 'Retirado'}
-                      </span>
+                      ))}
                     </div>
-                  ))
-                )}
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Cancelamentos (com seletor de período) */}
+            <div className="bg-gradient-to-r from-rose-50 to-orange-50 p-3 sm:p-5 rounded-xl border-2 border-rose-200">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <h3 className="text-base sm:text-lg font-semibold text-rose-900">📅 Cancelamentos do período</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowCancelledInsights((prev) => !prev)}
+                  className="px-3 py-1.5 rounded-lg bg-white/90 text-rose-700 text-xs font-semibold border border-rose-200 hover:bg-white"
+                >
+                  {showCancelledInsights ? 'Ocultar' : 'Mostrar'}
+                </button>
               </div>
-            )}
+              {showCancelledInsights && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-rose-800 mb-1">Data inicial</label>
+                      <input
+                        type="date"
+                        value={cancelStartDate}
+                        onChange={(e) => setCancelStartDate(e.target.value)}
+                        className="w-full rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-rose-800 mb-1">Data final</label>
+                      <input
+                        type="date"
+                        value={cancelEndDate}
+                        onChange={(e) => setCancelEndDate(e.target.value)}
+                        className="w-full rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm text-gray-900"
+                      />
+                    </div>
+                  </div>
+                  {cancelStartDate > cancelEndDate && (
+                    <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                      A data inicial não pode ser maior que a data final.
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
+                    <div className="rounded-lg border border-rose-200 bg-white p-3">
+                      <p className="text-xs text-gray-600">Cancelamentos</p>
+                      <p className="text-lg sm:text-xl font-bold text-rose-700">{cancelInsightsPeriod.totalCancelled}</p>
+                    </div>
+                    <div className="rounded-lg border border-rose-200 bg-white p-3">
+                      <p className="text-xs text-gray-600">Perdido bruto</p>
+                      <p className="text-lg sm:text-xl font-bold text-rose-700">
+                        {showValues ? formatCurrency(cancelInsightsPeriod.lostGross) : '••••••'}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-orange-200 bg-white p-3">
+                      <p className="text-xs text-gray-600">Perdido líquido (comissão)</p>
+                      <p className="text-lg sm:text-xl font-bold text-orange-700">
+                        {showValues ? formatCurrency(cancelInsightsPeriod.lostNet) : '••••••'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {cancelInsightsPeriod.byService.length > 0 ? (
+                    <div className="space-y-2">
+                      {cancelInsightsPeriod.byService.slice(0, 6).map((item, idx) => (
+                        <div key={`cancel-${item.name}-${idx}`} className="rounded-lg border border-rose-100 bg-white p-3">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2 text-xs sm:text-sm">
+                            <span className="font-semibold text-gray-900">{idx + 1}. {item.name}</span>
+                            <span className="text-rose-700 font-bold">{item.count} cancelado(s)</span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between text-xs text-gray-600">
+                            <span>Perda bruta</span>
+                            <span className="font-semibold text-rose-700">{showValues ? formatCurrency(item.gross) : '••••••'}</span>
+                          </div>
+                          <div className="mt-2 h-2 rounded bg-rose-100 overflow-hidden">
+                            <div
+                              className="h-2 rounded bg-gradient-to-r from-rose-500 to-orange-500"
+                              style={{ width: `${Math.max(8, (item.count / topCancelledServiceCount) * 100)}%` }}
+                            />
+                          </div>
+                          <div className="mt-1 text-[11px] text-rose-700 font-semibold">
+                            Participação nos cancelamentos: {item.sharePercent.toFixed(1)}%
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-600">Sem cancelamentos no período.</p>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Clientes sumidos */}
+            <div className="bg-gradient-to-r from-slate-50 to-gray-100 p-3 sm:p-5 rounded-xl border-2 border-slate-200">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <h3 className="text-base sm:text-lg font-semibold text-slate-900">Clientes sumidos (+30 dias)</h3>
+                <button
+                  type="button"
+                  onClick={() => { void handleToggleDormantClients(); }}
+                  className="px-3 py-1.5 rounded-lg bg-white/90 text-slate-700 text-xs font-semibold border border-slate-200 hover:bg-white"
+                >
+                  {showDormantClients ? 'Ocultar' : 'Mostrar'}
+                </button>
+              </div>
+              {showDormantClients && (
+                <>
+                  {dismissedDormantKeys.length > 0 && (
+                    <div className="mb-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={handleRestoreHiddenDormantClients}
+                        className="px-2.5 py-1 rounded-md bg-white text-slate-700 text-xs font-semibold border border-slate-200 hover:bg-slate-50"
+                      >
+                        Reexibir ocultados
+                      </button>
+                    </div>
+                  )}
+                  {(isRefreshingDormantSource || (!hasDormantClientsSource && isLoadingDormantClients)) ? (
+                    <p className="text-sm text-gray-600">Carregando clientes sumidos...</p>
+                  ) : visibleDormantClients.length === 0 ? (
+                    <p className="text-sm text-gray-600">Nenhum cliente acima de 30 dias sem agendar com este profissional.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {visibleDormantClients.map((client, idx) => {
+                        const whatsappUrl = buildWhatsappLink(client.whatsapp);
+                        const whatsappDisplay = formatWhatsappDisplay(client.whatsapp);
+                        return (
+                          <div key={`${client.name}-${idx}`} className="rounded-lg border border-slate-200 bg-white p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm font-semibold text-gray-900">{client.name}</p>
+                              <div className="flex items-center gap-1.5">
+                                {whatsappUrl && (
+                                  <a
+                                    href={whatsappUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-2 py-1 rounded-md bg-green-600 text-white text-[11px] font-semibold hover:bg-green-700"
+                                  >
+                                    WhatsApp
+                                  </a>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleDismissDormantClient(client)}
+                                  className="px-2 py-1 rounded-md bg-slate-100 text-slate-700 text-[11px] font-semibold border border-slate-200 hover:bg-slate-200"
+                                  title="Ocultar cliente desta lista"
+                                >
+                                  X
+                                </button>
+                              </div>
+                            </div>
+                            {whatsappDisplay && (
+                              <p className="text-xs text-gray-600 mt-1">WhatsApp: {whatsappDisplay}</p>
+                            )}
+                            <p className="text-xs text-gray-600 mt-1">
+                              Última visita: {formatDateOnly(client.lastVisitDate)} ({client.daysWithoutBooking} dias sem aparecer)
+                            </p>
+                            <p className="text-xs text-gray-600">Serviço recorrente: {client.favoriteService}</p>
+                            <p className="text-xs text-gray-700 font-semibold mt-1">
+                              Total gasto: {showValues ? formatCurrency(client.totalSpent) : '••••••'}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Histórico financeiro do colaborador (igual ao financeiro) */}
+            <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-3 sm:p-5 rounded-xl border-2 border-blue-200">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3 sm:mb-4">
+                <h3 className="text-base sm:text-lg font-semibold text-blue-800">Histórico de pagamentos do mês</h3>
+                <button
+                  onClick={() => setShowPaymentHistory((prev) => !prev)}
+                  className="px-3 py-1.5 rounded-lg bg-white/80 text-blue-700 text-xs font-semibold border border-blue-200 hover:bg-white"
+                >
+                  {showPaymentHistory ? 'Ocultar histórico' : 'Mostrar histórico'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                <div className="bg-white rounded-lg p-3 border border-blue-100">
+                  <p className="text-xs text-gray-600">Total pago</p>
+                  <p className="text-lg sm:text-xl font-bold text-green-700">
+                    {showValues ? formatCurrency(totalPaidDisplay) : '••••••'}
+                  </p>
+                </div>
+                <div className="bg-white rounded-lg p-3 border border-blue-100">
+                  <p className="text-xs text-gray-600">Pendente para receber</p>
+                  <p className="text-lg sm:text-xl font-bold text-blue-800">
+                    {showValues ? formatCurrency(pendingToReceive) : '••••••'}
+                  </p>
+                </div>
+                <div className="bg-white rounded-lg p-3 border border-blue-100">
+                  <p className="text-xs text-gray-600">Status</p>
+                  <p className={`text-lg sm:text-xl font-bold ${pendingToReceive > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                    {pendingToReceive > 0 ? 'Pendente' : 'Em dia'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="text-xs text-blue-800 mb-3">
+                {paymentCount} pagamento(s) no mês
+                {lastPaymentDate ? ` • Último pagamento: ${formatDateTime(lastPaymentDate)}` : ''}
+                {totalWithdrawnDisplay > 0 ? ` • Retirado: ${showValues ? formatCurrency(totalWithdrawnDisplay) : '••••••'}` : ''}
+              </div>
+
+              {showPaymentHistory && (
+                <div className="bg-white rounded-lg border border-blue-100 p-3 max-h-56 overflow-y-auto space-y-2">
+                  {isLoadingPayments ? (
+                    <p className="text-sm text-gray-500">Carregando histórico...</p>
+                  ) : paymentHistory.length === 0 ? (
+                    <p className="text-sm text-gray-500">Nenhum pagamento registrado neste mês.</p>
+                  ) : (
+                    paymentHistory.map((row) => (
+                      <div key={row.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-2 rounded border border-gray-100 bg-gray-50">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-800">
+                            {showValues
+                              ? formatCurrency(Math.abs(row.amount))
+                              : '••••••'}
+                          </p>
+                          <p className="text-xs text-gray-500">{formatDateTime(row.payment_date)}</p>
+                        </div>
+                        <span className={`text-xs font-semibold ${row.amount >= 0 ? 'text-green-600' : 'text-orange-600'}`}>
+                          {row.amount >= 0 ? 'Pago' : 'Retirado'}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Explicação dos valores */}
+            <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
+              <h4 className="font-semibold text-gray-800 mb-2">💡 Sobre os Valores</h4>
+              <ul className="text-xs sm:text-sm text-gray-600 space-y-1">
+                {!hideGrossInFinancial && <li>• <strong>Valor Bruto:</strong> Total sem descontos</li>}
+                <li>• <strong>Valor Pago:</strong> Total de pagamentos já registrados no mês</li>
+                <li>• <strong>Líquido do mês (total):</strong> Valor líquido total apurado dos atendimentos do mês</li>
+                {(professional.percentage !== undefined || basePercentage !== undefined) && (
+                  <li>• <strong>Percentual base:</strong> {Number(basePercentage ?? professional.percentage ?? 0).toFixed(2)}%</li>
+                )}
+                {metaGoalReached && metaBonusPercentage > 0 && metaServiceCount > 0 && (
+                  <li>
+                    • <strong>Meta batida:</strong> serviços da meta usam{' '}
+                    <strong>{Number(metaBonusPercentage).toFixed(2)}%</strong>; serviços fora da meta seguem no percentual base.
+                  </li>
+                )}
+                <li className="pt-2 text-yellow-700">⚠️ <strong>Importante:</strong> Valores pendentes não são contabilizados</li>
+              </ul>
+            </div>
           </div>
 
-          {/* Explicação dos valores */}
-          <div className="bg-gray-50 p-3 sm:p-4 rounded-lg">
-            <h4 className="font-semibold text-gray-800 mb-2">💡 Sobre os Valores</h4>
-            <ul className="text-xs sm:text-sm text-gray-600 space-y-1">
-              {!hideGrossInFinancial && <li>• <strong>Valor Bruto:</strong> Total sem descontos</li>}
-              <li>• <strong>Valor Pago:</strong> Total de pagamentos já registrados no mês</li>
-              <li>• <strong>Líquido do mês (total):</strong> Valor líquido total apurado dos atendimentos do mês</li>
-              {(professional.percentage !== undefined || basePercentage !== undefined) && (
-                <li>• <strong>Percentual base:</strong> {Number(basePercentage ?? professional.percentage ?? 0).toFixed(2)}%</li>
-              )}
-              {metaGoalReached && metaBonusPercentage > 0 && metaServiceCount > 0 && (
-                <li>
-                  • <strong>Meta batida:</strong> serviços da meta usam{' '}
-                  <strong>{Number(metaBonusPercentage).toFixed(2)}%</strong>; serviços fora da meta seguem no percentual base.
-                </li>
-              )}
-              {hasSubscriberFinancial && (
-                <li>• <strong>Assinaturas:</strong> o pendente de assinaturas do mês já está somado no valor mensal</li>
-              )}
-              <li className="pt-2 text-yellow-700">⚠️ <strong>Importante:</strong> Valores pendentes não são contabilizados</li>
-            </ul>
+          {/* Footer */}
+          <div className="sticky bottom-0 bg-gray-50 p-3 sm:p-4 rounded-b-xl sm:rounded-b-2xl border-t">
+            <button
+              onClick={onClose}
+              className="w-full py-2.5 sm:py-3 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 transition-colors"
+            >
+              Fechar
+            </button>
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="sticky bottom-0 bg-gray-50 p-3 sm:p-4 rounded-b-xl sm:rounded-b-2xl border-t">
-          <button
-            onClick={onClose}
-            className="w-full py-2.5 sm:py-3 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 transition-colors"
-          >
-            Fechar
-          </button>
         </div>
       </div>
-    </div>
+
+      {establishmentId && (
+        <ProfessionalAttendedClientsModal
+          open={showSubscriberClientsModal}
+          onClose={() => setShowSubscriberClientsModal(false)}
+          professional={professional.name}
+          groupKey={subscriberControl.groupKey}
+          subscriberAttendances={subscriberControl.subscriberAttendances}
+          clientSubscriptions={subscriberControl.clientSubscriptions}
+          selectedMonth={subscriberControl.modalSelectedMonth}
+          selectedYear={subscriberControl.modalSelectedYear}
+          monthLabel={subscriberControl.monthLabelForModal}
+          establishmentId={establishmentId}
+          fmtBRL={subscriberControl.fmtBRL}
+          getProfessionalGroupFromAttendance={subscriberControl.getProfessionalGroupFromAttendance}
+          getAttendanceEffectiveRepass={subscriberControl.getAttendanceEffectiveRepass}
+          exclusiveSubscriberIds={subscriberControl.exclusiveSubscriberIds}
+          defaultView="timeline"
+        />
+      )}
+    </>
   );
 };
 

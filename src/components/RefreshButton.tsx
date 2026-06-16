@@ -1,5 +1,6 @@
 import { RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { shouldShowV30UpdatePrompt } from '../utils/versionManager';
 import { clearAllCaches, unregisterServiceWorker } from '../utils/serviceWorker';
 
 export const RefreshButton = () => {
@@ -44,6 +45,7 @@ export const RefreshButton = () => {
   const isEstablishmentDashboard = currentPath.startsWith('/dashboard/establishment');
   const isAdminDashboard = currentPath.startsWith('/dashboard/admin');
   if (!isEstablishmentDashboard && !isAdminDashboard) return null;
+  if (shouldShowV30UpdatePrompt()) return null;
 
   const hardRefresh = async () => {
     try {
