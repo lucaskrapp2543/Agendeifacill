@@ -1,6 +1,6 @@
 import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Accessibility, AlertTriangle, Armchair, Bell, Building2, Calendar, CarFront, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Coffee, Copy, CreditCard, Crown, CupSoda, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Music2, Package, Phone, Plus, Receipt, Shuffle, Snowflake, Star, Tag, Trash2, TrendingUp, Tv, User, Users, UtensilsCrossed, Wifi, X, type LucideIcon } from 'lucide-react';
+import { Accessibility, AlertTriangle, Armchair, Bell, Building2, Calendar, CarFront, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Coffee, Copy, CreditCard, Crown, CupSoda, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Music2, Package, Phone, Plus, Receipt, RefreshCw, Shuffle, Snowflake, Star, Tag, Trash2, TrendingUp, Tv, User, Users, UtensilsCrossed, Wifi, X, type LucideIcon } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast as hotToast } from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -905,6 +905,8 @@ const EstablishmentDashboard = () => {
   const APPOINTMENTS_MAINTENANCE_COOLDOWN_MS = 90_000;
   const DASHBOARD_AUX_FETCH_DEDUPE_MS = 5000;
   const [clients, setClients] = useState<Client[]>([]);
+  const [isLoadingClients, setIsLoadingClients] = useState(false);
+  const fetchClientsInFlightRef = useRef(false);
   const [dormantClientsByProfessional, setDormantClientsByProfessional] = useState<Record<string, ProfessionalDormantClient[]>>({});
   const [clientInsightsLast60d, setClientInsightsLast60d] = useState<ClientInsightsLast60d>({
     singleVisitClients: 0,
@@ -15069,6 +15071,7 @@ Estamos te aguardando!`;
 
   useEffect(() => {
     if (establishment && (activeTab === 'clients' || activeTab === 'subscribers' || activeTab === 'client-loyalty-bulk')) {
+      setIsLoadingClients(true);
       fetchClients();
     }
   }, [establishment, activeTab]);
@@ -19916,10 +19919,14 @@ Estamos te aguardando!`;
   // Função para buscar e agrupar clientes
   const fetchClients = async () => {
     if (!establishment) return;
+    if (fetchClientsInFlightRef.current) return;
+
+    fetchClientsInFlightRef.current = true;
+    setIsLoadingClients(true);
 
     try {
       // Assinantes em "Meus assinantes" também viram contato em "Meus Clientes" (retrocompatível).
-      await syncSubscribersToManualClients(establishment.id).catch((syncError) => {
+      void syncSubscribersToManualClients(establishment.id).catch((syncError) => {
         console.warn('⚠️ Falha ao sincronizar assinantes em Meus Clientes:', syncError);
       });
 
@@ -20599,6 +20606,9 @@ Estamos te aguardando!`;
       console.error('Erro ao buscar clientes:', error);
       setDormantClientsByProfessional({});
       toast(error.message || 'Erro ao carregar clientes', 'error');
+    } finally {
+      setIsLoadingClients(false);
+      fetchClientsInFlightRef.current = false;
     }
   };
 
@@ -36326,7 +36336,9 @@ Estamos te aguardando!`;
                   <div className="flex items-center justify-between">
                     <h2 className="text-2xl font-bold text-gray-900">Meus Clientes</h2>
                     <div className="bg-gray-800 text-white px-3 py-1 rounded-full text-sm font-medium">
-                      {filteredClients.length} {filteredClients.length === 1 ? 'cliente' : 'clientes'}
+                      {isLoadingClients && clients.length === 0
+                        ? 'Carregando...'
+                        : `${filteredClients.length} ${filteredClients.length === 1 ? 'cliente' : 'clientes'}`}
                     </div>
                   </div>
                   <p className="text-gray-600 mb-4">
@@ -36565,11 +36577,28 @@ Estamos te aguardando!`;
                     </div>
                   )}
 
+                  {isLoadingClients && clients.length > 0 && (
+                    <div className="mb-4 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                      <RefreshCw className="h-4 w-4 animate-spin shrink-0" />
+                      Atualizando lista de clientes...
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredClients.length === 0 ? (
+                    {isLoadingClients && clients.length === 0 ? (
+                      <div className="col-span-full text-center py-12 bg-white rounded-lg border border-gray-300">
+                        <RefreshCw className="h-10 w-10 mx-auto mb-3 text-gray-500 animate-spin" />
+                        <p className="text-gray-700 font-medium">Carregando clientes...</p>
+                        <p className="text-sm text-gray-500 mt-1">Aguarde um instante, estamos buscando sua lista.</p>
+                      </div>
+                    ) : filteredClients.length === 0 ? (
                       <div className="col-span-full text-center py-8 bg-white rounded-lg border border-gray-300">
                         <Users className="h-12 w-12 mx-auto mb-2 text-gray-400 opacity-30" />
-                        <p className="text-gray-500">Nenhum cliente encontrado.</p>
+                        <p className="text-gray-500">
+                          {searchQuery.trim() || showBirthdayFilter
+                            ? 'Nenhum cliente encontrado para este filtro.'
+                            : 'Nenhum cliente encontrado.'}
+                        </p>
                       </div>
                     ) : (
                       paginatedClients.map((client, index) => {

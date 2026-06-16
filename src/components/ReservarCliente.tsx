@@ -1,5 +1,5 @@
 import { CheckCircle, Clock, Scissors, Search, Star, User } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { isDateInsidePaidSubscription } from '../lib/subscriberAppointmentFlags';
@@ -188,6 +188,9 @@ export default function ReservarCliente({
   const [clientSearchQuery, setClientSearchQuery] = useState<string>('');
   const [serviceSearchQuery, setServiceSearchQuery] = useState<string>('');
   const [loadingClients, setLoadingClients] = useState(false);
+  const [isEnrichingClients, setIsEnrichingClients] = useState(false);
+  const loadClientsInFlightRef = useRef(false);
+  const clientsLoadRequestRef = useRef(0);
   const [showAddClientInline, setShowAddClientInline] = useState(false);
   const [newKnownClientName, setNewKnownClientName] = useState('');
   const [newKnownClientWhatsapp, setNewKnownClientWhatsapp] = useState('');
@@ -498,213 +501,251 @@ export default function ReservarCliente({
     return Math.max(0, 11 - base.getMonth());
   };
 
-  // Função para carregar clientes do estabelecimento
-  const loadClients = async () => {
+  const sortClientsForPicker = (list: Client[]) =>
+    [...list].sort((a, b) => {
+      const subDiff = Number(Boolean(b.isSubscriber)) - Number(Boolean(a.isSubscriber));
+      if (subDiff !== 0) return subDiff;
+      return a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
+    });
+
+  const mergeManualClientsFromStorage = (clientsMap: Map<string, Client>) => {
     if (!establishmentId) return;
+    const storageKey = `manual_clients_${establishmentId}`;
+    const manualClients = JSON.parse(localStorage.getItem(storageKey) || '{}');
 
-    setLoadingClients(true);
-    try {
+    Object.values(manualClients).forEach((manualClient: any) => {
+      const cleanWhatsapp = normalizeWhatsappKey(manualClient?.whatsapp);
+      const nome = String(manualClient?.name || '').trim();
+      const whatsappOriginal = String(manualClient?.whatsapp || '').trim();
+      if (!cleanWhatsapp || !nome || !whatsappOriginal) return;
 
-      // Assinantes cadastrados só em "Meus assinantes" também entram em "Meus Clientes".
-      await syncSubscribersToManualClients(establishmentId).catch((syncError) => {
-        console.warn('⚠️ Falha ao sincronizar assinantes em Meus Clientes:', syncError);
-      });
-
-      // Buscar todos os agendamentos do estabelecimento com paginação
-      // (Não filtrar is_avulso aqui, senão a lista pode ficar vazia mesmo tendo clientes no "Meus Clientes")
-      const appointmentPageSize = 1000;
-      let appointmentFrom = 0;
-      const appointments: any[] = [];
-      while (true) {
-        const { data, error } = await supabase
-          .from('appointments')
-          .select('client_id, client_name, client_whatsapp, is_avulso')
-          .eq('establishment_id', establishmentId)
-          .not('client_name', 'is', null)
-          .not('client_whatsapp', 'is', null)
-          .order('created_at', { ascending: false })
-          .range(appointmentFrom, appointmentFrom + appointmentPageSize - 1);
-
-        if (error) {
-          console.error('❌ Erro ao buscar clientes:', error);
-          throw error;
-        }
-
-        const rows = Array.isArray(data) ? data : [];
-        appointments.push(...rows);
-        if (rows.length < appointmentPageSize) break;
-        appointmentFrom += appointmentPageSize;
+      const clientId = `manual_${cleanWhatsapp}`;
+      if (!clientsMap.has(cleanWhatsapp)) {
+        clientsMap.set(cleanWhatsapp, {
+          id: clientId,
+          name: nome,
+          whatsapp: whatsappOriginal,
+          appointmentCount: 0,
+        });
+        return;
       }
 
-      // Agrupar por WhatsApp (chave única para identificar cliente)
-      const clientsMap = new Map<string, Client>();
+      const existing = clientsMap.get(cleanWhatsapp)!;
+      existing.name = nome;
+      existing.whatsapp = whatsappOriginal;
+    });
+  };
 
-      if (appointments && appointments.length > 0) {
-        appointments.forEach((appointment) => {
-          const rawWhatsapp = (appointment as any)?.client_whatsapp;
-          const keyWhatsapp = normalizeWhatsappKey(rawWhatsapp);
-          if (!keyWhatsapp) return; // Pular se não tiver WhatsApp
+  const mergeManualClientsFromDbRows = (clientsMap: Map<string, Client>, manualDb: any[]) => {
+    manualDb.forEach((mc: any) => {
+      const cleanWhatsapp = normalizeWhatsappKey(mc?.whatsapp);
+      const nome = String(mc?.name || '').trim();
+      const whatsappOriginal = String(mc?.whatsapp || '').trim();
+      if (!cleanWhatsapp || !nome || !whatsappOriginal) return;
 
-          // Usar client_id se existir e for UUID válido, senão usar manual_whatsapp
-          const clientId =
-            (appointment as any)?.client_id && !String((appointment as any)?.client_id || '').startsWith('manual_')
-              ? String((appointment as any)?.client_id)
-              : `manual_${keyWhatsapp}`;
+      if (clientsMap.has(cleanWhatsapp)) {
+        const existing = clientsMap.get(cleanWhatsapp)!;
+        existing.name = nome;
+        existing.whatsapp = whatsappOriginal;
+        existing.id = String(mc?.id || existing.id);
+        return;
+      }
 
-          // Usar WhatsApp normalizado como chave do Map para garantir dedupe
-          if (!clientsMap.has(keyWhatsapp)) {
-            clientsMap.set(keyWhatsapp, {
-              id: clientId, // Manter o ID original para uso no banco
-              name: (appointment as any)?.client_name || 'Cliente sem nome',
-              whatsapp: String(rawWhatsapp || '').replace(/\D/g, '') || keyWhatsapp,
-              appointmentCount: 0
-            });
-          }
+      clientsMap.set(cleanWhatsapp, {
+        id: String(mc?.id || `manual_${cleanWhatsapp}`),
+        name: nome,
+        whatsapp: whatsappOriginal,
+        appointmentCount: 0,
+      });
+    });
+  };
 
-          // Incrementar contagem de agendamentos
-          const client = clientsMap.get(keyWhatsapp)!;
-          client.appointmentCount = (client.appointmentCount || 0) + 1;
+  const fetchManualClientsFromDb = async (): Promise<any[]> => {
+    const manualPageSize = 1000;
+    let manualFrom = 0;
+    const manualDb: any[] = [];
+
+    while (true) {
+      const { data, error: manualDbError } = await supabase
+        .from('manual_clients')
+        .select('id,name,whatsapp')
+        .eq('establishment_id', establishmentId)
+        .order('name', { ascending: true })
+        .range(manualFrom, manualFrom + manualPageSize - 1);
+
+      if (manualDbError) {
+        console.warn('⚠️ Erro ao carregar clientes manuais do banco:', manualDbError);
+        break;
+      }
+
+      const rows = Array.isArray(data) ? data : [];
+      manualDb.push(...rows);
+      if (rows.length < manualPageSize) break;
+      manualFrom += manualPageSize;
+    }
+
+    return manualDb;
+  };
+
+  const fetchAppointmentsForClientPicker = async (): Promise<any[]> => {
+    const appointmentPageSize = 1000;
+    let appointmentFrom = 0;
+    const appointments: any[] = [];
+
+    while (true) {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('client_id, client_name, client_whatsapp, is_avulso')
+        .eq('establishment_id', establishmentId)
+        .not('client_name', 'is', null)
+        .not('client_whatsapp', 'is', null)
+        .order('created_at', { ascending: false })
+        .range(appointmentFrom, appointmentFrom + appointmentPageSize - 1);
+
+      if (error) {
+        console.error('❌ Erro ao buscar clientes via agendamentos:', error);
+        throw error;
+      }
+
+      const rows = Array.isArray(data) ? data : [];
+      appointments.push(...rows);
+      if (rows.length < appointmentPageSize) break;
+      appointmentFrom += appointmentPageSize;
+    }
+
+    return appointments;
+  };
+
+  const mergeAppointmentsIntoClientsMap = (clientsMap: Map<string, Client>, appointments: any[]) => {
+    appointments.forEach((appointment) => {
+      const rawWhatsapp = (appointment as any)?.client_whatsapp;
+      const keyWhatsapp = normalizeWhatsappKey(rawWhatsapp);
+      if (!keyWhatsapp) return;
+
+      const clientId =
+        (appointment as any)?.client_id && !String((appointment as any)?.client_id || '').startsWith('manual_')
+          ? String((appointment as any)?.client_id)
+          : `manual_${keyWhatsapp}`;
+
+      if (!clientsMap.has(keyWhatsapp)) {
+        clientsMap.set(keyWhatsapp, {
+          id: clientId,
+          name: (appointment as any)?.client_name || 'Cliente sem nome',
+          whatsapp: String(rawWhatsapp || '').replace(/\D/g, '') || keyWhatsapp,
+          appointmentCount: 0,
         });
       }
 
-      // Carregar clientes manuais do localStorage
-      const loadManualClientsFromStorage = () => {
-        if (!establishmentId) return {};
-        const storageKey = `manual_clients_${establishmentId}`;
-        return JSON.parse(localStorage.getItem(storageKey) || '{}');
-      };
+      const client = clientsMap.get(keyWhatsapp)!;
+      client.appointmentCount = (client.appointmentCount || 0) + 1;
+    });
+  };
 
-      const manualClients = loadManualClientsFromStorage();
+  const applySubscriberBadgesToClients = async (clientsArray: Client[]) => {
+    try {
+      const { data: subsRows, error: subsError } = await supabase
+        .from('client_subscriptions')
+        .select(
+          'client_whatsapp, subscriber_whatsapp, subscription_id, payment_status, start_date, end_date, subscriptions(name)'
+        )
+        .eq('establishment_id', establishmentId);
 
-      // Adicionar clientes manuais que ainda não estão na lista
-      Object.values(manualClients).forEach((manualClient: any) => {
-        const cleanWhatsapp = normalizeWhatsappKey(manualClient?.whatsapp);
-        const nome = String(manualClient?.name || '').trim();
-        const whatsappOriginal = String(manualClient?.whatsapp || '').trim();
-        if (!cleanWhatsapp || !nome || !whatsappOriginal) return;
+      if (subsError || !Array.isArray(subsRows)) return;
 
-        const clientId = `manual_${cleanWhatsapp}`;
-
-        // Verificar se já existe um cliente com esse WhatsApp (usando WhatsApp como chave)
-        if (!clientsMap.has(cleanWhatsapp)) {
-          clientsMap.set(cleanWhatsapp, {
-            id: clientId, // Manter o ID original para uso no banco
-            name: nome,
-            whatsapp: whatsappOriginal,
-            appointmentCount: 0 // Clientes manuais começam com 0 agendamentos
-          });
-        } else {
-          // ✅ Prioridade TOTAL do nome salvo manualmente
-          const existing = clientsMap.get(cleanWhatsapp)!;
-          existing.name = nome;
-          existing.whatsapp = whatsappOriginal;
-        }
-      });
-
-      // ✅ NOVO: Buscar clientes manuais salvos no BANCO (mesma fonte da tela "Meus Clientes")
-      try {
-        const manualPageSize = 1000;
-        let manualFrom = 0;
-        const manualDb: any[] = [];
-        while (true) {
-          const { data, error: manualDbError } = await supabase
-            .from('manual_clients')
-            .select('id,name,whatsapp')
-            .eq('establishment_id', establishmentId)
-            .order('name', { ascending: true })
-            .range(manualFrom, manualFrom + manualPageSize - 1);
-
-          if (manualDbError) {
-            console.warn('⚠️ Erro ao carregar clientes manuais do banco:', manualDbError);
-            break;
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const subByPhone = new Map<string, { planName: string; subscriptionId: string }>();
+      subsRows.forEach((row: any) => {
+        if (!isDateInsidePaidSubscription(todayStr, row)) return;
+        const planName = String(row?.subscriptions?.name || 'Assinatura').trim() || 'Assinatura';
+        const subscriptionId = String(row?.subscription_id || '').trim();
+        if (!subscriptionId) return;
+        for (const rawPhone of [row?.client_whatsapp, row?.subscriber_whatsapp]) {
+          const key = normalizeWhatsappKey(rawPhone);
+          if (key && !subByPhone.has(key)) {
+            subByPhone.set(key, { planName, subscriptionId });
           }
-
-          const rows = Array.isArray(data) ? data : [];
-          manualDb.push(...rows);
-          if (rows.length < manualPageSize) break;
-          manualFrom += manualPageSize;
         }
-
-        if (Array.isArray(manualDb) && manualDb.length > 0) {
-          manualDb.forEach((mc: any) => {
-            const cleanWhatsapp = normalizeWhatsappKey(mc?.whatsapp);
-            const nome = String(mc?.name || '').trim();
-            const whatsappOriginal = String(mc?.whatsapp || '').trim();
-            if (!cleanWhatsapp || !nome || !whatsappOriginal) return;
-
-            // ✅ Se já existe pelo WhatsApp, SEMPRE priorizar o nome/whatsapp salvo manualmente
-            if (clientsMap.has(cleanWhatsapp)) {
-              const existing = clientsMap.get(cleanWhatsapp)!;
-              existing.name = nome;
-              existing.whatsapp = whatsappOriginal;
-              return;
-            }
-
-            clientsMap.set(cleanWhatsapp, {
-              // Preferir id do banco se existir
-              id: String(mc?.id || `manual_${cleanWhatsapp}`),
-              name: nome,
-              whatsapp: whatsappOriginal,
-              appointmentCount: 0,
-            });
-          });
-        }
-      } catch (e) {
-        console.warn('⚠️ Falha inesperada ao buscar manual_clients:', e);
-      }
-
-      const clientsArray = Array.from(clientsMap.values());
-
-      // Marcar assinantes ativos (mesma regra de "Meus assinantes")
-      try {
-        const { data: subsRows, error: subsError } = await supabase
-          .from('client_subscriptions')
-          .select(
-            'client_whatsapp, subscriber_whatsapp, subscription_id, payment_status, start_date, end_date, subscriptions(name)'
-          )
-          .eq('establishment_id', establishmentId);
-
-        if (!subsError && Array.isArray(subsRows)) {
-          const todayStr = new Date().toISOString().slice(0, 10);
-          const subByPhone = new Map<string, { planName: string; subscriptionId: string }>();
-          subsRows.forEach((row: any) => {
-            if (!isDateInsidePaidSubscription(todayStr, row)) return;
-            const planName = String(row?.subscriptions?.name || 'Assinatura').trim() || 'Assinatura';
-            const subscriptionId = String(row?.subscription_id || '').trim();
-            if (!subscriptionId) return;
-            for (const rawPhone of [row?.client_whatsapp, row?.subscriber_whatsapp]) {
-              const key = normalizeWhatsappKey(rawPhone);
-              if (key && !subByPhone.has(key)) {
-                subByPhone.set(key, { planName, subscriptionId });
-              }
-            }
-          });
-          clientsArray.forEach((client) => {
-            const match = subByPhone.get(normalizeWhatsappKey(client.whatsapp));
-            if (match) {
-              client.isSubscriber = true;
-              client.subscriberPlanName = match.planName;
-              client.subscriberSubscriptionId = match.subscriptionId;
-            }
-          });
-        }
-      } catch (e) {
-        console.warn('⚠️ Falha ao marcar assinantes na lista de clientes:', e);
-      }
-
-      // Assinantes primeiro, depois por nome
-      clientsArray.sort((a, b) => {
-        const subDiff = Number(Boolean(b.isSubscriber)) - Number(Boolean(a.isSubscriber));
-        if (subDiff !== 0) return subDiff;
-        return a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
       });
+
+      clientsArray.forEach((client) => {
+        const match = subByPhone.get(normalizeWhatsappKey(client.whatsapp));
+        if (match) {
+          client.isSubscriber = true;
+          client.subscriberPlanName = match.planName;
+          client.subscriberSubscriptionId = match.subscriptionId;
+        }
+      });
+    } catch (e) {
+      console.warn('⚠️ Falha ao marcar assinantes na lista de clientes:', e);
+    }
+  };
+
+  const publishClientsFromMap = (
+    clientsMap: Map<string, Client>,
+    requestId: number,
+    options?: { clearLoading?: boolean }
+  ) => {
+    if (requestId !== clientsLoadRequestRef.current) return;
+    const next = sortClientsForPicker(Array.from(clientsMap.values()));
+    setClients(next);
+    if (options?.clearLoading) {
+      setLoadingClients(false);
+    }
+  };
+
+  // Carrega clientes: libera o botão assim que "Meus Clientes" estiver pronto;
+  // agendamentos antigos e badges de assinante entram em segundo plano.
+  const loadClients = async () => {
+    if (!establishmentId || loadClientsInFlightRef.current) return;
+
+    loadClientsInFlightRef.current = true;
+    const requestId = ++clientsLoadRequestRef.current;
+    setLoadingClients(true);
+    setIsEnrichingClients(false);
+
+    const clientsMap = new Map<string, Client>();
+
+    // Sincronização pesada (N queries) — não bloqueia a UI; roda em paralelo.
+    void syncSubscribersToManualClients(establishmentId).catch((syncError) => {
+      console.warn('⚠️ Falha ao sincronizar assinantes em Meus Clientes:', syncError);
+    });
+
+    const appointmentsTask = fetchAppointmentsForClientPicker();
+
+    try {
+      mergeManualClientsFromStorage(clientsMap);
+      const manualDb = await fetchManualClientsFromDb();
+      if (requestId !== clientsLoadRequestRef.current) return;
+
+      mergeManualClientsFromDbRows(clientsMap, manualDb);
+
+      if (clientsMap.size > 0) {
+        publishClientsFromMap(clientsMap, requestId, { clearLoading: true });
+        setIsEnrichingClients(true);
+      }
+
+      const appointments = await appointmentsTask;
+      if (requestId !== clientsLoadRequestRef.current) return;
+
+      mergeAppointmentsIntoClientsMap(clientsMap, appointments);
+      publishClientsFromMap(clientsMap, requestId, { clearLoading: clientsMap.size > 0 });
+
+      const clientsArray = sortClientsForPicker(Array.from(clientsMap.values()));
+      await applySubscriberBadgesToClients(clientsArray);
+      if (requestId !== clientsLoadRequestRef.current) return;
 
       setClients(clientsArray);
     } catch (error) {
       console.error('❌ Erro ao carregar clientes:', error);
-      alert('Erro ao carregar clientes. Verifique o console para mais detalhes.');
+      if (requestId === clientsLoadRequestRef.current) {
+        alert('Erro ao carregar clientes. Verifique o console para mais detalhes.');
+      }
     } finally {
-      setLoadingClients(false);
+      if (requestId === clientsLoadRequestRef.current) {
+        setLoadingClients(false);
+        setIsEnrichingClients(false);
+      }
+      loadClientsInFlightRef.current = false;
     }
   };
 
@@ -1618,7 +1659,13 @@ export default function ReservarCliente({
       return a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
     });
   const hasKnownClients = clients.length > 0;
-  const disableKnownClientOption = loadingClients || !hasKnownClients;
+  const disableKnownClientOption = !hasKnownClients;
+  const knownClientDisabledHint =
+    loadingClients && !hasKnownClients
+      ? 'Carregando clientes...'
+      : !hasKnownClients
+        ? 'Disponível quando houver ao menos 1 cliente salvo'
+        : undefined;
   const filteredSubscriptions = (() => {
     // Fluxo dedicado "Reservar assinante": plano já escolhido antes de selecionar o cliente.
     if (reservationMode === 'subscriber' && selectedSubscriberPlanId) {
@@ -2751,11 +2798,7 @@ export default function ReservarCliente({
                   description="Escolha um cliente da sua agenda e reserve rapidamente."
                   cta="Selecionar cliente"
                   disabled={disableKnownClientOption}
-                  disabledHint={
-                    loadingClients
-                      ? 'Carregando clientes...'
-                      : 'Disponível quando houver ao menos 1 cliente salvo'
-                  }
+                  disabledHint={knownClientDisabledHint}
                   onClick={() => {
                     if (!disableKnownClientOption) {
                       setReservationMode('known');
@@ -3026,7 +3069,7 @@ export default function ReservarCliente({
                 )}
               </div>
 
-              {loadingClients ? (
+              {loadingClients && clients.length === 0 ? (
                 <div className="text-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black mx-auto"></div>
                   <p className="mt-2 text-gray-700">Carregando clientes...</p>
@@ -3042,6 +3085,9 @@ export default function ReservarCliente({
                 </div>
               ) : (
                 <>
+                  {isEnrichingClients && (
+                    <p className="text-xs text-gray-500 mb-2">Atualizando histórico de agendamentos...</p>
+                  )}
                   {clients.some((c) => c.isSubscriber) && (
                     <p className="text-xs text-amber-200/80 mb-3 flex items-center gap-1.5">
                       <span className="inline-block w-2 h-2 rounded-full bg-amber-400/80" aria-hidden />
