@@ -592,7 +592,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
       ? `agendeifacil:appointments-visible-professionals:${establishment.id}`
       : '';
     const professionalVisibilityLoadedKeyRef = useRef('');
-    const mobileDatePickerRef = useRef<HTMLInputElement>(null);
     const hasOwnerConfigPin = Boolean(
       establishment?.pin_password &&
       String(establishment.pin_password || '').trim().length > 0 &&
@@ -5562,23 +5561,19 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 <p className="text-xs md:text-sm font-semibold text-white/80 truncate capitalize">
                   {format(selectedDate, "EEEE, dd/MM/yyyy", { locale: ptBR })}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => mobileDatePickerRef.current?.showPicker?.() || mobileDatePickerRef.current?.click()}
-                  className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2 md:px-3 py-1 md:py-1.5 text-[11px] md:text-xs font-bold text-amber-200 hover:bg-white/10"
+                <label
+                  className="relative shrink-0 inline-flex items-center gap-1.5 overflow-hidden rounded-lg border border-white/15 bg-white/5 px-2 md:px-3 py-1 md:py-1.5 text-[11px] md:text-xs font-bold text-amber-200 hover:bg-white/10 cursor-pointer"
                 >
-                  <Calendar className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                  Escolher data
-                </button>
-                <input
-                  ref={mobileDatePickerRef}
-                  type="date"
-                  value={format(selectedDate, 'yyyy-MM-dd')}
-                  onChange={handleDateInputChange}
-                  className="sr-only"
-                  tabIndex={-1}
-                  aria-hidden="true"
-                />
+                  <Calendar className="h-3.5 w-3.5 md:h-4 md:w-4 pointer-events-none" />
+                  <span className="pointer-events-none">Escolher data</span>
+                  <input
+                    type="date"
+                    value={format(selectedDate, 'yyyy-MM-dd')}
+                    onChange={handleDateInputChange}
+                    className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+                    aria-label="Escolher data"
+                  />
+                </label>
               </div>
             </div>
 

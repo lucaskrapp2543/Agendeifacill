@@ -38,9 +38,37 @@ interface RegistrationForm {
   account_type?: 'paid' | 'test'; // Tipo de conta: paid (cadastroag) ou test (testefree)
 }
 
+interface CreateAccountInput {
+  client_name: string;
+  establishment_name: string;
+  email: string;
+  password: string;
+  client_whatsapp?: string;
+  account_type: 'paid' | 'test';
+}
+
 interface NewRegistrationsProps {
   onClose: () => void;
 }
+
+const defaultBusinessHours = {
+  monday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
+  tuesday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
+  wednesday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
+  thursday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
+  friday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
+  saturday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
+  sunday: { enabled: false, open1: null, close1: null, open2: null, close2: null },
+};
+
+const emptyCreateForm = (): CreateAccountInput => ({
+  client_name: '',
+  establishment_name: '',
+  email: '',
+  password: '',
+  client_whatsapp: '',
+  account_type: 'paid',
+});
 
 export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) => {
   const [registrations, setRegistrations] = useState<RegistrationForm[]>([]);
@@ -50,6 +78,10 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
   const [filterAccountType, setFilterAccountType] = useState<'all' | 'paid' | 'test'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [notes, setNotes] = useState('');
+  const [viewMode, setViewMode] = useState<'list' | 'create'>('list');
+  const [createForm, setCreateForm] = useState<CreateAccountInput>(emptyCreateForm);
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
+  const [isCreatingAccount, setIsCreatingAccount] = useState(false);
 
   useEffect(() => {
     fetchRegistrations();
@@ -111,19 +143,95 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
       return;
     }
 
+    const result = await provisionEstablishmentAccount(
+      {
+        client_name: registration.client_name,
+        establishment_name: registration.establishment_name,
+        email: registration.email,
+        password: registration.password,
+        client_whatsapp: registration.client_whatsapp,
+        account_type: registration.account_type || 'paid',
+      },
+      registration.id
+    );
+
+    if (!result.success) return;
+
+    toast.success(
+      `Conta criada com sucesso! Código: ${result.establishmentCode}. Email: ${registration.email}, Senha: ${registration.password}`
+    );
+    setSelectedRegistration(null);
+    fetchRegistrations();
+  };
+
+  const validateCreateForm = (): string | null => {
+    const email = createForm.email.trim().toLowerCase();
+    if (!createForm.client_name.trim()) return 'Nome do cliente é obrigatório.';
+    if (!createForm.establishment_name.trim()) return 'Nome do estabelecimento é obrigatório.';
+    if (!email) return 'E-mail é obrigatório.';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'E-mail inválido.';
+    if (!createForm.password || createForm.password.length < 6) return 'Senha deve ter pelo menos 6 caracteres.';
+    const cleanWhatsapp = String(createForm.client_whatsapp || '').replace(/\D/g, '');
+    if (!cleanWhatsapp) return 'WhatsApp é obrigatório.';
+    if (cleanWhatsapp.length < 10 || cleanWhatsapp.length > 11) return 'WhatsApp deve ter 10 ou 11 dígitos.';
+    return null;
+  };
+
+  const handleCreateManualAccount = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    const validationError = validateCreateForm();
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
+
+    if (
+      !confirm(
+        `Criar conta para "${createForm.establishment_name.trim()}"?\n\nEmail: ${createForm.email.trim().toLowerCase()}\nValidade: 30 dias (conta normal).`
+      )
+    ) {
+      return;
+    }
+
+    setIsCreatingAccount(true);
     try {
-      // ✅ SALVAR A SESSÃO DO ADMIN ANTES DE CRIAR O USUÁRIO
+      const payload: CreateAccountInput = {
+        client_name: createForm.client_name.trim(),
+        establishment_name: createForm.establishment_name.trim(),
+        email: createForm.email.trim().toLowerCase(),
+        password: createForm.password,
+        client_whatsapp: String(createForm.client_whatsapp || '').replace(/\D/g, ''),
+        account_type: 'paid',
+      };
+
+      const result = await provisionEstablishmentAccount(payload);
+
+      if (!result.success) return;
+
+      toast.success(
+        `Conta criada! Código: ${result.establishmentCode} | Email: ${payload.email} | Senha: ${payload.password}`
+      );
+      setCreateForm(emptyCreateForm());
+      setViewMode('list');
+      fetchRegistrations();
+    } finally {
+      setIsCreatingAccount(false);
+    }
+  };
+
+  const provisionEstablishmentAccount = async (
+    input: CreateAccountInput,
+    registrationId?: string
+  ): Promise<{ success: boolean; establishmentCode?: string }> => {
+    try {
       const currentAdminUser = await supabase.auth.getUser();
       const adminUserId = currentAdminUser.data.user?.id;
-      const adminEmail = currentAdminUser.data.user?.email;
 
-      // ✅ SOLUÇÃO: Criar usuário usando uma nova instância do cliente Supabase
-      // Isso evita que a sessão atual seja afetada
       const tempSupabase = createClient(
         import.meta.env.VITE_SUPABASE_URL || '',
         import.meta.env.VITE_SUPABASE_ANON_KEY || '',
         {
-          // Evitar conflito de storageKey/sessão com o client principal (elimina warning do GoTrueClient)
           auth: {
             persistSession: false,
             autoRefreshToken: false,
@@ -133,102 +241,125 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
         }
       );
 
-      // 1. Criar usuário usando o cliente temporário
       const { data: authData, error: authError } = await tempSupabase.auth.signUp({
-        email: registration.email,
-        password: registration.password,
+        email: input.email.trim().toLowerCase(),
+        password: input.password,
         options: {
           data: {
             role: 'establishment',
-            full_name: registration.client_name,
-            establishment_name: registration.establishment_name
-          }
-        }
+            full_name: input.client_name,
+            establishment_name: input.establishment_name,
+          },
+        },
       });
 
       if (authError) {
         console.error('Erro ao criar usuário:', authError);
         toast.error(`Erro ao criar usuário: ${authError.message}`);
-        return;
+        return { success: false };
       }
 
       if (!authData.user) {
         toast.error('Erro: usuário não foi criado');
-        return;
+        return { success: false };
       }
 
-      console.log('✅ Usuário criado com sucesso sem afetar a sessão do admin');
-
-      // 2. Gerar código único para o estabelecimento
       const establishmentCode = Math.floor(1000 + Math.random() * 9000).toString();
+      const isTestAccount = input.account_type === 'test';
+      const now = new Date();
+      const paymentDueDate = isTestAccount
+        ? new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000)
+        : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-      // 3. Criar estabelecimento na tabela establishments
-      const { error: establishmentError } = await supabase
-        .from('establishments')
-        .insert({
-          name: registration.establishment_name,
-          code: establishmentCode,
-          description: `Estabelecimento criado automaticamente para ${registration.client_name}`,
-          owner_id: authData.user.id, // Vincular ao usuário criado
-          business_hours: {
-            monday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
-            tuesday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
-            wednesday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
-            thursday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
-            friday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
-            saturday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
-            sunday: { enabled: false, open1: null, close1: null, open2: null, close2: null }
-          },
-          services_with_prices: [],
-          professionals: [],
-          profile_image_url: null,
-          affiliate_link: null,
-          custom_photo_1_url: null,
-          custom_photo_2_url: null,
-          custom_photo_3_url: null,
-          custom_photo_4_url: null,
-          custom_photo_5_url: null,
-          custom_photo_6_url: null,
-          custom_photo_7_url: null,
-          carousel_position: 'below',
-          has_wifi: false,
-          has_parking: false,
-          has_accessibility: false,
-          wifi_password: null,
-          pin_password: null,
-          professionals_pins: [],
-          whatsapp: registration.client_whatsapp || null,
-          payment_status: 'unpaid',
-          plan_type: 'monthly',
-          payment_due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 dias
-          is_deleted: false,
-          is_blocked: false,
-          onboarding_step: 1 // Novas contas começam no onboarding
-        });
+      const { error: establishmentError } = await supabase.from('establishments').insert({
+        name: input.establishment_name,
+        code: establishmentCode,
+        description: `Estabelecimento criado automaticamente para ${input.client_name}`,
+        owner_id: authData.user.id,
+        business_hours: defaultBusinessHours,
+        services_with_prices: [],
+        professionals: [],
+        profile_image_url: null,
+        affiliate_link: null,
+        custom_photo_1_url: null,
+        custom_photo_2_url: null,
+        custom_photo_3_url: null,
+        custom_photo_4_url: null,
+        custom_photo_5_url: null,
+        custom_photo_6_url: null,
+        custom_photo_7_url: null,
+        carousel_position: 'below',
+        has_wifi: false,
+        has_parking: false,
+        has_accessibility: false,
+        wifi_password: null,
+        pin_password: null,
+        professionals_pins: [],
+        whatsapp: input.client_whatsapp || null,
+        payment_status: isTestAccount ? 'paid' : 'unpaid',
+        plan_type: isTestAccount ? 'trial' : 'monthly',
+        payment_due_date: paymentDueDate.toISOString(),
+        payment_paid_at: isTestAccount ? now.toISOString() : null,
+        payment_alert_enabled: false,
+        is_deleted: false,
+        is_blocked: false,
+        onboarding_step: 1,
+      });
 
       if (establishmentError) {
         console.error('Erro ao criar estabelecimento:', establishmentError);
         toast.error(`Erro ao criar estabelecimento: ${establishmentError.message}`);
-        return;
+        return { success: false };
       }
 
-      // 4. Atualizar status da inscrição para aprovada
-      await supabase
-        .from('registration_forms')
-        .update({
-          status: 'approved',
-          processed_at: new Date().toISOString(),
-          processed_by: adminUserId, // ✅ USAR O ID DO ADMIN SALVO ANTERIORMENTE
-          notes: `Conta criada automaticamente. Código: ${establishmentCode}. Email: ${registration.email}, Senha: ${registration.password}. O usuário pode fazer login imediatamente.`
-        })
-        .eq('id', registration.id);
+      const registrationNotes = isTestAccount
+        ? `Conta criada. Código: ${establishmentCode}. Email: ${input.email}, Senha: ${input.password}. Login liberado imediatamente.`
+        : `Conta criada automaticamente. Código: ${establishmentCode}. Email: ${input.email}, Senha: ${input.password}. O usuário pode fazer login imediatamente.`;
 
-      toast.success(`Conta criada com sucesso! Código: ${establishmentCode}. Email: ${registration.email}, Senha: ${registration.password}`);
-      setSelectedRegistration(null);
-      fetchRegistrations();
+      if (registrationId) {
+        const { error: registrationUpdateError } = await supabase
+          .from('registration_forms')
+          .update({
+            status: 'approved',
+            processed_at: now.toISOString(),
+            processed_by: adminUserId,
+            notes: registrationNotes,
+          })
+          .eq('id', registrationId);
+
+        if (registrationUpdateError) {
+          console.error('Erro ao atualizar inscrição:', registrationUpdateError);
+          toast.error(`Conta criada, mas falhou ao atualizar a inscrição: ${registrationUpdateError.message}`);
+        }
+      } else {
+        const { error: registrationInsertError } = await supabase.from('registration_forms').insert({
+          client_name: input.client_name,
+          establishment_name: input.establishment_name,
+          email: input.email.trim().toLowerCase(),
+          password: input.password,
+          client_whatsapp: input.client_whatsapp || null,
+          account_type: input.account_type,
+          status: 'approved',
+          processed_at: now.toISOString(),
+          processed_by: adminUserId,
+          notes: registrationNotes,
+          ip_address: null,
+          user_agent: navigator.userAgent,
+        });
+
+        if (registrationInsertError) {
+          console.error('Erro ao registrar inscrição na lista:', registrationInsertError);
+          toast.error(
+            `Conta criada (código ${establishmentCode}), mas não entrou na lista: ${registrationInsertError.message}`
+          );
+        }
+      }
+
+      return { success: true, establishmentCode };
     } catch (error) {
       console.error('Erro ao criar conta:', error);
       toast.error('Erro ao criar conta');
+      return { success: false };
     }
   };
 
@@ -367,8 +498,131 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
               </svg>
             </button>
           </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                viewMode === 'list' ? 'bg-white text-blue-700' : 'bg-white/15 text-white hover:bg-white/25'
+              }`}
+            >
+              Inscrições
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('create')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors inline-flex items-center gap-2 ${
+                viewMode === 'create' ? 'bg-emerald-400 text-emerald-950' : 'bg-emerald-500/90 text-white hover:bg-emerald-400'
+              }`}
+            >
+              <UserPlus className="w-4 h-4" />
+              Criar conta
+            </button>
+          </div>
         </div>
 
+        {viewMode === 'create' ? (
+          <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+            <div className="max-w-xl mx-auto">
+              <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <h3 className="text-lg font-bold text-blue-900">Criar conta (uso interno)</h3>
+                <p className="text-sm text-blue-800 mt-1">
+                  Conta normal do sistema — o barbeiro usa tudo igual (agenda, clientes, WhatsApp etc.).
+                  Você cria aqui sem passar pelo pagamento do site. Validade inicial de 30 dias; depois segue o fluxo normal de renovação.
+                </p>
+              </div>
+
+              <form onSubmit={handleCreateManualAccount} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nome do cliente</label>
+                  <input
+                    type="text"
+                    value={createForm.client_name}
+                    onChange={(e) => setCreateForm((prev) => ({ ...prev, client_name: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-gray-900"
+                    placeholder="Ex.: João Silva"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nome do estabelecimento</label>
+                  <input
+                    type="text"
+                    value={createForm.establishment_name}
+                    onChange={(e) => setCreateForm((prev) => ({ ...prev, establishment_name: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-gray-900"
+                    placeholder="Ex.: Barbearia Silva"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
+                  <input
+                    type="email"
+                    value={createForm.email}
+                    onChange={(e) => setCreateForm((prev) => ({ ...prev, email: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-gray-900"
+                    placeholder="email@exemplo.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Senha</label>
+                  <div className="relative">
+                    <input
+                      type={showCreatePassword ? 'text' : 'password'}
+                      value={createForm.password}
+                      onChange={(e) => setCreateForm((prev) => ({ ...prev, password: e.target.value }))}
+                      className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-gray-900"
+                      placeholder="Mínimo 6 caracteres"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCreatePassword((prev) => !prev)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                      aria-label={showCreatePassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    >
+                      {showCreatePassword ? 'Ocultar' : 'Ver'}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp (com DDD)</label>
+                  <input
+                    type="tel"
+                    value={createForm.client_whatsapp}
+                    onChange={(e) => setCreateForm((prev) => ({ ...prev, client_whatsapp: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-gray-900"
+                    placeholder="48999999999"
+                  />
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <button
+                    type="submit"
+                    disabled={isCreatingAccount}
+                    className="flex-1 bg-emerald-600 text-white py-3 px-4 rounded-lg hover:bg-emerald-700 transition-colors font-semibold disabled:opacity-60 inline-flex items-center justify-center gap-2"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    {isCreatingAccount ? 'Criando conta...' : 'Criar conta'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateForm(emptyCreateForm());
+                      setViewMode('list');
+                    }}
+                    className="sm:w-auto px-4 py-3 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium"
+                  >
+                    Voltar
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : (
         <div className="flex flex-col lg:flex-row h-[calc(90vh-120px)]">
           {/* Lista de inscrições */}
           <div className="flex-1 border-r border-gray-200 overflow-hidden">
@@ -767,6 +1021,7 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );
