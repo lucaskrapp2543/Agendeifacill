@@ -6439,26 +6439,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
         {/* Layout Horizontal Scrollável - MOBILE E DESKTOP */}
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden md:mt-0">
-          <style>{`
-          .scroll-container-top {
-            overflow-x: auto;
-            transform: rotateX(180deg);
-          }
-          .scroll-content-flip {
-            transform: rotateX(180deg);
-          }
-          .mobile-scroll-container {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-          }
-        `}</style>
-          <div className="scroll-container-top mobile-scroll-container">
+          <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
             <div
-              className="grid gap-3 scroll-content-flip"
+              className="grid gap-3 w-full"
               style={{
                 gridTemplateColumns: `repeat(${Math.max(visibleProfessionals.length, 1)}, minmax(280px, 1fr))`,
                 minWidth: `${Math.max(visibleProfessionals.length, 1) * 292}px`,
-                width: '100%',
               }}
             >
               {visibleProfessionals.map((professional, index) => {
@@ -6569,7 +6555,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     key={professional.id}
                     data-professional-column-id={professional.id}
                     data-tutorial-id="appointments-professional-area"
-                    className="px-1.5 pb-3"
+                    className="px-1.5 pb-3 min-w-0"
                   >
                     {/* Cabeçalho do Profissional + opções individuais */}
                     <div className={`p-1.5 md:p-2 sticky top-0 z-10 ${useLightLayout
