@@ -386,6 +386,31 @@ export const forceCompleteCleanup = async (
   }
 };
 
+/**
+ * Limpa dados locais do aparelho (cache, sessão, acesso rápido) e redireciona ao login.
+ * Não apaga conta nem dados no Supabase — só o que fica no navegador/PWA.
+ */
+export const clearDeviceLocalDataForNewLogin = async (): Promise<void> => {
+  try {
+    const { supabase } = await import('../lib/supabase');
+    try {
+      await supabase.auth.signOut();
+    } catch (signOutError) {
+      console.warn('⚠️ Erro ao encerrar sessão local (seguindo limpeza):', signOutError);
+    }
+
+    await forceCompleteCleanup({
+      preserveLoginData: false,
+      preserveVersion: true,
+    });
+  } catch (error) {
+    console.error('❌ Erro ao limpar dados locais do aparelho:', error);
+    throw error;
+  }
+
+  window.location.replace(`/login?v=${Date.now()}`);
+};
+
 // Variável global para armazenar o intervalo e evitar múltiplos intervalos
 let updateCheckInterval: NodeJS.Timeout | null = null;
 let isUpdateCheckScheduled = false;

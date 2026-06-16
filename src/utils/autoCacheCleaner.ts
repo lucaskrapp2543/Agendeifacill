@@ -140,6 +140,7 @@ const PRESERVED_LOCALSTORAGE_KEYS = [
   'saved_password',               // Senha salva do login
   'save_credentials',             // Flag de salvar credenciais
   'agendafacil_app_version',      // Versão do app
+  'agendafacil_v30_update_done',  // Modal 3.0 já exibido
   'system_updated',               // Flag de sistema atualizado
   'supabase.auth.token',          // Token antigo do Supabase (se existir)
 ];

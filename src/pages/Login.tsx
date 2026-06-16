@@ -19,6 +19,8 @@ const Login = () => {
   const { signIn, user, isLoading: authLoading } = useAuth();
   const [hasNavigated, setHasNavigated] = useState(false);
   const loginInFlightRef = useRef(false);
+  const autoLoginAttemptedRef = useRef(false);
+  const [isAutoLoggingIn, setIsAutoLoggingIn] = useState(false);
 
   // Função para ler cookies
   const getCookie = (name: string) => {
@@ -47,6 +49,64 @@ const Login = () => {
       }
     }
   }, [user, authLoading, navigate, location.state, hasNavigated]);
+
+  const navigateAfterLogin = (loggedUser: NonNullable<typeof user>) => {
+    setHasNavigated(true);
+    const returnUrl = location.state?.returnUrl;
+    if (returnUrl) {
+      navigate(returnUrl, { replace: true });
+    } else if (loggedUser.email === 'suporteagendeifacil@gmail.com') {
+      navigate('/dashboard/admin', { replace: true });
+    } else if (loggedUser.user_metadata?.role) {
+      navigate(`/dashboard/${loggedUser.user_metadata.role}`, { replace: true });
+    } else {
+      navigate('/', { replace: true });
+    }
+  };
+
+  const persistQuickAccessCredentials = (shouldSave: boolean, emailValue: string, passwordValue: string) => {
+    if (shouldSave && emailValue.trim() && passwordValue) {
+      localStorage.setItem('saved_email', emailValue.trim());
+      localStorage.setItem('saved_password', passwordValue);
+      localStorage.setItem('save_credentials', 'true');
+      setHasProtectedSavedPassword(true);
+      return;
+    }
+
+    localStorage.removeItem('saved_email');
+    localStorage.removeItem('saved_password');
+    localStorage.removeItem('save_credentials');
+    setHasProtectedSavedPassword(false);
+  };
+
+  const attemptQuickAccessLogin = async (savedEmail: string, savedPassword: string) => {
+    if (loginInFlightRef.current || hasNavigated) return;
+
+    loginInFlightRef.current = true;
+    setIsAutoLoggingIn(true);
+    setIsLoading(true);
+    setShowProfessionalLogin(true);
+
+    try {
+      const normalizedEmail = savedEmail.trim().toLowerCase();
+      const { user: loggedUser } = await signIn(normalizedEmail, savedPassword);
+
+      if (!loggedUser) {
+        throw new Error('Falha no acesso rápido');
+      }
+
+      navigateAfterLogin(loggedUser);
+      toast.success('Acesso rápido realizado!');
+    } catch (error) {
+      console.error('Acesso rápido automático falhou:', error);
+      autoLoginAttemptedRef.current = false;
+      toast('Toque em Logar para entrar com o acesso rápido.', { id: 'quick-access', icon: '🔐' });
+    } finally {
+      setIsAutoLoggingIn(false);
+      setIsLoading(false);
+      loginInFlightRef.current = false;
+    }
+  };
 
   // Verificar versão e forçar limpeza se necessário
   useEffect(() => {
@@ -146,6 +206,11 @@ const Login = () => {
       setHasProtectedSavedPassword(true);
       setSaveCredentials(true);
       setShowProfessionalLogin(true);
+
+      if (!autoLoginAttemptedRef.current) {
+        autoLoginAttemptedRef.current = true;
+        void attemptQuickAccessLogin(savedEmail, savedPassword);
+      }
     } else {
       setHasProtectedSavedPassword(false);
     }
@@ -222,31 +287,9 @@ const Login = () => {
       }
 
       // Salvar acesso rápido se o checkbox estiver marcado
-      if (saveCredentials) {
-        localStorage.setItem('saved_email', email);
-        localStorage.setItem('saved_password', password);
-        localStorage.setItem('save_credentials', 'true');
-      } else {
-        // Limpar credenciais salvas se o checkbox não estiver marcado
-        localStorage.removeItem('saved_email');
-        localStorage.removeItem('saved_password');
-        localStorage.removeItem('save_credentials');
-      }
+      persistQuickAccessCredentials(saveCredentials, email, password);
 
-      // Marcar que já navegou para evitar navegação duplicada
-      setHasNavigated(true);
-
-      // Se houver uma returnUrl no state, redireciona para ela. Caso contrário, para o dashboard do usuário.
-      const returnUrl = location.state?.returnUrl;
-      if (returnUrl) {
-        navigate(returnUrl, { replace: true });
-      } else if (loggedUser?.email === 'suporteagendeifacil@gmail.com') {
-        navigate('/dashboard/admin', { replace: true });
-      } else if (loggedUser?.user_metadata?.role) {
-        navigate(`/dashboard/${loggedUser.user_metadata.role}`, { replace: true });
-      } else {
-        navigate('/', { replace: true }); // Redireciona para a home page como fallback
-      }
+      navigateAfterLogin(loggedUser);
 
       toast.success('Login realizado com sucesso!');
 
@@ -403,6 +446,8 @@ const Login = () => {
               >
                 {isLoading ? (
                   <div className="mx-auto animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                ) : isAutoLoggingIn ? (
+                  'Entrando automaticamente...'
                 ) : (
                   'Logar'
                 )}
@@ -418,20 +463,23 @@ const Login = () => {
                       checked={saveCredentials}
                       onChange={(e) => {
                         e.stopPropagation();
-                        setSaveCredentials(e.target.checked);
+                        const checked = e.target.checked;
+                        setSaveCredentials(checked);
+                        persistQuickAccessCredentials(checked, email, password);
                       }}
                       onClick={(e) => e.stopPropagation()}
-                      className="h-5 w-5 text-blue-600 focus:ring-2 focus:ring-blue-500 border-gray-600 rounded cursor-pointer"
+                      className="h-5 w-5 text-blue-600 focus:ring-2 focus:ring-blue-500 border-gray-600 rounded cursor-pointer accent-blue-500"
                     />
                     <label
                       htmlFor="saveCredentials"
                       className="text-sm sm:text-base text-blue-200 font-medium cursor-pointer"
                     >
-                      ✅ Salvar login para acesso rápido
+                      Salvar login para acesso rápido neste aparelho
                     </label>
                   </div>
                   <p className="mt-2 text-[11px] text-blue-200/80">
-                    Por segurança, quando a senha vier do acesso rápido ela não pode ser visualizada ou copiada.
+                    Entra automaticamente quando a sessão expirar ou após atualizar o app.
+                    Por segurança, a senha salva não pode ser visualizada ou copiada.
                   </p>
                 </div>
               </div>

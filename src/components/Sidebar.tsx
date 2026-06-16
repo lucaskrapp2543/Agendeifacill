@@ -21,12 +21,15 @@ import {
   Receipt,
   Rocket,
   Settings,
+  Trash2,
   UserCheck,
   Users,
   X,
   type LucideIcon
 } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
+import toast from 'react-hot-toast';
+import { clearDeviceLocalDataForNewLogin } from '../utils/versionManager';
 import { TopMonthlyWinnerCard, type TopMonthlyWinnerCardData } from './TopMonthlyWinnerCard';
 
 type TabType =
@@ -116,6 +119,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [dismissTopWinnerCard, setDismissTopWinnerCard] = useState(false);
   const [showAdminMenu, setShowAdminMenu] = useState(false);
   const [pendingAdminMenuAfterPin, setPendingAdminMenuAfterPin] = useState(false);
+  const [isClearingDeviceCache, setIsClearingDeviceCache] = useState(false);
   const navRef = useRef<HTMLElement | null>(null);
   const isLight = useLightLayout;
   const useLegacyMobileMenu = false;
@@ -177,6 +181,58 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const openUpgradeModal = () => setShowPlanUpgradeModal(true);
   const closeUpgradeModal = () => setShowPlanUpgradeModal(false);
+
+  const handleClearDeviceCache = async () => {
+    if (isClearingDeviceCache) return;
+
+    const confirmed = window.confirm(
+      'Limpar cache deste aparelho?\n\n' +
+      'Isso apaga sessão, acesso rápido e cache local do app — como se tivesse instalado de novo.\n\n' +
+      'Sua conta e barbearias no sistema NÃO são apagadas.\n\n' +
+      'Use quando quiser entrar em outra barbearia neste aparelho.'
+    );
+    if (!confirmed) return;
+
+    setIsClearingDeviceCache(true);
+    toast.loading('Limpando cache deste aparelho...', { id: 'clear-device-cache' });
+
+    try {
+      await clearDeviceLocalDataForNewLogin();
+    } catch (error) {
+      console.error('Erro ao limpar cache do aparelho:', error);
+      toast.error('Não foi possível limpar o cache. Tente novamente.', { id: 'clear-device-cache' });
+      setIsClearingDeviceCache(false);
+    }
+  };
+
+  const clearDeviceCacheButton = (
+    <div className={`${isMobile ? 'mt-6 pt-5' : 'mt-8 pt-5'} border-t ${isLight ? 'border-gray-200' : 'border-white/10'}`}>
+      <button
+        type="button"
+        onClick={handleClearDeviceCache}
+        disabled={isClearingDeviceCache}
+        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+          isLight
+            ? 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100'
+            : 'border-red-500/40 bg-red-600/15 text-red-300 hover:bg-red-600/25'
+        }`}
+        title="Limpar cache neste aparelho"
+      >
+        <Trash2 className="h-5 w-5 flex-shrink-0" />
+        {(isExpanded || isMobile) && (
+          <span className="text-sm font-semibold">
+            {isClearingDeviceCache ? 'Limpando...' : 'Limpar cache'}
+          </span>
+        )}
+      </button>
+      {(isExpanded || isMobile) && (
+        <p className={`mt-2 px-1 text-[10px] leading-snug ${isLight ? 'text-gray-500' : 'text-gray-400'}`}>
+          Apaga dados locais para entrar em outra barbearia. Sua conta no sistema não é apagada.
+        </p>
+      )}
+    </div>
+  );
+
   const openUpgradeModalMobileSafe = () => {
     setShowPlanUpgradeModal(true);
   };
@@ -1338,6 +1394,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                 );
               })}
             </div>
+
+            {clearDeviceCacheButton}
+
             {topMonthlyWinner && !dismissTopWinnerCard ? (
               <div
                 role="button"
@@ -2204,6 +2263,9 @@ const Sidebar: React.FC<SidebarProps> = ({
               </React.Fragment>
             );
           })}
+
+          {clearDeviceCacheButton}
+
           {isMobile && isExpanded && showMenuScrollHint && (
             <div className="sticky bottom-0 pt-2 pointer-events-none">
               <div

@@ -42,7 +42,7 @@ export const usePWASession = () => {
         });
       };
 
-      // Verificar e restaurar sessão ao inicializar
+      // Verificar e restaurar sessão ao inicializar / reabrir o app
       const checkAndRestoreSession = async () => {
         try {
           const savedSession = localStorage.getItem('agendafacil_auth_token');
@@ -55,9 +55,25 @@ export const usePWASession = () => {
             if (expiresAt && (expiresAt - margin) > now) {
               setSessionRestored(true);
               return true;
-            } else {
-              localStorage.removeItem('agendafacil_auth_token');
             }
+
+            if (parsedSession.refresh_token) {
+              const { data, error } = await supabase.auth.refreshSession({
+                refresh_token: parsedSession.refresh_token,
+              });
+              if (!error && data.session) {
+                localStorage.setItem('agendafacil_auth_token', JSON.stringify(data.session));
+                setSessionRestored(true);
+                return true;
+              }
+            }
+          }
+
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            localStorage.setItem('agendafacil_auth_token', JSON.stringify(session));
+            setSessionRestored(true);
+            return true;
           }
         } catch (error) {
           console.error('❌ Erro ao verificar sessão PWA:', error);

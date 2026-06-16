@@ -94,8 +94,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
             const hoursUntilExpiry = timeUntilExpiry / 3600;
 
 
-            // Se já expirou, limpar imediatamente para evitar travar em renovação inválida
+            // Access token expirou — tentar refresh_token antes de descartar a sessão
             if (timeUntilExpiry <= 0) {
+              if (parsedSession.refresh_token) {
+                try {
+                  const { data, error } = await withTimeout(
+                    supabase.auth.refreshSession({ refresh_token: parsedSession.refresh_token }),
+                    7000,
+                    'Timeout ao renovar sessão expirada'
+                  );
+
+                  if (!error && data.session && isMounted) {
+                    setSession(data.session);
+                    setUser(data.session.user);
+                    setUserRole(data.session.user?.user_metadata?.role as UserRole || null);
+                    localStorage.setItem('agendafacil_auth_token', JSON.stringify(data.session));
+                    if (isMounted) {
+                      setIsLoading(false);
+                      markInitialized();
+                    }
+                    return;
+                  }
+                } catch (refreshError) {
+                  console.warn('⚠️ Não foi possível renovar sessão expirada:', refreshError);
+                }
+              }
               localStorage.removeItem('agendafacil_auth_token');
             } else if (timeUntilExpiry > 1800 && isMounted) {
               // Se ainda tem mais de 30 minutos, usar a sessão antiga diretamente
