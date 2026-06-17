@@ -21,9 +21,9 @@ export const ReservarModalFrame: React.FC<{
   onClose: () => void;
   children: React.ReactNode;
 }> = ({ title, subtitle, icon, onClose, children }) => (
-  <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-[10020] p-3 sm:p-4">
-    <div className="bg-[#121314] rounded-2xl shadow-2xl shadow-black/60 max-w-2xl w-full max-h-[90dvh] overflow-hidden flex flex-col border border-gray-800/80">
-      <div className="relative px-4 sm:px-6 pt-4 sm:pt-5 pb-3 sm:pb-4 border-b border-gray-800/80 bg-gradient-to-b from-[#1a1b1c] to-[#121314] flex-shrink-0">
+  <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[10020] p-3 sm:p-4">
+    <div className="bg-[#121314] rounded-2xl shadow-2xl shadow-black/60 max-w-2xl w-full max-h-[90dvh] overflow-hidden flex flex-col border border-gray-800/80 isolation-isolate">
+      <div className="relative px-4 sm:px-6 pt-4 sm:pt-5 pb-3 sm:pb-4 border-b border-gray-800/80 bg-[#1a1b1c] flex-shrink-0">
         <div className="flex items-start justify-between gap-2 sm:gap-3">
           <div className="flex items-start gap-2.5 sm:gap-3 min-w-0">
             {icon && (
@@ -288,7 +288,7 @@ export const ReservarPlanCard: React.FC<{
   <button
     type="button"
     onClick={onClick}
-    className="group w-full text-left p-4 sm:p-5 rounded-2xl border border-amber-500/25 bg-gradient-to-br from-amber-950/30 to-[#1a1b1c] hover:border-amber-400/50 hover:from-amber-900/25 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-amber-500/10"
+    className="group w-full text-left p-4 sm:p-5 rounded-2xl border border-amber-800/40 bg-[#1e1a14] hover:border-amber-600/60 hover:bg-[#231f17] transition-colors duration-200"
   >
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">

@@ -1,5 +1,6 @@
 import { Bell, CheckCircle, Trash2, X, XCircle } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
 import { isAppStandbyActive, subscribeToAppStandby } from '../utils/appStandby';
 import { describeCancellationSourcePt } from '../utils/appointmentCancellationMeta';
@@ -37,11 +38,22 @@ interface NotificationsPanelProps {
   establishmentId: string;
   onUnreadCountChange?: (count: number) => void;
   buttonClassName?: string;
+  isOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establishmentId, onUnreadCountChange, buttonClassName }) => {
+export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establishmentId, onUnreadCountChange, buttonClassName, isOpen: isOpenProp, onOpenChange }) => {
   const { toast } = useToast();
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpenInternal, setIsOpenInternal] = useState(false);
+  const isControlled = isOpenProp !== undefined;
+  const isOpen = isControlled ? isOpenProp : isOpenInternal;
+  const setIsOpen = (value: boolean) => {
+    if (isControlled) {
+      onOpenChange?.(value);
+    } else {
+      setIsOpenInternal(value);
+    }
+  };
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [appointmentDetailsMap, setAppointmentDetailsMap] = useState<Record<string, AppointmentNotificationSnapshot>>({});
   const [professionalNameById, setProfessionalNameById] = useState<Record<string, string>>({});
@@ -713,8 +725,8 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
         )}
       </button>
 
-      {/* Painel de notificações */}
-      {isOpen && (
+      {/* Painel de notificações — portal garante visibilidade mesmo dentro de pai display:none */}
+      {isOpen && createPortal(
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setIsOpen(false)}>
           <div className="bg-white border border-gray-200 rounded-lg shadow-xl w-full max-w-md max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
@@ -940,7 +952,7 @@ export const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ establis
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
     </div>
   );
 };

@@ -5409,6 +5409,7 @@ const EstablishmentDashboard = () => {
   const [isDashboardUnlocked, setIsDashboardUnlocked] = useState(false);
   const [showDashboardPinModal, setShowDashboardPinModal] = useState(false);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+  const [isNotificationsPanelOpen, setIsNotificationsPanelOpen] = useState(false);
 
   useEffect(() => {
     if (!isCollaboratorRestrictedView) return;
@@ -27190,13 +27191,7 @@ Estamos te aguardando!`;
           onTabChange={handleTabChange}
           onSignOut={signOut}
           unreadNotifications={unreadNotificationsCount}
-          onNotificationsClick={() => {
-            // Abrir painel de notificações
-            const notificationsButton = document.querySelector('[data-notifications-button]');
-            if (notificationsButton) {
-              (notificationsButton as HTMLElement).click();
-            }
-          }}
+          onNotificationsClick={() => setIsNotificationsPanelOpen((v) => !v)}
           isDashboardUnlocked={isDashboardUnlocked || isUniqueOwnerAccessSession}
           isSettingsUnlocked={isSettingsUnlocked || isUniqueOwnerAccessSession}
           onDashboardPinModal={() => {
@@ -27319,6 +27314,8 @@ Estamos te aguardando!`;
                     establishmentId={establishment.id}
                     onUnreadCountChange={setUnreadNotificationsCount}
                     buttonClassName="!inline-flex"
+                    isOpen={isNotificationsPanelOpen}
+                    onOpenChange={setIsNotificationsPanelOpen}
                   />
                 </div>
               </div>
@@ -27380,6 +27377,8 @@ Estamos te aguardando!`;
                     establishmentId={establishment.id}
                     onUnreadCountChange={setUnreadNotificationsCount}
                     buttonClassName="!hidden md:!inline-flex"
+                    isOpen={isNotificationsPanelOpen}
+                    onOpenChange={setIsNotificationsPanelOpen}
                   />
                 )}
               </div>
@@ -27409,10 +27408,7 @@ Estamos te aguardando!`;
             {establishment && !isPremiumFullscreenTab && (
               <button
                 type="button"
-                onClick={() => {
-                  const btn = document.querySelector<HTMLButtonElement>('[data-notifications-button]');
-                  btn?.click();
-                }}
+                onClick={() => setIsNotificationsPanelOpen((v) => !v)}
                 className="md:hidden fixed right-4 bottom-52 z-30 bg-black hover:bg-gray-800 text-white p-4 rounded-full shadow-lg transition-all transform hover:scale-110 active:scale-95"
                 title="Notificações"
                 aria-label="Notificações"
