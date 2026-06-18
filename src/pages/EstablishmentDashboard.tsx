@@ -5521,6 +5521,9 @@ const EstablishmentDashboard = () => {
   });
   const [selectedProductForSales, setSelectedProductForSales] = useState<string | null>(null);
   const [productSalesData, setProductSalesData] = useState<Record<string, any[]>>({});
+  const [productAvulsoSales, setProductAvulsoSales] = useState<Record<string, any[]>>({});
+  // Chave: "productId::professionalName" — controla qual profissional está expandido
+  const [expandedSaleProfessional, setExpandedSaleProfessional] = useState<string | null>(null);
   // Estado para mês selecionado na aba de produtos
   const [selectedProductsMonth, setSelectedProductsMonth] = useState(new Date());
   // Estado para armazenar vendas de produtos por período
@@ -5596,14 +5599,40 @@ const EstablishmentDashboard = () => {
 
     setSelectedProductForSales(productId);
 
-    // Buscar vendas se ainda não foram carregadas
+    // Buscar vendas agregadas por profissional
     if (!productSalesData[productId]) {
       const sales = await fetchProductSalesByProfessional(productId);
-      setProductSalesData(prev => ({
-        ...prev,
-        [productId]: sales
-      }));
+      setProductSalesData(prev => ({ ...prev, [productId]: sales }));
     }
+
+    // Buscar vendas avulsas individuais (com ID para permitir estorno)
+    const { data: avulso } = await supabase
+      .from('product_sales')
+      .select('id, quantity, unit_price, professional_name, sold_at')
+      .eq('establishment_id', establishment?.id)
+      .eq('product_id', productId)
+      .order('sold_at', { ascending: false });
+    setProductAvulsoSales(prev => ({ ...prev, [productId]: avulso || [] }));
+  };
+
+  const handleDeleteProductSale = async (sale: any, product: any) => {
+    if (!window.confirm(`Estornar venda de ${sale.quantity} unidade(s) por ${sale.professional_name || 'funcionário'}?`)) return;
+    const { error } = await supabase.from('product_sales').delete().eq('id', sale.id);
+    if (error) { toast.error('Erro ao estornar venda.'); return; }
+    // Restaurar estoque
+    await supabase.from('establishment_products').update({
+      stock_quantity: (product.stock_quantity || 0) + Number(sale.quantity),
+      sold_quantity: Math.max(0, (product.sold_quantity || 0) - Number(sale.quantity)),
+    }).eq('id', product.id);
+    toast.success('Venda estornada e estoque restaurado.');
+    // Atualizar lista local
+    setProductAvulsoSales(prev => ({
+      ...prev,
+      [product.id]: (prev[product.id] || []).filter((s: any) => s.id !== sale.id),
+    }));
+    // Forçar reload das vendas agregadas
+    const updated = await fetchProductSalesByProfessional(product.id);
+    setProductSalesData(prev => ({ ...prev, [product.id]: updated }));
   };
 
   const handleToggleCommissionEditor = (product: EstablishmentProduct) => {
@@ -40513,49 +40542,87 @@ Estamos te aguardando!`;
                                     </div>
                                     {productSalesData[product.id] && productSalesData[product.id].length > 0 ? (
                                       <div className="space-y-2">
-                                        {productSalesData[product.id].map((sale, index) => (
-                                          <div key={index} className="flex justify-between items-center p-2 bg-white rounded border">
-                                            <div>
-                                              <span className="text-sm font-medium text-black">
-                                                {sale.professional_name || 'Funcionário não identificado'}
-                                              </span>
-                                              <p className="text-xs text-gray-600">{sale.sales_count} vendas</p>
-                                              {(() => {
-                                                const name = String(sale.professional_name || '').trim();
-                                                const map = (product as any)?.commission_percentages || {};
-                                                const pct = Number(map?.[name] ?? 0);
-                                                const safePct = Number.isFinite(pct) ? pct : 0;
-                                                if (!name) return null;
-                                                return (
-                                                  <p className="text-[11px] text-gray-500">
-                                                    % repasse: <span className="font-semibold">{safePct}%</span>
-                                                  </p>
-                                                );
-                                              })()}
+                                        {productSalesData[product.id].map((sale, index) => {
+                                          const profName = String(sale.professional_name || '').trim();
+                                          const map = (product as any)?.commission_percentages || {};
+                                          const pct = Number(map?.[profName] ?? 0);
+                                          const safePct = Number.isFinite(pct) ? pct : 0;
+                                          const payout = Math.max(0, (Number(sale.total_value || 0) * safePct) / 100);
+                                          const expandKey = `${product.id}::${sale.professional_name}`;
+                                          const isExpanded = expandedSaleProfessional === expandKey;
+                                          const avulsoForProf = (productAvulsoSales[product.id] || []).filter(
+                                            (a: any) => (a.professional_name || '') === (sale.professional_name || '')
+                                          );
+                                          const hasAvulso = avulsoForProf.length > 0;
+                                          return (
+                                            <div key={index}>
+                                              <div
+                                                className={`flex justify-between items-center p-2 bg-white rounded border ${hasAvulso ? 'cursor-pointer hover:bg-gray-50 transition-colors' : ''}`}
+                                                onClick={() => {
+                                                  if (!hasAvulso) return;
+                                                  setExpandedSaleProfessional(isExpanded ? null : expandKey);
+                                                }}
+                                              >
+                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                  {hasAvulso && (
+                                                    <ChevronDown className={`h-3.5 w-3.5 text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                                  )}
+                                                  <div className="min-w-0">
+                                                    <span className="text-sm font-medium text-black">
+                                                      {sale.professional_name || 'Funcionário não identificado'}
+                                                    </span>
+                                                    <p className="text-xs text-gray-600">
+                                                      {sale.sales_count} {sale.sales_count === 1 ? 'venda' : 'vendas'}
+                                                      {hasAvulso && <span className="ml-1 text-blue-500 font-semibold">({avulsoForProf.length} avulsa{avulsoForProf.length !== 1 ? 's' : ''})</span>}
+                                                    </p>
+                                                    {profName && (
+                                                      <p className="text-[11px] text-gray-500">
+                                                        % repasse: <span className="font-semibold">{safePct}%</span>
+                                                      </p>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                                <div className="text-right flex-shrink-0">
+                                                  <span className="text-sm font-bold text-green-600">
+                                                    {sale.total_quantity} unid.
+                                                  </span>
+                                                  <p className="text-xs text-blue-600">{formatCurrency(sale.total_value)}</p>
+                                                  {profName && (
+                                                    <p className="text-xs text-gray-800 font-bold">
+                                                      Recebe: {formatCurrency(payout)}
+                                                    </p>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              {isExpanded && hasAvulso && (
+                                                <div className="ml-3 mt-1 space-y-1 border-l-2 border-blue-200 pl-2">
+                                                  {avulsoForProf.map((avulso: any) => (
+                                                    <div key={avulso.id} className="flex justify-between items-center p-2 bg-blue-50 rounded border border-blue-100">
+                                                      <div>
+                                                        <p className="text-xs text-gray-700 font-medium">
+                                                          {new Date(avulso.sold_at).toLocaleDateString('pt-BR')}
+                                                        </p>
+                                                        <p className="text-xs text-gray-500">
+                                                          {avulso.quantity} un. • {formatCurrency(avulso.unit_price * avulso.quantity)}
+                                                        </p>
+                                                      </div>
+                                                      <button
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleDeleteProductSale(avulso, product);
+                                                        }}
+                                                        className="text-xs text-red-600 hover:text-red-800 font-bold px-2 py-1 rounded border border-red-300 hover:bg-red-100 transition-colors"
+                                                        title="Estornar esta venda"
+                                                      >
+                                                        Estornar
+                                                      </button>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              )}
                                             </div>
-                                            <div className="text-right">
-                                              <span className="text-sm font-bold text-green-600">
-                                                {sale.total_quantity} unidades
-                                              </span>
-                                              <p className="text-xs text-blue-600">
-                                                {formatCurrency(sale.total_value)}
-                                              </p>
-                                              {(() => {
-                                                const name = String(sale.professional_name || '').trim();
-                                                const map = (product as any)?.commission_percentages || {};
-                                                const pct = Number(map?.[name] ?? 0);
-                                                const safePct = Number.isFinite(pct) ? pct : 0;
-                                                const payout = Math.max(0, (Number(sale.total_value || 0) * safePct) / 100);
-                                                if (!name) return null;
-                                                return (
-                                                  <p className="text-xs text-gray-800 font-bold">
-                                                    Recebe: {formatCurrency(payout)}
-                                                  </p>
-                                                );
-                                              })()}
-                                            </div>
-                                          </div>
-                                        ))}
+                                          );
+                                        })}
                                       </div>
                                     ) : (
                                       <p className="text-sm text-gray-500 text-center py-2">
