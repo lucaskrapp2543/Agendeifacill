@@ -106,7 +106,7 @@ export const SubscriberFlowBanner: React.FC<{ planName?: string; clientName?: st
   planName,
   clientName,
 }) => (
-  <div className="mb-4 flex items-center gap-2 px-3 py-2.5 rounded-xl bg-gradient-to-r from-amber-950/50 to-purple-950/30 border border-amber-500/30">
+  <div className="mb-4 flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[#1e1409] border border-amber-500/30">
     <Star className="h-4 w-4 text-amber-400 flex-shrink-0" />
     <div className="min-w-0">
       <p className="text-sm font-semibold text-amber-100">
@@ -144,7 +144,7 @@ export const ReservarSubscriberServicesSection: React.FC<{
   }
 
   return (
-    <div className="mb-6 rounded-2xl border-2 border-amber-500/55 bg-gradient-to-br from-amber-950/50 via-amber-950/25 to-[#141516] p-4 shadow-xl shadow-amber-500/15 ring-1 ring-amber-400/25">
+    <div className="mb-6 rounded-2xl border-2 border-amber-500/55 bg-[#1a1409] p-4 ring-1 ring-amber-400/25">
       <div className="flex items-start gap-2.5 mb-4">
         <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/35 flex items-center justify-center flex-shrink-0">
           <Crown className="h-5 w-5 text-amber-300" />
@@ -181,7 +181,7 @@ export const ReservarSubscriberServicesSection: React.FC<{
                       key={`${subscription.id}-${svc.id || 'noid'}-${svc.name}`}
                       type="button"
                       onClick={() => onSelectService(subscription, svc)}
-                      className="group w-full p-4 rounded-xl border-2 border-amber-500/40 bg-gradient-to-r from-amber-950/40 to-[#1a1b1c] hover:border-amber-400/70 hover:from-amber-900/35 transition-all text-left hover:-translate-y-0.5 hover:shadow-lg hover:shadow-amber-500/10"
+                      className="group w-full p-4 rounded-xl border-2 border-amber-500/40 bg-[#1a1409] hover:border-amber-400/70 transition-colors text-left"
                     >
                       <div className="flex justify-between items-center gap-2">
                         <div className="min-w-0">
@@ -247,10 +247,10 @@ export const ReservarChoiceCard: React.FC<{
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`group w-full text-left rounded-xl sm:rounded-2xl border bg-gradient-to-br from-[#1a1b1c] to-[#141516] transition-all duration-200 ${
+      className={`group w-full text-left rounded-xl sm:rounded-2xl border bg-[#1a1b1c] transition-colors duration-200 ${
         disabled
           ? 'opacity-50 cursor-not-allowed border-gray-800 p-4'
-          : `${s.border} ${s.glow} p-4 sm:p-5 active:scale-[0.99] sm:hover:-translate-y-0.5 sm:hover:shadow-lg`
+          : `${s.border} p-4 sm:p-5 active:scale-[0.99]`
       }`}
     >
       <div className="flex items-center gap-3 sm:gap-4">
@@ -325,10 +325,10 @@ export const ReservarKnownClientCard: React.FC<{
   <button
     type="button"
     onClick={onClick}
-    className={`group w-full text-left p-4 rounded-2xl border transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg ${
+    className={`group w-full text-left p-4 rounded-2xl border transition-colors duration-200 ${
       isSubscriber
-        ? 'border-amber-500/45 bg-gradient-to-br from-amber-950/40 to-[#141516] hover:border-amber-400/70 hover:from-amber-900/35 hover:shadow-amber-500/15'
-        : 'border-gray-700/80 bg-gradient-to-br from-[#1c1d1e] to-[#141516] hover:border-gray-500/80 hover:from-[#252628] hover:to-[#1a1b1c] hover:shadow-black/40'
+        ? 'border-amber-500/45 bg-[#1a1409] hover:border-amber-400/70'
+        : 'border-gray-700/80 bg-[#1c1d1e] hover:border-gray-500/80'
     }`}
   >
     <div className="flex items-start gap-3">
@@ -381,7 +381,7 @@ export const ReservarSubscriberClientCard: React.FC<{
   <button
     type="button"
     onClick={onClick}
-    className="group w-full text-left p-4 rounded-2xl border border-gray-700/80 bg-gradient-to-br from-[#1c1d1e] to-[#141516] hover:border-amber-500/40 hover:from-amber-950/20 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30"
+    className="group w-full text-left p-4 rounded-2xl border border-gray-700/80 bg-[#1c1d1e] hover:border-amber-500/40 transition-colors duration-200"
   >
     <div className="flex items-start gap-3">
       <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center flex-shrink-0">

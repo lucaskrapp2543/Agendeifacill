@@ -222,16 +222,16 @@ const ServiceCard: React.FC<{
   const isSubscription = Boolean(item.is_subscription);
   const borderClass =
     variant === 'subscription' || isSubscription
-      ? 'border-amber-500/30 bg-gradient-to-br from-amber-950/40 to-[#1a1b1c] hover:border-amber-400/60 hover:from-amber-900/30'
+      ? 'border-amber-500/30 bg-[#1a1409] hover:border-amber-400/60'
       : variant === 'favorite'
-        ? 'border-orange-500/30 bg-gradient-to-br from-orange-950/30 to-[#1a1b1c] hover:border-orange-400/50 hover:from-orange-900/20'
-        : 'border-gray-600/60 bg-gradient-to-br from-[#232425] to-[#1a1b1c] hover:border-blue-400/40 hover:from-[#2a2b2c]';
+        ? 'border-orange-500/30 bg-[#1a1209] hover:border-orange-400/50'
+        : 'border-gray-600/60 bg-[#232425] hover:border-blue-400/40';
 
   return (
     <button
       type="button"
       onClick={() => onSelect(item)}
-      className={`group w-full text-left rounded-xl border p-4 transition-all duration-200 hover:shadow-lg hover:shadow-black/30 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] ${borderClass}`}
+      className={`group w-full text-left rounded-xl border p-4 transition-colors duration-200 active:scale-[0.99] ${borderClass}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
@@ -605,7 +605,7 @@ export const SqueezeServicePickerModal: React.FC<SqueezeServicePickerModalProps>
     };
 
     return (
-      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4">
+      <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-3 sm:p-4">
         <div className="bg-[#141516] rounded-2xl w-full max-w-lg border border-gray-700/80 shadow-2xl shadow-black/50 flex flex-col max-h-[90dvh]">
           {/* Header fixo */}
           <div className="px-5 pt-5 pb-3 border-b border-gray-800/80 flex-shrink-0">

@@ -1028,7 +1028,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   if (!isAuthenticated) {
     return (
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4"
+        className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-2 sm:p-4"
         onClick={onClose}
       >
         <div
@@ -1115,7 +1115,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   return (
     <>
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-1.5 sm:p-4"
+        className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-1.5 sm:p-4"
         onClick={onClose}
       >
         <div
@@ -1375,7 +1375,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
             </div>
 
             {/* Desempenho em Assinaturas — separado do avulso */}
-            <div className="bg-gradient-to-br from-[#141516] via-[#1c1028] to-[#101112] p-3 sm:p-5 rounded-xl border-2 border-violet-500/30 text-white shadow-lg shadow-violet-950/20">
+            <div className="isolation-isolate bg-[#141516] p-3 sm:p-5 rounded-xl border-2 border-violet-500/30 text-white">
               <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <div>
                   <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2">
@@ -1541,7 +1541,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                         )}
                       </div>
 
-                      <div className="rounded-xl border border-amber-500/25 bg-gradient-to-br from-amber-500/10 to-orange-500/5 p-4">
+                      <div className="rounded-xl border border-amber-500/25 bg-[#1e1608] p-4">
                         <div className="flex items-center gap-2 mb-3">
                           <Star className="w-4 h-4 text-amber-300" />
                           <p className="text-xs font-semibold text-amber-100 uppercase tracking-wide">
