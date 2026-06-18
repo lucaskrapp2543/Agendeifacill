@@ -1,4 +1,4 @@
-import { ArrowLeft, Loader2, Lock } from 'lucide-react';
+import { ArrowLeft, Loader2, Lock, LogOut } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { EstablishmentBillingPaymentModal } from '../components/EstablishmentBillingPaymentModal';
@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 
 const BlockedPage = () => {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [showBillingPaymentModal, setShowBillingPaymentModal] = useState(false);
@@ -168,10 +168,19 @@ const BlockedPage = () => {
         {/* Botão voltar */}
         <button
           onClick={handleGoBack}
-          className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 px-6 rounded-lg transition-colors duration-200 flex items-center justify-center space-x-2"
+          className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 px-6 rounded-lg transition-colors duration-200 flex items-center justify-center space-x-2 mb-3"
         >
           <ArrowLeft className="h-4 w-4" />
           <span>Voltar ao início</span>
+        </button>
+
+        {/* Botão desconectar */}
+        <button
+          onClick={async () => { await signOut(); navigate('/login', { replace: true }); }}
+          className="w-full bg-white hover:bg-red-50 text-red-600 border border-red-200 font-medium py-3 px-6 rounded-lg transition-colors duration-200 flex items-center justify-center space-x-2"
+        >
+          <LogOut className="h-4 w-4" />
+          <span>Desconectar</span>
         </button>
 
         {/* Informações adicionais */}
