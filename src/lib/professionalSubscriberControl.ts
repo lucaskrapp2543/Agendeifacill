@@ -21,6 +21,7 @@ export type ProfessionalControlGroupData = {
   displayName: string;
   professionalId: string | null;
   totalValue: number;
+  attendanceTotalValue: number;
   pointsFromAttendances: number;
   attendanceCount: number;
   uniqueClientIds: Set<string>;
@@ -528,13 +529,16 @@ export function buildProfessionalControlGroups(params: {
         displayName: group.displayName,
         professionalId: group.professionalId,
         totalValue: 0,
+        attendanceTotalValue: 0,
         pointsFromAttendances: 0,
         attendanceCount: 0,
         uniqueClientIds: new Set<string>(),
         saleCommissionCount: 0,
       };
     }
-    acc[groupKey].totalValue += getAttendanceEffectiveRepass(attendance);
+    const repassForAttendance = getAttendanceEffectiveRepass(attendance);
+    acc[groupKey].totalValue += repassForAttendance;
+    acc[groupKey].attendanceTotalValue += repassForAttendance;
     acc[groupKey].attendanceCount += 1;
 
     const clientSubId = String(attendance.client_subscription_id || '').trim();
@@ -556,6 +560,7 @@ export function buildProfessionalControlGroups(params: {
         displayName: group.displayName,
         professionalId: group.professionalId,
         totalValue: 0,
+        attendanceTotalValue: 0,
         pointsFromAttendances: 0,
         attendanceCount: 0,
         uniqueClientIds: new Set<string>(),
@@ -635,16 +640,17 @@ export function resolveProfessionalControlGroupMetrics(params: {
     })
     .reduce((sum, p) => sum + (Number(p.amount || 0) || 0), 0);
 
+  const liquidValue = params.group.attendanceTotalValue ?? params.group.totalValue;
   const pendingValue = params.isOwnerProfessional
     ? 0
-    : Math.max(0, params.group.totalValue - totalPaid);
+    : Math.max(0, liquidValue - totalPaid);
   const averageTicket =
-    params.group.attendanceCount > 0 && params.group.totalValue > 0
-      ? params.group.totalValue / params.group.attendanceCount
+    params.group.attendanceCount > 0 && liquidValue > 0
+      ? liquidValue / params.group.attendanceCount
       : 0;
 
   return {
-    totalValue: params.group.totalValue,
+    totalValue: liquidValue,
     attendanceCount: params.group.attendanceCount,
     averageTicket,
     totalPaid,

@@ -5229,7 +5229,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 const groupKey = groupInfo.groupKey;
                 const professional = String(groupInfo.displayName || '').trim() || 'Profissional';
                 const isOwnerProfessional = isOwnerProfessionalByName(professional);
-                const totalValue = groupInfo.totalValue || 0;
+                const totalValue = groupInfo.attendanceTotalValue ?? groupInfo.totalValue ?? 0;
                 const pointsFromAttendances = groupInfo.pointsFromAttendances || 0;
                 const attendanceCount = groupInfo.attendanceCount || 0;
                 const saleCommissionCount = groupInfo.saleCommissionCount || 0;
@@ -5324,7 +5324,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     <div className="px-4 sm:px-5 py-4 grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
                       {metricTile(
                         <DollarSign className="w-3.5 h-3.5 shrink-0" />,
-                        'Total do mês',
+                        'Líquido',
                         fmtBRL(totalValue),
                         'text-emerald-300'
                       )}

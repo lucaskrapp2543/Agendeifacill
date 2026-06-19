@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Agendei Fácil</string>
+    <string name="title_activity_main">Agendei Fácil</string>
+    <string name="package_name">com.agendei.facil</string>
+    <string name="custom_url_scheme">com.agendei.facil</string>
+</resources>

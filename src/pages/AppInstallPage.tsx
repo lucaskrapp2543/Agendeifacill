@@ -127,6 +127,7 @@ export default function AppInstallPage() {
             </p>
           </div>
 
+
           {/* Botão iOS */}
           <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-200">
             <button

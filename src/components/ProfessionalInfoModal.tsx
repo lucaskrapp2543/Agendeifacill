@@ -1444,7 +1444,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                         {[
                           {
                             icon: DollarSign,
-                            label: 'Total do mês',
+                            label: 'Líquido',
                             value: showValues
                               ? subscriberControl.fmtBRL(subscriberControl.metrics.totalValue)
                               : '••••••',

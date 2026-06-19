@@ -1,6 +1,6 @@
 import React from 'react';
 import { Toaster } from 'react-hot-toast';
-import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
+import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { CacheBuster } from './components/CacheBuster';
 import { AgendeiFacil30UpdateModal } from './components/AgendeiFacil30UpdateModal';
 import { AppStandbyGuard } from './components/AppStandbyGuard';
@@ -12,6 +12,12 @@ import { registerServiceWorker } from './utils/serviceWorker';
 import { shouldDisableAggressiveReloads } from './utils/browserEnv';
 
 import { PWARedirect } from './components/PWARedirect';
+
+const RootRoute = () => {
+  const isNative = (window as any).Capacitor?.isNativePlatform?.() ?? false;
+  if (isNative) return <Navigate to="/login" replace />;
+  return <LandingVendas />;
+};
 
 // Teste de configuração - novo computador
 
@@ -108,7 +114,7 @@ function App() {
               <PWARedirect />
               <AppStandbyGuard />
               <Routes>
-                  <Route path="/" element={<LandingVendas />} />
+                  <Route path="/" element={<RootRoute />} />
                   <Route path="/info" element={<LandingInfo />} />
                   <Route path="/landing" element={<LandingPage />} />
                   <Route path="/planos" element={<Planos />} />
