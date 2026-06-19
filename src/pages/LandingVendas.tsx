@@ -151,7 +151,7 @@ const LandingVendas = () => {
 
       {/* ── HEADER ── */}
       <header
-        className={`fixed w-full z-50 transition-all duration-300 ${
+        className={`hidden sm:block fixed w-full z-50 transition-all duration-300 ${
           isScrolled
             ? 'bg-[#101112]/95 border-b border-gray-800 shadow-[0_10px_30px_rgba(0,0,0,0.45)]'
             : 'bg-transparent'
@@ -159,7 +159,7 @@ const LandingVendas = () => {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
-            <img src={img('/logosite.png')} alt="Agendei Fácil" className="h-8 w-auto" />
+            <img src={img('/logosite.png')} alt="Agendei Fácil" className="hidden sm:block h-8 w-auto" />
 
             <nav className="hidden md:flex items-center space-x-8">
               <a href="#como-funciona" className="text-gray-300 hover:text-white transition-colors text-sm">Como Funciona</a>
@@ -170,7 +170,7 @@ const LandingVendas = () => {
 
             <button
               onClick={handleLogin}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-lg"
+              className="hidden sm:block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-lg"
             >
               Login
             </button>
@@ -179,8 +179,35 @@ const LandingVendas = () => {
       </header>
 
       {/* ── HERO ── */}
-      <section className="pt-20 pb-16 bg-[#0b0c0d]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <section className="sm:pt-20 pb-16 bg-[#0b0c0d]">
+        <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
+
+          {/* Imagem topo mobile — colada no topo, sem espaço */}
+          <div className="sm:hidden mb-0">
+            <div className="relative">
+              <img
+                src={img('/ppp3.png')}
+                alt="Sistema Agendei Fácil"
+                className="w-full h-auto block"
+              />
+              {/* Login sobreposto na imagem */}
+              <button
+                onClick={handleLogin}
+                className="absolute top-4 right-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-lg"
+              >
+                Login
+              </button>
+            </div>
+            {/* Faixa diagonal separadora */}
+            <div className="relative bg-[#0b0c0d] overflow-hidden" style={{ height: '60px' }}>
+              <svg viewBox="0 0 400 60" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
+                <polygon points="0,0 400,0 400,60 0,30" fill="#000000" />
+              </svg>
+              <svg viewBox="0 0 400 60" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
+                <polygon points="0,0 400,0 400,45 0,18" fill="#000000" opacity="0.4" />
+              </svg>
+            </div>
+          </div>
 
           <div className="text-center pt-6 mb-10">
             <div className="inline-flex items-center gap-2 bg-blue-600/15 border border-blue-500/30 rounded-full px-4 py-1.5 text-xs sm:text-sm text-blue-300 font-semibold mb-6">
@@ -192,11 +219,6 @@ const LandingVendas = () => {
               Seus clientes agendam sozinhos.{' '}
               <span className="text-blue-400">Você foca em atender.</span>
             </h1>
-
-            <p className="text-base sm:text-xl text-gray-400 max-w-3xl mx-auto mb-10 leading-relaxed">
-              Agendamentos online, pagamento antecipado, lembretes no WhatsApp,
-              AFCoins, assinaturas e financeiro completo — tudo em um único sistema.
-            </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center mb-10">
               <a
@@ -233,12 +255,6 @@ const LandingVendas = () => {
           {/* Imagem hero */}
           <div className="-mx-4 sm:mx-auto sm:max-w-5xl">
             <div className="relative overflow-hidden rounded-2xl border border-gray-800 bg-[#0f1011] shadow-[0_30px_70px_rgba(0,0,0,0.65)]">
-              <img
-                src={img('/ppp.png')}
-                alt="Sistema Agendei Fácil"
-                className="w-full h-auto object-cover sm:hidden opacity-95"
-                style={{ maxHeight: '520px' }}
-              />
               <img
                 src={img('/pclanding.png')}
                 alt="Sistema Agendei Fácil"
