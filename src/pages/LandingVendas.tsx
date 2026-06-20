@@ -186,7 +186,7 @@ const LandingVendas = () => {
           <div className="sm:hidden mb-0">
             <div className="relative">
               <img
-                src={img('/ppp3.png')}
+                src={img('/ppp3.webp')}
                 alt="Sistema Agendei Fácil"
                 className="w-full h-auto block"
               />

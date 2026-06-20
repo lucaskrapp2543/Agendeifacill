@@ -205,7 +205,9 @@ export function BookingChatFlow({
   const [step, setStep] = useState<ChatStep>('name');
   const [chatClientName, setChatClientName] = useState(String(guestClientData?.name || '').trim());
   const [chatClientPhone, setChatClientPhone] = useState(formatPhoneChat(String(guestClientData?.phone || '').trim()));
-  const [draftInput, setDraftInput] = useState('');
+  const savedBookingName = typeof window !== 'undefined' ? (localStorage.getItem('booking_saved_name') || '') : '';
+  const savedBookingPhone = typeof window !== 'undefined' ? (localStorage.getItem('booking_saved_phone') || '') : '';
+  const [draftInput, setDraftInput] = useState(savedBookingName);
   const [selectedProfessionalId, setSelectedProfessionalId] = useState('');
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
   const [selectedTime, setSelectedTime] = useState('');
@@ -1185,14 +1187,18 @@ export function BookingChatFlow({
       return;
     }
     if (step === 'name') {
-      setChatClientName(String(draftInput || '').trim());
-      setDraftInput(formatPhoneChat(chatClientPhone || ''));
+      const trimmedName = String(draftInput || '').trim();
+      setChatClientName(trimmedName);
+      localStorage.setItem('booking_saved_name', trimmedName);
+      const phoneToFill = formatPhoneChat(chatClientPhone || savedBookingPhone || '');
+      setDraftInput(phoneToFill);
       setStep('phone');
       return;
     }
     if (step === 'phone') {
       const nextPhone = formatPhoneChat(String(draftInput || '').trim());
       setChatClientPhone(nextPhone);
+      localStorage.setItem('booking_saved_phone', nextPhone);
       setPendingClientBookingMessage(null);
       const nextName = String(chatClientName || '').trim();
       if (nextName && nextPhone && onGuestClientDataCollected) {
@@ -1792,6 +1798,12 @@ export function BookingChatFlow({
                   }
                   className="w-full px-3 py-2 rounded-lg bg-[#151515] border border-white/20"
                 />
+                {step === 'name' && savedBookingName && draftInput === savedBookingName && (
+                  <p className="text-xs text-emerald-400 -mt-1">✓ Nome salvo</p>
+                )}
+                {step === 'phone' && savedBookingPhone && draftInput === savedBookingPhone && (
+                  <p className="text-xs text-emerald-400 -mt-1">✓ Telefone salvo</p>
+                )}
                 <button
                   type="button"
                   onClick={() => void goNext()}

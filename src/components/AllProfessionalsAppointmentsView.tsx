@@ -488,6 +488,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [showColorLegend, setShowColorLegend] = useState<'red' | 'yellow' | 'green' | 'gold' | null>(null);
     const [showReminderInfo, setShowReminderInfo] = useState(false);
     const [showPendingWarning, setShowPendingWarning] = useState(false);
+    const [collapsedMenuProfessionals, setCollapsedMenuProfessionals] = useState<Set<string>>(() => {
+      try {
+        const saved = localStorage.getItem('prof_menu_collapsed');
+        return saved ? new Set(JSON.parse(saved)) : new Set();
+      } catch { return new Set(); }
+    });
+    const toggleProfessionalMenu = (profId: string) => {
+      setCollapsedMenuProfessionals((prev) => {
+        const next = new Set(prev);
+        if (next.has(profId)) { next.delete(profId); } else { next.add(profId); }
+        try { localStorage.setItem('prof_menu_collapsed', JSON.stringify([...next])); } catch {}
+        return next;
+      });
+    };
     const [showMonthPendingModal, setShowMonthPendingModal] = useState(false);
     const [monthPendingAppointments, setMonthPendingAppointments] = useState<Appointment[]>([]);
     const [isLoadingMonthPending, setIsLoadingMonthPending] = useState(false);
@@ -6601,6 +6615,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             </p>
                           </div>
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleProfessionalMenu(professional.id)}
+                          className="w-full mt-1 mb-1 text-[11px] font-semibold text-gray-400 hover:text-gray-200 transition-colors py-1 border border-gray-700/50 rounded-lg"
+                        >
+                          {collapsedMenuProfessionals.has(professional.id) ? '▼ Abrir menu' : '▲ Recolher menu'}
+                        </button>
+                        {!collapsedMenuProfessionals.has(professional.id) && (
+                        <>
                         <div className="w-full grid grid-cols-2 gap-2 mt-2">
                           {onGoToClients && (
                             <button
@@ -6824,6 +6847,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             Clique no horário desejado, para interagir.
                           </p>
                         </div>
+                        </> )} {/* fim do bloco recolhível */}
 
                         {/* Meta do Profissional */}
                         {professional.goal && professional.goal > 0 && (
