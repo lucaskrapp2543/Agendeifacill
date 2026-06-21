@@ -30128,7 +30128,7 @@ Estamos te aguardando!`;
 
                         <div className="mt-4 overflow-hidden rounded-xl border border-amber-500/10 bg-black/30">
                           <img
-                            src="/lembrete.png"
+                            src="/lembreteppp3.webp"
                             alt="Exemplo de lembrete automático no WhatsApp"
                             className="w-full h-auto object-cover"
                             loading="lazy"

@@ -39,6 +39,10 @@ export const shouldShowV30UpdatePrompt = (): boolean => {
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     return false;
   }
+  // Nunca mostrar em páginas públicas — só dentro do dashboard
+  if (!window.location.pathname.startsWith('/dashboard')) {
+    return false;
+  }
   return !hasCompletedV30Update();
 };
 

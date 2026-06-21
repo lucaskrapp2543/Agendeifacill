@@ -60,26 +60,31 @@ const LandingVendas = () => {
   const painPoints = [
     {
       icon: <MessageCircle className="w-6 h-6 text-red-400" />,
+      emoji: '😩',
       title: 'WhatsApp inundado de perguntas',
       desc: '"Qual o horário disponível?" — às 23h, no seu dia de folga.',
     },
     {
       icon: <Users className="w-6 h-6 text-red-400" />,
+      emoji: '😭',
       title: 'Falta sem aviso',
       desc: 'Cadeira vazia, profissional esperando, dinheiro perdido. Sempre.',
     },
     {
       icon: <Calendar className="w-6 h-6 text-red-400" />,
+      emoji: '🤦',
       title: 'Agenda bagunçada',
       desc: 'Horários conflitando, anotações no papel, cliente irritado.',
     },
     {
       icon: <CreditCard className="w-6 h-6 text-red-400" />,
+      emoji: '😔',
       title: 'Pagamentos esquecidos',
       desc: 'Cobrar depois do atendimento é constrangedor. E alguns simplesmente somem.',
     },
     {
       icon: <BarChart3 className="w-6 h-6 text-red-400" />,
+      emoji: '😱',
       title: 'Sem controle financeiro',
       desc: 'Não sabe quanto cada profissional rendeu nem qual serviço dá mais lucro.',
     },
@@ -179,11 +184,11 @@ const LandingVendas = () => {
       </header>
 
       {/* ── HERO ── */}
-      <section className="sm:pt-20 pb-16 bg-[#0b0c0d]">
+      <section className="sm:pt-20 pb-16 bg-black sm:bg-[#0b0c0d]">
         <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
 
           {/* Imagem topo mobile — colada no topo, sem espaço */}
-          <div className="sm:hidden mb-0">
+          <div className="sm:hidden mb-0 bg-black">
             <div className="relative">
               <img
                 src={img('/ppp3.webp')}
@@ -199,7 +204,7 @@ const LandingVendas = () => {
               </button>
             </div>
             {/* Faixa diagonal separadora */}
-            <div className="relative bg-[#0b0c0d] overflow-hidden" style={{ height: '60px' }}>
+            <div className="relative bg-black overflow-hidden" style={{ height: '60px' }}>
               <svg viewBox="0 0 400 60" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
                 <polygon points="0,0 400,0 400,60 0,30" fill="#000000" />
               </svg>
@@ -224,18 +229,21 @@ const LandingVendas = () => {
             </div>
           </div>
 
-          <div className="text-center pt-6 mb-10">
-            <div className="inline-flex items-center gap-2 bg-blue-600/15 border border-blue-500/30 rounded-full px-4 py-1.5 text-xs sm:text-sm text-blue-300 font-semibold mb-6">
-              <span className="h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
-              Sistema completo para barbearias e salões
+          <div className="text-center mb-10 bg-black sm:bg-transparent">
+            {/* Badge + heading: fundo preto no mobile para combinar com o recorte da imagem */}
+            <div className="pt-6 pb-6 sm:pb-0 px-4 sm:px-0">
+              <div className="inline-flex items-center gap-2 bg-blue-600/15 border border-blue-500/30 rounded-full px-4 py-1.5 text-xs sm:text-sm text-blue-300 font-semibold mb-6">
+                <span className="h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
+                Sistema completo para barbearias e salões
+              </div>
+
+              <h1 className="text-3xl sm:text-5xl md:text-6xl font-extrabold text-white leading-tight tracking-tight mb-0 sm:mb-6 max-w-4xl mx-auto">
+                Seus clientes agendam sozinhos.{' '}
+                <span className="text-blue-400">Você foca em atender.</span>
+              </h1>
             </div>
 
-            <h1 className="text-3xl sm:text-5xl md:text-6xl font-extrabold text-white leading-tight tracking-tight mb-6 max-w-4xl mx-auto">
-              Seus clientes agendam sozinhos.{' '}
-              <span className="text-blue-400">Você foca em atender.</span>
-            </h1>
-
-            <div className="flex flex-col sm:flex-row gap-4 justify-center mb-10">
+            <div className="flex flex-col sm:flex-row gap-4 justify-center mb-10 pt-6 sm:pt-0 px-4 sm:px-0">
               <a
                 href="#pricing"
                 className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg text-lg font-bold transition-colors flex items-center justify-center shadow-lg"
@@ -303,6 +311,9 @@ const LandingVendas = () => {
         </div>
       </section>
 
+      {/* Gradiente de transição mobile: preto → #101112 */}
+      <div className="sm:hidden h-20 bg-gradient-to-b from-black to-[#101112]" />
+
       {/* ── DOR DO BARBEIRO ── */}
       <section className="py-20 bg-[#101112]">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -321,9 +332,12 @@ const LandingVendas = () => {
                 key={i}
                 className="bg-[#1a1b1c] border border-red-900/40 rounded-xl p-5 flex flex-col gap-3"
               >
-                <div className="flex items-center gap-3">
-                  {p.icon}
-                  <h3 className="text-white font-semibold text-sm sm:text-base">{p.title}</h3>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    {p.icon}
+                    <h3 className="text-white font-semibold text-sm sm:text-base">{p.title}</h3>
+                  </div>
+                  <span className="text-2xl shrink-0">{p.emoji}</span>
                 </div>
                 <p className="text-gray-400 text-sm leading-relaxed">{p.desc}</p>
               </div>
@@ -348,48 +362,74 @@ const LandingVendas = () => {
 
       {/* ── COMO FUNCIONA ── */}
       <section id="como-funciona" className="py-20 bg-[#0f1011]">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="rounded-3xl border border-gray-800 bg-[#1a1b1c] shadow-[0_30px_80px_rgba(0,0,0,0.55)] p-6 sm:p-10">
-            <h2 className="text-center text-2xl sm:text-3xl font-extrabold text-white mb-3 uppercase tracking-tight">
-              Como Funciona?
-            </h2>
-            <p className="text-center text-gray-400 text-sm sm:text-base mb-10 max-w-xl mx-auto">
+            <div className="flex items-center justify-center gap-3 mb-3">
+              <h2 className="text-center text-2xl sm:text-3xl font-extrabold text-white uppercase tracking-tight">
+                Como Funciona?
+              </h2>
+              <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 shrink-0">
+                3 passos
+              </span>
+            </div>
+            <p className="text-center text-gray-400 text-sm sm:text-base mb-8 max-w-xl mx-auto">
               Em 3 passos simples, sua barbearia fica no automático.
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-6">
+            <div className="space-y-0 mb-6">
               {[
                 {
-                  step: '01',
+                  step: 1,
+                  emoji: '🔗',
                   title: 'Compartilhe seu link',
                   text: 'Você recebe um link único da sua barbearia. Coloca no WhatsApp, Instagram, story — onde preferir. Seu cliente acessa direto, sem baixar nada.',
-                  color: 'text-blue-400',
-                  border: 'border-blue-900/50',
+                  gradient: 'from-blue-400 to-blue-600',
+                  glow: 'shadow-blue-500/30',
                 },
                 {
-                  step: '02',
+                  step: 2,
+                  emoji: '📅',
                   title: 'Cliente agenda em segundos',
-                  text: 'Ele escolhe o serviço, profissional, data e horário. Tudo em poucos cliques, sem criar conta. Pode pagar online ou no local.',
-                  color: 'text-emerald-400',
-                  border: 'border-emerald-900/50',
+                  text: 'Ele escolhe serviço, profissional, data e horário. Tudo em poucos cliques, sem criar conta. Pode pagar online ou no local.',
+                  gradient: 'from-emerald-400 to-green-600',
+                  glow: 'shadow-emerald-500/30',
                 },
                 {
-                  step: '03',
+                  step: 3,
+                  emoji: '💰',
                   title: 'Você recebe e relaxa',
-                  text: 'Notificação no sistema e no seu WhatsApp. O sistema lembra o cliente 1 hora antes automaticamente. Menos faltas, mais dinheiro.',
-                  color: 'text-purple-400',
-                  border: 'border-purple-900/50',
+                  text: 'Notificação no sistema e no WhatsApp. O sistema lembra o cliente 1 hora antes. Menos faltas, mais dinheiro no bolso.',
+                  gradient: 'from-purple-400 to-violet-600',
+                  glow: 'shadow-purple-500/30',
                 },
-              ].map(({ step, title, text, color, border }) => (
-                <div key={step} className={`rounded-2xl bg-[#101112] border ${border} p-6 space-y-3`}>
-                  <div className={`text-4xl font-black ${color} opacity-80`}>{step}</div>
-                  <h3 className={`text-base sm:text-lg font-bold ${color}`}>{title}</h3>
-                  <p className="text-sm text-gray-400 leading-relaxed">{text}</p>
+              ].map(({ step, emoji, title, text, gradient, glow }, index) => (
+                <div key={step}>
+                  <div className="relative flex items-center gap-4 rounded-2xl bg-gradient-to-r from-[#101112] to-[#0d0e0f] border border-white/[0.07] px-4 py-4 shadow-md overflow-hidden">
+                    <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl bg-gradient-to-b ${gradient}`} />
+                    <div className={`shrink-0 w-10 h-10 rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center shadow-lg ${glow} ml-2`}>
+                      <span className="text-white font-black text-sm leading-none">{step}</span>
+                    </div>
+                    <span className="text-2xl shrink-0">{emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm sm:text-base font-bold text-white">{title}</p>
+                      <p className="text-xs sm:text-sm text-gray-400 leading-relaxed mt-0.5">{text}</p>
+                    </div>
+                  </div>
+                  {index < 2 && (
+                    <div className="flex justify-center items-center py-1.5">
+                      <div className="flex flex-col items-center">
+                        <div className="w-px h-3 bg-white/15" />
+                        <svg width="16" height="10" viewBox="0 0 16 10" fill="none" className="opacity-40">
+                          <path d="M8 10L0 0H16L8 10Z" fill="white" />
+                        </svg>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
 
-            <div className="rounded-2xl bg-[#101112] border border-gray-800 p-6">
+            <div className="rounded-2xl bg-[#101112] border border-gray-800 p-5">
               <h3 className="text-base sm:text-lg font-bold text-blue-300 mb-2">
                 Área do estabelecimento
               </h3>
@@ -481,7 +521,7 @@ const LandingVendas = () => {
 
               <div className="overflow-hidden rounded-3xl border border-gray-800 shadow-[0_20px_60px_rgba(0,0,0,0.55)]">
                 <img
-                  src={img('/paginaextra.png')}
+                  src={img('/paginaextrappp3.webp')}
                   alt="Exemplo de página exclusiva"
                   className="w-full h-auto opacity-95"
                 />
@@ -611,7 +651,7 @@ const LandingVendas = () => {
               </p>
               <div className="pt-2">
                 <img
-                  src={img('/lembrete.png')}
+                  src={img('/lembreteppp3.webp')}
                   alt="Exemplo de lembrete automático no WhatsApp"
                   className="w-full h-auto rounded-lg border border-gray-800 opacity-90"
                 />

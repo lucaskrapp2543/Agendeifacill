@@ -428,7 +428,7 @@ const LandingInfo = () => {
           {/* Imagem paginaextra - Mobile Otimizada */}
           <div className="flex justify-center mb-6 md:mb-8 px-2">
             <img
-              src="/paginaextra.png"
+              src="/paginaextrappp3.webp"
               alt="Exemplo de página exclusiva"
               className="w-full max-w-md md:max-w-2xl lg:max-w-4xl h-auto rounded-lg md:rounded-xl shadow-2xl border border-gray-200"
             />

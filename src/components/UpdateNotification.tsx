@@ -168,6 +168,11 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
     return null;
   }
 
+  // Nunca mostrar notificações de update em páginas públicas
+  if (!window.location.pathname.startsWith('/dashboard')) {
+    return null;
+  }
+
   if (shouldShowV30UpdatePrompt()) {
     return null;
   }

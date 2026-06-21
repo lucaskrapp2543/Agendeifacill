@@ -6,10 +6,10 @@ type RecebaNaHoraPageLayoutProps = {
 };
 
 const flowSteps = [
-  { emoji: '✂️', label: 'Cliente agenda' },
-  { emoji: '💳', label: 'Escolhe pagar online OU no local' },
-  { emoji: '⚡', label: 'Se pagar online: você recebe na hora' },
-  { emoji: '📈', label: 'Menos faltas no salão' },
+  { emoji: '✂️', label: 'Cliente agenda', gradient: 'from-sky-400 to-blue-500', glow: 'shadow-sky-500/30' },
+  { emoji: '💳', label: 'Escolhe pagar online OU no local', gradient: 'from-violet-400 to-purple-600', glow: 'shadow-purple-500/30' },
+  { emoji: '⚡', label: 'Se pagar online: você recebe na hora', gradient: 'from-amber-400 to-orange-500', glow: 'shadow-amber-500/30' },
+  { emoji: '📈', label: 'Menos faltas no salão', gradient: 'from-emerald-400 to-green-600', glow: 'shadow-emerald-500/30' },
 ];
 
 export const RecebaNaHoraPageLayout: React.FC<RecebaNaHoraPageLayoutProps> = ({
@@ -103,19 +103,35 @@ export const RecebaNaHoraPageLayout: React.FC<RecebaNaHoraPageLayoutProps> = ({
 
         {/* Como funciona */}
         <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6">
-          <h2 className="text-lg font-extrabold text-white mb-4">Como funciona</h2>
+          <div className="flex items-center gap-2 mb-5">
+            <h2 className="text-lg font-extrabold text-white">Como funciona</h2>
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">
+              {flowSteps.length} passos
+            </span>
+          </div>
           <div className="space-y-0">
             {flowSteps.map((step, index) => (
               <React.Fragment key={step.label}>
-                <div className="flex items-center gap-3 rounded-xl bg-[#0f172a]/80 border border-white/10 px-4 py-3">
-                  <span className="text-2xl shrink-0" aria-hidden="true">
-                    {step.emoji}
-                  </span>
-                  <span className="text-sm sm:text-base font-semibold text-white/95">{step.label}</span>
+                <div className="relative flex items-center gap-4 rounded-2xl bg-gradient-to-r from-[#0c1829] to-[#080e1a] border border-white/[0.08] px-4 py-4 shadow-md overflow-hidden">
+                  {/* glow de fundo sutil */}
+                  <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl bg-gradient-to-b ${step.gradient}`} />
+                  {/* Badge numerado */}
+                  <div className={`shrink-0 w-10 h-10 rounded-full bg-gradient-to-br ${step.gradient} flex items-center justify-center shadow-lg ${step.glow} ml-2`}>
+                    <span className="text-white font-black text-sm leading-none">{index + 1}</span>
+                  </div>
+                  {/* Emoji */}
+                  <span className="text-2xl shrink-0" aria-hidden="true">{step.emoji}</span>
+                  {/* Texto */}
+                  <span className="text-sm sm:text-base font-semibold text-white/95 leading-snug">{step.label}</span>
                 </div>
                 {index < flowSteps.length - 1 && (
-                  <div className="flex justify-center py-1 text-sky-300/80 text-lg font-bold" aria-hidden="true">
-                    ↓
+                  <div className="flex justify-center items-center py-1.5 gap-0" aria-hidden="true">
+                    <div className="flex flex-col items-center">
+                      <div className="w-px h-3 bg-white/15" />
+                      <svg width="16" height="10" viewBox="0 0 16 10" fill="none" className="opacity-50">
+                        <path d="M8 10L0 0H16L8 10Z" fill="white" />
+                      </svg>
+                    </div>
                   </div>
                 )}
               </React.Fragment>
