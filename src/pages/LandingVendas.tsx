@@ -207,6 +207,21 @@ const LandingVendas = () => {
                 <polygon points="0,0 400,0 400,45 0,18" fill="#000000" opacity="0.4" />
               </svg>
             </div>
+            {/* Vídeo mobile - formato reels/vertical */}
+            <div className="flex justify-center mt-6 mb-4 px-8">
+              <div className="w-full max-w-[300px]">
+                <div className="relative rounded-2xl overflow-hidden border border-gray-700/50 shadow-2xl bg-black" style={{ aspectRatio: '9/16' }}>
+                  <iframe
+                    src="https://www.youtube.com/embed/6F5I6FDbito?rel=0"
+                    title="Agendei Fácil"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    className="absolute inset-0 w-full h-full"
+                    style={{ border: 'none' }}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="text-center pt-6 mb-10">
@@ -260,6 +275,20 @@ const LandingVendas = () => {
                 alt="Sistema Agendei Fácil"
                 className="hidden sm:block w-full h-auto mx-auto object-contain opacity-95"
                 style={{ maxHeight: '520px' }}
+              />
+            </div>
+          </div>
+
+          {/* Vídeo desktop - abaixo da imagem pclanding */}
+          <div className="hidden sm:block mt-6 mx-auto max-w-5xl">
+            <div className="relative rounded-2xl overflow-hidden border border-gray-800 shadow-[0_20px_50px_rgba(0,0,0,0.5)] bg-black" style={{ aspectRatio: '16/9' }}>
+              <iframe
+                src="https://www.youtube.com/embed/oC9_F-7wXeo?rel=0"
+                title="Agendei Fácil - Vídeo"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                className="absolute inset-0 w-full h-full"
+                style={{ border: 'none' }}
               />
             </div>
           </div>

@@ -475,7 +475,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         .map((m) => String(m || '').trim())
         .filter((m) => m.length > 0 && !defaultPaymentMethodSet.has(m));
     };
-    const [expandedAppointments, setExpandedAppointments] = useState<{ [key: string]: boolean }>({});
+    const [modalAptId, setModalAptId] = useState<string | null>(null);
     const [agendaSubscriberRows, setAgendaSubscriberRows] = useState<ClientSubscriptionRowLite[]>([]);
     const [hiddenAppointmentsOpenByProfessional, setHiddenAppointmentsOpenByProfessional] = useState<Record<string, boolean>>({});
     const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>(
@@ -2237,7 +2237,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              setExpandedAppointments((prev) => ({ ...prev, [apt.id]: true }));
+              setModalAptId(apt.id);
               startEditAvulsoName(apt);
             }}
             className="shrink-0 text-white/80 hover:text-white text-xs"
@@ -3430,15 +3430,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
     }, [showAvailabilityModal, availabilityProfessionalId, appointments, selectedDate, professionals]);
 
     const toggleAppointmentExpansion = (appointmentId: string) => {
-      setExpandedAppointments(prev => {
-        const nextIsExpanded = !prev[appointmentId];
-        if (nextIsExpanded) {
-          onAppointmentDetailsOpen?.();
-        }
-        return {
-          ...prev,
-          [appointmentId]: nextIsExpanded
-        };
+      setModalAptId((prev) => {
+        if (prev === appointmentId) return null;
+        onAppointmentDetailsOpen?.();
+        return appointmentId;
       });
     };
 
@@ -6999,7 +6994,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                   </div>
                                   {/* Exibir encaixes abaixo do horário */}
                                   {squeezes.map((squeeze: Appointment) => {
-                                    const isExpanded = expandedAppointments[squeeze.id];
+                                    const isExpanded = modalAptId === squeeze.id;
                                     return (
                                       <div
                                         key={squeeze.id}
@@ -7022,13 +7017,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               {squeeze.service}
                                             </div>
                                             <div className="text-white/70 text-xs mt-1">
-                                              {getDuracaoTotalAgendamento(squeeze, intervaloAgendaMinutos)} min • {isExpanded ? 'Ocultar' : 'Ver detalhes'}
+                                              {getDuracaoTotalAgendamento(squeeze, intervaloAgendaMinutos)} min • Ver detalhes
                                             </div>
                                           </div>
                                         </div>
                                         {/* Versão expandida do encaixe */}
                                         {isExpanded && (
-                                          <div className="border-t-2 border-white/20 p-3 bg-black/10">
+                                          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70" onClick={(e) => { if (e.target === e.currentTarget) setModalAptId(null); }}>
+                                            <div className="relative w-full max-w-lg max-h-[88vh] overflow-y-auto rounded-2xl shadow-2xl bg-[#1a1b1c] p-4" onClick={(e) => e.stopPropagation()}>
+                                              <button onClick={() => setModalAptId(null)} className="absolute top-3 right-3 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full w-8 h-8 flex items-center justify-center text-xl font-bold">×</button>
                                             <div className="mb-3">
                                               <div className="flex items-center gap-2 mb-2">
                                                 <span className="text-white font-semibold">
@@ -7077,6 +7074,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 </button>
                                               )}
                                             </div>
+                                            </div>
                                           </div>
                                         )}
                                       </div>
@@ -7091,7 +7089,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             } else if (slot.appointment) {
                               // Agendamento real
                               const apt = slot.appointment;
-                              const isExpanded = expandedAppointments[apt.id];
+                              const isExpanded = modalAptId === apt.id;
                               const serviceLabels = getAppointmentServiceLabels(apt);
                               const subscriptionLabelColor = getSubscriptionLabelColor(apt);
                               const contactOverride = appointmentContactById[apt.id] || {};
@@ -7135,8 +7133,23 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         )}
                                         {getDisplayedService(apt)}
                                       </div>
-                                      <div className="text-white/70 text-xs mt-1">
-                                        {getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos)} min • {isExpanded ? 'Ocultar' : 'Ver detalhes'}
+                                      <div className="text-white/70 text-xs mt-1 flex items-center justify-between gap-1">
+                                        <span>{getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos)} min • Ver detalhes</span>
+                                        {apt.status === 'completed' && (
+                                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-black/30 text-white shrink-0">
+                                            ✅ CONCLUÍDO
+                                          </span>
+                                        )}
+                                        {apt.status === 'pending' && (
+                                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-black/30 text-white shrink-0">
+                                            ⏳ PENDENTE
+                                          </span>
+                                        )}
+                                        {apt.status === 'cancelled' && (
+                                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-black/40 text-white shrink-0">
+                                            ❌ CANCELADO
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
 
@@ -7167,9 +7180,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                     )}
                                   </div>
 
-                                  {/* Versão Expandida - Só aparece quando clicado */}
+                                  {/* Versão Expandida - Popup modal centrado */}
                                   {isExpanded && (
-                                    <div className="border-t-2 border-white/20 p-3 bg-black/10">
+                                    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70" onClick={(e) => { if (e.target === e.currentTarget) setModalAptId(null); }}>
+                                      <div className="relative w-full max-w-lg max-h-[88vh] overflow-y-auto rounded-2xl shadow-2xl bg-[#1a1b1c] p-4" onClick={(e) => e.stopPropagation()}>
+                                        <button onClick={() => setModalAptId(null)} className="absolute top-3 right-3 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full w-8 h-8 flex items-center justify-center text-xl font-bold">×</button>
                                       {/* Cliente Info */}
                                       <div className="mb-3">
                                         <div className="flex items-center gap-2 mb-2">
@@ -7455,7 +7470,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         <div className="mb-3">
                                           <select
                                             value={apt.payment_method || 'pendente'}
-                                            onChange={(e) => handlePaymentMethodChange(apt, e.target.value)}
+                                            onChange={(e) => {
+                                              if (e.target.value === 'multi') setModalAptId(null);
+                                              handlePaymentMethodChange(apt, e.target.value);
+                                            }}
                                             className="w-full bg-white/20 text-white text-xs rounded px-2 py-1 border border-white/30"
                                           >
                                             <option value="pendente" className="bg-gray-800">Forma de Pagamento</option>
@@ -7523,17 +7541,18 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
                                       {/* Botões de Ação */}
                                       {apt.status !== 'cancelled' ? (
-                                        <div className="space-y-2">
+                                        <div className="space-y-2.5">
                                           {/* Botões principais */}
-                                          <div className="grid grid-cols-2 gap-1">
+                                          <div className="grid grid-cols-2 gap-2">
                                             <button
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 void logAppointmentCardActionClick(apt, 'produto_v2', 'Clique em Adicionar Produto.');
+                                                setModalAptId(null);
                                                 if (onOpenProductV2Modal) onOpenProductV2Modal(apt.id);
                                               }}
                                               data-tutorial-id="appointments-detalhes-produto"
-                                              className="px-2 py-1.5 text-xs bg-black text-white rounded hover:bg-gray-800 flex items-center justify-center gap-1"
+                                              className="px-2 py-3 text-sm bg-black text-white rounded hover:bg-gray-800 flex items-center justify-center gap-1"
                                             >
                                               <Package className="w-3 h-3" />
                                               Adicionar Produto
@@ -7543,10 +7562,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 void logAppointmentCardActionClick(apt, 'servico_extra', 'Clique em Serviço Extra.');
+                                                setModalAptId(null);
                                                 if (onOpenAdditionalProductModal) onOpenAdditionalProductModal(apt.id);
                                               }}
                                               data-tutorial-id="appointments-detalhes-servico-extra"
-                                              className="px-2 py-1.5 text-xs bg-white/20 text-white rounded hover:bg-white/30 flex items-center justify-center gap-1"
+                                              className="px-2 py-3 text-sm bg-white/20 text-white rounded hover:bg-white/30 flex items-center justify-center gap-1"
                                             >
                                               <Plus className="w-3 h-3" />
                                               Serviço Extra
@@ -7559,7 +7579,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 handleUpdateAppointmentStatus(apt.id, 'completed');
                                               }}
                                               data-tutorial-id="appointments-detalhes-concluido"
-                                              className={`px-2 py-1.5 text-xs text-white rounded transition-colors ${apt.is_squeeze ? 'bg-gray-700 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'
+                                              className={`px-2 py-3 text-sm text-white rounded transition-colors ${apt.is_squeeze ? 'bg-gray-700 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'
                                                 }`}
                                             >
                                               {apt.is_squeeze ? (
@@ -7579,7 +7599,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 handleUpdateAppointmentStatus(apt.id, 'pending');
                                               }}
                                               data-tutorial-id="appointments-detalhes-pendente"
-                                              className="px-2 py-1.5 text-xs bg-yellow-600 text-white rounded hover:bg-yellow-700"
+                                              className="px-2 py-3 text-sm bg-yellow-600 text-white rounded hover:bg-yellow-700"
                                             >
                                               ⏳ PENDENTE
                                             </button>
@@ -7588,10 +7608,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 void logAppointmentCardActionClick(apt, 'transferir_click', 'Clique em Transferir.');
+                                                setModalAptId(null);
                                                 if (onOpenTransferModal) onOpenTransferModal(apt);
                                               }}
                                               data-tutorial-id="appointments-detalhes-transferir"
-                                              className="px-2 py-1.5 text-xs bg-black text-white rounded hover:bg-gray-800"
+                                              className="px-2 py-3 text-sm bg-black text-white rounded hover:bg-gray-800"
                                             >
                                               🔄 TRANSFERIR
                                             </button>
@@ -7600,10 +7621,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 void logAppointmentCardActionClick(apt, 'terminei_antes_click', 'Clique em Terminei Antes.');
+                                                setModalAptId(null);
                                                 if (onOpenFinishEarlyModal) onOpenFinishEarlyModal(apt);
                                               }}
                                               data-tutorial-id="appointments-detalhes-terminei-antes"
-                                              className="px-2 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                                              className="px-2 py-3 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
                                               title="Terminei antes do tempo planejado"
                                             >
                                               ⏱️ Terminei Antes
@@ -7613,16 +7635,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 void logAppointmentCardActionClick(apt, 'cancelar_click', 'Clique em Cancelar.');
-                                                // Se tiver função de cancelamento customizada, usar ela (para pedir senha)
+                                                setModalAptId(null);
                                                 if (onCancelAppointment) {
                                                   onCancelAppointment(apt.id);
                                                 } else {
-                                                  // Fallback: cancelar direto
                                                   handleUpdateAppointmentStatus(apt.id, 'cancelled');
                                                 }
                                               }}
                                               data-tutorial-id="appointments-detalhes-cancelar"
-                                              className="px-2 py-1.5 text-xs bg-red-700 text-white rounded hover:bg-red-800"
+                                              className="px-2 py-3 text-sm bg-red-700 text-white rounded hover:bg-red-800"
                                             >
                                               ❌ CANCELAR
                                             </button>
@@ -7654,7 +7675,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 openWhatsAppWithBusinessPriority(phoneNumber, message);
                                               }}
                                               data-tutorial-id="appointments-detalhes-imprevisto"
-                                              className="px-2 py-1.5 text-xs bg-gray-800 text-white rounded hover:bg-gray-700"
+                                              className="px-2 py-3 text-sm bg-gray-800 text-white rounded hover:bg-gray-700"
                                               title="Enviar mensagem de imprevisto"
                                             >
                                               IMPREVISTO
@@ -7665,6 +7686,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 onClick={(e) => {
                                                   e.stopPropagation();
                                                   void logAppointmentCardActionClick(apt, 'baixar_nf_click', 'Clique em Baixar NF.');
+                                                  setModalAptId(null);
                                                   onGenerateNF({
                                                     ...apt,
                                                     client_cpf: displayedCpf || apt.client_cpf,
@@ -7672,7 +7694,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                   });
                                                 }}
                                                 data-tutorial-id="appointments-detalhes-baixar-nf"
-                                                className="col-span-2 px-2 py-1.5 text-xs bg-emerald-700 text-white rounded hover:bg-emerald-800 font-extrabold"
+                                                className="col-span-2 px-2 py-3 text-sm bg-emerald-700 text-white rounded hover:bg-emerald-800 font-extrabold"
                                                 title="Baixar nota fiscal do atendimento"
                                               >
                                                 🧾 BAIXAR NF
@@ -7691,10 +7713,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                     const clientName = apt.client_name || 'este cliente';
                                                     if (!window.confirm(`Tem certeza que deseja marcar que ${clientName} faltou? O agendamento será cancelado.`)) return;
                                                     void logAppointmentCardActionClick(apt, 'cliente_faltou_click', 'Clique em Cliente Faltou.');
+                                                    setModalAptId(null);
                                                     onClientNoShow(apt);
                                                   }}
                                                   data-tutorial-id="appointments-detalhes-cliente-faltou"
-                                                  className="px-2 py-1.5 text-xs bg-orange-700 text-white rounded hover:bg-orange-800"
+                                                  className="px-2 py-3 text-sm bg-orange-700 text-white rounded hover:bg-orange-800"
                                                   title="Registrar que o cliente faltou (mesma função de Meus clientes)"
                                                 >
                                                   Cliente Faltou
@@ -7705,12 +7728,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 onClick={(e) => {
                                                   e.stopPropagation();
                                                   void logAppointmentCardActionClick(apt, 'gorjeta_click', 'Clique em Gorjeta.');
+                                                  setModalAptId(null);
                                                   setTipModalAppointment(apt);
                                                   const cur = getProfessionalTipAmount(apt);
                                                   setTipModalInput(cur > 0 ? String(cur).replace('.', ',') : '');
                                                 }}
                                                 data-tutorial-id="appointments-detalhes-gorjeta"
-                                                className={`px-2 py-1.5 text-xs bg-amber-600 text-white rounded hover:bg-amber-700 font-semibold flex items-center justify-center gap-1 ${onClientNoShow ? '' : 'w-full'}`}
+                                                className={`px-2 py-3 text-sm bg-amber-600 text-white rounded hover:bg-amber-700 font-semibold flex items-center justify-center gap-1 ${onClientNoShow ? '' : 'w-full'}`}
                                                 title="Gorjeta: 100% para o profissional, fora da % sobre o serviço"
                                               >
                                                 <Coins className="h-3.5 w-3.5 shrink-0" />
@@ -7723,10 +7747,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               void logAppointmentCardActionClick(apt, 'trocar_horario_click', 'Clique em Trocar horário.');
+                                              setModalAptId(null);
                                               handleOpenRescheduleModal(apt);
                                             }}
                                             data-tutorial-id="appointments-detalhes-trocar-horario"
-                                            className="w-full px-2 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 font-extrabold"
+                                            className="w-full px-2 py-3 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 font-extrabold"
                                             title="Trocar a data/horário deste agendamento"
                                           >
                                             🕒 Trocar horário
@@ -7736,10 +7761,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               void logAppointmentCardActionClick(apt, 'trocar_servico_click', 'Clique em Trocar serviço.');
+                                              setModalAptId(null);
                                               handleOpenChangeServiceModal(apt);
                                             }}
                                             data-tutorial-id="appointments-detalhes-trocar-servico"
-                                            className="w-full px-2 py-1.5 text-xs bg-black text-white rounded hover:bg-gray-800 font-extrabold"
+                                            className="w-full px-2 py-3 text-sm bg-black text-white rounded hover:bg-gray-800 font-extrabold"
                                             title="Trocar o serviço (altera valor e duração)"
                                           >
                                             ✂️ Trocar serviço
@@ -7749,10 +7775,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               void logAppointmentCardActionClick(apt, 'minhas_observacoes_click', 'Clique em Minhas Observações.');
+                                              setModalAptId(null);
                                               if (onOpenObservationModal) onOpenObservationModal(apt.id, apt.establishment_observation);
                                             }}
                                             data-tutorial-id="appointments-detalhes-observacoes"
-                                            className="w-full px-2 py-1.5 text-xs bg-gray-700 text-white rounded hover:bg-gray-600"
+                                            className="w-full px-2 py-3 text-sm bg-gray-700 text-white rounded hover:bg-gray-600"
                                           >
                                             📝 Minhas Observações
                                           </button>
@@ -7760,9 +7787,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <button
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              setModalAptId(null);
                                               void handleOpenAppointmentHistoryModal(apt);
                                             }}
-                                            className="w-full px-2 py-1.5 text-xs bg-amber-700 text-white rounded hover:bg-amber-800"
+                                            className="w-full px-2 py-3 text-sm bg-amber-700 text-white rounded hover:bg-amber-800"
                                             title="Ver histórico de alterações desse agendamento"
                                           >
                                             📜 Ver histórico
@@ -7786,7 +7814,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               e.stopPropagation();
                                               handleRestoreCancelledAppointment(apt);
                                             }}
-                                            className="w-full px-2 py-1.5 text-xs bg-emerald-700 text-white rounded hover:bg-emerald-800 flex items-center justify-center gap-1"
+                                            className="w-full px-2 py-3 text-sm bg-emerald-700 text-white rounded hover:bg-emerald-800 flex items-center justify-center gap-1"
                                           >
                                             ↩️ Restabelecer agendamento
                                           </button>
@@ -7795,13 +7823,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               e.stopPropagation();
                                               handleDeleteAppointment(apt.id);
                                             }}
-                                            className="w-full px-2 py-1.5 text-xs bg-gray-900 text-white rounded hover:bg-gray-800 flex items-center justify-center gap-1"
+                                            className="w-full px-2 py-3 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 flex items-center justify-center gap-1"
                                           >
                                             <Trash2 className="w-3 h-3" />
                                             🗑️ EXCLUIR
                                           </button>
                                         </div>
                                       )}
+                                      </div>
                                     </div>
                                   )}
                                 </div>
