@@ -27678,6 +27678,7 @@ Estamos te aguardando!`;
                       professionals={professionals || []}
                       appointments={appointments}
                       monthlyAppointments={monthlyAppointments}
+                      establishmentProducts={products}
                       selectedDate={selectedDate}
                       professionalPins={establishment?.professionals_pins || []}
                       businessHours={establishment?.business_hours || {}}
@@ -41436,9 +41437,9 @@ Estamos te aguardando!`;
                           <div className="pt-3 border-t border-gray-800 space-y-3">
                             <div className="flex items-center justify-between gap-3">
                               <div>
-                                <p className="text-sm font-semibold text-white">Poderes desse profissional</p>
+                                <p className="text-sm font-semibold text-white">Modo Secretaria</p>
                                 <p className="text-xs text-gray-500 mt-1">
-                                  Modo secretaria: libera ver outras agendas no acesso único (ex.: recepcionista fechar comanda).
+                                  Ative para transformar este profissional em secretaria interna — ele não aparece para clientes.
                                 </p>
                               </div>
                               <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -41453,49 +41454,62 @@ Estamos te aguardando!`;
                             </div>
 
                             {Boolean((professional as any).professional_powers_enabled) && (
-                              <div className="rounded-lg border border-gray-700 bg-[#1a1b1c] p-3 space-y-2">
-                                <p className="text-xs font-semibold text-gray-300">
-                                  Quais agendas estão abertas para este profissional ver?
-                                </p>
-                                {professionals.filter((candidate) => String(candidate.id || '').trim() !== String(professional.id || '').trim()).length === 0 ? (
-                                  <p className="text-xs text-gray-500">Cadastre outros profissionais para liberar agendas.</p>
-                                ) : (
-                                  <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
-                                    {professionals
-                                      .filter((candidate) => String(candidate.id || '').trim() !== String(professional.id || '').trim())
-                                      .map((candidate) => {
-                                        const agendaIds = Array.isArray((professional as any)?.professional_powers_agenda_ids)
-                                          ? (professional as any).professional_powers_agenda_ids
-                                              .map((rawId: unknown) => String(rawId || '').trim())
-                                              .filter(Boolean)
-                                          : [];
-                                        const checked = agendaIds.includes(String(candidate.id || '').trim());
-                                        return (
-                                          <label
-                                            key={`powers-agenda-${professional.id}-${candidate.id}`}
-                                            className="flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-2 cursor-pointer hover:bg-[#222425]"
-                                          >
-                                            <input
-                                              type="checkbox"
-                                              checked={checked}
-                                              onChange={(e) =>
-                                                handleToggleProfessionalPowersAgenda(
-                                                  professional.id,
-                                                  String(candidate.id || ''),
-                                                  e.target.checked
-                                                )
-                                              }
-                                              className="rounded border-gray-500"
-                                            />
-                                            <span className="text-sm text-white">{candidate.name || 'Profissional'}</span>
-                                          </label>
-                                        );
-                                      })}
+                              <div className="space-y-3">
+                                <div className="rounded-xl border border-blue-500/30 bg-blue-500/8 p-4">
+                                  <p className="text-sm font-extrabold text-blue-200 mb-2">🗂️ Este profissional é uma Secretaria</p>
+                                  <div className="space-y-1.5 text-xs">
+                                    <p className="text-emerald-300 font-semibold">✅ Pode agendar clientes manualmente</p>
+                                    <p className="text-emerald-300 font-semibold">✅ Pode cancelar e dar baixa em atendimentos</p>
+                                    <p className="text-emerald-300 font-semibold">✅ Pode ver a agenda dos colegas selecionados abaixo</p>
+                                    <p className="text-red-400 font-semibold mt-2">❌ Não aparece no link de agendamento dos clientes</p>
+                                    <p className="text-red-400 font-semibold">❌ Clientes não conseguem agendar com ele pelo booking</p>
                                   </div>
-                                )}
-                                <p className="text-[11px] text-gray-500">
-                                  A agenda própria deste profissional sempre fica visível. Marque os colegas que ele também pode acompanhar.
-                                </p>
+                                </div>
+
+                                <div className="rounded-lg border border-gray-700 bg-[#1a1b1c] p-3 space-y-2">
+                                  <p className="text-xs font-semibold text-gray-300">
+                                    Quais agendas estão abertas para este profissional ver?
+                                  </p>
+                                  {professionals.filter((candidate) => String(candidate.id || '').trim() !== String(professional.id || '').trim()).length === 0 ? (
+                                    <p className="text-xs text-gray-500">Cadastre outros profissionais para liberar agendas.</p>
+                                  ) : (
+                                    <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                                      {professionals
+                                        .filter((candidate) => String(candidate.id || '').trim() !== String(professional.id || '').trim())
+                                        .map((candidate) => {
+                                          const agendaIds = Array.isArray((professional as any)?.professional_powers_agenda_ids)
+                                            ? (professional as any).professional_powers_agenda_ids
+                                                .map((rawId: unknown) => String(rawId || '').trim())
+                                                .filter(Boolean)
+                                            : [];
+                                          const checked = agendaIds.includes(String(candidate.id || '').trim());
+                                          return (
+                                            <label
+                                              key={`powers-agenda-${professional.id}-${candidate.id}`}
+                                              className="flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-2 cursor-pointer hover:bg-[#222425]"
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={(e) =>
+                                                  handleToggleProfessionalPowersAgenda(
+                                                    professional.id,
+                                                    String(candidate.id || ''),
+                                                    e.target.checked
+                                                  )
+                                                }
+                                                className="rounded border-gray-500"
+                                              />
+                                              <span className="text-sm text-white">{candidate.name || 'Profissional'}</span>
+                                            </label>
+                                          );
+                                        })}
+                                    </div>
+                                  )}
+                                  <p className="text-[11px] text-gray-500">
+                                    A agenda própria deste profissional sempre fica visível. Marque os colegas que ele também pode acompanhar.
+                                  </p>
+                                </div>
                               </div>
                             )}
                           </div>

@@ -348,6 +348,8 @@ interface AllProfessionalsAppointmentsViewProps {
   hiddenProfessionalIds?: string[];
   /** Nome exibido no histórico de auditoria (ex.: profissional logado no PIN). */
   auditActorName?: string | null;
+  /** Lista de produtos do estoque, usada para exibir comissão por profissional no Caixa/Geral. */
+  establishmentProducts?: Array<{ id: string; name: string; commission_percentages?: Record<string, number> }>;
 }
 
 export const AllProfessionalsAppointmentsView: React.FC<
@@ -405,6 +407,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   bypassFinancialPinForProfessionalId = null,
   hiddenProfessionalIds = [],
   auditActorName = null,
+  establishmentProducts = [],
 }) => {
     const { toast } = useToast();
     const { user } = useAuth();
@@ -4965,6 +4968,26 @@ export const AllProfessionalsAppointmentsView: React.FC<
     }, 0);
     const dayBarbershopNet = Math.max(0, round2(dayGrossRevenue - dayProfessionalPayout));
 
+    // Produtos vendidos hoje (via "Adicionar Produto" nos agendamentos concluídos)
+    const todaySoldProducts = completedDayAppointments.flatMap(apt => {
+      const prof = professionals.find(p => appointmentBelongsToProfessionalColumn(apt, p)) || null;
+      return (apt.sold_products || []).map(sp => {
+        const productDef = establishmentProducts.find(p => p.id === sp.product_id);
+        const commissionPct = (prof && productDef?.commission_percentages?.[prof.name]) || 0;
+        return {
+          ...sp,
+          professionalName: prof?.name || '—',
+          commissionPct,
+          commissionAmount: round2(sp.total * commissionPct / 100),
+          netAmount: round2(sp.total * (1 - commissionPct / 100)),
+          clientName: apt.client_name || 'Cliente avulso',
+        };
+      });
+    });
+    const dayProductsRevenue = round2(todaySoldProducts.reduce((sum, p) => sum + p.total, 0));
+    const dayProductsPayout = round2(todaySoldProducts.reduce((sum, p) => sum + p.commissionAmount, 0));
+    const dayProductsNet = round2(dayProductsRevenue - dayProductsPayout);
+
     const pendingAppointmentsCount = selectedDayAppointments.filter((apt) => apt.status === 'pending' || apt.status === 'confirmed').length;
     const missingPaymentMethodCount = selectedDayAppointments.filter((apt) => apt.status !== 'cancelled' && !String(apt.payment_method || '').trim()).length;
     const completedAppointmentsCount = completedDayAppointments.length;
@@ -5827,11 +5850,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
                     <p className="text-xs text-white/55 font-bold">Faturamento bruto do dia</p>
-                    <p className="mt-1 text-2xl font-black text-white">{formatCurrency(dayGrossRevenue)}</p>
+                    <p className="mt-1 text-2xl font-black text-white">{formatCurrency(dayGrossRevenue + dayProductsRevenue)}</p>
+                    {dayProductsRevenue > 0 && (
+                      <p className="text-[10px] text-white/40 mt-1">Serviços {formatCurrency(dayGrossRevenue)} + Produtos {formatCurrency(dayProductsRevenue)}</p>
+                    )}
                   </div>
                   <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
                     <p className="text-xs text-emerald-100/70 font-bold">Lucro líquido da barbearia</p>
-                    <p className="mt-1 text-2xl font-black text-emerald-200">{formatCurrency(dayBarbershopNet)}</p>
+                    <p className="mt-1 text-2xl font-black text-emerald-200">{formatCurrency(dayBarbershopNet + dayProductsNet)}</p>
+                    {dayProductsRevenue > 0 && (
+                      <p className="text-[10px] text-emerald-200/40 mt-1">Serviços {formatCurrency(dayBarbershopNet)} + Produtos {formatCurrency(dayProductsNet)}</p>
+                    )}
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
                     <p className="text-xs text-white/55 font-bold">Total recebido</p>
@@ -5899,6 +5928,44 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     </div>
                   </div>
                 </div>
+
+                {/* Produtos vendidos hoje */}
+                {todaySoldProducts.length > 0 && (
+                  <div className="rounded-2xl border border-purple-400/20 bg-purple-500/5 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-sm font-extrabold text-white">Produtos vendidos hoje</p>
+                      <span className="text-xs font-bold text-purple-300 bg-purple-500/20 border border-purple-500/30 rounded-full px-2 py-0.5">
+                        {formatCurrency(dayProductsRevenue)} total
+                      </span>
+                    </div>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {todaySoldProducts.map((sp, idx) => (
+                        <div key={`${sp.product_id}-${idx}`} className="rounded-xl bg-black/25 border border-white/10 p-3 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-white truncate">{sp.name}</p>
+                            <p className="text-xs text-white/50">{sp.clientName} • {sp.professionalName} • {sp.quantity}× {formatCurrency(sp.unit_price)}</p>
+                          </div>
+                          <div className="flex flex-col items-end shrink-0 gap-0.5">
+                            <span className="text-sm font-black text-white">{formatCurrency(sp.total)}</span>
+                            {sp.commissionPct > 0 ? (
+                              <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/20 rounded px-1.5 py-0.5">
+                                {sp.commissionPct}% prof → {formatCurrency(sp.commissionAmount)}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded px-1.5 py-0.5">
+                                100% barbearia
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-white/10 flex justify-between text-xs text-white/60">
+                      <span>Líquido barbearia (produtos)</span>
+                      <span className="font-bold text-emerald-300">{formatCurrency(dayProductsNet)}</span>
+                    </div>
+                  </div>
+                )}
 
                 <div className="border border-white/10 rounded-xl p-3 bg-white/[0.03]">
                   <p className="text-xs font-semibold text-white/80 mb-2">Histórico de abertura (diário)</p>
@@ -8037,6 +8104,22 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   className="px-3 py-2 rounded-lg bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white text-xs font-extrabold uppercase tracking-wide transition-colors"
                 >
                   Bloquear
+                </button>
+              </div>
+              <div className="px-3 pb-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedProfessionalForSqueeze(quickSlotActionModal.professionalId);
+                    setSqueezeStartTime(quickSlotActionModal.time);
+                    setSqueezeEndTime('');
+                    setSelectedSqueezeService(null);
+                    setShowSqueezeServiceModal(true);
+                    setQuickSlotActionModal(null);
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-extrabold uppercase tracking-wide transition-colors"
+                >
+                  ✂️ Encaixe
                 </button>
               </div>
               <div className="px-3 pb-3">
