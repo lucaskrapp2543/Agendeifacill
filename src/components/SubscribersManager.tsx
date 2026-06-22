@@ -4666,12 +4666,19 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     const clientEmail = cs.profiles?.email?.toLowerCase() || '';
     const clientWhatsapp = cs.client_whatsapp?.toLowerCase() || '';
     const subscriptionName = cs.subscriptions?.name?.toLowerCase() || '';
+    // Campos do sistema independente de assinantes (adicionados manualmente sem perfil)
+    const subscriberName = ((cs as any).subscriber_name || '').toLowerCase();
+    const subscriberWhatsapp = ((cs as any).subscriber_whatsapp || '').toLowerCase();
+    const subscriberEmail = ((cs as any).subscriber_email || '').toLowerCase();
 
     return (
       clientName.includes(searchLower) ||
       clientEmail.includes(searchLower) ||
       clientWhatsapp.includes(searchLower) ||
-      subscriptionName.includes(searchLower)
+      subscriptionName.includes(searchLower) ||
+      subscriberName.includes(searchLower) ||
+      subscriberWhatsapp.includes(searchLower) ||
+      subscriberEmail.includes(searchLower)
     );
   };
 

@@ -110,6 +110,9 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
     };
     const updatePayload: any = { ...basePayload };
     delete updatePayload.client_id;
+    // Reativar assinante se estava desativado/arquivado (limpar flags)
+    updatePayload.deactivated_at = null;
+    updatePayload.archived_at = null;
 
     const { data: existing, error: existingLookupError } = await findExistingSubscriberByPhone(
       data.establishment_id,
@@ -150,7 +153,9 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
         errMsg.includes('subscriber_payment_method') ||
         errMsg.includes('subscriber_observation') ||
         errMsg.includes('subscriber_professional_id') ||
-        errMsg.includes('subscriber_professional_name')
+        errMsg.includes('subscriber_professional_name') ||
+        errMsg.includes('deactivated_at') ||
+        errMsg.includes('archived_at')
       )
     ) {
       const fallbackBasePayload: any = { ...basePayload };
@@ -163,6 +168,8 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
       delete fallbackUpdatePayload.subscriber_observation;
       delete fallbackUpdatePayload.subscriber_professional_id;
       delete fallbackUpdatePayload.subscriber_professional_name;
+      delete fallbackUpdatePayload.deactivated_at;
+      delete fallbackUpdatePayload.archived_at;
       if (existing?.id) {
         ({ data: result, error } = await supabase
           .from('client_subscriptions')
