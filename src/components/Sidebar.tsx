@@ -84,6 +84,7 @@ interface SidebarProps {
   closeSignal?: number; // força fechar menu mobile quando o pai precisar
   professionalAccessMode?: 'owner' | 'collaborator' | null;
   isSecretaryModeActive?: boolean; // Modo secretaria: colaborador com poderes vê Menu Admin
+  hideToggleButton?: boolean; // oculta o botão de abrir menu no mobile (ex: quando carrossel está no topo)
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -111,6 +112,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   closeSignal = 0,
   professionalAccessMode = null,
   isSecretaryModeActive = false,
+  hideToggleButton = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false);
@@ -1094,7 +1096,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       return (
         <div className="fixed inset-x-0 top-0 z-40 pointer-events-none">
           <div className="p-3 flex items-center justify-between">
-            <div className="pointer-events-auto flex items-center gap-2">
+            <div className={`pointer-events-auto flex items-center gap-2 transition-all duration-300 ${hideToggleButton ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
               <button
                 type="button"
                 onClick={() => setIsExpanded(true)}
@@ -1528,7 +1530,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       {isMobile && !isExpanded && (
         <div className="fixed inset-x-0 top-0 z-40 pointer-events-none md:hidden">
           <div className="p-3 flex items-center justify-between">
-            <div className="pointer-events-auto flex items-center gap-2">
+            <div className={`pointer-events-auto flex items-center gap-2 transition-all duration-300 ${hideToggleButton ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
               <button
                 type="button"
                 onClick={() => setIsExpanded(true)}

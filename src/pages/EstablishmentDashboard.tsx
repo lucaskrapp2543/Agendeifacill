@@ -31,6 +31,7 @@ import ReservarCliente from '../components/ReservarCliente';
 import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
 import { PartnerReferralPanel } from '../components/PartnerReferralPanel';
+import { fetchPartnerReferralCodeForEstablishment } from '../lib/partnerReferral';
 import { RecebaNaHoraPageLayout } from '../components/RecebaNaHoraPageLayout';
 import { ReviewQuestionsManager } from '../components/ReviewQuestionsManager';
 import { SubscribersManager } from '../components/SubscribersManager'; // Importar o novo componente
@@ -1080,6 +1081,60 @@ const EstablishmentDashboard = () => {
   const [quickPaymentStatus, setQuickPaymentStatus] = useState<'paid' | 'unpaid'>('unpaid');
   const [isSavingQuickSubscriber, setIsSavingQuickSubscriber] = useState(false);
 
+
+  const [promoCarouselIdx, setPromoCarouselIdx] = useState(0);
+  const [isAtPageTop, setIsAtPageTop] = useState(true);
+  const promoPausedUntilRef = useRef<number>(0);
+  const promoSlidesLengthRef = useRef<number>(0);
+  const [hasIndicationCode, setHasIndicationCode] = useState(false);
+
+  const handleCarouselNav = (newIdx: number) => {
+    promoPausedUntilRef.current = Date.now() + 45000;
+    setPromoCarouselIdx(newIdx);
+  };
+
+  const [promoPopup, setPromoPopup] = useState<{ emoji: string; title: string; message: string; cta: string; onConfirm: () => void } | null>(null);
+
+  const makeAdminNavHandler = (tab: TabType) => () => {
+    if (isCollaboratorRestrictedView && !isSecretaryModeActive) return;
+    if ((onboardingStep ?? 4) < 4) {
+      setShowBlockedItemModal(true);
+      return;
+    }
+    const hasAdminPin =
+      Boolean(establishment?.pin_password) &&
+      String(establishment?.pin_password || '').trim().length > 0 &&
+      String(establishment?.pin_password || '').trim() !== '0000';
+    if (hasAdminPin && !isSettingsUnlocked) {
+      setPendingTabAfterPin(tab);
+      setShowPinModal(true);
+      return;
+    }
+    handleTabChange(tab);
+  };
+
+  const handleWppImageClick = () => setPromoPopup({
+    emoji: '📲',
+    title: 'Conecta o WhatsApp aí!',
+    message: 'Seus clientes vão amar receber lembretes automáticos pelo WhatsApp. Chega de furo na agenda! Vamos configurar agora?',
+    cta: 'Bora conectar! 🚀',
+    onConfirm: makeAdminNavHandler('whatsapp-reminders'),
+  });
+  const handleRecebaImageClick = () => setPromoPopup({
+    emoji: '💸',
+    title: 'Receba antes de atender!',
+    message: 'Imagine receber o dinheiro no momento em que o cliente agenda. Sem furo, sem calote, só lucro! Quer ativar agora?',
+    cta: 'Quero receber antes! 💰',
+    onConfirm: makeAdminNavHandler('receber-adiantado'),
+  });
+  const handleIndiqueImageClick = () => setPromoPopup({
+    emoji: '🤑',
+    title: 'Indique e lucre todo mês!',
+    message: 'É simples demais: indica um barbeiro, ele assina o Agendei Fácil e você ganha comissão enquanto ele usar. Sem fazer mais nada!',
+    cta: 'Quero ganhar dinheiro! 🎉',
+    onConfirm: makeAdminNavHandler('indication'),
+  });
+
   // Estados para Clientes Fiéis
   const [showLoyalForm, setShowLoyalForm] = useState(false);
   const [loyalCustomers, setLoyalCustomers] = useState<any[]>([]);
@@ -1207,6 +1262,17 @@ const EstablishmentDashboard = () => {
     apiError?: string | null;
   }>({ loaded: false, connected: false, status: '' });
   const [baileysWasConnectedOnce, setBaileysWasConnectedOnce] = useState(false);
+
+  // Carrossel promocional — só mostra slides de funções que o barbeiro ainda não tem
+  const promoSlides = useMemo(() => {
+    const isMpConn = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+    const isWppConn = baileysDashboardStatus.connected;
+    return [
+      ...(!isWppConn ? [{ mobile: '/conectwpp.png', mobileWebp: '/conectwpp.webp', desktop: '/conectwppppp3pc.png', desktopWebp: '/conectwppppp3pc.webp', key: 'wpp' }] : []),
+      ...(!isMpConn ? [{ mobile: '/recebaantesppp3.png', mobileWebp: '/recebaantesppp3.webp', desktop: '/recebaantespp3pc.png', desktopWebp: '/recebaantespp3pc.webp', key: 'mp' }] : []),
+      ...(!hasIndicationCode ? [{ mobile: '/indiqueelucreppp3.png', mobileWebp: '/indiqueelucreppp3.webp', desktop: '/indiqueelucreppp3pc1.png', desktopWebp: '/indiqueelucreppp3pc1.webp', key: 'indication' }] : []),
+    ];
+  }, [baileysDashboardStatus.connected, establishment, hasIndicationCode]);
   const [requireCancelPassword, setRequireCancelPassword] = useState(false); // Exigir senha para cancelar agendamento
   const [creditCardTaxPercentage, setCreditCardTaxPercentage] = useState(3.5); // Taxa do cartão de crédito (%)
   const [debitCardTaxPercentage, setDebitCardTaxPercentage] = useState(2.5); // Taxa do cartão de débito (%)
@@ -1772,6 +1838,36 @@ const EstablishmentDashboard = () => {
     resetQuickSubscriberForm();
     setShowQuickSubscriberModal(true);
   }, [resetQuickSubscriberForm]);
+
+  useEffect(() => {
+    promoSlidesLengthRef.current = promoSlides.length;
+    if (promoSlides.length > 0 && promoCarouselIdx >= promoSlides.length) {
+      setPromoCarouselIdx(0);
+    }
+  }, [promoSlides.length, promoCarouselIdx]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (Date.now() < promoPausedUntilRef.current) return;
+      const len = promoSlidesLengthRef.current;
+      if (len === 0) return;
+      setPromoCarouselIdx(prev => (prev + 1) % len);
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const handleScroll = () => setIsAtPageTop(window.scrollY < 60);
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    fetchPartnerReferralCodeForEstablishment(String(establishment.id)).then((row) => {
+      setHasIndicationCode(!!row);
+    }).catch(() => {});
+  }, [establishment?.id]);
 
   useEffect(() => {
     if (!showQuickSubscriberModal || !establishment?.id) return;
@@ -27248,6 +27344,7 @@ Estamos te aguardando!`;
           closeSignal={sidebarCloseSignal}
           professionalAccessMode={isCollaboratorRestrictedView ? 'collaborator' : 'owner'}
           isSecretaryModeActive={isSecretaryModeActive}
+          hideToggleButton={isAtPageTop && activeTab === 'appointments' && promoSlides.length > 0}
         />
 
         {/* Conteúdo principal */}
@@ -27263,90 +27360,120 @@ Estamos te aguardando!`;
           </div>
           )}
 
-          <div className={`w-full ${isPremiumFullscreenTab ? 'py-0 px-0' : activeTab === 'appointments' ? 'py-2 px-3 sm:px-6' : 'py-4 px-4 sm:py-8 sm:px-6'}`}>
+          <div className={`w-full ${isPremiumFullscreenTab ? 'py-0 px-0' : activeTab === 'appointments' ? `${promoSlides.length === 0 ? 'pt-[70px] md:pt-4' : 'pt-0'} pb-2 px-3 sm:px-6` : 'py-4 px-4 sm:py-8 sm:px-6'}`}>
             {/* Topo compacto — Meus Agendamentos (WhatsApp + validade sempre visíveis) */}
-            {!isPremiumFullscreenTab && activeTab === 'appointments' && establishment && (
-              <div className="mb-2 space-y-2">
-                {/* Mobile: só menu no canto — notificações ficam no sino flutuante */}
-                <div className="flex md:hidden items-center justify-end">
+            {!isPremiumFullscreenTab && activeTab === 'appointments' && establishment && promoSlides.length > 0 && (
+              <div className="mb-2 md:pt-3">
+                {/* Barra mobile: menu + chamada para o carrossel */}
+                <div className="flex md:hidden items-center justify-between px-1 py-1 mb-1">
                   <button
                     onClick={() => {
                       const sidebar = document.querySelector('[data-sidebar-toggle]');
-                      if (sidebar) {
-                        (sidebar as HTMLElement).click();
-                      }
+                      if (sidebar) (sidebar as HTMLElement).click();
                     }}
                     className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
                     title="Abrir menu"
                   >
                     <Menu className="h-5 w-5 text-gray-600" />
                   </button>
+
+                  <p className="text-xs font-extrabold text-gray-500 tracking-wide animate-pulse">
+                    👇 Novidades pra você abaixo!
+                  </p>
+
+                  {/* Espaço reservado para alinhar com o sino que aparece no outro lado */}
+                  <div className="w-9" />
                 </div>
 
-                {/* WhatsApp + validade — largura total */}
-                <div className="w-full space-y-2">
-                  {baileysDashboardStatus.loaded && (baileysDashboardStatus.connected || baileysWasConnectedOnce) && (
-                    <div
-                      className={`w-full rounded-xl border px-3 py-2 shadow-sm ${
-                        baileysDashboardStatus.connected
-                          ? 'border-emerald-200 bg-gradient-to-r from-emerald-50 to-emerald-100/80 text-emerald-900'
-                          : 'border-amber-300 bg-gradient-to-r from-amber-50 to-amber-100/80 text-amber-950'
-                      }`}
-                    >
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-extrabold">
-                            <span
-                              className={`inline-flex h-2.5 w-2.5 shrink-0 rounded-full ${
-                                baileysDashboardStatus.connected ? 'bg-emerald-500' : 'bg-amber-500'
-                              }`}
-                            />
-                            <span className="whitespace-nowrap">
-                              {baileysDashboardStatus.connected
-                                ? 'Whats Conectado'
-                                : `Whats ${baileysDashboardStatus.apiError ? 'com alerta' : formatBaileysDashboardStatusLabel(baileysDashboardStatus.status)}`}
-                            </span>
-                            {baileysDashboardStatus.phone ? (
-                              <span className="text-xs font-semibold opacity-80 whitespace-nowrap">
-                                Número: {baileysDashboardStatus.phone}
-                              </span>
-                            ) : null}
-                          </div>
-                          {!baileysDashboardStatus.connected ? (
-                            <p className="mt-1 text-xs font-semibold leading-relaxed">
-                              Atenção: o WhatsApp não está em "Conectado" agora. Lembretes automáticos podem não ser enviados aos clientes.
-                              {baileysDashboardStatus.apiError ? ` ${baileysDashboardStatus.apiError}` : ''}
-                            </p>
-                          ) : null}
-                        </div>
+                {/* Carrossel promocional — borda a borda no mobile, card no desktop */}
+                <div className="-mx-3 sm:mx-0 relative overflow-hidden sm:rounded-xl shadow-md">
+                  {/* Técnica clássica: inner tem N*100% de largura, cada slide 1/N */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      width: `${promoSlides.length * 100}%`,
+                      transform: `translateX(-${promoCarouselIdx * (100 / promoSlides.length)}%)`,
+                      transition: 'transform 0.5s ease-in-out',
+                    }}
+                  >
+                    {promoSlides.map((slide, i) => (
+                      <picture
+                        key={i}
+                        style={{ width: `${100 / promoSlides.length}%`, display: 'block', flexShrink: 0 }}
+                        onClick={
+                          (slide as any).key === 'wpp' ? handleWppImageClick :
+                          (slide as any).key === 'mp' ? handleRecebaImageClick :
+                          handleIndiqueImageClick
+                        }
+                        className="cursor-pointer"
+                      >
+                        {(slide as any).desktopWebp && (
+                          <source media="(min-width: 768px)" type="image/webp" srcSet={(slide as any).desktopWebp} />
+                        )}
+                        {slide.desktop && (
+                          <source media="(min-width: 768px)" srcSet={slide.desktop} />
+                        )}
+                        {(slide as any).mobileWebp && (
+                          <source type="image/webp" srcSet={(slide as any).mobileWebp} />
+                        )}
+                        <img
+                          src={slide.mobile}
+                          alt={`Promo ${i + 1}`}
+                          draggable={false}
+                          className={`w-full ${slide.desktop ? 'h-auto' : 'md:h-72 md:object-cover'}`}
+                        />
+                      </picture>
+                    ))}
+                  </div>
 
-                        {!baileysDashboardStatus.connected ? (
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab('whatsapp-reminders')}
-                            className="self-start rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-extrabold text-white transition-colors hover:bg-amber-700 sm:self-center shrink-0"
-                          >
-                            Ver conexão
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  )}
+                  {/* Seta esquerda */}
+                  <button
+                    type="button"
+                    onClick={() => handleCarouselNav((promoCarouselIdx - 1 + promoSlides.length) % promoSlides.length)}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center text-white text-lg font-bold transition-colors"
+                    aria-label="Anterior"
+                  >
+                    ‹
+                  </button>
 
-                  <ValidityHeader establishmentId={establishment.id} compactPremium />
+                  {/* Seta direita */}
+                  <button
+                    type="button"
+                    onClick={() => handleCarouselNav((promoCarouselIdx + 1) % promoSlides.length)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center text-white text-lg font-bold transition-colors"
+                    aria-label="Próximo"
+                  >
+                    ›
+                  </button>
+
+                  {/* Bolinhas indicadoras */}
+                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+                    {promoSlides.map((_, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => handleCarouselNav(i)}
+                        className={`w-2 h-2 rounded-full transition-all ${i === promoCarouselIdx ? 'bg-white scale-125' : 'bg-white/50'}`}
+                        aria-label={`Slide ${i + 1}`}
+                      />
+                    ))}
+                  </div>
                 </div>
 
-                {/* Desktop: notificações abaixo do strip */}
-                <div className="hidden md:flex items-center justify-end gap-2">
-                  <NotificationPermission />
-                  <NotificationsPanel
-                    establishmentId={establishment.id}
-                    onUnreadCountChange={setUnreadNotificationsCount}
-                    buttonClassName="!inline-flex"
-                    isOpen={isNotificationsPanelOpen}
-                    onOpenChange={setIsNotificationsPanelOpen}
-                  />
-                </div>
+              </div>
+            )}
+
+            {/* Notificações — aba agendamentos (sempre montado para o sino poder abrir) */}
+            {!isPremiumFullscreenTab && activeTab === 'appointments' && establishment && (
+              <div className="hidden md:flex items-center justify-end gap-2 mb-1">
+                <NotificationPermission />
+                <NotificationsPanel
+                  establishmentId={establishment.id}
+                  onUnreadCountChange={setUnreadNotificationsCount}
+                  buttonClassName="!inline-flex"
+                  isOpen={isNotificationsPanelOpen}
+                  onOpenChange={setIsNotificationsPanelOpen}
+                />
               </div>
             )}
 
@@ -44924,6 +45051,37 @@ Estamos te aguardando!`;
                 })()}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Popup promocional do carrossel */}
+      {promoPopup && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setPromoPopup(null)}
+        >
+          <div
+            className="relative bg-[#111827] border border-white/10 rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-5xl mb-3 animate-bounce">{promoPopup.emoji}</div>
+            <h3 className="text-lg font-extrabold text-white mb-2">{promoPopup.title}</h3>
+            <p className="text-sm text-white/70 leading-relaxed mb-5">{promoPopup.message}</p>
+            <button
+              type="button"
+              onClick={() => { setPromoPopup(null); promoPopup.onConfirm(); }}
+              className="w-full rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 text-black font-extrabold py-3 text-sm hover:opacity-90 transition-opacity mb-2"
+            >
+              {promoPopup.cta}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPromoPopup(null)}
+              className="w-full rounded-xl border border-white/15 text-white/60 font-semibold py-2.5 text-sm hover:bg-white/5 transition-colors"
+            >
+              Agora não
+            </button>
           </div>
         </div>
       )}

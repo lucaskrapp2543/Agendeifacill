@@ -709,6 +709,8 @@ const AdminDashboard = () => {
   const [adminMpCommissionUsingFallback, setAdminMpCommissionUsingFallback] = useState(false);
   const [adminMpCommissionTodayCents, setAdminMpCommissionTodayCents] = useState(0);
   const [adminMpCommissionTodayCount, setAdminMpCommissionTodayCount] = useState(0);
+  const [adminMpDailyBreakdown, setAdminMpDailyBreakdown] = useState<Array<{ date: string; cents: number; count: number }>>([]);
+  const [showAdminMpDailyBreakdown, setShowAdminMpDailyBreakdown] = useState(false);
   const DELETED_CONTAINMENT_STORAGE_KEY = `admin_deleted_containment_ids_v2_${String(user?.id || 'global')}`;
   const DELETED_CONTAINMENT_STORAGE_KEY_LEGACY = 'admin_deleted_containment_ids_v1';
 
@@ -2818,6 +2820,7 @@ const AdminDashboard = () => {
         const todayStart = startOfDay(new Date()).getTime();
         const todayEnd = endOfDay(new Date()).getTime();
         const topMap = new Map<string, AdminMpCommissionTopRow>();
+        const dailyMap = new Map<string, { cents: number; count: number }>();
 
         const ensureTopRow = (estId: string) => {
           const existing = topMap.get(estId);
@@ -2850,6 +2853,14 @@ const AdminDashboard = () => {
           if (Number.isFinite(paidAtMs) && paidAtMs >= todayStart && paidAtMs <= todayEnd) {
             todayCents += cents;
             todayCount += 1;
+          }
+
+          if (Number.isFinite(paidAtMs)) {
+            const dateKey = paidAt.toISOString().slice(0, 10);
+            const existing = dailyMap.get(dateKey) || { cents: 0, count: 0 };
+            existing.cents += cents;
+            existing.count += 1;
+            dailyMap.set(dateKey, existing);
           }
 
           const top = ensureTopRow(estId);
@@ -2886,6 +2897,11 @@ const AdminDashboard = () => {
             .sort((a, b) => b.totalCents - a.totalCents || b.totalCount - a.totalCount)
             .slice(0, 8)
         );
+        setAdminMpDailyBreakdown(
+          Array.from(dailyMap.entries())
+            .map(([date, v]) => ({ date, cents: v.cents, count: v.count }))
+            .sort((a, b) => b.date.localeCompare(a.date))
+        );
         setAdminMpCommissionUsingFallback(false);
         return;
       }
@@ -2901,6 +2917,7 @@ const AdminDashboard = () => {
       setAdminMpCommissionTopRows([]);
       setAdminMpCommissionTodayCents(0);
       setAdminMpCommissionTodayCount(0);
+      setAdminMpDailyBreakdown([]);
 
       let countPixAppts = 0;
       let countCreditoAppts = 0;
@@ -4963,6 +4980,44 @@ const AdminDashboard = () => {
                       ? 'Atenção: usando cálculo antigo até colar a migration admin_mp_commissions.'
                       : 'Atualiza por webhook e por recarregamento automático a cada 30s.'}
                   </p>
+
+                  {!isLoadingLucroPixMes && adminMpDailyBreakdown.length > 0 && (
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowAdminMpDailyBreakdown(prev => !prev)}
+                        className="flex items-center gap-1 text-xs font-bold text-emerald-800 hover:text-emerald-600 transition-colors"
+                      >
+                        {showAdminMpDailyBreakdown ? '▲' : '▼'} Lucro por dia
+                      </button>
+                      {showAdminMpDailyBreakdown && (
+                        <div className="mt-2 space-y-1 max-h-56 overflow-y-auto pr-1">
+                          {adminMpDailyBreakdown.map(({ date, cents, count }) => {
+                            const todayStr = new Date().toISOString().slice(0, 10);
+                            const yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+                            const label = date === todayStr ? 'Hoje' : date === yesterdayStr ? 'Ontem' : new Date(date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+                            const isToday = date === todayStr;
+                            return (
+                              <div
+                                key={date}
+                                className={`flex items-center justify-between rounded-lg px-3 py-1.5 ${isToday ? 'bg-emerald-200/60 border border-emerald-400/40' : 'bg-emerald-100/50'}`}
+                              >
+                                <span className={`text-xs font-semibold ${isToday ? 'text-emerald-900' : 'text-emerald-800'}`}>
+                                  {label}
+                                </span>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-[11px] text-emerald-700">{count} pag.</span>
+                                  <span className={`text-xs font-black ${isToday ? 'text-emerald-900' : 'text-emerald-800'}`}>
+                                    {fmtBRL(cents / 100)}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 

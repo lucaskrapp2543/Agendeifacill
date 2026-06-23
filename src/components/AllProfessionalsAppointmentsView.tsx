@@ -5555,158 +5555,120 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     return (
       <div className="space-y-2 md:space-y-4">
-        {/* Cabeçalho compacto premium — mobile e desktop */}
-        <div className="sticky top-0 z-30 -mt-1 md:mt-0 mb-1 md:mb-2 rounded-2xl border border-white/10 bg-[#0b0b0c]/95 backdrop-blur-md shadow-lg shadow-black/30">
-          <div className="p-2.5 md:p-4 space-y-2.5 md:space-y-3">
+        {/* Cabeçalho compacto clean */}
+        <div className="sticky top-0 z-30 -mt-1 md:mt-0 mb-1 md:mb-2 rounded-xl border border-white/10 bg-[#0b0b0c]/95 backdrop-blur-md shadow-lg shadow-black/30">
+          <div className="px-2.5 py-2 md:px-3 md:py-2.5 space-y-1.5 md:space-y-2">
             {isCollaboratorView && isSecretaryModeActive && (
-              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
-                <p className="text-xs md:text-sm font-extrabold text-emerald-200">Modo secretaria ativo</p>
-                <p className="text-[11px] md:text-xs text-emerald-100/80 mt-0.5">
-                  Você pode acompanhar as agendas liberadas pelo estabelecimento.
-                </p>
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5">
+                <p className="text-[11px] font-extrabold text-emerald-200">Modo secretaria ativo</p>
                 {!canViewBarbershopCash && (
-                  <p className="text-[11px] text-emerald-200/70 mt-1">
-                    O caixa da barbearia pede a senha de 4 dígitos ao abrir.
-                  </p>
+                  <p className="text-[10px] text-emerald-200/70 mt-0.5">Caixa pede senha de 4 dígitos.</p>
                 )}
               </div>
             )}
 
-            {/* Data rápida */}
-            <div>
-              <p className="hidden md:block text-sm font-extrabold text-white/90 mb-2">
-                Agendamentos do dia
-              </p>
-              <div className="flex items-center gap-1 md:gap-2">
+            {/* Linha 1: setas + Ontem/HOJE/Amanhã + data compacta */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={handlePreviousDay}
+                className="shrink-0 p-1.5 rounded-lg bg-white/8 hover:bg-white/15 text-white/80 transition-colors"
+                aria-label="Dia anterior"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+
+              <div className="flex-1 grid grid-cols-3 gap-1">
                 <button
                   type="button"
-                  onClick={handlePreviousDay}
-                  className="shrink-0 p-2 md:p-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white transition-colors"
-                  aria-label="Dia anterior"
+                  onClick={() => goToQuickDate('yesterday')}
+                  className={`py-1 rounded-lg text-[10px] md:text-xs font-bold transition-colors ${isSelectedYesterday
+                    ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
+                    : 'bg-white/5 text-white/55 hover:bg-white/10'
+                  }`}
                 >
-                  <ChevronLeft className="h-4 w-4 md:h-5 md:w-5" />
+                  Ontem
                 </button>
-                <div className="flex-1 grid grid-cols-3 gap-1 md:gap-2">
-                  <button
-                    type="button"
-                    onClick={() => goToQuickDate('yesterday')}
-                    className={`px-1.5 md:px-3 py-2 md:py-2.5 rounded-xl text-[11px] md:text-sm font-bold transition-colors ${isSelectedYesterday
-                      ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
-                      : 'bg-white/5 text-white/75 border border-white/10 hover:bg-white/10'
-                      }`}
-                  >
-                    Ontem
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => goToQuickDate('today')}
-                    className={`px-1.5 md:px-3 py-2 md:py-2.5 rounded-xl text-[11px] md:text-sm font-extrabold transition-colors ${isSelectedToday
-                      ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-black shadow-md shadow-amber-500/20'
-                      : 'bg-white/5 text-white border border-white/10 hover:bg-white/10'
-                      }`}
-                  >
-                    HOJE
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => goToQuickDate('tomorrow')}
-                    className={`px-1.5 md:px-3 py-2 md:py-2.5 rounded-xl text-[11px] md:text-sm font-bold transition-colors ${isSelectedTomorrow
-                      ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
-                      : 'bg-white/5 text-white/75 border border-white/10 hover:bg-white/10'
-                      }`}
-                  >
-                    Amanhã
-                  </button>
-                </div>
                 <button
                   type="button"
-                  onClick={handleNextDay}
-                  className="shrink-0 p-2 md:p-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white transition-colors"
-                  aria-label="Próximo dia"
+                  onClick={() => goToQuickDate('today')}
+                  className={`py-1 rounded-lg text-[10px] md:text-xs font-extrabold transition-colors ${isSelectedToday
+                    ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-black shadow-sm shadow-amber-500/20'
+                    : 'bg-white/5 text-white/80 hover:bg-white/10'
+                  }`}
                 >
-                  <ChevronRight className="h-4 w-4 md:h-5 md:w-5" />
+                  HOJE
+                </button>
+                <button
+                  type="button"
+                  onClick={() => goToQuickDate('tomorrow')}
+                  className={`py-1 rounded-lg text-[10px] md:text-xs font-bold transition-colors ${isSelectedTomorrow
+                    ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
+                    : 'bg-white/5 text-white/55 hover:bg-white/10'
+                  }`}
+                >
+                  Amanhã
                 </button>
               </div>
-              <div className="mt-1.5 md:mt-2 flex items-center justify-between gap-2">
-                <p className="text-xs md:text-sm font-semibold text-white/80 truncate capitalize">
-                  {format(selectedDate, "EEEE, dd/MM/yyyy", { locale: ptBR })}
-                </p>
-                <div ref={datePickerContainerRef} className="relative shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setShowDatePicker((open) => !open)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2 md:px-3 py-1 md:py-1.5 text-[11px] md:text-xs font-bold text-amber-200 hover:bg-white/10"
-                    aria-expanded={showDatePicker}
-                    aria-haspopup="dialog"
-                  >
-                    <Calendar className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                    Escolher data
-                  </button>
 
-                  {showDatePicker && (
-                    <div className="absolute right-0 top-[calc(100%+8px)] z-50 min-w-[220px] rounded-xl border border-white/15 bg-[#141516] p-3 shadow-2xl shadow-black/50">
-                      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/55">
-                        Selecionar data
-                      </p>
-                      <input
-                        ref={datePickerInputRef}
-                        type="date"
-                        value={format(selectedDate, 'yyyy-MM-dd')}
-                        onChange={handleDateInputChange}
-                        className="w-full rounded-lg border border-white/20 bg-[#0b0b0c] px-3 py-2 text-sm text-white [color-scheme:dark]"
-                        aria-label="Escolher data"
-                      />
-                    </div>
-                  )}
-                </div>
+              <button
+                type="button"
+                onClick={handleNextDay}
+                className="shrink-0 p-1.5 rounded-lg bg-white/8 hover:bg-white/15 text-white/80 transition-colors"
+                aria-label="Próximo dia"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+
+              {/* Data compacta + picker */}
+              <div ref={datePickerContainerRef} className="relative shrink-0 ml-0.5">
+                <button
+                  type="button"
+                  onClick={() => setShowDatePicker((open) => !open)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-1.5 py-1 text-[10px] font-bold text-amber-200/90 hover:bg-white/10 whitespace-nowrap"
+                  aria-expanded={showDatePicker}
+                  aria-haspopup="dialog"
+                >
+                  <Calendar className="h-3 w-3 shrink-0" />
+                  <span className="hidden sm:inline capitalize">{format(selectedDate, "EEE dd/MM", { locale: ptBR })}</span>
+                  <span className="sm:hidden">{format(selectedDate, "dd/MM", { locale: ptBR })}</span>
+                </button>
+                {showDatePicker && (
+                  <div className="absolute right-0 top-[calc(100%+6px)] z-50 min-w-[200px] rounded-xl border border-white/15 bg-[#141516] p-3 shadow-2xl shadow-black/50">
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-white/55">Selecionar data</p>
+                    <input
+                      ref={datePickerInputRef}
+                      type="date"
+                      value={format(selectedDate, 'yyyy-MM-dd')}
+                      onChange={handleDateInputChange}
+                      className="w-full rounded-lg border border-white/20 bg-[#0b0b0c] px-3 py-2 text-sm text-white [color-scheme:dark]"
+                      aria-label="Escolher data"
+                    />
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Profissionais */}
-            {professionals.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-1.5 md:mb-2">
-                  <p className="text-[11px] md:text-xs font-extrabold uppercase tracking-wide text-white/55">
-                    👤 Profissionais
-                  </p>
-                  {professionals.length > 1 && !isCollaboratorView && (
-                    <button
-                      type="button"
-                      onClick={selectAllProfessionals}
-                      className="text-[10px] md:text-xs font-bold text-amber-300/90 hover:text-amber-200"
-                    >
-                      Todos
-                    </button>
-                  )}
-                </div>
-                {professionals.length > 1 && !isCollaboratorView && (
-                  <p className="hidden md:block text-[11px] text-white/45 mb-2">
-                    Marque quem aparece na agenda. Dois cliques deixam somente um profissional.
-                  </p>
-                )}
-                {isCollaboratorView && isSecretaryModeActive ? (
-                  visibleProfessionals.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5 md:gap-2">
-                      {visibleProfessionals.map((professional) => (
+            {/* Linha 2: chips profissionais + botão caixa */}
+            <div className="flex items-center gap-1 flex-wrap">
+              {professionals.length > 0 && (
+                <>
+                  {isCollaboratorView && isSecretaryModeActive ? (
+                    visibleProfessionals.length > 0 ? (
+                      visibleProfessionals.map((professional) => (
                         <span
                           key={`secretary-${professional.id}`}
-                          className="shrink-0 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2.5 md:px-3 py-1 md:py-1.5 text-[11px] md:text-xs font-bold text-emerald-200"
+                          className="shrink-0 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-200"
                         >
                           {professional.name}
                         </span>
-                      ))}
-                    </div>
+                      ))
+                    ) : (
+                      <p className="text-[10px] text-amber-200/90">Nenhuma agenda liberada.</p>
+                    )
                   ) : (
-                    <p className="text-[11px] md:text-xs text-amber-200/90">
-                      Nenhuma agenda liberada neste acesso.
-                    </p>
-                  )
-                ) : (
-                  <div className="flex flex-wrap gap-1.5 md:gap-2">
-                    {professionals.map((professional) => {
-                      const isVisible = visibleProfessionals.some(
-                        (visibleProfessional) => visibleProfessional.id === professional.id
-                      );
+                    professionals.map((professional) => {
+                      const isVisible = visibleProfessionals.some((v) => v.id === professional.id);
                       const isProtectedAndLocked =
                         isProfessionalAppointmentsProtected(professional) &&
                         !isProfessionalAppointmentsUnlocked(professional.id);
@@ -5718,48 +5680,52 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           onDoubleClick={() => selectOnlyProfessional(professional.id)}
                           title={
                             isProtectedAndLocked
-                              ? 'Agenda protegida. Clique para digitar a senha e exibir este profissional.'
-                              : 'Clique para marcar/desmarcar. Dois cliques deixam somente este profissional.'
+                              ? 'Agenda protegida. Clique para digitar a senha.'
+                              : 'Clique para marcar/desmarcar. Dois cliques = só este.'
                           }
-                          className={`shrink-0 rounded-full border px-2.5 md:px-3 py-1.5 md:py-2 text-[11px] md:text-xs font-extrabold transition-colors ${isVisible
+                          className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-extrabold transition-colors ${isVisible
                             ? 'border-emerald-500/50 bg-emerald-500/20 text-emerald-100'
                             : isProtectedAndLocked
                               ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
-                              : 'border-white/15 bg-white/5 text-white/60 hover:bg-white/10'
-                            }`}
+                              : 'border-white/15 bg-white/5 text-white/55 hover:bg-white/10'
+                          }`}
                         >
-                          {isVisible ? '✓ ' : isProtectedAndLocked ? '🔒 ' : ''}
-                          {professional.name}
+                          {isVisible ? '✓ ' : isProtectedAndLocked ? '🔒 ' : ''}{professional.name}
                         </button>
                       );
-                    })}
-                  </div>
-                )}
-                {professionals.length > 1 && !isCollaboratorView && (
-                  <p className="mt-1.5 md:mt-2 text-[10px] md:text-[11px] text-white/40">
-                    Mostrando {visibleProfessionals.length} de {professionals.length} profissional(is).
-                  </p>
-                )}
-                {visibleProfessionals.length === 0 && (
-                  <div className="mt-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] md:text-xs font-semibold text-amber-200">
-                    Nenhum profissional aberto na tela. Com agenda protegida, digite a senha para exibir.
-                  </div>
-                )}
+                    })
+                  )}
+                  {professionals.length > 1 && !isCollaboratorView && (
+                    <button
+                      type="button"
+                      onClick={selectAllProfessionals}
+                      className="text-[10px] font-bold text-amber-300/80 hover:text-amber-200 px-0.5"
+                    >
+                      Todos
+                    </button>
+                  )}
+                </>
+              )}
+
+              <div className="flex-1" />
+
+              {/* Caixa — pill compacto */}
+              <button
+                type="button"
+                onClick={handleOpenBarbershopCash}
+                data-tutorial-id="appointments-caixa"
+                disabled={isLoadingBarbershopCashOpening}
+                className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-emerald-500/35 bg-emerald-600/20 px-2 py-1 text-[10px] font-extrabold text-emerald-100 hover:bg-emerald-600/30 disabled:opacity-60 transition-colors whitespace-nowrap"
+              >
+                💰 Caixa {format(selectedDate, 'dd/MM')}
+              </button>
+            </div>
+
+            {visibleProfessionals.length === 0 && professionals.length > 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[10px] font-semibold text-amber-200">
+                Nenhum profissional visível. Informe a senha para exibir agenda protegida.
               </div>
             )}
-
-            {/* Caixa geral */}
-            <button
-              type="button"
-              onClick={handleOpenBarbershopCash}
-              data-tutorial-id="appointments-caixa"
-              disabled={isLoadingBarbershopCashOpening}
-              className="w-full rounded-xl border border-emerald-500/35 bg-emerald-600/20 px-3 py-2.5 md:py-3 text-center transition-colors hover:bg-emerald-600/30 disabled:opacity-60"
-            >
-              <span className="text-sm md:text-base font-extrabold text-emerald-100">
-                CAIXA / GERAL ({format(selectedDate, 'dd/MM/yyyy')})
-              </span>
-            </button>
           </div>
         </div>
 
@@ -7018,41 +6984,41 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         isPast: Boolean(isPastSlot),
                                       });
                                     }}
-                                    className={`rounded-xl border-2 shadow-sm overflow-hidden flex items-stretch min-h-[52px] ${isAbsentSlot
+                                    className={`rounded-xl border-2 shadow-sm overflow-hidden flex items-stretch min-h-[52px] md:min-h-[38px] ${isAbsentSlot
                                       ? 'bg-gradient-to-br from-amber-50 to-amber-100/90 border-amber-400'
                                       : isPastSlot
                                         ? 'bg-gray-300 border-gray-400'
                                         : 'bg-emerald-50 border-emerald-300'
                                       } ${canOpenQuickAction ? 'cursor-pointer' : ''}`}
                                   >
-                                    <div className="flex-1 flex flex-col items-center justify-center text-center px-3 py-2.5 min-w-0">
+                                    <div className="flex-1 flex flex-col items-center justify-center text-center px-3 py-2.5 md:py-1 md:px-2 min-w-0">
                                       {isAbsentSlot ? (
                                         <>
-                                          <span className="font-extrabold text-base tracking-tight text-amber-900">
+                                          <span className="font-extrabold text-base md:text-[13px] tracking-tight text-amber-900">
                                             {slot.time}
                                           </span>
-                                          <span className="text-[11px] font-bold mt-0.5 text-amber-800">
+                                          <span className="text-[11px] md:text-[10px] font-bold mt-0.5 text-amber-800">
                                             📅 Ausência neste dia
                                           </span>
                                         </>
                                       ) : isPastSlot ? (
                                         <>
-                                          <span className="font-extrabold text-base tracking-tight text-gray-800">
+                                          <span className="font-extrabold text-base md:text-[13px] tracking-tight text-gray-800">
                                             {slot.time}
                                           </span>
-                                          <span className="text-[11px] font-bold mt-0.5 text-gray-700">
+                                          <span className="text-[11px] md:text-[10px] font-bold mt-0.5 text-gray-700">
                                             ⏰ Horário encerrado (clique para ações)
                                           </span>
                                         </>
                                       ) : (
                                         <>
-                                          <span className="font-extrabold text-[23px] leading-tight tracking-tight text-emerald-800">
+                                          <span className="font-extrabold text-[23px] md:text-[14px] leading-tight tracking-tight text-emerald-800">
                                             {slot.time}
                                           </span>
-                                          <span className="text-[12px] font-extrabold mt-0.5 text-emerald-800 uppercase">
+                                          <span className="text-[12px] md:text-[10px] font-extrabold mt-0.5 text-emerald-800 uppercase">
                                             HORARIO LIVRE
                                           </span>
-                                          <span className="text-[10px] font-semibold mt-0.5 text-emerald-700/80">
+                                          <span className="text-[10px] font-semibold mt-0.5 text-emerald-700/80 md:hidden">
                                             Clique aqui
                                           </span>
                                         </>
