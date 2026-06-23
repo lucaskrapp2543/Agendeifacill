@@ -2103,6 +2103,7 @@ export default function BookingPage() {
       const mercadopagoAccessToken = String((establishment as any)?.mercadopago_access_token || '').trim();
       const isSubscriber = appointmentData?.is_subscriber === true;
       const valorAgendamento = resolveBookingPaymentAmount(appointmentData);
+      const cobrarTaxaCliente = (establishment as any)?.cobrar_taxa_maquininha_cliente === true;
       const phoneCandidates = buildPhoneCandidates(
         String(appointmentData?.client_whatsapp || guestClientData?.phone || '')
       );
@@ -2460,7 +2461,7 @@ export default function BookingPage() {
 
         console.log('✅ DEBUG - Agendamento pending_payment criado:', inserted?.id);
         setPendingAppointmentId(inserted.id);
-        setPendingPaymentAmount(valorAgendamento);
+        setPendingPaymentAmount(cobrarTaxaCliente && valorAgendamento > 0 ? valorAgendamento + 1 : valorAgendamento);
         setPendingCustomerData({
           name: appointmentData?.client_name || guestClientData?.name || 'Cliente',
           phone: appointmentData?.client_whatsapp || guestClientData?.phone,
@@ -2664,7 +2665,7 @@ export default function BookingPage() {
           console.warn('⚠️ Pagamento opcional ativo, mas sem gateway configurado. Seguindo sem pagamento.');
         } else {
           setPendingAppointmentId(insertedAppointment?.id || null);
-          setPendingPaymentAmount(valorAgendamento);
+          setPendingPaymentAmount(cobrarTaxaCliente && valorAgendamento > 0 ? valorAgendamento + 1 : valorAgendamento);
           setPendingCustomerData({
             name: appointmentData?.client_name || guestClientData?.name || 'Cliente',
             phone: appointmentData?.client_whatsapp || guestClientData?.phone,

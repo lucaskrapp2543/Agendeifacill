@@ -2398,6 +2398,9 @@ export function BookingChatFlow({
                   </div>
                 )}
                 <div><strong>Total final:</strong> {toMoney(confirmDisplayTotalPrice)}</div>
+                {(establishment as any)?.cobrar_taxa_maquininha_cliente === true && (
+                  <div className="text-xs text-white/50">taxa de pagamento: R$ 1,00</div>
+                )}
                 {!isSubscriberFlow && !requireAdvancePayment && shouldSkipPaymentMethodQuestion && (
                   <div className="text-xs text-cyan-200/90">
                     Pagamento via Mercado Pago ativo: a escolha de pagamento acontece no checkout, sem precisar selecionar aqui.

@@ -1195,6 +1195,7 @@ const EstablishmentDashboard = () => {
   const [pagamentoAdiantadoOpcional, setPagamentoAdiantadoOpcional] = useState(false); // Se true, cliente pode agendar sem pagar
   const [exigirPagamentoAntecipadoMercadoPago, setExigirPagamentoAntecipadoMercadoPago] = useState(false); // Exigir pagamento antecipado (Mercado Pago)
   const [pagamentoAdiantadoOpcionalMercadoPago, setPagamentoAdiantadoOpcionalMercadoPago] = useState(false); // Se true, cliente pode agendar sem pagar (Mercado Pago)
+  const [cobrarTaxaMaquininhaCliente, setCobrarTaxaMaquininhaCliente] = useState(false); // Taxa da maquininha cobrada do cliente (+R$1)
   const [clientAfcoinsEnabled, setClientAfcoinsEnabled] = useState(true);
   const [showAfcoinsDisableConfirmModal, setShowAfcoinsDisableConfirmModal] = useState(false);
   const [isSavingClientAfcoins, setIsSavingClientAfcoins] = useState(false);
@@ -3464,6 +3465,29 @@ const EstablishmentDashboard = () => {
                     </div>
                     <span className="text-xs text-gray-400">
                       Se ativado, o cliente agenda normalmente e escolhe se quer pagar agora ou no estabelecimento.
+                    </span>
+                  </div>
+                </label>
+              )}
+
+              {exigirPagamentoAntecipadoMercadoPago && (
+                <label className="flex items-start space-x-2 ml-6 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={cobrarTaxaMaquininhaCliente}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      setCobrarTaxaMaquininhaCliente(next);
+                      void autoSaveAmenities({ cobrarTaxaMaquininhaCliente: next });
+                    }}
+                    className="form-checkbox h-4 w-4 mt-0.5 text-primary bg-[#1a1b1c] border-gray-600 rounded flex-shrink-0"
+                  />
+                  <div className="flex flex-col">
+                    <span className="text-white text-xs font-semibold">
+                      Taxa da maquininha cobrada do cliente
+                    </span>
+                    <span className="text-xs text-gray-400 mt-0.5 leading-relaxed">
+                      Ative e pare de perder dinheiro com taxa. Quando ligado, a taxa da operação online fica por conta do cliente — você recebe mais líquido, a taxa não é sua.
                     </span>
                   </div>
                 </label>
@@ -13726,6 +13750,7 @@ Estamos te aguardando!`;
         setPagamentoAdiantadoOpcional((establishmentData as any).pagamento_adiantado_opcional ?? false);
         setExigirPagamentoAntecipadoMercadoPago((establishmentData as any).exigir_pagamento_antecipado_mercadopago ?? false); // Pagamento antecipado Mercado Pago
         setPagamentoAdiantadoOpcionalMercadoPago((establishmentData as any).pagamento_adiantado_opcional_mercadopago ?? false);
+        setCobrarTaxaMaquininhaCliente((establishmentData as any).cobrar_taxa_maquininha_cliente ?? false);
         setClientAfcoinsEnabled((establishmentData as any).client_afcoins_enabled !== false);
         setFilaEsperaAtiva((establishmentData as any).fila_espera_ativa ?? false);
         // Sanitiza IDs de fila para ignorar profissionais removidos/inválidos.
@@ -22042,6 +22067,7 @@ Estamos te aguardando!`;
   const autoSaveAmenities = useCallback(async (overrides?: {
     exigirPagamentoAntecipadoMercadoPago?: boolean;
     pagamentoAdiantadoOpcionalMercadoPago?: boolean;
+    cobrarTaxaMaquininhaCliente?: boolean;
   }) => {
     if (!establishment?.id) return;
 
@@ -22067,6 +22093,7 @@ Estamos te aguardando!`;
         pagamento_adiantado_opcional: pagamentoAdiantadoOpcional,
         exigir_pagamento_antecipado_mercadopago: nextExigirMP,
         pagamento_adiantado_opcional_mercadopago: nextOpcionalMP,
+        cobrar_taxa_maquininha_cliente: overrides?.cobrarTaxaMaquininhaCliente ?? cobrarTaxaMaquininhaCliente,
         enable_whatsapp_notifications: enableWhatsAppNotifications,
         skip_client_whatsapp_booking_nudge: skipClientWhatsappBookingNudge,
         // require_cancel_password é salvo imediatamente quando o checkbox muda, não precisa do auto-save
