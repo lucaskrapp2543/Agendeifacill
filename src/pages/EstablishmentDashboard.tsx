@@ -27560,23 +27560,6 @@ Estamos te aguardando!`;
               </div>
             )}
 
-            {/* Sino flutuante (somente mobile) - acima do botão de recarregar */}
-            {establishment && !isPremiumFullscreenTab && (
-              <button
-                type="button"
-                onClick={() => setIsNotificationsPanelOpen((v) => !v)}
-                className="md:hidden fixed right-4 bottom-52 z-30 bg-black hover:bg-gray-800 text-white p-4 rounded-full shadow-lg transition-all transform hover:scale-110 active:scale-95"
-                title="Notificações"
-                aria-label="Notificações"
-              >
-                <Bell className="w-6 h-6" />
-                {unreadNotificationsCount > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-6 w-6 flex items-center justify-center">
-                    {unreadNotificationsCount}
-                  </span>
-                )}
-              </button>
-            )}
 
             {/* Conteúdo Principal */}
             <div className="space-y-6">

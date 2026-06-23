@@ -6581,12 +6581,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   setShowAvailabilityModal(true);
                 };
                 const sideActionButtonClass = useLightLayout
-                  ? 'w-full min-h-[64px] md:min-h-[78px] px-2.5 py-2 text-xs sm:text-sm font-bold rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10'
-                  : 'w-full min-h-[64px] md:min-h-[78px] px-2.5 py-2 text-xs sm:text-sm font-bold rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10';
+                  ? 'w-full min-h-[64px] md:min-h-[40px] px-2.5 py-2 md:py-1 text-xs font-bold rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10'
+                  : 'w-full min-h-[64px] md:min-h-[40px] px-2.5 py-2 md:py-1 text-xs font-bold rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10';
                 const actionCardButtonClass = useLightLayout
-                  ? 'w-full min-h-[64px] md:min-h-[78px] px-3 py-2 rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10 active:scale-[0.98]'
-                  : 'w-full min-h-[64px] md:min-h-[78px] px-3 py-2 rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10 active:scale-[0.98]';
-                const statusCardButtonClass = 'w-full min-h-[44px] md:min-h-[58px] px-2 py-1.5 md:py-2 rounded-xl border text-white transition-colors';
+                  ? 'w-full min-h-[64px] md:min-h-[40px] px-3 py-2 md:py-1 rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10 active:scale-[0.98]'
+                  : 'w-full min-h-[64px] md:min-h-[40px] px-3 py-2 md:py-1 rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10 active:scale-[0.98]';
+                const statusCardButtonClass = 'w-full min-h-[44px] md:min-h-[30px] px-2 py-1.5 md:py-1 rounded-xl border text-white transition-colors';
 
                 const hiddenOpen =
                   hiddenAppointments.length > 0 &&
@@ -6660,9 +6660,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               className={sideActionButtonClass}
                               title="Ir para Meus Clientes"
                             >
-                              <span className="flex flex-col items-center justify-center leading-tight">
-                                <UserPlus className="w-4 h-4 text-white/90" />
-                                <span className="text-xs font-bold mt-1">Agendar cliente</span>
+                              <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
+                                <UserPlus className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
+                                <span className="text-xs font-bold mt-1 md:mt-0">Agendar cliente</span>
                               </span>
                             </button>
                           )}
@@ -6680,13 +6680,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             title="Criar Encaixe"
                             disabled={appointmentsLocked}
                           >
-                            <span className="flex flex-col items-center justify-center leading-tight">
+                            <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
                               {appointmentsLocked ? (
-                                <Lock className="w-4 h-4 text-white/90" />
+                                <Lock className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
                               ) : (
-                                <Plus className="w-4 h-4 text-white/90" />
+                                <Plus className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
                               )}
-                              <span className="text-xs font-bold mt-1">
+                              <span className="text-xs font-bold mt-1 md:mt-0">
                                 {appointmentsLocked ? 'Agenda protegida' : 'Criar encaixe'}
                               </span>
                             </span>
@@ -6700,9 +6700,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               title="Bloquear horários deste profissional"
                               disabled={appointmentsLocked}
                             >
-                              <span className="flex flex-col items-center justify-center leading-tight">
-                                <Lock className="w-4 h-4 text-white/90" />
-                                <span className="text-xs font-bold mt-1">
+                              <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
+                                <Lock className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
+                                <span className="text-xs font-bold mt-1 md:mt-0">
                                   {appointmentsLocked ? 'Agenda protegida' : 'Bloquear horários'}
                                 </span>
                               </span>
@@ -6716,9 +6716,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               title="Configurar dias de ausência deste profissional"
                               disabled={appointmentsLocked}
                             >
-                              <span className="flex flex-col items-center justify-center leading-tight">
-                                <Calendar className="w-4 h-4 text-white/90" />
-                                <span className="text-xs font-bold mt-1">
+                              <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
+                                <Calendar className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
+                                <span className="text-xs font-bold mt-1 md:mt-0">
                                   {appointmentsLocked ? 'Agenda protegida' : 'Bloquear dia inteiro'}
                                 </span>
                               </span>
@@ -6738,13 +6738,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               title="Cadastrar Assinante"
                               disabled={appointmentsLocked}
                             >
-                              <span className="flex flex-col items-center justify-center leading-tight">
+                              <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
                                 {appointmentsLocked ? (
-                                  <Lock className="w-4 h-4 text-white/90" />
+                                  <Lock className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
                                 ) : (
-                                  <Users className="w-4 h-4 text-white/90" />
+                                  <Users className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
                                 )}
-                                <span className="text-xs font-bold mt-1">
+                                <span className="text-xs font-bold mt-1 md:mt-0">
                                   {appointmentsLocked ? 'Agenda protegida' : 'Cadastrar assinante'}
                                 </span>
                               </span>
@@ -6757,9 +6757,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             title="Ver horários disponíveis (somente visualização)"
                             disabled={appointmentsLocked}
                           >
-                            <span className="flex flex-col items-center justify-center leading-tight">
-                              <Calendar className="w-4 h-4 text-white/90" />
-                              <span className="text-xs font-bold mt-1">
+                            <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
+                              <Calendar className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
+                              <span className="text-xs font-bold mt-1 md:mt-0">
                                 {appointmentsLocked ? 'Agenda protegida' : 'Horários disponíveis'}
                               </span>
                             </span>
@@ -6771,8 +6771,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             className={`${actionCardButtonClass} col-span-2`}
                             title="Abrir financeiro do profissional"
                           >
-                            <span className="flex flex-col items-center justify-center leading-tight">
-                              <Coins className="w-4 h-4 mb-1 text-white/90" />
+                            <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
+                              <Coins className="w-4 h-4 md:w-3 md:h-3 mb-1 md:mb-0 text-white/90" />
                               <span>Financeiro / desempenho</span>
                               {financialLocked && <span className="text-[10px] opacity-90">desbloquear</span>}
                             </span>
@@ -6791,7 +6791,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                         )}
 
                         {/* Contadores de Status por Profissional */}
-                        <div className="mt-2 md:mt-3 grid grid-cols-3 gap-1.5 md:gap-2 text-xs w-full">
+                        <div className="mt-2 md:mt-1.5 grid grid-cols-3 gap-1.5 md:gap-1.5 text-xs w-full">
                           <button
                             type="button"
                             onClick={() => {
@@ -6807,13 +6807,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             className={`${statusCardButtonClass} bg-red-700/90 border-red-800 hover:bg-red-700`}
                             title="Ver histórico de cancelados deste profissional no dia"
                           >
-                            <span className="flex flex-col items-center justify-center leading-tight">
+                            <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
                               {appointmentsLocked ? (
-                                <Lock className="w-4 h-4 text-white/95" />
+                                <Lock className="w-4 h-4 md:w-3 md:h-3 text-white/95" />
                               ) : (
-                                <X className="w-4 h-4 text-white/95" />
+                                <X className="w-4 h-4 md:w-3 md:h-3 text-white/95" />
                               )}
-                              <span className="text-[11px] font-bold mt-0.5">{appointmentsLocked ? '-' : cancelledCount}</span>
+                              <span className="text-[11px] font-bold mt-0.5 md:mt-0">{appointmentsLocked ? '-' : cancelledCount}</span>
                               <span className="text-[10px] opacity-90">Cancelados</span>
                             </span>
                           </button>
@@ -6833,13 +6833,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             className={`${statusCardButtonClass} bg-yellow-700/90 border-yellow-800 hover:bg-yellow-700`}
                             title="Ver agendamentos pendentes deste profissional no dia"
                           >
-                            <span className="flex flex-col items-center justify-center leading-tight">
+                            <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
                               {appointmentsLocked ? (
-                                <Lock className="w-4 h-4 text-white/95" />
+                                <Lock className="w-4 h-4 md:w-3 md:h-3 text-white/95" />
                               ) : (
-                                <Clock className="w-4 h-4 text-white/95" />
+                                <Clock className="w-4 h-4 md:w-3 md:h-3 text-white/95" />
                               )}
-                              <span className="text-[11px] font-bold mt-0.5">{appointmentsLocked ? '-' : pendingCount}</span>
+                              <span className="text-[11px] font-bold mt-0.5 md:mt-0">{appointmentsLocked ? '-' : pendingCount}</span>
                               <span className="text-[10px] opacity-90">Pendentes</span>
                             </span>
                           </button>
@@ -6859,13 +6859,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             className={`${statusCardButtonClass} bg-green-700/90 border-green-800 hover:bg-green-700`}
                             title="Ver agendamentos concluídos deste profissional no dia"
                           >
-                            <span className="flex flex-col items-center justify-center leading-tight">
+                            <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
                               {appointmentsLocked ? (
-                                <Lock className="w-4 h-4 text-white/95" />
+                                <Lock className="w-4 h-4 md:w-3 md:h-3 text-white/95" />
                               ) : (
-                                <CheckCircle2 className="w-4 h-4 text-white/95" />
+                                <CheckCircle2 className="w-4 h-4 md:w-3 md:h-3 text-white/95" />
                               )}
-                              <span className="text-[11px] font-bold mt-0.5">{appointmentsLocked ? '-' : completedCount}</span>
+                              <span className="text-[11px] font-bold mt-0.5 md:mt-0">{appointmentsLocked ? '-' : completedCount}</span>
                               <span className="text-[10px] opacity-90">Realizados</span>
                             </span>
                           </button>
@@ -6984,7 +6984,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         isPast: Boolean(isPastSlot),
                                       });
                                     }}
-                                    className={`rounded-xl border-2 shadow-sm overflow-hidden flex items-stretch min-h-[52px] md:min-h-[38px] ${isAbsentSlot
+                                    className={`rounded-xl border-2 shadow-sm overflow-hidden flex items-stretch min-h-[44px] md:min-h-[38px] ${isAbsentSlot
                                       ? 'bg-gradient-to-br from-amber-50 to-amber-100/90 border-amber-400'
                                       : isPastSlot
                                         ? 'bg-gray-300 border-gray-400'
@@ -7012,10 +7012,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         </>
                                       ) : (
                                         <>
-                                          <span className="font-extrabold text-[23px] md:text-[14px] leading-tight tracking-tight text-emerald-800">
+                                          <span className="font-extrabold text-base md:text-[14px] leading-tight tracking-tight text-emerald-800">
                                             {slot.time}
                                           </span>
-                                          <span className="text-[12px] md:text-[10px] font-extrabold mt-0.5 text-emerald-800 uppercase">
+                                          <span className="text-[11px] md:text-[10px] font-extrabold mt-0.5 text-emerald-800 uppercase">
                                             HORARIO LIVRE
                                           </span>
                                           <span className="text-[10px] font-semibold mt-0.5 text-emerald-700/80 md:hidden">
@@ -7033,23 +7033,23 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         key={squeeze.id}
                                         className="bg-gray-700 border-2 border-gray-600 rounded-lg mt-1 overflow-hidden"
                                       >
-                                        <div className="px-3 py-2">
+                                        <div className="px-3 py-2 md:py-1.5 md:px-2.5">
                                           <div
                                             onClick={() => toggleAppointmentExpansion(squeeze.id)}
                                             className="cursor-pointer"
                                           >
-                                            <div className="flex items-center justify-between mb-1">
-                                              <span className="text-white font-bold text-sm">
+                                            <div className="flex items-center justify-between mb-1 md:mb-0.5">
+                                              <span className="text-white font-bold text-sm md:text-xs">
                                                 {squeeze.appointment_time} 🟣 {isAgendaSubscriberAppointment(squeeze) ? 'ENCAIXE ASSINANTE' : 'ENCAIXE'}
                                               </span>
                                               <span className="text-white text-xs font-bold">
                                                 {formatCurrency(calculateTotalPrice(squeeze))}
                                               </span>
                                             </div>
-                                            <div className="text-white font-semibold text-sm mb-1 truncate">
+                                            <div className="text-white font-semibold text-sm md:text-xs mb-1 md:mb-0.5 truncate">
                                               {squeeze.service}
                                             </div>
-                                            <div className="text-white/70 text-xs mt-1">
+                                            <div className="text-white/70 text-xs mt-1 md:mt-0">
                                               {getDuracaoTotalAgendamento(squeeze, intervaloAgendaMinutos)} min • Ver detalhes
                                             </div>
                                           </div>
@@ -7135,14 +7135,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                   className={`${slotColor} border rounded-lg overflow-hidden`}
                                 >
                                   {/* Versão Compacta - Sempre visível */}
-                                  <div className="px-3 py-2">
+                                  <div className="px-3 py-2 md:py-1.5 md:px-2.5">
                                     <div
                                       onClick={() => toggleAppointmentExpansion(apt.id)}
                                       data-tutorial-id="appointments-detalhes-agendamento"
                                       className="cursor-pointer"
                                     >
-                                      <div className="flex items-center justify-between mb-1">
-                                        <span className="text-white font-bold text-sm">
+                                      <div className="flex items-center justify-between mb-1 md:mb-0.5">
+                                        <span className="text-white font-bold text-sm md:text-xs">
                                           {apt.is_squeeze ? apt.appointment_time : slot.time}{' '}
                                           {apt.is_squeeze && '🟣'}
                                           {apt.is_squeeze && apt.status === 'completed' && (
@@ -7166,7 +7166,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         )}
                                         {getDisplayedService(apt)}
                                       </div>
-                                      <div className="text-white/70 text-xs mt-1 flex items-center justify-between gap-1">
+                                      <div className="text-white/70 text-xs mt-1 md:mt-0.5 flex items-center justify-between gap-1">
                                         <span>{getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos)} min • Ver detalhes</span>
                                         {apt.status === 'completed' && (
                                           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-black/30 text-white shrink-0">
@@ -7188,13 +7188,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
                                     {/* Botão Enviar Lembrete - Aparece quando NÃO expandido */}
                                     {!isExpanded && apt.status !== 'cancelled' && (
-                                      <div className="mt-2 pt-2 border-t border-white/20 grid grid-cols-2 gap-1.5">
+                                      <div className="mt-2 pt-2 md:mt-1 md:pt-1 border-t border-white/20 grid grid-cols-2 gap-1.5 md:gap-1">
                                         <button
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             if (onOpenReminderModal) onOpenReminderModal(apt);
                                           }}
-                                          className="px-1.5 py-1.5 text-[10px] sm:text-xs font-medium rounded transition-colors bg-black text-white hover:bg-gray-800 leading-tight"
+                                          className="px-1.5 py-1.5 md:py-0.5 text-[10px] font-medium rounded transition-colors bg-black text-white hover:bg-gray-800 leading-tight"
                                           title="Enviar lembrete via WhatsApp"
                                         >
                                           📱 Enviar lembrete
@@ -7204,7 +7204,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             e.stopPropagation();
                                             if (onSendThankYou) onSendThankYou(apt);
                                           }}
-                                          className="px-1.5 py-1.5 text-[10px] sm:text-xs font-medium rounded transition-colors bg-[#E6C78B] text-black hover:bg-[#f3e7c7] leading-tight"
+                                          className="px-1.5 py-1.5 md:py-0.5 text-[10px] font-medium rounded transition-colors bg-[#E6C78B] text-black hover:bg-[#f3e7c7] leading-tight"
                                           title="Enviar agradecimento e pedir avaliação via WhatsApp"
                                         >
                                           ⭐ Enviar agradecimento
