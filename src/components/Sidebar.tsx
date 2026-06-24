@@ -300,7 +300,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const isPlanLockedItem = (itemId: string) =>
-    isPlanoPrataAtivo && (itemId === 'subscribers' || itemId === 'products' || itemId === 'fila-espera');
+    isPlanoPrataAtivo && (itemId === 'subscribers' || itemId === 'products' || itemId === 'fila-espera' || itemId === 'whatsapp-reminders');
 
   // Detectar se está em mobile
   useEffect(() => {
