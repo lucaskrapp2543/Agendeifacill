@@ -199,6 +199,12 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
+# Icones PWA não devem ter cache immutable (podem mudar entre deploys)
+[[headers]]
+  for = "/icons/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
 # Cache para JS e CSS (build assets)
 [[headers]]
   for = "/*.js"
