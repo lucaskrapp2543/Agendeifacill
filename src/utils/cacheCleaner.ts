@@ -206,20 +206,16 @@ export const performEmergencyCleanup = async (): Promise<void> => {
  */
 export const checkAndCleanCorruptedData = async (): Promise<void> => {
   try {
-    // Verificar se há Service Workers órfãos
+    // Verificar se há Service Workers órfãos (mas preservar sw-mobile.js para PWA)
     if ('serviceWorker' in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations();
-      if (registrations.length > 0) {
-        // Verificar se algum está em estado problemático
-        const problematicSWs = registrations.filter(reg => {
-          // Se há um service worker instalado mas não ativo, pode causar problemas
-          return reg.installing || reg.waiting;
-        });
-
-        if (problematicSWs.length > 0) {
-          console.warn('⚠️ Service Workers problemáticos detectados, removendo...');
+      if (registrations.length > 1) {
+        // Só remover se houver MAIS de 1 SW registrado (duplicatas)
+        const duplicates = registrations.slice(1);
+        if (duplicates.length > 0) {
+          console.warn('⚠️ Service Workers duplicados detectados, removendo extras...');
           await Promise.all(
-            problematicSWs.map(reg => reg.unregister().catch(() => { }))
+            duplicates.map(reg => reg.unregister().catch(() => { }))
           );
         }
       }

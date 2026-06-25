@@ -52,27 +52,19 @@ export async function forceUpdate(): Promise<void> {
 
 export const registerServiceWorker = async (): Promise<void> => {
   // ✅ Em desenvolvimento: se existir SW antigo em localhost, REMOVER
-  // (isso evita exatamente o problema de UI “antiga”/cacheada aparecer do nada)
   if (!isProduction()) {
     await unregisterServiceWorker();
     await clearAllCaches();
     return;
   }
 
-  // ⚠️ NÃO registrar em mobile (causa página branca)
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  if (isMobile) {
-    // Remover Service Workers existentes
-    if ('serviceWorker' in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map(reg => reg.unregister()));
-    }
-    return;
-  }
+  // Mobile usa SW mínimo (sem cache) para manter PWA instalável
+  const swPath = isMobile ? '/sw-mobile.js' : '/sw.js';
 
   if ('serviceWorker' in navigator) {
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js', {
+      const registration = await navigator.serviceWorker.register(swPath, {
         scope: '/'
       });
       

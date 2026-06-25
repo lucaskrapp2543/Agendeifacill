@@ -102,15 +102,7 @@ class ErrorBoundary extends Component<Props, State> {
 
   clearCache = async () => {
     try {
-      // Limpar service workers
-      if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (const registration of registrations) {
-          await registration.unregister();
-        }
-      }
-
-      // Limpar caches
+      // Limpar caches (manter SW registrado para PWA)
       if ('caches' in window) {
         const cacheNames = await caches.keys();
         await Promise.all(cacheNames.map(name => caches.delete(name)));

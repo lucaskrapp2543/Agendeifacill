@@ -722,19 +722,9 @@ export default function BookingPage() {
     };
   }, []);
 
-  // ✅ SOLUÇÃO DEFINITIVA: Limpar cache e Service Worker ao entrar no booking
+  // Limpar caches problemáticos ao entrar no booking (mas manter SW para PWA)
   useEffect(() => {
-    // Limpar Service Workers existentes (especialmente em mobile)
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(registrations => {
-        registrations.forEach(registration => {
-          console.log('🗑️ Removendo Service Worker no booking:', registration.scope);
-          registration.unregister().catch(() => { });
-        });
-      });
-    }
-
-    // Limpar caches do navegador
+    // Limpar caches do navegador (mas NÃO remover o Service Worker — necessário para PWA)
     if ('caches' in window) {
       caches.keys().then(cacheNames => {
         cacheNames.forEach(cacheName => {

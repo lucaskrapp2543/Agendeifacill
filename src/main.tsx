@@ -76,18 +76,10 @@ const handleChunkErrors = () => {
         if (!hasProtections && reloadAttempts < maxReloadAttempts) {
           reloadAttempts++;
 
-          // Limpar cache e recarregar
+          // Limpar cache e recarregar (manter SW para PWA)
           setTimeout(async () => {
             try {
-              // Limpar service workers
-              if ('serviceWorker' in navigator) {
-                const registrations = await navigator.serviceWorker.getRegistrations();
-                for (const registration of registrations) {
-                  await registration.unregister();
-                }
-              }
-
-              // Limpar caches
+              // Limpar caches (mas manter SW registrado para PWA)
               if ('caches' in window) {
                 const cacheNames = await caches.keys();
                 await Promise.all(cacheNames.map(name => caches.delete(name)));
@@ -240,12 +232,6 @@ if (!rootElement) {
       if ('caches' in window) {
         caches.keys().then(cacheNames => {
           cacheNames.forEach(name => caches.delete(name));
-        });
-      }
-
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(registrations => {
-          registrations.forEach(reg => reg.unregister());
         });
       }
 
