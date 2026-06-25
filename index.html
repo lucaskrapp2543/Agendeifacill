@@ -38,7 +38,7 @@
   <meta name="apple-mobile-web-app-title" content="Agendei Fácil">
 
   <!-- PWA Manifest -->
-  <link rel="manifest" href="/manifest.json?v=20260610">
+  <link rel="manifest" href="/manifest.json?v=20260625">
 
   <!-- PWA Icons -->
   <link rel="icon" type="image/png" sizes="500x500" href="/novo-icone.png?v=20260610">
@@ -96,17 +96,19 @@
       // Mantém comportamento sem poluir console.
     }
     
-    if ('serviceWorker' in navigator &&
-      window.location.hostname !== 'localhost' &&
+    // Mobile usa SW mínimo (sem cache) para permitir instalação PWA
+    const isProduction = window.location.hostname !== 'localhost' &&
       window.location.hostname !== '127.0.0.1' &&
       !window.location.hostname.includes('localhost') &&
-      !window.location.hostname.includes('127.0.0.1') &&
-      !isMobile && // ⚠️ NÃO registrar em mobile
+      !window.location.hostname.includes('127.0.0.1');
+
+    if ('serviceWorker' in navigator && isProduction &&
       !isBookingPage && // ⚠️ NÃO registrar em booking (evita cache problemático)
       !hasProtections && // ⚠️ NÃO registrar em navegadores com proteções (evita loops)
       !swDisabledByLoop) { // ⚠️ NÃO registrar se foi desabilitado por loop detectado
 
-      const swPath = '/sw.js';
+      // Mobile usa SW mínimo (só fetch passthrough), desktop usa SW completo
+      const swPath = isMobile ? '/sw-mobile.js' : '/sw.js';
 
       navigator.serviceWorker.register(swPath).then(function (registration) {
         console.log('✅ Service Worker registrado (desktop):', registration);
@@ -200,59 +202,19 @@
         console.log('Service Worker registration failed:', error);
       });
     } else {
-      // ✅ SOLUÇÃO DEFINITIVA: Remover Service Worker em mobile, booking E navegadores com proteções
-      // Detectar navegadores com proteções de forma síncrona (fallback)
-      const isBraveRuntimeSync = !!(navigator && navigator.brave);
-      const hasProtectionsSync = isBraveRuntimeSync ||
-                                  navigator.userAgent.includes('Brave') || 
-                                  (navigator.userAgentData && navigator.userAgentData.brands && 
-                                   navigator.userAgentData.brands.some(b => b.brand && b.brand.includes('Brave'))) ||
-                                  (navigator.userAgent.includes('Edg/') && navigator.userAgent.includes('Shields')) ||
-                                  (navigator.userAgent.includes('Firefox') && navigator.userAgent.includes('Privacy'));
-      
-      if (isMobile || isBookingPage || hasProtectionsSync) {
-        if (hasProtectionsSync) {
-          // Mantém comportamento sem poluir console.
-        }
-
-        // ⚠️ REMOVER Service Workers existentes em mobile/booking E remover listeners
+      // Booking pages e navegadores com proteções: remover SW existente
+      if (isBookingPage || hasProtections || swDisabledByLoop) {
         if ('serviceWorker' in navigator) {
-          // ⚠️ IMPORTANTE: Remover TODOS os listeners de controllerchange antes de remover SW
-          // Isso evita que o listener cause reload após remover o SW
-          const controllerChangeHandler = () => {
-            console.log('⚠️ Controller change em mobile ignorado (SW deve ser removido)');
-          };
-
-          // Remover listener antigo se existir
-          navigator.serviceWorker.removeEventListener('controllerchange', controllerChangeHandler);
-
           navigator.serviceWorker.getRegistrations().then(function (registrations) {
             registrations.forEach(function (registration) {
-              console.log('🗑️ Removendo Service Worker em mobile:', registration);
-              registration.unregister().catch(err => {
-                console.warn('⚠️ Erro ao remover SW em mobile:', err);
-              });
+              registration.unregister().catch(() => {});
             });
-
-            // Aguardar um pouco e verificar se ainda há SWs ativos
-            setTimeout(() => {
-              navigator.serviceWorker.getRegistrations().then(function (remainingRegs) {
-                if (remainingRegs.length > 0) {
-                  console.warn('⚠️ Ainda há Service Workers ativos em mobile, forçando remoção...');
-                  remainingRegs.forEach(function (reg) {
-                    reg.unregister().catch(() => { });
-                  });
-                }
-              });
-            }, 500);
           });
         }
-      } else {
-        // Mantém comportamento sem poluir console.
       }
 
-      // Limpar qualquer service worker existente em desenvolvimento
-      if ('serviceWorker' in navigator) {
+      // Limpar qualquer service worker existente em desenvolvimento (localhost)
+      if ('serviceWorker' in navigator && !isProduction) {
         navigator.serviceWorker.getRegistrations().then(function (registrations) {
           for (let registration of registrations) {
             console.log('🗑️ Removendo service worker em desenvolvimento:', registration);
