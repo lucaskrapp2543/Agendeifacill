@@ -199,6 +199,7 @@ export default function ReservarCliente({
   const [newKnownClientBirthday, setNewKnownClientBirthday] = useState('');
   const [isCreatingKnownClient, setIsCreatingKnownClient] = useState(false);
   const [hasAppliedInitialProfessional, setHasAppliedInitialProfessional] = useState(false);
+  const [avulsoClientName, setAvulsoClientName] = useState('CLIENTE AVULSO');
 
   /** Fidelidade (não assinante): meta e progresso vindos do Supabase */
   const [loyaltyRow, setLoyaltyRow] = useState<{ cycle_goal: number; cycle_progress: number } | null>(null);
@@ -2005,7 +2006,7 @@ export default function ReservarCliente({
         isAvulso = false;
       } else {
         clientId = currentUserId;
-        clientName = 'CLIENTE AVULSO';
+        clientName = avulsoClientName.trim() || 'CLIENTE AVULSO';
         clientWhatsapp = null;
         isAvulso = true;
       }
@@ -3577,8 +3578,9 @@ export default function ReservarCliente({
 
                   <p><strong>Data:</strong> {formatarDataPtBr(selectedDate)}</p>
                   <p><strong>Horário:</strong> {selectedTime}</p>
-                  <p><strong>Cliente:</strong> {
-                    selectedClient ? (
+                  <div>
+                    <strong>Cliente:</strong>{' '}
+                    {selectedClient ? (
                       <span className="text-gray-800 font-semibold">
                         {selectedClient.name}
                         {selectedSubscription ? <span className="text-gray-700 font-semibold"> {' '}• ASSINANTE 👑</span> : null}
@@ -3586,9 +3588,15 @@ export default function ReservarCliente({
                     ) : selectedSubscription ? (
                       <span className="text-gray-800 font-semibold">ASSINANTE 👑</span>
                     ) : (
-                      'CLIENTE AVULSO'
-                    )
-                  }</p>
+                      <input
+                        type="text"
+                        value={avulsoClientName}
+                        onChange={(e) => setAvulsoClientName(e.target.value)}
+                        className="ml-1 px-2 py-1 rounded-lg border border-gray-300 bg-white text-gray-800 text-sm font-semibold w-48 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                        placeholder="Nome do cliente"
+                      />
+                    )}
+                  </div>
 
                   {selectedClient && !selectedSubscription && !selectedClientActiveSubscriptionId ? (
                     <div className="mt-2 pt-2 border-t border-gray-300 space-y-2">
@@ -3939,7 +3947,7 @@ export default function ReservarCliente({
             // Agendamento já foi cancelado no PaymentModal
           }}
           customerData={{
-            name: selectedClient?.name || 'CLIENTE AVULSO',
+            name: selectedClient?.name || avulsoClientName.trim() || 'CLIENTE AVULSO',
             phone: selectedClient?.whatsapp,
             email: user?.email
           }}

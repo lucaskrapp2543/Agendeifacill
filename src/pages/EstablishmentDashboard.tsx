@@ -28362,6 +28362,7 @@ Estamos te aguardando!`;
                             return (
                               <div key={`timeslot-${index}-${appointment.id}`} className={`${appointment.status === 'cancelled' ? 'bg-red-800/90' :
                                 appointment.status === 'completed' ? 'bg-green-600' :
+                                  appointment.status === 'pending_payment' ? 'bg-purple-700' :
                                   appointment.status === 'pending' || appointment.status === 'confirmed' ? 'bg-yellow-600' :
                                     'bg-yellow-600'
                                 } rounded-lg w-full overflow-hidden`}>

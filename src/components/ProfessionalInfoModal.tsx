@@ -1,4 +1,4 @@
-import { BarChart3, CheckCircle2, Clock, Crown, DollarSign, Eye, EyeOff, Flame, Gem, RefreshCw, Scissors, Star, TrendingUp, X } from 'lucide-react';
+import { BarChart3, Calendar, CheckCircle2, Clock, Crown, DollarSign, Eye, EyeOff, Flame, Gem, RefreshCw, Scissors, Star, TrendingUp, X } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   formatSubscriberPeriodFilterLabel,
@@ -1500,6 +1500,62 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                           </div>
                         ))}
                       </div>
+
+                      {/* Líquido diário e semanal */}
+                      {(() => {
+                        const now = new Date();
+                        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                        const d7 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+                        const sevenDaysAgo = `${d7.getFullYear()}-${String(d7.getMonth() + 1).padStart(2, '0')}-${String(d7.getDate()).padStart(2, '0')}`;
+
+                        const allAttendances = subscriberControl.subscriberAttendances || [];
+                        const myAttendances = allAttendances.filter((a: any) => {
+                          const profName = String(a.professional_name || '').trim().toLowerCase();
+                          const currentName = String(professional.name || '').trim().toLowerCase();
+                          if (profName === currentName) return true;
+                          const profId = String(a.professional_id || '').trim();
+                          if (profId && profId === String(professional.id || '').trim()) return true;
+                          const group = subscriberControl.getProfessionalGroupFromAttendance(a);
+                          return group === subscriberControl.groupKey;
+                        });
+
+                        const getDate = (a: any) => String(a.attendance_date || '').slice(0, 10);
+                        const todayAtts = myAttendances.filter((a: any) => getDate(a) === todayStr);
+                        const weekAtts = myAttendances.filter((a: any) => getDate(a) >= sevenDaysAgo);
+                        const todayLiquid = todayAtts.reduce((s: number, a: any) => s + Number(a.repass_value || 0), 0);
+                        const weekLiquid = weekAtts.reduce((s: number, a: any) => s + Number(a.repass_value || 0), 0);
+                        const todayCount = todayAtts.length;
+                        const weekCount = weekAtts.length;
+
+                        return (
+                          <div className="grid grid-cols-2 gap-2.5 mt-2.5">
+                            <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3 min-w-0">
+                              <div className="flex items-center gap-1.5 text-[11px] text-emerald-200/70 mb-1.5">
+                                <Calendar className="w-3.5 h-3.5 shrink-0" />
+                                <span className="truncate">Hoje</span>
+                              </div>
+                              <p className="text-sm sm:text-base font-bold text-emerald-300">
+                                {showValues ? subscriberControl.fmtBRL(todayLiquid) : '••••••'}
+                              </p>
+                              <p className="text-[10px] text-emerald-200/50 mt-0.5">
+                                {todayCount} atendimento{todayCount !== 1 ? 's' : ''}
+                              </p>
+                            </div>
+                            <div className="rounded-xl border border-sky-500/25 bg-sky-500/10 p-3 min-w-0">
+                              <div className="flex items-center gap-1.5 text-[11px] text-sky-200/70 mb-1.5">
+                                <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+                                <span className="truncate">Últimos 7 dias</span>
+                              </div>
+                              <p className="text-sm sm:text-base font-bold text-sky-300">
+                                {showValues ? subscriberControl.fmtBRL(weekLiquid) : '••••••'}
+                              </p>
+                              <p className="text-[10px] text-sky-200/50 mt-0.5">
+                                {weekCount} atendimento{weekCount !== 1 ? 's' : ''}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {(subscriberControl.metrics.pointsFromAttendances > 0 ||
                         subscriberControl.metrics.saleCommissionCount > 0) && (

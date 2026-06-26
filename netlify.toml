@@ -109,6 +109,14 @@
   force = true
   methods = ["GET", "POST", "OPTIONS"]
 
+# Limpeza de agendamentos com pagamento pendente expirado
+[[redirects]]
+  from = "/api/cleanup-pending-payments"
+  to = "/.netlify/functions/cleanup-pending-payments"
+  status = 200
+  force = true
+  methods = ["GET", "POST", "OPTIONS"]
+
 # API Routes - DEVEM VIR ANTES do catch-all
 [[redirects]]
   from = "/api/cancel-appointment"

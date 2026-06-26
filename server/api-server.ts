@@ -1279,12 +1279,75 @@ app.get('/api/pagarme/order-details', async (req, res) => {
 });
 
 // Iniciar servidor
+async function cleanupPendingPayments() {
+  try {
+    const noTxThreshold = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const withTxThreshold = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+
+    const { data: noTx } = await supabaseAdmin
+      .from('appointments')
+      .update({
+        status: 'cancelled',
+        payment_status: 'failed',
+        cancellation_source: 'system_abandoned_checkout',
+        cancellation_detail: 'Limpeza automática: pagamento obrigatório não iniciado (sem ID de transação) por mais de 15 min.',
+      } as any)
+      .eq('status', 'pending_payment')
+      .is('payment_transaction_id', null)
+      .lt('created_at', noTxThreshold)
+      .select('id');
+
+    const { data: staleWithTx } = await supabaseAdmin
+      .from('appointments')
+      .select('id,payment_status,pix_payment_status')
+      .eq('status', 'pending_payment')
+      .not('payment_transaction_id', 'is', null)
+      .lt('created_at', withTxThreshold);
+
+    let cancelledWithTx = 0;
+    if (staleWithTx && staleWithTx.length > 0) {
+      const ids = staleWithTx
+        .filter((r: any) => {
+          const ps = String(r?.payment_status || '').toLowerCase();
+          const pix = String(r?.pix_payment_status || '').toLowerCase();
+          return ps !== 'paid' && pix !== 'confirmado' && pix !== 'aprovado';
+        })
+        .map((r: any) => r.id)
+        .filter(Boolean);
+      if (ids.length > 0) {
+        await supabaseAdmin
+          .from('appointments')
+          .update({
+            status: 'cancelled',
+            payment_status: 'failed',
+            cancellation_source: 'system_payment_timeout',
+            cancellation_detail: 'Limpeza automática: pagamento iniciado mas não confirmado por mais de 12h.',
+          } as any)
+          .in('id', ids);
+        cancelledWithTx = ids.length;
+      }
+    }
+
+    const total = (noTx?.length || 0) + cancelledWithTx;
+    if (total > 0) {
+      console.log(`🧹 Limpeza de pagamentos pendentes: ${total} cancelados (${noTx?.length || 0} sem tx, ${cancelledWithTx} expirados)`);
+    }
+  } catch (err) {
+    console.error('❌ Erro na limpeza de pagamentos pendentes:', err);
+  }
+}
+
 app.listen(PORT, () => {
   try {
     initializeWhatsAppServices();
   } catch (err) {
     console.error('❌ Erro ao inicializar WhatsApp services (servidor continua rodando):', err);
   }
+
+  // Limpeza de agendamentos com pagamento pendente expirado (a cada 5 min)
+  setInterval(cleanupPendingPayments, 5 * 60 * 1000);
+  cleanupPendingPayments();
+
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
   console.log('🚀 SERVIDOR DE API EXPRESS RODANDO!');

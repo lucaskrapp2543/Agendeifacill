@@ -1403,9 +1403,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const getAppointmentOriginLabel = (apt: Appointment): string => {
       const isInternalByFlag = Boolean((apt as any)?.is_establishment_booking === true);
       const isAvulsoLike = Boolean(apt.is_avulso) || Boolean(apt.is_squeeze);
-      const ownerCreated = String(apt.client_id || '').trim() !== '' && String(apt.client_id || '').trim() === String(user?.id || '').trim();
 
-      if (isInternalByFlag || isAvulsoLike || ownerCreated) {
+      if (isInternalByFlag || isAvulsoLike) {
         return 'Interno (criado dentro da barbearia)';
       }
 
@@ -4494,6 +4493,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
         return 'bg-gray-700 border-gray-600';
       }
 
+      // Aguardando pagamento: roxo
+      if (appointment.status === 'pending_payment') {
+        return slot.isOccupied
+          ? 'bg-purple-700/60 border-purple-600'
+          : 'bg-purple-700 border-purple-600';
+      }
+
       if (slot.isOccupied) {
         switch (appointment.status) {
           case 'cancelled':
@@ -5592,12 +5598,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 <button
                   type="button"
                   onClick={() => goToQuickDate('today')}
-                  className={`py-1 rounded-lg text-[10px] md:text-xs font-extrabold transition-colors ${isSelectedToday
+                  className={`py-1 rounded-lg text-[10px] md:text-xs font-extrabold transition-colors leading-tight ${isSelectedToday
                     ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-black shadow-sm shadow-amber-500/20'
                     : 'bg-white/5 text-white/80 hover:bg-white/10'
                   }`}
                 >
-                  HOJE
+                  <span className="block">HOJE</span>
+                  <span className={`block text-[8px] md:text-[9px] font-bold uppercase ${isSelectedToday ? 'text-black/70' : 'text-white/50'}`}>
+                    {format(new Date(), 'EEEE', { locale: ptBR })}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -5649,65 +5658,114 @@ export const AllProfessionalsAppointmentsView: React.FC<
               </div>
             </div>
 
-            {/* Linha 2: chips profissionais + botão caixa */}
-            <div className="flex items-center gap-1 flex-wrap">
-              {professionals.length > 0 && (
-                <>
-                  {isCollaboratorView && isSecretaryModeActive ? (
-                    visibleProfessionals.length > 0 ? (
-                      visibleProfessionals.map((professional) => (
-                        <span
-                          key={`secretary-${professional.id}`}
-                          className="shrink-0 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-200"
-                        >
-                          {professional.name}
-                        </span>
-                      ))
-                    ) : (
-                      <p className="text-[10px] text-amber-200/90">Nenhuma agenda liberada.</p>
-                    )
-                  ) : (
-                    professionals.map((professional) => {
-                      const isVisible = visibleProfessionals.some((v) => v.id === professional.id);
-                      const isProtectedAndLocked =
-                        isProfessionalAppointmentsProtected(professional) &&
-                        !isProfessionalAppointmentsUnlocked(professional.id);
-                      return (
+            {/* Linha 2: cards profissionais com foto + botão caixa */}
+            <div className="flex items-center gap-1.5 md:gap-2">
+              <div className="flex-1 overflow-x-auto hide-scrollbar">
+                <div className="flex items-end gap-1.5 md:gap-2 pb-0.5">
+                  {professionals.length > 0 && (
+                    <>
+                      {isCollaboratorView && isSecretaryModeActive ? (
+                        visibleProfessionals.length > 0 ? (
+                          visibleProfessionals.map((professional) => (
+                            <div
+                              key={`secretary-${professional.id}`}
+                              className="shrink-0 flex flex-col items-center gap-0.5"
+                            >
+                              <div className="relative">
+                                <div className="w-10 h-10 md:w-12 md:h-12 rounded-full border-2 border-emerald-500/50 overflow-hidden bg-white/10">
+                                  <img
+                                    src={professional.photo_url || '/fotopessoa.png'}
+                                    alt={professional.name}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => { (e.target as HTMLImageElement).src = '/fotopessoa.png'; }}
+                                  />
+                                </div>
+                              </div>
+                              <span className="text-[9px] md:text-[10px] font-bold text-emerald-200 max-w-[52px] md:max-w-[64px] truncate text-center">
+                                {professional.name}
+                              </span>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-[10px] text-amber-200/90 py-2">Nenhuma agenda liberada.</p>
+                        )
+                      ) : (
+                        professionals.map((professional) => {
+                          const isVisible = visibleProfessionals.some((v) => v.id === professional.id);
+                          const isProtectedAndLocked =
+                            isProfessionalAppointmentsProtected(professional) &&
+                            !isProfessionalAppointmentsUnlocked(professional.id);
+                          return (
+                            <button
+                              key={`pro-card-${professional.id}`}
+                              type="button"
+                              onClick={() => toggleProfessionalVisibility(professional.id)}
+                              onDoubleClick={() => selectOnlyProfessional(professional.id)}
+                              title={
+                                isProtectedAndLocked
+                                  ? 'Agenda protegida. Clique para digitar a senha.'
+                                  : 'Clique para marcar/desmarcar. Dois cliques = só este.'
+                              }
+                              className="shrink-0 flex flex-col items-center gap-0.5 group"
+                            >
+                              <div className="relative">
+                                <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full border-2 overflow-hidden transition-all ${isVisible
+                                  ? 'border-emerald-400 shadow-md shadow-emerald-500/25'
+                                  : isProtectedAndLocked
+                                    ? 'border-amber-500/50 opacity-60'
+                                    : 'border-white/20 opacity-50 group-hover:opacity-75'
+                                }`}>
+                                  <img
+                                    src={professional.photo_url || '/fotopessoa.png'}
+                                    alt={professional.name}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => { (e.target as HTMLImageElement).src = '/fotopessoa.png'; }}
+                                  />
+                                </div>
+                                {isVisible ? (
+                                  <div className="absolute -top-0.5 -right-0.5 w-4 h-4 md:w-4.5 md:h-4.5 rounded-full bg-red-500 border border-[#0b0b0c] flex items-center justify-center cursor-pointer">
+                                    <X className="w-2.5 h-2.5 text-white" strokeWidth={3} />
+                                  </div>
+                                ) : isProtectedAndLocked ? (
+                                  <div className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-amber-500 border border-[#0b0b0c] flex items-center justify-center">
+                                    <Lock className="w-2 h-2 text-black" strokeWidth={3} />
+                                  </div>
+                                ) : (
+                                  <div className="absolute -top-0.5 -right-0.5 w-4 h-4 md:w-4.5 md:h-4.5 rounded-full bg-emerald-500 border border-[#0b0b0c] flex items-center justify-center">
+                                    <Plus className="w-2.5 h-2.5 text-white" strokeWidth={3} />
+                                  </div>
+                                )}
+                              </div>
+                              <span className={`text-[9px] md:text-[10px] font-bold max-w-[52px] md:max-w-[64px] truncate text-center leading-tight ${isVisible
+                                ? 'text-emerald-200'
+                                : isProtectedAndLocked
+                                  ? 'text-amber-200/70'
+                                  : 'text-white/45 group-hover:text-white/65'
+                              }`}>
+                                {professional.name}
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
+                      {professionals.length > 1 && !isCollaboratorView && (
                         <button
-                          key={`pro-chip-${professional.id}`}
                           type="button"
-                          onClick={() => toggleProfessionalVisibility(professional.id)}
-                          onDoubleClick={() => selectOnlyProfessional(professional.id)}
-                          title={
-                            isProtectedAndLocked
-                              ? 'Agenda protegida. Clique para digitar a senha.'
-                              : 'Clique para marcar/desmarcar. Dois cliques = só este.'
-                          }
-                          className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-extrabold transition-colors ${isVisible
-                            ? 'border-emerald-500/50 bg-emerald-500/20 text-emerald-100'
-                            : isProtectedAndLocked
-                              ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
-                              : 'border-white/15 bg-white/5 text-white/55 hover:bg-white/10'
-                          }`}
+                          onClick={selectAllProfessionals}
+                          className="shrink-0 flex flex-col items-center gap-0.5 group"
                         >
-                          {isVisible ? '✓ ' : isProtectedAndLocked ? '🔒 ' : ''}{professional.name}
+                          <div className="w-10 h-10 md:w-12 md:h-12 rounded-full border-2 border-dashed border-amber-400/40 bg-white/5 flex items-center justify-center group-hover:bg-white/10 transition-colors">
+                            <Users className="w-4 h-4 md:w-5 md:h-5 text-amber-300/70 group-hover:text-amber-200" />
+                          </div>
+                          <span className="text-[9px] md:text-[10px] font-bold text-amber-300/70 group-hover:text-amber-200">
+                            Todos
+                          </span>
                         </button>
-                      );
-                    })
+                      )}
+                    </>
                   )}
-                  {professionals.length > 1 && !isCollaboratorView && (
-                    <button
-                      type="button"
-                      onClick={selectAllProfessionals}
-                      className="text-[10px] font-bold text-amber-300/80 hover:text-amber-200 px-0.5"
-                    >
-                      Todos
-                    </button>
-                  )}
-                </>
-              )}
-
-              <div className="flex-1" />
+                </div>
+              </div>
 
               {/* Caixa — pill compacto */}
               <button
@@ -5737,7 +5795,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   <div>
                     <div className="text-white font-extrabold text-2xl">Caixa / Geral</div>
                     <div className="text-xs text-white/70 mt-1">{format(selectedDate, 'dd/MM/yyyy')}</div>
-                    <p className="text-sm text-white/80 mt-2">Painel diário para acompanhar financeiro, atendimentos, pendências e fechamento do caixa físico.</p>
+                    <p className="text-sm text-white/80 mt-2">Controle o dinheiro que entra e sai do seu caixa físico no dia.</p>
                   </div>
                   <button
                     type="button"
@@ -5764,6 +5822,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
                     <p className="text-xs font-bold uppercase tracking-wide text-white/55">Abertura do dia</p>
+                    <p className="mt-1 text-[11px] text-white/45">Quanto em dinheiro físico você tem no caixa agora? Coloque o valor aqui.</p>
                     <input
                       type="number"
                       step="0.01"
@@ -5783,13 +5842,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     </button>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
-                    <p className="text-xs font-bold uppercase tracking-wide text-white/55">Fechamento inteligente</p>
+                    <p className="text-xs font-bold uppercase tracking-wide text-white/55">Fechamento do caixa</p>
+                    <p className="mt-1 text-[11px] text-white/45">No final do dia, conte o dinheiro do caixa e coloque o valor aqui. O sistema calcula se está tudo certo.</p>
                     <p className="mt-2 text-sm text-white/70">Total esperado: <span className="font-extrabold text-emerald-300">{formatCurrency(barbershopCashTotal)}</span></p>
                     <input
                       type="number"
                       step="0.01"
                       min="0"
-                      placeholder="Valor real encontrado"
+                      placeholder="Quanto você contou no caixa?"
                       value={barbershopCashRealInput}
                       onChange={(e) => setBarbershopCashRealInput(e.target.value.replace(',', '.'))}
                       className="mt-2 w-full px-4 py-3 rounded-xl bg-black/30 border border-white/20 text-white text-base font-medium placeholder:text-white/40 focus:outline-none focus:border-emerald-400"
@@ -5822,7 +5882,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     )}
                   </div>
                   <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
-                    <p className="text-xs text-emerald-100/70 font-bold">Lucro líquido da barbearia</p>
+                    <p className="text-xs text-emerald-100/70 font-bold">Lucro líquido da barbearia <span className="font-normal text-emerald-200/40">(já descontando % dos profissionais)</span></p>
                     <p className="mt-1 text-2xl font-black text-emerald-200">{formatCurrency(dayBarbershopNet + dayProductsNet)}</p>
                     {dayProductsRevenue > 0 && (
                       <p className="text-[10px] text-emerald-200/40 mt-1">Serviços {formatCurrency(dayBarbershopNet)} + Produtos {formatCurrency(dayProductsNet)}</p>
@@ -7176,6 +7236,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         {apt.status === 'pending' && (
                                           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-black/30 text-white shrink-0">
                                             ⏳ PENDENTE
+                                          </span>
+                                        )}
+                                        {apt.status === 'pending_payment' && (
+                                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/40 text-purple-100 shrink-0">
+                                            💳 AGUARDANDO PAGAMENTO
                                           </span>
                                         )}
                                         {apt.status === 'cancelled' && (
