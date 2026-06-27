@@ -33,6 +33,7 @@ import { ProfessionalInfoModal } from './ProfessionalInfoModal';
 import { RescheduleAppointmentModal } from './RescheduleAppointmentModal';
 import { SqueezeServicePickerModal } from './SqueezeServicePickerModal';
 import { useToast } from './ui/Toaster';
+import { ValidityDisplay } from './ValidityDisplay';
 
 interface Professional {
   id: string;
@@ -5561,6 +5562,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     return (
       <div className="space-y-2 md:space-y-4">
+        {/* Validade do sistema — fora do header sticky */}
+        {establishment?.id && (
+          <ValidityDisplay establishmentId={establishment.id} />
+        )}
+
         {/* Cabeçalho compacto clean */}
         <div className="sticky top-0 z-30 -mt-1 md:mt-0 mb-1 md:mb-2 rounded-xl border border-white/10 bg-[#0b0b0c]/95 backdrop-blur-md shadow-lg shadow-black/30">
           <div className="px-2.5 py-2 md:px-3 md:py-2.5 space-y-1.5 md:space-y-2">
@@ -5573,74 +5579,56 @@ export const AllProfessionalsAppointmentsView: React.FC<
               </div>
             )}
 
-            {/* Linha 1: setas + Ontem/HOJE/Amanhã + data compacta */}
-            <div className="flex items-center gap-1">
+            {/* Linha 1: seta ← | data central | HOJE | seta → | calendário */}
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={handlePreviousDay}
-                className="shrink-0 p-1.5 rounded-lg bg-white/8 hover:bg-white/15 text-white/80 transition-colors"
+                className="shrink-0 p-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors border border-white/15"
                 aria-label="Dia anterior"
               >
-                <ChevronLeft className="h-3.5 w-3.5" />
+                <ChevronLeft className="h-5 w-5" strokeWidth={3} />
               </button>
 
-              <div className="flex-1 grid grid-cols-3 gap-1">
-                <button
-                  type="button"
-                  onClick={() => goToQuickDate('yesterday')}
-                  className={`py-1 rounded-lg text-[10px] md:text-xs font-bold transition-colors ${isSelectedYesterday
-                    ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
-                    : 'bg-white/5 text-white/55 hover:bg-white/10'
-                  }`}
-                >
-                  Ontem
-                </button>
+              <div className="flex-1 text-center leading-tight py-1">
+                <span className="block text-xs md:text-sm font-extrabold text-white">
+                  {isSelectedToday ? 'HOJE' : isSelectedYesterday ? 'ONTEM' : isSelectedTomorrow ? 'AMANHÃ' : format(selectedDate, 'dd/MM', { locale: ptBR })}
+                </span>
+                <span className="block text-[10px] md:text-[11px] font-bold text-white/50 uppercase">
+                  {format(selectedDate, 'EEEE', { locale: ptBR })}
+                </span>
+              </div>
+
+              {!isSelectedToday && (
                 <button
                   type="button"
                   onClick={() => goToQuickDate('today')}
-                  className={`py-1 rounded-lg text-[10px] md:text-xs font-extrabold transition-colors leading-tight ${isSelectedToday
-                    ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-black shadow-sm shadow-amber-500/20'
-                    : 'bg-white/5 text-white/80 hover:bg-white/10'
-                  }`}
+                  className="shrink-0 px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-amber-200 text-[9px] md:text-[10px] font-bold border border-white/15 transition-colors whitespace-nowrap"
                 >
-                  <span className="block">HOJE</span>
-                  <span className={`block text-[8px] md:text-[9px] font-bold uppercase ${isSelectedToday ? 'text-black/70' : 'text-white/50'}`}>
-                    {format(new Date(), 'EEEE', { locale: ptBR })}
-                  </span>
+                  ← Voltar para hoje
                 </button>
-                <button
-                  type="button"
-                  onClick={() => goToQuickDate('tomorrow')}
-                  className={`py-1 rounded-lg text-[10px] md:text-xs font-bold transition-colors ${isSelectedTomorrow
-                    ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
-                    : 'bg-white/5 text-white/55 hover:bg-white/10'
-                  }`}
-                >
-                  Amanhã
-                </button>
-              </div>
+              )}
 
               <button
                 type="button"
                 onClick={handleNextDay}
-                className="shrink-0 p-1.5 rounded-lg bg-white/8 hover:bg-white/15 text-white/80 transition-colors"
+                className="shrink-0 p-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors border border-white/15"
                 aria-label="Próximo dia"
               >
-                <ChevronRight className="h-3.5 w-3.5" />
+                <ChevronRight className="h-5 w-5" strokeWidth={3} />
               </button>
 
-              {/* Data compacta + picker */}
-              <div ref={datePickerContainerRef} className="relative shrink-0 ml-0.5">
+              {/* Calendário picker */}
+              <div ref={datePickerContainerRef} className="relative shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowDatePicker((open) => !open)}
-                  className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-1.5 py-1 text-[10px] font-bold text-amber-200/90 hover:bg-white/10 whitespace-nowrap"
+                  className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-1.5 py-1.5 text-[10px] font-bold text-amber-200/90 hover:bg-white/10 whitespace-nowrap"
                   aria-expanded={showDatePicker}
                   aria-haspopup="dialog"
                 >
-                  <Calendar className="h-3 w-3 shrink-0" />
-                  <span className="hidden sm:inline capitalize">{format(selectedDate, "EEE dd/MM", { locale: ptBR })}</span>
-                  <span className="sm:hidden">{format(selectedDate, "dd/MM", { locale: ptBR })}</span>
+                  <Calendar className="h-3.5 w-3.5 shrink-0" />
+                  <span className="hidden sm:inline capitalize">{format(selectedDate, "dd/MM", { locale: ptBR })}</span>
                 </button>
                 {showDatePicker && (
                   <div className="absolute right-0 top-[calc(100%+6px)] z-50 min-w-[200px] rounded-xl border border-white/15 bg-[#141516] p-3 shadow-2xl shadow-black/50">
@@ -7044,14 +7032,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         isPast: Boolean(isPastSlot),
                                       });
                                     }}
-                                    className={`rounded-xl border-2 shadow-sm overflow-hidden flex items-stretch min-h-[44px] md:min-h-[38px] ${isAbsentSlot
-                                      ? 'bg-gradient-to-br from-amber-50 to-amber-100/90 border-amber-400'
-                                      : isPastSlot
-                                        ? 'bg-gray-300 border-gray-400'
-                                        : 'bg-emerald-50 border-emerald-300'
+                                    className={`rounded-xl border shadow-sm overflow-hidden flex items-stretch ${isPastSlot
+                                      ? 'min-h-[36px] md:min-h-[26px] border-gray-300 bg-gray-200/80'
+                                      : isAbsentSlot
+                                        ? 'min-h-[44px] md:min-h-[38px] border-2 border-amber-400 bg-gradient-to-br from-amber-50 to-amber-100/90'
+                                        : 'min-h-[44px] md:min-h-[38px] border-2 border-emerald-300 bg-emerald-50'
                                       } ${canOpenQuickAction ? 'cursor-pointer' : ''}`}
                                   >
-                                    <div className="flex-1 flex flex-col items-center justify-center text-center px-3 py-2.5 md:py-1 md:px-2 min-w-0">
+                                    <div className={`flex-1 min-w-0 ${isPastSlot
+                                      ? 'flex items-center gap-2 px-3 py-1 md:py-0.5 md:px-2'
+                                      : 'flex flex-col items-center justify-center text-center px-3 py-2.5 md:py-1 md:px-2'
+                                    }`}>
                                       {isAbsentSlot ? (
                                         <>
                                           <span className="font-extrabold text-base md:text-[13px] tracking-tight text-amber-900">
@@ -7063,11 +7054,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         </>
                                       ) : isPastSlot ? (
                                         <>
-                                          <span className="font-extrabold text-base md:text-[13px] tracking-tight text-gray-800">
+                                          <span className="font-bold text-xs md:text-[11px] text-gray-600 shrink-0">
                                             {slot.time}
                                           </span>
-                                          <span className="text-[11px] md:text-[10px] font-bold mt-0.5 text-gray-700">
-                                            ⏰ Horário encerrado (clique para ações)
+                                          <span className="text-[10px] md:text-[9px] text-gray-500">
+                                            Já passou
                                           </span>
                                         </>
                                       ) : (

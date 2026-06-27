@@ -494,7 +494,8 @@ export const createEstablishment = async (establishmentData: any) => {
     wifi_password: establishmentData.wifi_password || null,
     pin_password: establishmentData.pin_password || null, // Sem senha padrão
     professionals_pins: [], // Array vazio para pins dos profissionais
-    onboarding_step: establishmentData.onboarding_step ?? 1 // Novas contas começam no onboarding
+    onboarding_step: establishmentData.onboarding_step ?? 1, // Novas contas começam no onboarding
+    booking_chat_enabled: true // Novos estabelecimentos usam chat por padrão
   };
 
   console.log('Dados a serem criados:', dataToInsert);

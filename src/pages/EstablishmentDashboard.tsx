@@ -1105,7 +1105,7 @@ const EstablishmentDashboard = () => {
       Boolean(establishment?.pin_password) &&
       String(establishment?.pin_password || '').trim().length > 0 &&
       String(establishment?.pin_password || '').trim() !== '0000';
-    if (hasAdminPin && !isSettingsUnlocked) {
+    if (hasAdminPin && !isSettingsUnlocked && !(isNewUser && !quizCompleted)) {
       setPendingTabAfterPin(tab);
       setShowPinModal(true);
       return;
@@ -14210,6 +14210,12 @@ Estamos te aguardando!`;
         if (!wizardProfessionalCount) {
           return { isValid: false, message: 'Escolha quantos profissionais trabalham no estabelecimento.' };
         }
+        if (wizardProfessionalCount === 'multiple') {
+          const currentPin = String(establishment?.pin_password || '').trim();
+          if (!currentPin || currentPin === '0000' || currentPin.length < 4) {
+            return { isValid: false, message: 'Crie uma senha de 4 dígitos para proteger as configurações do seu sistema.' };
+          }
+        }
         return { isValid: true, message: '' };
 
       case 4: // Comodidades
@@ -19431,13 +19437,8 @@ Estamos te aguardando!`;
       configPasswordVerified
     });
 
-    if (!hasPassword || isUniqueOwnerAccessSession) {
-      // Se não há senha configurada, executar ação diretamente
-      console.log('🔓 Nenhuma senha configurada, executando ação diretamente');
-      executeProtectedAction(type, professionalId, data);
-    } else if (configPasswordVerified) {
-      // Se já foi verificado, executar ação diretamente
-      console.log('✅ Senha já verificada, executando ação diretamente');
+    if (!hasPassword || isAlreadyAuthenticated) {
+      console.log('🔓 Acesso liberado (sem senha, dono, ou já autenticado)');
       executeProtectedAction(type, professionalId, data);
     } else {
       // Se há senha configurada e não foi verificado, pedir senha
@@ -19510,10 +19511,13 @@ Estamos te aguardando!`;
     }
   };
 
+  // Bypass: se já passou pelo Menu Admin (isSettingsUnlocked) ou quiz, não pede senha de novo
+  const isAlreadyAuthenticated = isSettingsUnlocked || configPasswordVerified || isUniqueOwnerAccessSession || (isNewUser && !quizCompleted);
+
   const handleRequestHideGrossToggle = (professionalId: string, hideGrossInFinancial: boolean) => {
     const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
 
-    if (!hasPassword || configPasswordVerified || isUniqueOwnerAccessSession) {
+    if (!hasPassword || isAlreadyAuthenticated) {
       void handleToggleHideGrossInFinancial(professionalId, hideGrossInFinancial);
       return;
     }
@@ -19543,7 +19547,7 @@ Estamos te aguardando!`;
   const handleRequestLockFinancialToggle = (professionalId: string, lockFinancialWithOwnerPin: boolean) => {
     const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
 
-    if (!hasPassword || configPasswordVerified || isUniqueOwnerAccessSession) {
+    if (!hasPassword || isAlreadyAuthenticated) {
       void handleToggleLockFinancialWithOwnerPin(professionalId, lockFinancialWithOwnerPin);
       return;
     }
@@ -19559,14 +19563,13 @@ Estamos te aguardando!`;
     const hasValidProfessionalPin = /^\d{4}$/.test(professionalPin) && professionalPin !== '0000';
 
     if (!hasValidProfessionalPin) {
-      // Compatibilidade com dados antigos: se a trava estiver ativa sem senha válida, libera para não travar a operação.
       setUnlockedAppointmentsByProfessional((prev) => ({ ...prev, [professionalId]: true }));
       clearProfessionalAgendaUnlockCache(professionalId);
       toast.error('Este profissional não possui senha válida. Configure uma senha de 4 dígitos para proteger a agenda.');
       return;
     }
 
-    if (isUniqueOwnerAccessSession) {
+    if (isAlreadyAuthenticated) {
       setUnlockedAppointmentsByProfessional((prev) => ({ ...prev, [professionalId]: true }));
       rememberProfessionalAgendaUnlock(professionalId);
       return;
@@ -19578,7 +19581,7 @@ Estamos te aguardando!`;
 
   const handleRequestFinancialUnlock = (professionalId: string) => {
     const hasPassword = establishment?.pin_password && establishment.pin_password.trim() !== '';
-    if (!hasPassword || configPasswordVerified || isUniqueOwnerAccessSession) {
+    if (!hasPassword || isAlreadyAuthenticated) {
       setUnlockedFinancialByProfessional((prev) => ({ ...prev, [professionalId]: true }));
       return;
     }
@@ -19629,15 +19632,13 @@ Estamos te aguardando!`;
       configPasswordVerified
     });
 
-    if (!hasPassword || isUniqueOwnerAccessSession) {
-      // Se não há senha configurada, executar ação diretamente
-      console.log('🔓 Nenhuma senha configurada, executando ação diretamente');
+    if (!hasPassword || isAlreadyAuthenticated) {
+      console.log('🔓 Acesso liberado (sem senha, dono, ou já autenticado)');
       setProfessionalPasswordVisible(prev => ({
         ...prev,
         [professionalId]: !prev[professionalId]
       }));
     } else {
-      // Se há senha configurada, pedir verificação
       console.log('🔒 Senha configurada, solicitando verificação');
       setPendingAction({ type: 'password', professionalId });
       setShowConfigPasswordModal(true);
@@ -19658,15 +19659,13 @@ Estamos te aguardando!`;
       configPasswordVerified
     });
 
-    if (!hasPassword || isUniqueOwnerAccessSession) {
-      // Se não há senha configurada, executar ação diretamente
-      console.log('🔓 Nenhuma senha configurada, executando ação diretamente');
+    if (!hasPassword || isAlreadyAuthenticated) {
+      console.log('🔓 Acesso liberado (sem senha, dono, ou já autenticado)');
       setProfessionalPercentageEditable(prev => ({
         ...prev,
         [professionalId]: !prev[professionalId]
       }));
     } else {
-      // Se há senha configurada, pedir verificação
       console.log('🔒 Senha configurada, solicitando verificação');
       setPendingAction({ type: 'percentage', professionalId });
       setShowConfigPasswordModal(true);
@@ -21051,7 +21050,12 @@ Estamos te aguardando!`;
 
   // Função para salvar a senha
   const handleSavePin = () => {
-    // Mostrar modal de confirmação primeiro
+    // Se já disse que tem equipe, salva direto
+    if (wizardProfessionalCount === 'multiple') {
+      handleConfirmSavePin();
+      return;
+    }
+    // Se marcou "Só eu" ou não selecionou, pergunta antes
     setShowSavePinConfirmModal(true);
   };
 
@@ -26958,7 +26962,7 @@ Estamos te aguardando!`;
 
             <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
               <div className="text-sm text-white/80">
-                Selecione até <strong>3 profissionais</strong> para ter <strong>filas separadas</strong> no booking (ex: “Fila do João”, “Fila do Pedro”).
+                Selecione até <strong>3 profissionais</strong> para ter <strong>filas separadas</strong> no booking (ex: "Fila do João", "Fila do Pedro").
                 <div className="mt-2 text-[11px] text-white/60">
                   O primeiro selecionado vira o <strong>profissional padrão</strong> (fallback/compatibilidade com o modo antigo).
                 </div>
@@ -29549,7 +29553,7 @@ Estamos te aguardando!`;
                         <div className="text-sm text-purple-900/90 leading-relaxed space-y-2">
                           <p>
                             Seus clientes, ao acessarem sua página de agendamentos, verão um novo botão logo abaixo de
-                            “Reservar agora”, chamado “Fila de espera”.
+                            "Reservar agora", chamado "Fila de espera".
                           </p>
                           <p>
                             Ao clicar nesse botão, o cliente poderá visualizar os atendimentos por ordem de chegada e
@@ -29687,7 +29691,7 @@ Estamos te aguardando!`;
                       <div>
                         <div className="text-lg font-extrabold text-gray-900">Fila atual</div>
                         <div className="text-xs text-gray-600">
-                          Mostra a ordem por chegada. O primeiro é o “em atendimento”.
+                          Mostra a ordem por chegada. O primeiro é o "em atendimento".
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -29807,7 +29811,7 @@ Estamos te aguardando!`;
                               </div>
                               {e.notified_one_ahead && idx === 1 && (
                                 <div className="mt-1 text-[11px] text-green-700 font-semibold">
-                                  ✅ Notificação “1 antes” já foi enfileirada
+                                  ✅ Notificação "1 antes" já foi enfileirada
                                 </div>
                               )}
                             </div>
@@ -30503,8 +30507,18 @@ Estamos te aguardando!`;
                         ></div>
                       </div>
                       {quizAlertMessage && (
-                        <div className="mb-4 p-3 bg-gray-800 rounded-lg text-white font-semibold">
-                          ⚠️ {quizAlertMessage}
+                        <div className="mb-4 p-4 bg-red-500/15 border-2 border-red-500/40 rounded-2xl text-white relative">
+                          <button
+                            type="button"
+                            onClick={() => setQuizAlertMessage('')}
+                            className="absolute top-2 right-2 text-white/50 hover:text-white text-lg leading-none"
+                          >
+                            ×
+                          </button>
+                          <p className="text-sm font-extrabold text-red-200 flex items-center gap-2">
+                            <span className="text-lg">⚠️</span> Atenção
+                          </p>
+                          <p className="text-sm text-red-100/90 mt-1">{quizAlertMessage}</p>
                         </div>
                       )}
                       <div className="text-xs text-white/80 bg-white/10 border border-white/15 rounded-lg px-3 py-2">
@@ -31143,28 +31157,34 @@ Estamos te aguardando!`;
 
                         {(!isNewUser || quizStep === 3) && (
                           <div id="quiz-step-senha">
-                            <div className="mb-3">
-                              <label className="block text-sm font-extrabold text-white">
-                                Quantos profissionais trabalham no seu estabelecimento?
-                              </label>
-                              <p className="mt-1 text-xs text-gray-400">
-                                Se for só você, pode continuar sem senha. Se tiver equipe, recomendamos criar uma senha de segurança.
+                            {/* Pergunta principal */}
+                            <div className="mb-5">
+                              <h3 className="text-lg md:text-xl font-black text-white mb-1">
+                                Quantos profissionais trabalham com você?
+                              </h3>
+                              <p className="text-sm text-gray-400">
+                                Isso define a segurança do seu sistema.
                               </p>
                             </div>
+
                             {isNewUser && (
-                              <div className="mb-3 flex flex-wrap gap-2">
+                              <div className="grid grid-cols-2 gap-3 mb-5">
                                 <button
                                   type="button"
                                   onClick={() => {
                                     setWizardProfessionalCount('one');
                                     if (establishment?.id) localStorage.setItem(`quiz_prof_count_${establishment.id}`, 'one');
                                   }}
-                                  className={`px-3 py-2 rounded-lg border text-sm font-semibold ${wizardProfessionalCount === 'one'
-                                    ? 'bg-blue-600 border-blue-500 text-white'
-                                    : 'bg-[#2a2b2c] border-gray-600 text-gray-200'
+                                  className={`p-4 md:p-5 rounded-2xl border-2 text-center transition-all ${wizardProfessionalCount === 'one'
+                                    ? 'bg-blue-600/20 border-blue-500 ring-2 ring-blue-500/30'
+                                    : 'bg-[#1a1b1c] border-gray-700 hover:border-gray-500'
                                     }`}
                                 >
-                                  Apenas 1
+                                  <span className="block text-3xl md:text-4xl mb-2">🧑</span>
+                                  <span className={`block text-base md:text-lg font-extrabold ${wizardProfessionalCount === 'one' ? 'text-blue-300' : 'text-white'}`}>
+                                    Só eu
+                                  </span>
+                                  <span className="block text-xs text-gray-400 mt-1">Trabalho sozinho</span>
                                 </button>
                                 <button
                                   type="button"
@@ -31172,96 +31192,117 @@ Estamos te aguardando!`;
                                     setWizardProfessionalCount('multiple');
                                     if (establishment?.id) localStorage.setItem(`quiz_prof_count_${establishment.id}`, 'multiple');
                                   }}
-                                  className={`px-3 py-2 rounded-lg border text-sm font-semibold ${wizardProfessionalCount === 'multiple'
-                                    ? 'bg-blue-600 border-blue-500 text-white'
-                                    : 'bg-[#2a2b2c] border-gray-600 text-gray-200'
+                                  className={`p-4 md:p-5 rounded-2xl border-2 text-center transition-all ${wizardProfessionalCount === 'multiple'
+                                    ? 'bg-blue-600/20 border-blue-500 ring-2 ring-blue-500/30'
+                                    : 'bg-[#1a1b1c] border-gray-700 hover:border-gray-500'
                                     }`}
                                 >
-                                  Mais de 1
+                                  <span className="block text-3xl md:text-4xl mb-2">👥</span>
+                                  <span className={`block text-base md:text-lg font-extrabold ${wizardProfessionalCount === 'multiple' ? 'text-blue-300' : 'text-white'}`}>
+                                    Tenho equipe
+                                  </span>
+                                  <span className="block text-xs text-gray-400 mt-1">2 ou mais profissionais</span>
                                 </button>
                               </div>
                             )}
+
+                            {/* Senha obrigatória para equipe */}
                             {(!isNewUser || wizardProfessionalCount === 'multiple') && (
                               <div className="space-y-3">
                                 {isNewUser && wizardProfessionalCount === 'multiple' && (
-                                  <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3">
-                                    <div className="text-sm font-extrabold text-amber-100">Recomendado: criar senha de 4 dígitos</div>
-                                    <p className="mt-1 text-xs text-amber-100/90">
-                                      Assim outros profissionais não mexem em configurações, financeiro e áreas sensíveis.
+                                  <div className="rounded-2xl border-2 border-red-500/30 bg-red-500/10 p-4">
+                                    <div className="text-sm font-extrabold text-red-200">🔒 Senha obrigatória para equipes</div>
+                                    <p className="mt-2 text-xs text-red-100/80 leading-relaxed">
+                                      Essa senha de 4 dígitos protege o <strong>menu de administração</strong> do sistema. Só o dono consegue acessar:
                                     </p>
-                                    <button
-                                      type="button"
-                                      onClick={() => showInfoModalFunc(
-                                        'Por que devo colocar senha?',
-                                        'Essa senha deixa seu sistema mais seguro quando existe mais de um profissional usando.\n\n' +
-                                        'Ela pode bloquear/autorizar, por exemplo:\n' +
-                                        '• Entrar em Configurações / Página\n' +
-                                        '• Entrar em Meus serviços (criar/editar/excluir serviços)\n' +
-                                        '• Entrar em Meus assinantes\n' +
-                                        '• Entrar em Profissionais\n' +
-                                        '• Entrar no Financeiro e visualizar/alterar dados\n' +
-                                        '• Alterar dados sensíveis dos profissionais\n' +
-                                        '• Cancelar agendamentos quando o sistema exigir senha\n\n' +
-                                        'Mesmo assim, ela é opcional no primeiro acesso. Você pode criar depois.'
-                                      )}
-                                      className="mt-2 text-xs text-amber-200 hover:text-amber-100 underline flex items-center gap-1"
-                                    >
-                                      <HelpCircle className="h-3 w-3" />
-                                      Por que devo colocar senha?
-                                    </button>
+                                    <ul className="mt-2 text-xs text-red-100/70 space-y-1 ml-3">
+                                      <li>• Configurações e página do estabelecimento</li>
+                                      <li>• Financeiro e dados de faturamento</li>
+                                      <li>• Gerenciamento de profissionais</li>
+                                      <li>• Serviços, assinantes e áreas sensíveis</li>
+                                    </ul>
+                                    <p className="mt-3 text-xs text-red-100/60">
+                                      Seus profissionais usam o sistema normalmente, mas não acessam essas áreas.
+                                    </p>
                                   </div>
                                 )}
-                                <div className="flex gap-2">
-                                  <input
-                                    type="password"
-                                    maxLength={4}
-                                    value={pinPassword}
-                                    onChange={(e) => setPinPassword(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
-                                    placeholder="Digite uma senha de 4 dígitos (opcional)"
-                                    className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={handleSavePin}
-                                    className="px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-extrabold shadow-lg shadow-blue-600/20"
-                                  >
-                                    ✅ Salvar Senha
-                                  </button>
+                                <div>
+                                  <label className="block text-sm font-bold text-white mb-2">
+                                    {wizardProfessionalCount === 'multiple' ? 'Crie sua senha de 4 dígitos' : 'Senha de 4 dígitos (opcional)'}
+                                  </label>
+                                  <div className="flex gap-2">
+                                    <input
+                                      type="password"
+                                      maxLength={4}
+                                      value={pinPassword}
+                                      onChange={(e) => setPinPassword(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                                      placeholder="Ex: 1234"
+                                      className="w-full px-4 py-3 bg-[#2a2b2c] rounded-xl border border-gray-600 focus:outline-none focus:border-blue-500 text-lg text-center tracking-[0.5em] font-bold"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={handleSavePin}
+                                      disabled={pinPassword.length < 4}
+                                      className="px-5 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-extrabold shadow-lg shadow-blue-600/20 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                                    >
+                                      Salvar
+                                    </button>
+                                  </div>
                                 </div>
-                                <p className="text-xs text-gray-400">
-                                  Não é obrigatório agora. Se não quiser, clique em Confirmar e continuar.
-                                </p>
+                                {establishment?.pin_password && establishment.pin_password !== '0000' ? (
+                                  <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3">
+                                    <p className="text-sm font-bold text-emerald-200">✅ Senha salva com sucesso!</p>
+                                    <p className="text-xs text-emerald-200/70 mt-1">
+                                      Guarde bem: <strong className="text-emerald-100">{establishment.pin_password}</strong> — se esquecer, entre em contato com o suporte que alteramos para você.
+                                    </p>
+                                  </div>
+                                ) : wizardProfessionalCount === 'one' ? (
+                                  <p className="text-xs text-gray-500">Opcional para quem trabalha sozinho.</p>
+                                ) : null}
                               </div>
                             )}
-                            {!isNewUser && (
-                              <button
-                                type="button"
-                                onClick={() => showInfoModalFunc(
-                                  'Senha de 4 dígitos para configurações',
-                                  'Essa senha deixa seu sistema mais restritivo (recomendado). Ela pode ser exigida para acessar áreas sensíveis do sistema e evitar que outros profissionais mexam onde não devem.'
-                                )}
-                                className="mt-2 text-xs text-amber-300 hover:text-amber-200 underline flex items-center gap-1"
-                              >
-                                <AlertTriangle className="h-3 w-3" />
-                                Ver informações
-                              </button>
+
+                            {/* Senha solo: mostrar senha salva se existir */}
+                            {isNewUser && wizardProfessionalCount === 'one' && establishment?.pin_password && establishment.pin_password !== '0000' && (
+                              <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3 mt-3">
+                                <p className="text-sm font-bold text-emerald-200">✅ Senha salva: {establishment.pin_password}</p>
+                              </div>
                             )}
-                            <p className="text-sm text-gray-400 mt-1">
-                              {establishment?.pin_password && establishment.pin_password !== '0000' ? 'Senha atual: ' + establishment.pin_password : 'Nenhuma senha definida'}
-                            </p>
+
+                            {!isNewUser && (
+                              <div className="mt-3">
+                                <p className="text-sm text-gray-400">
+                                  {establishment?.pin_password && establishment.pin_password !== '0000'
+                                    ? `Senha atual: ${establishment.pin_password}`
+                                    : 'Nenhuma senha definida'}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => showInfoModalFunc(
+                                    'Senha de 4 dígitos para configurações',
+                                    'Essa senha protege o menu de administração. Ela é exigida para acessar configurações, financeiro, profissionais e outras áreas sensíveis do sistema.'
+                                  )}
+                                  className="mt-2 text-xs text-amber-300 hover:text-amber-200 underline flex items-center gap-1"
+                                >
+                                  <AlertTriangle className="h-3 w-3" />
+                                  Ver informações
+                                </button>
+                              </div>
+                            )}
+
                             {isNewUser && quizStep === 3 && (
-                              <div className="mt-3 flex flex-wrap gap-2">
+                              <div className="mt-4 flex flex-wrap gap-2">
                                 <button
                                   type="button"
                                   onClick={handleQuizNext}
-                                  className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"
+                                  className="px-5 py-2.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors"
                                 >
                                   Confirmar e continuar
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setQuizAlertMessage('Você pode ajustar essa etapa antes de continuar.')}
-                                  className="px-4 py-2 rounded-lg bg-[#2a2b2c] border border-gray-600 text-white font-semibold hover:border-gray-500"
+                                  className="px-4 py-2.5 rounded-xl bg-[#2a2b2c] border border-gray-600 text-white font-semibold hover:border-gray-500"
                                 >
                                   Editar
                                 </button>
@@ -31791,7 +31832,7 @@ Estamos te aguardando!`;
                                 </div>
                                 {saldoEmVendasErro && (
                                   <div className="mt-2 text-[11px] text-red-200/90">
-                                    Não foi possível calcular agora. Clique em “Atualizar”.
+                                    Não foi possível calcular agora. Clique em "Atualizar".
                                   </div>
                                 )}
                                 {saldoEmVendasDebug && !saldoEmVendasErro && (
@@ -32472,8 +32513,10 @@ Estamos te aguardando!`;
                           </div>
                         )}
 
-                        {/* Seção Mercado Pago */}
-                        <MercadoPagoCard wrapperClassName="mt-6" />
+                        {/* Seção Mercado Pago — oculta durante o quiz, barbeiro conecta depois */}
+                        {(!isNewUser || quizCompleted) && (
+                          <MercadoPagoCard wrapperClassName="mt-6" />
+                        )}
 
                         <label className="flex items-center space-x-2">
                           <input
@@ -32681,504 +32724,242 @@ Estamos te aguardando!`;
                   {/* Configuração de Intervalo - Etapa 5 do Quiz */}
                   {(!isNewUser || quizStep === 5) && (
                     <div id="quiz-section-horarios" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 mb-6">
-                      <h3 className="text-lg font-medium text-white mb-4">
+                      <h3 className="text-lg font-extrabold text-white mb-1">
                         {isNewUser && quizStep === 5 ? '5. Preferências e Aplicações' : 'Preferências e Aplicações'}
                       </h3>
-                      <div className="space-y-4">
-                        <div className="flex items-start space-x-3">
-                          <input
-                            type="checkbox"
-                            id="use15MinuteInterval"
-                            checked={use15MinuteInterval}
-                            onChange={(e) => {
-                              const newValue = e.target.checked;
-                              if (newValue) {
-                                const conflicts = getScheduleIntervalConflicts(businessHours, 30);
-                                if (conflicts.length > 0) {
-                                  setScheduleIntervalConflictPayload({
-                                    intervalLabel: '30 em 30 min',
-                                    exampleText: '09:00, 09:30, 10:00, 10:30',
-                                    instructionText: 'Vá em "Horários e dias de funcionamento", escolha cada dia indicado e altere esses horários (ex.: 09:00 ou 09:30). Depois volte aqui e marque "30 em 30 min".',
-                                    conflicts
-                                  });
-                                  setShowScheduleIntervalConflictModal(true);
-                                  return;
-                                }
-                              }
-                              setUse15MinuteInterval(newValue);
-                              // Se ativar 30 em 30, desativar 20 em 20 e 1 em 1h
-                              const newUse20MinuteSchedule = newValue ? false : use20MinuteSchedule;
-                              const newUse60MinuteSchedule = newValue ? false : use60MinuteSchedule;
-                              if (newValue) {
-                                setUse20MinuteSchedule(false);
-                                setUse60MinuteSchedule(false);
-                              }
-                              if (scheduleConfigAutoSaveTimeoutRef.current) {
-                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
-                              }
-                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                autoSaveScheduleConfig({
-                                  use15MinuteInterval: newValue,
-                                  use20MinuteSchedule: newUse20MinuteSchedule,
-                                  use60MinuteSchedule: newUse60MinuteSchedule,
-                                  showBestOfBrazilImage: showBestOfBrazilImage
-                                });
-                              }, 1000);
-                            }}
-                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
-                          />
-                          <div className="flex-1">
-                            <label htmlFor="use15MinuteInterval" className="block text-white font-medium mb-2">
-                              Horários de 30 em 30 min
-                            </label>
-                            <p className="text-sm text-gray-400 leading-relaxed">
-                              Ao selecionar essa opção, seus horários vão aparecer para os clientes em intervalos de 30 minutos (ex.: 09:00 / 09:30 / 10:00 / 10:30).
-                              Isso te dá mais liberdade para encaixes e cria um “respiro” automático quando o serviço não fecha certinho com 30 minutos.
-                            </p>
-                          </div>
-                        </div>
+                      <p className="text-sm text-gray-400 mb-5">Configure como sua agenda funciona para os clientes.</p>
 
-                        {/* Configuração de horários de 20 em 20 minutos */}
-                        <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
-                          <input
-                            type="checkbox"
-                            id="use20MinuteSchedule"
-                            checked={use20MinuteSchedule}
-                            onChange={(e) => {
-                              const newValue = e.target.checked;
-                              if (newValue) {
-                                const conflicts = getScheduleIntervalConflicts(businessHours, 20);
-                                if (conflicts.length > 0) {
-                                  setScheduleIntervalConflictPayload({
-                                    intervalLabel: '20 em 20 min',
-                                    exampleText: '09:00, 09:20, 09:40, 10:00',
-                                    instructionText: 'Vá em "Horários e dias de funcionamento", escolha cada dia indicado e altere esses horários (ex.: no lugar de 09:30 use 09:20 ou 09:40). Depois volte aqui e marque "20 em 20 min".',
-                                    conflicts
-                                  });
-                                  setShowScheduleIntervalConflictModal(true);
-                                  return;
-                                }
-                              }
-                              setUse20MinuteSchedule(newValue);
-                              // Se ativar 20 em 20, desativar 30 em 30 e 1 em 1h
-                              const newUse15MinuteInterval = newValue ? false : use15MinuteInterval;
-                              const newUse60MinuteSchedule = newValue ? false : use60MinuteSchedule;
-                              if (newValue) {
-                                setUse15MinuteInterval(false);
-                                setUse60MinuteSchedule(false);
-                              }
-                              if (scheduleConfigAutoSaveTimeoutRef.current) {
-                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
-                              }
-                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                autoSaveScheduleConfig({
-                                  use15MinuteInterval: newUse15MinuteInterval,
-                                  use20MinuteSchedule: newValue,
-                                  use60MinuteSchedule: newUse60MinuteSchedule,
-                                  showBestOfBrazilImage: showBestOfBrazilImage
-                                });
-                              }, 1000);
-                            }}
-                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
-                          />
-                          <div className="flex-1">
-                            <label htmlFor="use20MinuteSchedule" className="block text-white font-medium mb-2">
-                              Mostrar horários de serviço de 20 em 20 min
-                            </label>
-                            <p className="text-sm text-gray-400 leading-relaxed">
-                              Ao selecionar essa opção, os horários disponíveis no booking serão exibidos de 20 em 20 minutos (exemplo: 09:20 / 09:40 / 10:00 / 10:20, e assim por diante).
-                            </p>
-                            <p className="text-sm text-yellow-400 mt-2 font-medium">
-                              ⚠️ Observação: não é possível ativar simultaneamente as opções de 20 em 20, 30 em 30 e 1 em 1 hora. Elas têm a mesma função — a diferença é apenas o intervalo de exibição dos horários.
-                            </p>
+                      <div className="space-y-5">
+                        {/* ── BLOCO 1: Intervalo de horários ── */}
+                        <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4">
+                          <div className="flex items-start justify-between gap-2 mb-3">
+                            <div>
+                              <h4 className="text-sm font-extrabold text-white">⏰ Intervalo entre horários</h4>
+                              <p className="text-xs text-gray-400 mt-0.5">A cada quanto tempo aparece um horário para o cliente escolher.</p>
+                            </div>
+                            <button type="button" onClick={() => showInfoModalFunc('⏰ Como funciona o intervalo de horários', 'Quando seu cliente abre a página para agendar, ele vê uma lista de horários disponíveis.\n\nEssa opção define o "espaço" entre esses horários:\n\n• 15 min → 09:00, 09:15, 09:30, 09:45, 10:00...\n• 20 min → 09:00, 09:20, 09:40, 10:00...\n• 30 min → 09:00, 09:30, 10:00, 10:30...\n• 1 hora → 09:00, 10:00, 11:00, 12:00...\n\nEscolha o que faz mais sentido pro seu tipo de serviço. Se você faz cortes de 30 minutos, use "30 min". Se faz serviços rápidos de 15 minutos, use "15 min".\n\nVocê pode mudar isso a qualquer momento.')} className="shrink-0 text-[10px] text-blue-300 hover:text-blue-200 underline whitespace-nowrap">Entenda melhor</button>
                           </div>
-                        </div>
-
-                        {/* Configuração de horários de 1 em 1 hora */}
-                        <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
-                          <input
-                            type="checkbox"
-                            id="use60MinuteSchedule"
-                            checked={use60MinuteSchedule}
-                            onChange={(e) => {
-                              const newValue = e.target.checked;
-                              if (newValue) {
-                                const conflicts = getScheduleIntervalConflicts(businessHours, 60);
-                                if (conflicts.length > 0) {
-                                  setScheduleIntervalConflictPayload({
-                                    intervalLabel: '1 em 1 hora',
-                                    exampleText: '09:00, 10:00, 11:00 (hora cheia)',
-                                    instructionText: 'Vá em "Horários e dias de funcionamento", escolha cada dia indicado e altere esses horários para hora cheia. Depois volte aqui e marque "1 em 1 hora".',
-                                    conflicts
-                                  });
-                                  setShowScheduleIntervalConflictModal(true);
-                                  return;
-                                }
-                              }
-                              setUse60MinuteSchedule(newValue);
-                              // Se ativar 1 em 1 hora, desativar 20 em 20 e 30 em 30
-                              const newUse15MinuteInterval = newValue ? false : use15MinuteInterval;
-                              const newUse20MinuteSchedule = newValue ? false : use20MinuteSchedule;
-                              if (newValue) {
-                                setUse15MinuteInterval(false);
-                                setUse20MinuteSchedule(false);
-                              }
-                              if (scheduleConfigAutoSaveTimeoutRef.current) {
-                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
-                              }
-                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                autoSaveScheduleConfig({
-                                  use15MinuteInterval: newUse15MinuteInterval,
-                                  use20MinuteSchedule: newUse20MinuteSchedule,
-                                  use60MinuteSchedule: newValue,
-                                  showBestOfBrazilImage: showBestOfBrazilImage
-                                });
-                              }, 1000);
-                            }}
-                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
-                          />
-                          <div className="flex-1">
-                            <label htmlFor="use60MinuteSchedule" className="block text-white font-medium mb-2">
-                              Mostrar horários de serviço de 1 em 1 hora
-                            </label>
-                            <p className="text-sm text-gray-400 leading-relaxed">
-                              Ao selecionar essa opção, os horários disponíveis no booking serão exibidos de 1 em 1 hora (exemplo: 09:00 / 10:00 / 11:00 / 12:00).
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="p-4 bg-[#242628] rounded-lg border border-gray-700">
-                          <label className="block text-white font-medium mb-2">
-                            Prazo para clientes agendarem
-                          </label>
-                          <p className="text-sm text-gray-400 leading-relaxed mb-3">
-                            Define quanto tempo mínimo de antecedência o cliente precisa ter para agendar no booking público.
-                          </p>
-                          <div className="flex flex-wrap gap-3">
+                          <div className="grid grid-cols-4 gap-2">
                             {[
-                              { minutes: 30, label: '30 min' },
-                              { minutes: 60, label: '1 h' },
-                              { minutes: 120, label: '2 h' },
-                              { minutes: 180, label: '3 h' },
-                            ].map((option) => (
+                              { id: '15min', label: '15 min', sub: '09:00, 09:15...', checked: !use15MinuteInterval && !use20MinuteSchedule && !use60MinuteSchedule },
+                              { id: '20min', label: '20 min', sub: '09:00, 09:20...', checked: use20MinuteSchedule },
+                              { id: '30min', label: '30 min', sub: '09:00, 09:30...', checked: use15MinuteInterval },
+                              { id: '60min', label: '1 hora', sub: '09:00, 10:00...', checked: use60MinuteSchedule },
+                            ].map((opt) => (
                               <button
-                                key={option.minutes}
+                                key={opt.id}
                                 type="button"
                                 onClick={() => {
-                                  const nextMinutes = bookingMinAdvanceMinutes === option.minutes ? 0 : option.minutes;
-                                  setBookingMinAdvanceMinutes(nextMinutes);
-                                  notifySettingsNeedManualSave(true);
-                                  if (scheduleConfigAutoSaveTimeoutRef.current) {
-                                    clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                                  const is15 = opt.id === '15min';
+                                  const is20 = opt.id === '20min';
+                                  const is30 = opt.id === '30min';
+                                  const is60 = opt.id === '60min';
+
+                                  if (is30 && !use15MinuteInterval) {
+                                    const conflicts = getScheduleIntervalConflicts(businessHours, 30);
+                                    if (conflicts.length > 0) {
+                                      setScheduleIntervalConflictPayload({ intervalLabel: '30 em 30 min', exampleText: '09:00, 09:30, 10:00', instructionText: 'Vá em "Horários e dias de funcionamento" e ajuste os horários que não são múltiplos de 30.', conflicts });
+                                      setShowScheduleIntervalConflictModal(true);
+                                      return;
+                                    }
                                   }
+                                  if (is20 && !use20MinuteSchedule) {
+                                    const conflicts = getScheduleIntervalConflicts(businessHours, 20);
+                                    if (conflicts.length > 0) {
+                                      setScheduleIntervalConflictPayload({ intervalLabel: '20 em 20 min', exampleText: '09:00, 09:20, 09:40', instructionText: 'Vá em "Horários e dias de funcionamento" e ajuste os horários que não são múltiplos de 20.', conflicts });
+                                      setShowScheduleIntervalConflictModal(true);
+                                      return;
+                                    }
+                                  }
+                                  if (is60 && !use60MinuteSchedule) {
+                                    const conflicts = getScheduleIntervalConflicts(businessHours, 60);
+                                    if (conflicts.length > 0) {
+                                      setScheduleIntervalConflictPayload({ intervalLabel: '1 em 1 hora', exampleText: '09:00, 10:00, 11:00', instructionText: 'Vá em "Horários e dias de funcionamento" e ajuste os horários para hora cheia.', conflicts });
+                                      setShowScheduleIntervalConflictModal(true);
+                                      return;
+                                    }
+                                  }
+
+                                  const new15 = is30;
+                                  const new20 = is20;
+                                  const new60 = is60;
+                                  setUse15MinuteInterval(new15);
+                                  setUse20MinuteSchedule(new20);
+                                  setUse60MinuteSchedule(new60);
+                                  if (scheduleConfigAutoSaveTimeoutRef.current) clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
                                   scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                    autoSaveScheduleConfig({
-                                      bookingMinAdvanceMinutes: nextMinutes
-                                    });
+                                    autoSaveScheduleConfig({ use15MinuteInterval: new15, use20MinuteSchedule: new20, use60MinuteSchedule: new60, showBestOfBrazilImage });
                                   }, 1000);
                                 }}
-                                className={`px-4 py-2 rounded-md border text-sm font-semibold transition-colors ${bookingMinAdvanceMinutes === option.minutes
-                                  ? 'bg-blue-600 border-blue-500 text-white'
-                                  : 'bg-[#1a1b1c] border-gray-600 text-gray-300 hover:border-gray-500'
-                                  }`}
-                                aria-pressed={bookingMinAdvanceMinutes === option.minutes}
+                                className={`p-2.5 rounded-xl border-2 text-center transition-all ${opt.checked
+                                  ? 'bg-blue-600/20 border-blue-500 ring-1 ring-blue-500/30'
+                                  : 'bg-[#242628] border-gray-700 hover:border-gray-500'
+                                }`}
                               >
-                                {option.label}
+                                <span className={`block text-sm font-extrabold ${opt.checked ? 'text-blue-300' : 'text-white'}`}>{opt.label}</span>
+                                <span className="block text-[10px] text-gray-500 mt-0.5">{opt.sub}</span>
                               </button>
                             ))}
                           </div>
-                          <p className="text-xs text-gray-500 mt-3">
-                            Exemplo: se for 11:00 e estiver em 30 min, o cliente s&oacute; consegue agendar a partir de 11:30.
-                          </p>
-                          <p className="text-xs text-gray-400 mt-1">
-                            Dica: clique novamente na op&ccedil;&atilde;o selecionada para desmarcar.
-                          </p>
                         </div>
 
-                        <div className="p-4 bg-[#242628] rounded-lg border border-gray-700">
-                          <label className="block text-white font-medium mb-2">
-                            Prazo para clientes cancelarem
-                          </label>
-                          <p className="text-sm text-gray-400 leading-relaxed mb-3">
-                            Define com quanta antecedência mínima o cliente ainda pode cancelar pelo app ou pela página de ver agendamentos. Se faltar menos tempo que o escolhido, o cancelamento online fica bloqueado.
-                          </p>
-                          <div className="flex flex-wrap gap-3">
-                            {[
-                              { minutes: 30, label: '30 min' },
-                              { minutes: 60, label: '1 h' },
-                              { minutes: 120, label: '2 h' },
-                              { minutes: 180, label: '3 h' },
-                            ].map((option) => (
-                              <button
-                                key={option.minutes}
-                                type="button"
-                                onClick={() => {
-                                  const nextMinutes = bookingMinCancelMinutes === option.minutes ? 0 : option.minutes;
-                                  setBookingMinCancelMinutes(nextMinutes);
-                                  notifySettingsNeedManualSave(true);
-                                  if (scheduleConfigAutoSaveTimeoutRef.current) {
-                                    clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
-                                  }
-                                  scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                    autoSaveScheduleConfig({
-                                      bookingMinCancelMinutes: nextMinutes
-                                    });
-                                  }, 1000);
-                                }}
-                                className={`px-4 py-2 rounded-md border text-sm font-semibold transition-colors ${bookingMinCancelMinutes === option.minutes
-                                  ? 'bg-blue-600 border-blue-500 text-white'
-                                  : 'bg-[#1a1b1c] border-gray-600 text-gray-300 hover:border-gray-500'
-                                  }`}
-                                aria-pressed={bookingMinCancelMinutes === option.minutes}
-                              >
-                                {option.label}
-                              </button>
-                            ))}
-                          </div>
-                          <p className="text-xs text-gray-500 mt-3">
-                            Exemplo: atendimento &agrave;s 12:00 com 3 h aqui &mdash; a partir das 09:00 o cliente n&atilde;o consegue mais cancelar por aqui.
-                          </p>
-                          <p className="text-xs text-gray-400 mt-1">
-                            Dica: clique novamente na op&ccedil;&atilde;o selecionada para desmarcar (sem limite por anteced&ecirc;ncia, exceto se o hor&aacute;rio j&aacute; passou).
-                          </p>
-                        </div>
-
-                        <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
-                          <input
-                            type="checkbox"
-                            id="limitClientPendingBooking"
-                            checked={limitClientPendingBooking}
-                            onChange={(e) => {
-                              const newValue = e.target.checked;
-                              setLimitClientPendingBooking(newValue);
-                              notifySettingsNeedManualSave(true);
-                              if (scheduleConfigAutoSaveTimeoutRef.current) {
-                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
-                              }
-                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                autoSaveScheduleConfig({
-                                  limitClientPendingBooking: newValue
-                                });
-                              }, 1000);
-                            }}
-                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
-                          />
-                          <div className="flex-1">
-                            <label htmlFor="limitClientPendingBooking" className="block text-white font-medium mb-2">
-                              Limitar cliente por servico pendente
-                            </label>
-                            <p className="text-sm text-gray-400 leading-relaxed">
-                              Quando ativado, o cliente so consegue abrir um novo agendamento depois que o atendimento atual for marcado como concluido.
-                            </p>
-                            <p className="text-sm text-gray-400 leading-relaxed mt-2">
-                              A verificacao e feita pelo numero de telefone. Se houver atendimento em aberto, o booking mostra a mensagem:
-                              "Voce ainda tem servico pendente nesta barbearia."
-                            </p>
-                            <p className="text-xs text-gray-500 mt-2">
-                              Desativado: o cliente pode agendar normalmente, sem limite por pendencia.
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
-                          <input
-                            type="checkbox"
-                            id="autoCompleteServicesEnabled"
-                            checked={autoCompleteServicesEnabled}
-                            onChange={(e) => {
-                              const newValue = e.target.checked;
-                              setAutoCompleteServicesEnabled(newValue);
-                              notifySettingsNeedManualSave(true);
-                              if (scheduleConfigAutoSaveTimeoutRef.current) {
-                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
-                              }
-                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                autoSaveScheduleConfig({
-                                  autoCompleteServicesEnabled: newValue
-                                });
-                              }, 1000);
-                            }}
-                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
-                          />
-                          <div className="flex-1">
-                            <label htmlFor="autoCompleteServicesEnabled" className="block text-white font-medium mb-2">
-                              Servicos ficam como concluidos apos termino do horario
-                            </label>
-                            <p className="text-sm text-gray-400 leading-relaxed">
-                              Com essa opcao ativa, voce nao precisa clicar em "Concluir". O sistema fecha a comanda automaticamente quando o horario do servico termina.
-                            </p>
-                            <p className="text-sm text-gray-400 leading-relaxed mt-2">
-                              Se o cliente faltar, e so marcar como faltou/cancelado manualmente.
-                            </p>
-                            <p className="text-xs text-gray-500 mt-2">
-                              Desativado: o barbeiro conclui manualmente quando terminar o atendimento.
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-amber-500/20">
-                          <input
-                            type="checkbox"
-                            id="dailyMorningMessageEnabled"
-                            checked={dailyMorningMessageEnabled}
-                            onChange={(e) => {
-                              const newValue = e.target.checked;
-                              setDailyMorningMessageEnabled(newValue);
-                              notifySettingsNeedManualSave(false);
-                              void saveDailyMorningMessageEnabled(newValue);
-                            }}
-                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
-                          />
-                          <div className="flex-1">
-                            <label htmlFor="dailyMorningMessageEnabled" className="block text-white font-medium mb-2">
-                              🌅 Ativar mensagens de bom dia no primeiro acesso do dia
-                            </label>
-                            {dailyMorningMessageEnabled ? (
-                              <p className="text-sm text-gray-400 leading-relaxed">
-                                Quando ativado, o sistema mostra uma mensagem bíblica/motivacional curta no primeiro acesso do dia.
+                        {/* ── Tempo fechado ── */}
+                        <div className="rounded-xl border border-gray-700 bg-[#242628] p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex-1">
+                              <label htmlFor="closedTimeEnabled" className="block text-sm font-bold text-white">🔒 Tempo fechado</label>
+                              <p className="text-xs text-gray-400 mt-1">
+                                {closedTimeEnabled
+                                  ? 'Ativado: bloqueia o horário inteiro até o próximo intervalo.'
+                                  : 'Desativado: libera o horário logo que o serviço termina.'}
                               </p>
-                            ) : (
-                              <p className="text-sm text-gray-400 leading-relaxed">
-                                Ao desativar, você e sua equipe não verão mensagens de bom dia ao entrar no sistema.
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
-                          <input
-                            type="checkbox"
-                            id="closedTimeEnabled"
-                            checked={closedTimeEnabled}
-                            onChange={(e) => {
-                              const newValue = e.target.checked;
-                              setClosedTimeEnabled(newValue);
-                              notifySettingsNeedManualSave(true);
-                              if (scheduleConfigAutoSaveTimeoutRef.current) {
-                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
-                              }
-                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                autoSaveScheduleConfig({
-                                  closedTimeEnabled: newValue
-                                });
-                              }, 1000);
-                            }}
-                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
-                          />
-                          <div className="flex-1">
-                            <label htmlFor="closedTimeEnabled" className="block text-white font-medium mb-2">
-                              Tempo fechado
-                            </label>
-                            <p className="text-sm text-gray-300 leading-relaxed">
-                              <strong>Tempo fechado:</strong> define como os horários ficam disponíveis para seus clientes.
-                            </p>
-                            <p className="text-sm text-gray-400 leading-relaxed mt-2">
-                              Aqui acima, você escolhe de quanto em quanto tempo os horários aparecem (ex: de 1 em 1 hora, 30 em 30 minutos, 20 em 20 minutos).
-                            </p>
-                            <p className="text-sm text-gray-400 leading-relaxed mt-2">
-                              <strong>Se o tempo fechado estiver marcado:</strong><br />
-                              O sistema bloqueia o horário inteiro.<br />
-                              Exemplo: agenda de 1 em 1 hora.<br />
-                              Cliente marca às 09:00 um serviço de 40 min → o próximo horário será 10:00.
-                            </p>
-                            <p className="text-sm text-gray-400 leading-relaxed mt-2">
-                              <strong>Se o tempo fechado estiver desmarcado:</strong><br />
-                              O sistema libera o próximo horário assim que o serviço termina.<br />
-                              Exemplo: cliente marcou às 09:00 e o serviço dura 40 min → próximo horário será 09:40.
-                            </p>
-                            <p className="text-sm text-gray-300 leading-relaxed mt-2">
-                              <strong>Marcado</strong> = bloqueia o horário completo do card.<br />
-                              <strong>Desmarcado</strong> = libera horário logo após atendimento.
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
-                          <input
-                            type="checkbox"
-                            id="bookingChatEnabled"
-                            checked={bookingChatEnabled}
-                            onChange={(e) => {
-                              const newValue = e.target.checked;
-                              setBookingChatEnabled(newValue);
-                              notifySettingsNeedManualSave(true);
-                              if (scheduleConfigAutoSaveTimeoutRef.current) {
-                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
-                              }
-                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                autoSaveScheduleConfig({
-                                  bookingChatEnabled: newValue
-                                });
-                              }, 1000);
-                            }}
-                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
-                          />
-                          <div className="flex-1">
-                            <label htmlFor="bookingChatEnabled" className="block text-white font-medium mb-2">
-                              Chat de atendimento
-                            </label>
-                            <p className="text-sm text-gray-400 leading-relaxed">
-                              Ao marcar essa opção, seus clientes irão agendar como se fosse em um chatbot, muito mais simples, rápido e fácil.
-                            </p>
-                            <p className="text-sm text-gray-400 leading-relaxed mt-2">
-                              Feito para clientes que não são muito bons com tecnologia.
-                            </p>
-                            <p className="text-xs text-gray-500 mt-2">
-                              Desativado: o booking abre direto no fluxo antigo.
-                            </p>
-                          </div>
-                        </div>
-
-                        {isRotationControlEnabledForEstablishment && (
-                          <div className="flex items-start space-x-3 p-4 bg-[#242628] rounded-lg border border-gray-700">
+                              <button type="button" onClick={() => showInfoModalFunc('🔒 Como funciona o tempo fechado', 'Imagine que sua agenda é de 1 em 1 hora (09:00, 10:00, 11:00...).\n\nUm cliente marca às 09:00 um serviço que dura 40 minutos.\n\n✅ COM tempo fechado:\nO horário das 09:00 fica bloqueado inteiro. O próximo cliente só consegue marcar às 10:00.\nSobram 20 minutos livres pra você descansar ou organizar.\n\n❌ SEM tempo fechado:\nO sistema libera o próximo horário assim que o serviço termina. Como dura 40 min, o próximo horário disponível seria 09:40.\nVocê encaixa mais clientes, mas a agenda fica mais apertada.\n\nResumo simples:\n• Marcado = horário completo bloqueado (mais folga)\n• Desmarcado = libera assim que termina (mais encaixes)')} className="mt-1 text-[10px] text-blue-300 hover:text-blue-200 underline">Entenda melhor</button>
+                            </div>
                             <input
                               type="checkbox"
-                              id="allowScreenRotation"
-                              checked={allowScreenRotation}
+                              id="closedTimeEnabled"
+                              checked={closedTimeEnabled}
                               onChange={(e) => {
-                                const enabled = e.target.checked;
-                                setAllowScreenRotation(enabled);
-                                const storageKey = `allow_screen_rotation_${String(establishment?.id || establishment?.code || '6378')}`;
-                                localStorage.setItem(storageKey, String(enabled));
+                                const newValue = e.target.checked;
+                                setClosedTimeEnabled(newValue);
+                                notifySettingsNeedManualSave(true);
+                                if (scheduleConfigAutoSaveTimeoutRef.current) clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                                scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => { autoSaveScheduleConfig({ closedTimeEnabled: newValue }); }, 1000);
                               }}
-                              className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded mt-1"
+                              className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded shrink-0"
                             />
-                            <div className="flex-1">
-                              <label htmlFor="allowScreenRotation" className="block text-white font-medium mb-2">
-                                Rotacao da tela (exclusivo 6378)
-                              </label>
-                              <p className="text-sm text-gray-400 leading-relaxed">
-                                Ativado: o sistema pode girar com o tablet. Desativado: tenta manter em pe (retrato), evitando horizontal.
-                              </p>
+                          </div>
+                        </div>
+
+                        {/* ── BLOCO 2: Prazos ── */}
+                        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+                          <div className="flex items-start justify-between gap-2 mb-3">
+                            <h4 className="text-sm font-extrabold text-white">📋 Prazos do cliente</h4>
+                            <button type="button" onClick={() => showInfoModalFunc('📋 Como funcionam os prazos', 'São duas regras simples:\n\n⏰ ANTECEDÊNCIA PARA AGENDAR\nÉ o tempo mínimo que o cliente precisa ter antes do horário pra conseguir agendar.\n\nExemplo com 1 hora:\nSe agora são 14:00, o cliente só consegue agendar a partir das 15:00. Horários antes disso ficam bloqueados.\n\nIsso evita que alguém agende em cima da hora e você não tenha tempo de se preparar.\n\n❌ ANTECEDÊNCIA PARA CANCELAR\nÉ o tempo mínimo antes do horário em que o cliente ainda pode cancelar sozinho pelo app.\n\nExemplo com 3 horas:\nSe o atendimento é às 15:00, a partir das 12:00 o cliente não consegue mais cancelar pelo sistema. Teria que ligar ou ir pessoalmente.\n\nIsso protege você de cancelamentos de última hora.\n\n💡 Clique novamente no botão selecionado para desmarcar (sem limite).')} className="shrink-0 text-[10px] text-amber-300 hover:text-amber-200 underline whitespace-nowrap">Entenda melhor</button>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs font-bold text-white mb-1">Antecedência para agendar</label>
+                              <p className="text-[10px] text-gray-500 mb-2">Ex: com 1h, se são 11:00 o cliente só agenda a partir de 12:00.</p>
+                              <div className="flex flex-wrap gap-2">
+                                {[{ minutes: 30, label: '30 min' }, { minutes: 60, label: '1 h' }, { minutes: 120, label: '2 h' }, { minutes: 180, label: '3 h' }].map((option) => (
+                                  <button key={option.minutes} type="button" onClick={() => {
+                                    const nextMinutes = bookingMinAdvanceMinutes === option.minutes ? 0 : option.minutes;
+                                    setBookingMinAdvanceMinutes(nextMinutes);
+                                    notifySettingsNeedManualSave(true);
+                                    if (scheduleConfigAutoSaveTimeoutRef.current) clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                                    scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => { autoSaveScheduleConfig({ bookingMinAdvanceMinutes: nextMinutes }); }, 1000);
+                                  }} className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors ${bookingMinAdvanceMinutes === option.minutes ? 'bg-blue-600 border-blue-500 text-white' : 'bg-[#1a1b1c] border-gray-600 text-gray-300 hover:border-gray-500'}`} aria-pressed={bookingMinAdvanceMinutes === option.minutes}>{option.label}</button>
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-bold text-white mb-1">Antecedência para cancelar</label>
+                              <p className="text-[10px] text-gray-500 mb-2">Ex: com 3h, a partir de 3h antes o cliente não cancela mais online.</p>
+                              <div className="flex flex-wrap gap-2">
+                                {[{ minutes: 30, label: '30 min' }, { minutes: 60, label: '1 h' }, { minutes: 120, label: '2 h' }, { minutes: 180, label: '3 h' }].map((option) => (
+                                  <button key={option.minutes} type="button" onClick={() => {
+                                    const nextMinutes = bookingMinCancelMinutes === option.minutes ? 0 : option.minutes;
+                                    setBookingMinCancelMinutes(nextMinutes);
+                                    notifySettingsNeedManualSave(true);
+                                    if (scheduleConfigAutoSaveTimeoutRef.current) clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                                    scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => { autoSaveScheduleConfig({ bookingMinCancelMinutes: nextMinutes }); }, 1000);
+                                  }} className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors ${bookingMinCancelMinutes === option.minutes ? 'bg-blue-600 border-blue-500 text-white' : 'bg-[#1a1b1c] border-gray-600 text-gray-300 hover:border-gray-500'}`} aria-pressed={bookingMinCancelMinutes === option.minutes}>{option.label}</button>
+                                ))}
+                              </div>
                             </div>
                           </div>
-                        )}
+                          <p className="text-[10px] text-gray-500 mt-2">Clique novamente para desmarcar.</p>
+                        </div>
 
-                        <div className="flex items-center space-x-3">
-                          <input
-                            type="checkbox"
-                            id="showBestOfBrazilImage"
-                            checked={showBestOfBrazilImage}
-                            onChange={(e) => {
-                              const newValue = e.target.checked;
-                              setShowBestOfBrazilImage(newValue);
-                              if (scheduleConfigAutoSaveTimeoutRef.current) {
-                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
-                              }
-                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                autoSaveScheduleConfig({
-                                  use15MinuteInterval: use15MinuteInterval,
-                                  use20MinuteSchedule: use20MinuteSchedule,
-                                  use60MinuteSchedule: use60MinuteSchedule,
-                                  showBestOfBrazilImage: newValue
-                                });
-                              }, 1000);
-                            }}
-                            className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded"
-                          />
-                          <label htmlFor="showBestOfBrazilImage" className="text-white font-medium">
-                            Melhor sistema de agendamentos do brasil
-                          </label>
+                        {/* ── BLOCO 3: Automações ── */}
+                        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
+                          <h4 className="text-sm font-extrabold text-white">⚡ Automações</h4>
+
+                          {/* Limitar por pendência */}
+                          <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-700 bg-[#242628] p-3">
+                            <div className="flex-1 min-w-0">
+                              <label htmlFor="limitClientPendingBooking" className="block text-sm font-bold text-white">Bloquear novo agendamento se tiver pendente</label>
+                              <p className="text-[10px] text-gray-400 mt-0.5">Cliente só agenda de novo depois que o atendimento anterior for concluído.</p>
+                            </div>
+                            <input type="checkbox" id="limitClientPendingBooking" checked={limitClientPendingBooking} onChange={(e) => {
+                              const newValue = e.target.checked; setLimitClientPendingBooking(newValue); notifySettingsNeedManualSave(true);
+                              if (scheduleConfigAutoSaveTimeoutRef.current) clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => { autoSaveScheduleConfig({ limitClientPendingBooking: newValue }); }, 1000);
+                            }} className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded shrink-0" />
+                          </div>
+
+                          {/* Concluir automaticamente */}
+                          <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-700 bg-[#242628] p-3">
+                            <div className="flex-1 min-w-0">
+                              <label htmlFor="autoCompleteServicesEnabled" className="block text-sm font-bold text-white">Concluir serviços automaticamente</label>
+                              <p className="text-[10px] text-gray-400 mt-0.5">O sistema marca como concluído quando o horário termina. Se faltar, você cancela manual.</p>
+                            </div>
+                            <input type="checkbox" id="autoCompleteServicesEnabled" checked={autoCompleteServicesEnabled} onChange={(e) => {
+                              const newValue = e.target.checked; setAutoCompleteServicesEnabled(newValue); notifySettingsNeedManualSave(true);
+                              if (scheduleConfigAutoSaveTimeoutRef.current) clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => { autoSaveScheduleConfig({ autoCompleteServicesEnabled: newValue }); }, 1000);
+                            }} className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded shrink-0" />
+                          </div>
+
+                          {/* Chat de atendimento — só mostra para estabelecimentos antigos, novos já usam chat por padrão */}
+                          {!isNewUser && (
+                            <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-700 bg-[#242628] p-3">
+                              <div className="flex-1 min-w-0">
+                                <label htmlFor="bookingChatEnabled" className="block text-sm font-bold text-white">Agendamento por chat</label>
+                                <p className="text-[10px] text-gray-400 mt-0.5">O cliente agenda num fluxo tipo chatbot — mais fácil pra quem não é bom com tecnologia.</p>
+                              </div>
+                              <input type="checkbox" id="bookingChatEnabled" checked={bookingChatEnabled} onChange={(e) => {
+                                const newValue = e.target.checked; setBookingChatEnabled(newValue); notifySettingsNeedManualSave(true);
+                                if (scheduleConfigAutoSaveTimeoutRef.current) clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                                scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => { autoSaveScheduleConfig({ bookingChatEnabled: newValue }); }, 1000);
+                              }} className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded shrink-0" />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* ── BLOCO 4: Extras ── */}
+                        <div className="rounded-2xl border border-gray-700 bg-[#242628]/50 p-4 space-y-3">
+                          <h4 className="text-sm font-extrabold text-white">✨ Extras</h4>
+
+                          {/* Mensagem de bom dia */}
+                          <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-700 bg-[#242628] p-3">
+                            <div className="flex-1 min-w-0">
+                              <label htmlFor="dailyMorningMessageEnabled" className="block text-sm font-bold text-white">🌅 Mensagem de bom dia</label>
+                              <p className="text-[10px] text-gray-400 mt-0.5">Mostra uma mensagem motivacional no primeiro acesso do dia.</p>
+                            </div>
+                            <input type="checkbox" id="dailyMorningMessageEnabled" checked={dailyMorningMessageEnabled} onChange={(e) => {
+                              const newValue = e.target.checked; setDailyMorningMessageEnabled(newValue); notifySettingsNeedManualSave(false); void saveDailyMorningMessageEnabled(newValue);
+                            }} className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded shrink-0" />
+                          </div>
+
+                          {/* Selo Melhor do Brasil — só mostra para estabelecimentos antigos */}
+                          {!isNewUser && (
+                            <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-700 bg-[#242628] p-3">
+                              <div className="flex-1 min-w-0">
+                                <label htmlFor="showBestOfBrazilImage" className="block text-sm font-bold text-white">🇧🇷 Selo "Melhor do Brasil"</label>
+                                <p className="text-[10px] text-gray-400 mt-0.5">Exibe o selo na sua agenda.</p>
+                              </div>
+                              <input type="checkbox" id="showBestOfBrazilImage" checked={showBestOfBrazilImage} onChange={(e) => {
+                                const newValue = e.target.checked; setShowBestOfBrazilImage(newValue);
+                                if (scheduleConfigAutoSaveTimeoutRef.current) clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
+                                scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => { autoSaveScheduleConfig({ use15MinuteInterval, use20MinuteSchedule, use60MinuteSchedule, showBestOfBrazilImage: newValue }); }, 1000);
+                              }} className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded shrink-0" />
+                            </div>
+                          )}
+
+                          {isRotationControlEnabledForEstablishment && (
+                            <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-700 bg-[#242628] p-3">
+                              <div className="flex-1 min-w-0">
+                                <label htmlFor="allowScreenRotation" className="block text-sm font-bold text-white">📱 Rotação da tela</label>
+                                <p className="text-[10px] text-gray-400 mt-0.5">Permite girar o sistema com o tablet.</p>
+                              </div>
+                              <input type="checkbox" id="allowScreenRotation" checked={allowScreenRotation} onChange={(e) => {
+                                const enabled = e.target.checked; setAllowScreenRotation(enabled);
+                                localStorage.setItem(`allow_screen_rotation_${String(establishment?.id || establishment?.code || '6378')}`, String(enabled));
+                              }} className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded shrink-0" />
+                            </div>
+                          )}
                         </div>
                       </div>
                       {/* Botões de Navegação - Etapa 5 */}
@@ -33226,7 +33007,7 @@ Estamos te aguardando!`;
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                           <p className="text-sm text-yellow-200">
                             <span className="font-semibold">⚠️ Não tira intervalo em algum dia?</span> Marque no próprio dia
-                            a opção <span className="font-semibold">“Sem intervalo neste dia”</span>.
+                            a opção <span className="font-semibold">"Sem intervalo neste dia"</span>.
                           </p>
                         </div>
                         <div className="mt-2 text-xs text-yellow-100/90">
@@ -37237,26 +37018,27 @@ Estamos te aguardando!`;
 
           {/* Modal de confirmação para salvar senha */}
           {showSavePinConfirmModal && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-              <div className="bg-[#1a1b1c] rounded-lg border border-gray-700 max-w-md w-full p-6">
-                <div className="mb-4">
-                  <h3 className="text-xl font-semibold text-white mb-2">Atenção</h3>
-                  <p className="text-gray-300">
-                    Se você é apenas 1 profissional não é necessário essa senha.
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-gradient-to-b from-[#1e1f20] to-[#141516] rounded-2xl border border-white/10 max-w-sm w-full p-6 shadow-2xl shadow-black/50">
+                <div className="text-center mb-5">
+                  <span className="inline-block text-4xl mb-3">🤔</span>
+                  <h3 className="text-lg font-extrabold text-white mb-2">Tem certeza?</h3>
+                  <p className="text-sm text-gray-300 leading-relaxed">
+                    Você selecionou que trabalha <strong className="text-amber-300">sozinho</strong>. Nesse caso, a senha não é necessária — ela serve para impedir que outros profissionais acessem o menu de administração.
                   </p>
                 </div>
-                <div className="flex gap-3 justify-end">
+                <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => setShowSavePinConfirmModal(false)}
-                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                    className="px-4 py-3 bg-white/10 text-white rounded-xl hover:bg-white/15 transition-colors font-bold text-sm border border-white/10"
                   >
-                    Fechar
+                    Não preciso
                   </button>
                   <button
                     onClick={handleConfirmSavePin}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    className="px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-bold text-sm"
                   >
-                    Tenho profissionais
+                    Tenho equipe, salvar
                   </button>
                 </div>
               </div>
@@ -38038,7 +37820,7 @@ Estamos te aguardando!`;
 
                         {typeof workHoursData[day]?.enabled !== 'boolean' && (
                           <div className="mb-3 text-xs text-yellow-300 font-semibold">
-                            * Obrigatório: selecione “Aberto” ou “Fechado”
+                            * Obrigatório: selecione "Aberto" ou "Fechado"
                           </div>
                         )}
 
@@ -40876,7 +40658,7 @@ Estamos te aguardando!`;
                       className="mt-1 w-full bg-[#2a2b2c] border border-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                     <div className="mt-1 text-[11px] text-gray-500">
-                      Essa venda entra direto no “Vendas por funcionário” e no “Saldo por produtos” (sem agendamento).
+                      Essa venda entra direto no "Vendas por funcionário" e no "Saldo por produtos" (sem agendamento).
                     </div>
                   </div>
                 </div>
@@ -40992,44 +40774,15 @@ Estamos te aguardando!`;
                 </div>
               )}
 
-              <div className="rounded-xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 via-[#1a1b1c] to-black/40 p-4 md:p-6 mb-6">
-                <div className="flex items-start gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-400/25 flex items-center justify-center flex-shrink-0">
-                    <span className="text-emerald-300 text-xl">👥</span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="text-lg font-extrabold text-white">
-                      Aqui você tem total controle sobre seus profissionais
-                    </h3>
-                    <div className="text-sm text-white/70 mt-1">
-                      Configure tudo com calma — isso impacta comissão, horários, serviços e o que aparece no booking.
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-200">
-                  <div className="rounded-lg bg-black/20 border border-white/10 p-3">✅ Adicione quantos quiser</div>
-                  <div className="rounded-lg bg-black/20 border border-white/10 p-3">✅ Nome, foto, % de comissão e WhatsApp individual</div>
-                  <div className="rounded-lg bg-black/20 border border-white/10 p-3">✅ Senha exclusiva (opcional — se não quiser, use <strong>0000</strong>)</div>
-                  <div className="rounded-lg bg-black/20 border border-white/10 p-3">✅ Metas e serviços específicos por profissional</div>
-                  <div className="rounded-lg bg-black/20 border border-white/10 p-3">✅ Dias ausentes e bloqueio de horários</div>
-                  <div className="rounded-lg bg-black/20 border border-white/10 p-3">✅ Definir se faz ou não serviço infantil</div>
-                </div>
-
-                <div className="mt-4 rounded-xl border border-amber-400/25 bg-amber-500/10 p-4">
-                  <div className="text-sm text-amber-100 font-extrabold mb-2">💡 Importante</div>
-                  <div className="space-y-1 text-xs text-amber-100/90">
-                    <div>• Você pode escolher por profissional se ele verá o <strong>bruto</strong> no financeiro</div>
-                    <div>• As alterações só terão efeito após clicar em <strong>Salvar Profissionais</strong></div>
-                    <div>• <strong>Horários de trabalho:</strong> agora é obrigatório marcar <strong>Aberto/Fechado</strong> em todos os dias</div>
-                  </div>
-                </div>
+              <div className="mb-6">
+                <h3 className="text-lg font-extrabold text-gray-900">Seus profissionais</h3>
+                <p className="text-sm text-gray-600 mt-1">Adicione cada pessoa que atende no seu estabelecimento. Defina nome, foto e comissão de cada um.</p>
               </div>
 
               {/* Lista de Profissionais Cadastrados */}
               {professionals.length > 0 && (
                 <div className="mb-4 border-b border-gray-800 pb-4">
-                  <h4 className="text-md font-semibold text-gray-300 mb-3">Profissionais Cadastrados:</h4>
+                  <h4 className="text-md font-bold text-gray-800 mb-3">Profissionais Cadastrados:</h4>
                   <div className="space-y-2">
                     {professionals.map((professional) => (
                       <div key={professional.id} className="flex items-center justify-between bg-[#242628] p-3 rounded-lg">
@@ -41082,8 +40835,8 @@ Estamos te aguardando!`;
                 {/* Indicador de status */}
                 {professionals.length > 0 && (
                   <div className="text-center">
-                    <div className="inline-flex items-center gap-2 text-xs font-extrabold px-3 py-2 rounded-full bg-red-500/10 border border-red-400/20 text-red-200">
-                      ⚠ Não esqueça: clique em <span className="text-white">Salvar Profissionais</span> para gravar as alterações
+                    <div className="inline-flex items-center gap-2 text-sm font-extrabold px-4 py-2.5 rounded-xl bg-red-100 border border-red-300 text-red-800">
+                      ⚠️ Clique em <span className="text-red-900 underline font-black">Salvar Profissionais</span> para gravar as alterações
                     </div>
                   </div>
                 )}
@@ -41203,6 +40956,7 @@ Estamos te aguardando!`;
                     {/* Campo de senha do profissional */}
                     <div className="space-y-2">
                       <label className="block text-sm text-gray-400">Senha do profissional</label>
+                      <p className="text-[10px] text-gray-500 mb-1">Se deixar 0000, o profissional fica sem senha.</p>
                       {professionalPasswordVisible[professional.id] ? (
                         <input
                           type="text"
@@ -41284,50 +41038,6 @@ Estamos te aguardando!`;
                     </div>
 
                     <div className="space-y-2">
-                      <label className="block text-sm text-gray-400">Proteção de agenda</label>
-                      <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
-                        <div className="flex items-center gap-2">
-                          <span>🔐</span>
-                          <div>
-                            <span className="text-white">Ocultar agendamentos com senha do profissional</span>
-                            <p className="text-xs text-gray-500">
-                              Em Meus Agendamentos, só abre a agenda deste profissional após digitar a senha de 4 dígitos do próprio profissional.
-                            </p>
-                            {!hasValidProfessionalAgendaPin(professional.id) && (
-                              <p className="text-xs text-amber-400 mt-1">
-                                Defina a senha do profissional (4 dígitos e diferente de 0000) para ativar esta proteção.
-                              </p>
-                            )}
-                            {!hasValidProfessionalAgendaPin(professional.id) && (
-                              <p className="text-xs text-gray-500 mt-1">
-                                Se a senha estiver como 0000 ou vazia, a proteção de agenda fica desabilitada.
-                              </p>
-                            )}
-                            {Boolean((professional as any).unique_professional_access_enabled) && (
-                              <p className="text-xs text-emerald-300 mt-1">
-                                Com Acesso Único Profissional ativo, esta proteção fica desabilitada automaticamente.
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={Boolean((professional as any).lock_appointments_with_owner_pin)}
-                            disabled={
-                              Boolean((professional as any).unique_professional_access_enabled) ||
-                              !hasValidProfessionalAgendaPin(professional.id) &&
-                              !Boolean((professional as any).lock_appointments_with_owner_pin)
-                            }
-                            onChange={(e) => handleRequestLockAppointmentsToggle(professional.id, e.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-disabled:opacity-50 peer-disabled:cursor-not-allowed peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
-                        </label>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
                       <label className="block text-sm text-gray-400">Proteção de financeiro</label>
                       <div className="flex items-center justify-between p-3 bg-[#1a1b1c] border border-gray-700 rounded-lg">
                         <div className="flex items-center gap-2">
@@ -41374,7 +41084,7 @@ Estamos te aguardando!`;
                               : formatCurrency(productSaldoPorProfissional[String(professional.name || '').trim()] || 0)}
                           </div>
                           <div className="text-[11px] text-gray-400">
-                            Baseado nas vendas de produtos e na % configurada em “Meus Produtos”.
+                            Baseado nas vendas de produtos e na % configurada em "Meus Produtos".
                           </div>
                         </div>
                       </div>
@@ -41516,10 +41226,15 @@ Estamos te aguardando!`;
                         <div className="flex items-center gap-2">
                           <span>🪪</span>
                           <div>
-                            <span className="text-white">Acesso Único Profissional</span>
-                            <p className="text-xs text-gray-500">
-                              Ao ativar esta opção, este profissional terá acesso ao sistema usando o login do estabelecimento, porém com identificação individual e permissões específicas para este profissional.
+                            <span className="text-white font-bold">Acesso individual no celular</span>
+                            <p className="text-xs text-gray-400 mt-1">
+                              Cada profissional usa o sistema no próprio celular. Ao abrir o app, o sistema pergunta "quem está acessando?" e salva. Da próxima vez, já entra direto.
                             </p>
+                            {professionals.length <= 1 && (
+                              <p className="text-xs text-amber-400 mt-1">
+                                Só precisa ativar se tiver 2 ou mais profissionais.
+                              </p>
+                            )}
                           </div>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -41569,7 +41284,7 @@ Estamos te aguardando!`;
                             </div>
                           </div>
                           <p className="text-[11px] text-gray-500">
-                            Compatibilidade automática: ao ativar o Acesso Único Profissional, as proteções "Ocultar agendamentos com senha do profissional" e "Ocultar financeiro com senha do dono" são desativadas para este profissional.
+                            Ao ativar, as proteções extras de agenda e financeiro são desativadas automaticamente para este profissional.
                           </p>
 
                           <div className="pt-3 border-t border-gray-800 space-y-3">

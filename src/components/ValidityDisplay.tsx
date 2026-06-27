@@ -54,10 +54,11 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
   const calculateDaysRemaining = () => {
     if (!validity?.payment_due_date) return;
 
-    const today = new Date();
-    const dueDate = new Date(validity.payment_due_date);
-    const timeDiff = dueDate.getTime() - today.getTime();
-    const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
+    const now = new Date();
+    const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const parts = validity.payment_due_date.split(/[-T]/);
+    const dueLocal = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    const daysDiff = Math.round((dueLocal.getTime() - todayLocal.getTime()) / (1000 * 3600 * 24));
 
     setDaysRemaining(daysDiff);
   };
@@ -109,10 +110,8 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
     if (!validity) return 'Carregando...';
     const normalizedStatus = String(validity.payment_status || '').toLowerCase().trim();
 
-    if (normalizedStatus === 'expired' || daysRemaining < 0) {
-      return 'Vencido';
-    } else if (daysRemaining === 0) {
-      return 'Vence hoje';
+    if (daysRemaining <= 0 || normalizedStatus === 'expired') {
+      return 'Sistema vencido, pode bloquear a qualquer momento';
     } else if (normalizedStatus === 'paid') {
       return 'Em dia';
     } else if (daysRemaining === 1) {
@@ -154,94 +153,31 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
   }
 
   // Modo chamativo - quando está vencido ou próximo do vencimento
+  const isOverdue = daysRemaining <= 0 || normalizedDisplayStatus === 'expired';
+  const alertTitle = isOverdue
+    ? '⚠️ Sistema vencido — pode bloquear a qualquer momento'
+    : daysRemaining === 1
+      ? '⚠️ Seu sistema vence amanhã!'
+      : `⚠️ Faltam ${daysRemaining} dias para o vencimento`;
+
   return (
-    <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800">
-      <div className="flex items-center gap-3 mb-4">
-        <Calendar className="h-5 w-5 text-blue-500" />
-        <h3 className="text-lg font-semibold text-white">Validade Agendei Fácil</h3>
+    <div className="rounded-2xl overflow-hidden border border-red-500/30">
+      <div className="bg-gradient-to-r from-red-600 to-red-700 px-4 py-3">
+        <div className="flex items-center gap-2 text-white">
+          <AlertTriangle className="h-5 w-5 shrink-0" />
+          <p className="text-sm font-extrabold flex-1">{alertTitle}</p>
+        </div>
+        <p className="text-xs text-red-100/80 mt-1 ml-7">
+          Vencimento: {formatDate(validity.payment_due_date)} • Plano {validity.plan_type === 'monthly' ? 'Mensal' : validity.plan_type === 'annual' ? 'Anual' : 'Teste'}
+        </p>
       </div>
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-gray-300">Data de vencimento:</span>
-          <span className="text-white font-medium">{formatDate(validity.payment_due_date)}</span>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <span className="text-gray-300">Status:</span>
-          <div className={`flex items-center gap-2 ${getStatusColor()}`}>
-            {getStatusIcon()}
-            <span className="font-medium">{getStatusText()}</span>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <span className="text-gray-300">Plano:</span>
-          <span className="text-white font-medium capitalize">
-            {validity.plan_type === 'monthly'
-              ? 'Mensal'
-              : validity.plan_type === 'annual'
-                ? 'Anual'
-                : 'Teste'}
-          </span>
-        </div>
-
-        {daysRemaining <= 2 && daysRemaining >= 0 && normalizedDisplayStatus !== 'expired' && (
-          <div className="mt-4 p-4 bg-gradient-to-r from-red-600 to-red-700 border-4 border-red-400 rounded-xl shadow-2xl animate-red-blink">
-            <div className="space-y-3">
-              <div className="flex items-center gap-3 text-white">
-                <AlertTriangle className="h-6 w-6 animate-bounce" />
-                <div className="flex-1">
-                  <p className="text-lg font-bold">
-                    {daysRemaining === 0
-                      ? '⚠️ VENCE HOJE!'
-                      : daysRemaining === 1
-                        ? '⚠️ FALTA 1 DIA PARA O VENCIMENTO!'
-                        : '⚠️ FALTAM 2 DIAS PARA O VENCIMENTO!'}
-                  </p>
-                  <p className="text-sm text-red-100 font-semibold mt-2">
-                    💰 Regularize o pagamento para evitar bloqueio do sistema.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setShowBillingPaymentModal(true)}
-                className="w-full bg-white text-red-600 font-bold py-3 px-4 rounded-lg hover:bg-red-50 transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2 text-base"
-              >
-                💳 PAGAR AGORA
-              </button>
-            </div>
-          </div>
-        )}
-
-        {(normalizedDisplayStatus === 'expired' || daysRemaining < 0) && (
-          <div className="mt-4 p-4 bg-gradient-to-r from-red-600 to-red-700 border-4 border-red-400 rounded-xl shadow-2xl animate-pulse">
-            <div className="space-y-3">
-              <div className="flex items-center gap-3 text-white">
-                <AlertTriangle className="h-6 w-6 animate-bounce" />
-                <div className="flex-1">
-                  <p className="text-lg font-bold">
-                    {daysRemaining < 0
-                      ? `⚠️ VENCIDO HÁ ${Math.abs(daysRemaining)} DIA${Math.abs(daysRemaining) !== 1 ? 'S' : ''}!`
-                      : '⚠️ PLANO VENCIDO!'
-                    }
-                  </p>
-                  <p className="text-sm text-red-100 font-semibold mt-1">
-                    🔒 Acesso será bloqueado em {Math.max(0, 4 - Math.abs(daysRemaining))} dia{Math.max(0, 4 - Math.abs(daysRemaining)) !== 1 ? 's' : ''}
-                  </p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setShowBillingPaymentModal(true)}
-                className="w-full bg-white text-red-600 font-bold py-3 px-4 rounded-lg hover:bg-red-50 transition-all transform hover:scale-105 shadow-lg flex items-center justify-center gap-2 text-base"
-              >
-                💳 PAGAR AGORA
-              </button>
-            </div>
-          </div>
-        )}
+      <div className="bg-[#1a1b1c] px-4 py-3">
+        <button
+          onClick={() => setShowBillingPaymentModal(true)}
+          className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white font-extrabold py-3 px-4 rounded-xl hover:from-red-600 hover:to-red-700 transition-all shadow-lg flex items-center justify-center gap-2 text-sm"
+        >
+          💳 PAGAR AGORA
+        </button>
       </div>
 
       <EstablishmentBillingPaymentModal
