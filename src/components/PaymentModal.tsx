@@ -26,6 +26,8 @@ interface PaymentModalProps {
   cancelAppointmentOnFailure?: boolean;
   /** Se false, oculta incentivos AFCoins no modal (ex.: estabelecimento desativou o programa). */
   enableAfcoinMotivation?: boolean;
+  /** Se true, o valor já inclui R$1 de taxa cobrada do cliente */
+  includesPlatformFee?: boolean;
 }
 
 type PaymentMethod = 'pix' | 'credit_card' | 'debit_card' | null;
@@ -42,6 +44,7 @@ export const PaymentModal = ({
   customerData,
   cancelAppointmentOnFailure = true,
   enableAfcoinMotivation,
+  includesPlatformFee = false,
 }: PaymentModalProps) => {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -1766,6 +1769,11 @@ export const PaymentModal = ({
                       Para reservar seu horário, é necessário o pagamento antecipado de{' '}
                       <strong className="text-white">{formattedAmount}</strong>.
                     </p>
+                    {includesPlatformFee && (
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        Inclui R$ 1,00 de taxa de serviço da plataforma.
+                      </p>
+                    )}
                   </>
                 )}
               </div>

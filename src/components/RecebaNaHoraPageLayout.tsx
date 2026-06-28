@@ -2,28 +2,13 @@ import React from 'react';
 
 type RecebaNaHoraPageLayoutProps = {
   children: React.ReactNode;
+  isMpConnected?: boolean;
   onScrollToConnect?: () => void;
 };
 
-const flowSteps = [
-  { emoji: '✂️', label: 'Cliente agenda', gradient: 'from-sky-400 to-blue-500', glow: 'shadow-sky-500/30' },
-  { emoji: '💳', label: 'Escolhe pagar online OU no local', gradient: 'from-violet-400 to-purple-600', glow: 'shadow-purple-500/30' },
-  { emoji: '⚡', label: 'Se pagar online: você recebe na hora', gradient: 'from-amber-400 to-orange-500', glow: 'shadow-amber-500/30' },
-  { emoji: '📈', label: 'Menos faltas no salão', gradient: 'from-emerald-400 to-green-600', glow: 'shadow-emerald-500/30' },
-];
-
 export const RecebaNaHoraPageLayout: React.FC<RecebaNaHoraPageLayoutProps> = ({
   children,
-  onScrollToConnect,
 }) => {
-  const scrollToConnect = () => {
-    if (onScrollToConnect) {
-      onScrollToConnect();
-      return;
-    }
-    document.getElementById('receba-na-hora-conectar')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
   return (
     <div className="w-full min-h-screen bg-gradient-to-b from-[#0a1628] via-[#0b1220] to-[#070a12]">
       <div className="sticky top-0 z-20 flex items-center justify-between px-3 py-2.5 bg-[#0a1628]/95 backdrop-blur-sm border-b border-white/10 md:hidden">
@@ -37,110 +22,12 @@ export const RecebaNaHoraPageLayout: React.FC<RecebaNaHoraPageLayoutProps> = ({
         >
           ☰ Menu
         </button>
-        <span className="text-xs font-bold text-white/90 tracking-wide">💰 Receba na Hora</span>
+        <span className="text-xs font-bold text-white/90 tracking-wide">💰 Receba Antes</span>
         <div className="w-[52px]" aria-hidden="true" />
       </div>
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-5 sm:space-y-6">
-        {/* Hero */}
-        <section className="relative overflow-hidden rounded-2xl border border-sky-400/30 bg-gradient-to-br from-sky-500/20 via-blue-600/10 to-[#0f172a] p-5 sm:p-7 shadow-lg shadow-sky-500/10">
-          <div className="absolute -top-16 -right-16 h-40 w-40 rounded-full bg-sky-400/20 blur-3xl pointer-events-none" />
-          <div className="relative z-10 space-y-4">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-black text-white leading-tight">💰 Receba na Hora</h1>
-              <p className="mt-2 text-base sm:text-lg font-bold text-sky-100">
-                Seu cliente escolhe: <span className="text-white">pagar online OU no local.</span>
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3">
-              <p className="text-sm font-extrabold text-amber-100">🔥 Quando paga antes:</p>
-              <ul className="mt-2 space-y-1.5 text-sm text-amber-50/95">
-                <li>✅ Menos faltas nos agendamentos</li>
-                <li>✅ Dinheiro cai na hora na sua conta</li>
-                <li>✅ Mais comprometimento do cliente</li>
-                <li>✅ Mais chances do cliente comparecer</li>
-              </ul>
-            </div>
-
-            <p className="text-sm text-white/80 font-semibold">Você escolhe se quer ativar ou não.</p>
-
-            <button
-              type="button"
-              onClick={scrollToConnect}
-              className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 text-white font-extrabold text-base shadow-lg shadow-sky-500/25 hover:from-sky-400 hover:to-blue-500 transition-all"
-            >
-              🚀 Conectar Mercado Pago
-            </button>
-          </div>
-        </section>
-
-        {/* Tranquilização */}
-        <section className="rounded-2xl border-2 border-emerald-400/35 bg-gradient-to-br from-emerald-500/15 to-emerald-950/30 p-5 sm:p-6">
-          <h2 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
-            <span aria-hidden="true">⚠️</span> Importante
-          </h2>
-          <p className="mt-3 text-base sm:text-lg font-extrabold text-emerald-100">
-            Seu cliente <span className="text-white underline decoration-emerald-300/60">NÃO</span> é obrigado a pagar
-            online.
-          </p>
-          <p className="mt-3 text-sm text-emerald-50/90 font-semibold">Você escolhe:</p>
-          <ul className="mt-2 space-y-2 text-sm sm:text-base text-white/90">
-            <li className="flex items-start gap-2">
-              <span className="text-emerald-300 font-bold">☑️</span>
-              <span>Permitir pagar no local</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-emerald-300 font-bold">☑️</span>
-              <span>Permitir pagar online</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-emerald-300 font-bold">☑️</span>
-              <span>Ou as duas opções juntas</span>
-            </li>
-          </ul>
-        </section>
-
-        {/* Como funciona */}
-        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6">
-          <div className="flex items-center gap-2 mb-5">
-            <h2 className="text-lg font-extrabold text-white">Como funciona</h2>
-            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">
-              {flowSteps.length} passos
-            </span>
-          </div>
-          <div className="space-y-0">
-            {flowSteps.map((step, index) => (
-              <React.Fragment key={step.label}>
-                <div className="relative flex items-center gap-4 rounded-2xl bg-gradient-to-r from-[#0c1829] to-[#080e1a] border border-white/[0.08] px-4 py-4 shadow-md overflow-hidden">
-                  {/* glow de fundo sutil */}
-                  <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl bg-gradient-to-b ${step.gradient}`} />
-                  {/* Badge numerado */}
-                  <div className={`shrink-0 w-10 h-10 rounded-full bg-gradient-to-br ${step.gradient} flex items-center justify-center shadow-lg ${step.glow} ml-2`}>
-                    <span className="text-white font-black text-sm leading-none">{index + 1}</span>
-                  </div>
-                  {/* Emoji */}
-                  <span className="text-2xl shrink-0" aria-hidden="true">{step.emoji}</span>
-                  {/* Texto */}
-                  <span className="text-sm sm:text-base font-semibold text-white/95 leading-snug">{step.label}</span>
-                </div>
-                {index < flowSteps.length - 1 && (
-                  <div className="flex justify-center items-center py-1.5 gap-0" aria-hidden="true">
-                    <div className="flex flex-col items-center">
-                      <div className="w-px h-3 bg-white/15" />
-                      <svg width="16" height="10" viewBox="0 0 16 10" fill="none" className="opacity-50">
-                        <path d="M8 10L0 0H16L8 10Z" fill="white" />
-                      </svg>
-                    </div>
-                  </div>
-                )}
-              </React.Fragment>
-            ))}
-          </div>
-        </section>
-
-        {/* Mercado Pago + AFCoins (filho) */}
-        <div id="receba-na-hora-conectar">{children}</div>
+        {children}
       </div>
     </div>
   );

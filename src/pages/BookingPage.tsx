@@ -2092,7 +2092,9 @@ export default function BookingPage() {
       const pagarmeRecipientId = String((establishment as any)?.pagarme_recipient_id || '').trim();
       const mercadopagoAccessToken = String((establishment as any)?.mercadopago_access_token || '').trim();
       const isSubscriber = appointmentData?.is_subscriber === true;
-      const valorAgendamento = resolveBookingPaymentAmount(appointmentData);
+      const valorAgendamentoFull = resolveBookingPaymentAmount(appointmentData);
+      const advancePercent = (establishment as any)?.advance_payment_percentage === 50 ? 50 : 100;
+      const valorAgendamento = advancePercent === 50 ? Math.round(valorAgendamentoFull * 0.5) : valorAgendamentoFull;
       const cobrarTaxaCliente = (establishment as any)?.cobrar_taxa_maquininha_cliente === true;
       const phoneCandidates = buildPhoneCandidates(
         String(appointmentData?.client_whatsapp || guestClientData?.phone || '')
@@ -5651,6 +5653,7 @@ export default function BookingPage() {
           }}
           cancelAppointmentOnFailure={!paymentIsOptional}
           enableAfcoinMotivation={showAfcoinFeatures}
+          includesPlatformFee={(establishment as any)?.cobrar_taxa_maquininha_cliente === true}
           customerData={{
             name: pendingCustomerData?.name || guestClientData?.name || 'Cliente',
             phone: pendingCustomerData?.phone || guestClientData?.phone,

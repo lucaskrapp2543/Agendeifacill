@@ -2401,6 +2401,19 @@ export function BookingChatFlow({
                 {(establishment as any)?.cobrar_taxa_maquininha_cliente === true && (
                   <div className="text-xs text-white/50">taxa de pagamento: R$ 1,00</div>
                 )}
+                {/* Breakdown 50% antecipado */}
+                {requireAdvancePayment && !isSubscriberFlow && (establishment as any)?.advance_payment_percentage === 50 && confirmDisplayTotalPrice > 0 && (
+                  <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 space-y-1">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-amber-100">💳 Pagar agora (50%):</span>
+                      <span className="font-bold text-amber-200">{toMoney(Math.round(confirmDisplayTotalPrice * 0.5))}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-white/70">🏪 Pagar no salão:</span>
+                      <span className="font-bold text-white/90">{toMoney(Math.round(confirmDisplayTotalPrice * 0.5))}</span>
+                    </div>
+                  </div>
+                )}
                 {!isSubscriberFlow && !requireAdvancePayment && shouldSkipPaymentMethodQuestion && (
                   <div className="text-xs text-cyan-200/90">
                     Pagamento via Mercado Pago ativo: a escolha de pagamento acontece no checkout, sem precisar selecionar aqui.
@@ -2443,7 +2456,9 @@ export function BookingChatFlow({
                 )}
                 {requireAdvancePayment && !isSubscriberFlow && (
                   <div className="text-amber-300 font-semibold">
-                    Pagamento antecipado obrigatório: ao confirmar, abrirá a tela de pagamento.
+                    {(establishment as any)?.advance_payment_percentage === 50
+                      ? 'Pagamento antecipado de 50%: ao confirmar, abrirá a tela de pagamento. O restante você paga no salão.'
+                      : 'Pagamento antecipado obrigatório: ao confirmar, abrirá a tela de pagamento.'}
                   </div>
                 )}
                 {isSubscriberFlow && (

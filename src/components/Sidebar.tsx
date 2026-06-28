@@ -717,8 +717,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   }> = [
     {
       id: 'receber-adiantado',
-      label: '💰 Receba na Hora',
-      description: 'Cliente escolhe pagar online ou no local. Menos faltas e dinheiro na conta na hora.',
+      label: '💰 Receba Antes',
+      description: 'Seu cliente escolhe: pagar online ou no local. Menos faltas e dinheiro na conta na hora.',
       icon: CreditCard,
       featured: true,
       featuredTone: 'sky',
@@ -987,7 +987,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       },
       {
         id: 'receber-adiantado',
-        label: '💰 Receba na Hora',
+        label: '💰 Receba Antes',
         icon: CreditCard,
         onClick: () => executeMobileAction('receber-adiantado', openReceberAdiantadoSection),
         className: 'bg-gradient-to-r from-sky-500 to-blue-600 border border-sky-400/40',
@@ -2057,8 +2057,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                           ? 'bg-white text-black shadow-md'
                           : 'bg-gradient-to-r from-sky-500 to-blue-600 text-white hover:from-sky-600 hover:to-blue-700 shadow-md shadow-sky-500/20 border border-sky-400/40'
                         }`}
-                      title={isExpanded ? '' : 'Receba na Hora'}
-                      aria-label="Receba na Hora"
+                      title={isExpanded ? '' : 'Receba Antes'}
+                      aria-label="Receba Antes"
                     >
                       <CreditCard
                         className={`h-5 w-5 flex-shrink-0 ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen ? 'text-black' : 'text-white'
@@ -2067,7 +2067,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                       {isExpanded && (
                         <>
                           <span className={`text-sm font-medium whitespace-nowrap ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen ? 'text-black' : 'text-white'}`}>
-                            💰 Receba na Hora
+                            💰 Receba Antes
                           </span>
                           <ChevronRight className={`h-4 w-4 flex-shrink-0 opacity-60 ml-auto ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen ? 'text-black' : 'text-white'}`} />
                         </>
@@ -2077,7 +2077,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     {/* Tooltip para menu recolhido */}
                     {!isExpanded && (
                       <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
-                        💰 Receba na Hora
+                        💰 Receba Antes
                       </div>
                     )}
 

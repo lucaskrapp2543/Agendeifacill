@@ -1196,8 +1196,14 @@ const EstablishmentDashboard = () => {
   const [exigirPagamentoAntecipadoMercadoPago, setExigirPagamentoAntecipadoMercadoPago] = useState(false); // Exigir pagamento antecipado (Mercado Pago)
   const [pagamentoAdiantadoOpcionalMercadoPago, setPagamentoAdiantadoOpcionalMercadoPago] = useState(false); // Se true, cliente pode agendar sem pagar (Mercado Pago)
   const [cobrarTaxaMaquininhaCliente, setCobrarTaxaMaquininhaCliente] = useState(false); // Taxa da maquininha cobrada do cliente (+R$1)
+  const [advancePaymentPercentage, setAdvancePaymentPercentage] = useState<100 | 50>(100); // Percentual cobrado antecipadamente
   const [clientAfcoinsEnabled, setClientAfcoinsEnabled] = useState(true);
   const [showAfcoinsDisableConfirmModal, setShowAfcoinsDisableConfirmModal] = useState(false);
+  // Preview states — configs que o barbeiro escolhe ANTES de conectar o MP (não salvam no banco)
+  const [previewPaymentMode, setPreviewPaymentMode] = useState<'both' | 'online_only' | 'local_only'>('both');
+  const [previewAdvancePercent, setPreviewAdvancePercent] = useState<100 | 50>(100);
+  const [previewPaymentRequired, setPreviewPaymentRequired] = useState<'optional' | 'mandatory'>('optional');
+  const [previewTaxaCliente, setPreviewTaxaCliente] = useState(false);
   const [isSavingClientAfcoins, setIsSavingClientAfcoins] = useState(false);
   // Saldo (vendas PIX via Pagar.me) - líquido já com taxas
   const [saldoEmVendas, setSaldoEmVendas] = useState<number>(0);
@@ -3202,6 +3208,23 @@ const EstablishmentDashboard = () => {
     </div>
   );
 
+  // Helper: salva preview states no banco (chamado antes do OAuth redirect)
+  const savePreviewConfigsToDb = async () => {
+    if (!establishment?.id) return;
+    const isOnline = previewPaymentMode !== 'local_only';
+    const isOptional = previewPaymentMode === 'both' || previewPaymentRequired === 'optional';
+    await autoSaveAmenities({
+      exigirPagamentoAntecipadoMercadoPago: isOnline,
+      pagamentoAdiantadoOpcionalMercadoPago: isOnline && isOptional,
+      cobrarTaxaMaquininhaCliente: previewTaxaCliente,
+      advance_payment_percentage: previewAdvancePercent,
+    });
+    setExigirPagamentoAntecipadoMercadoPago(isOnline);
+    setPagamentoAdiantadoOpcionalMercadoPago(isOnline && isOptional);
+    setCobrarTaxaMaquininhaCliente(previewTaxaCliente);
+    setAdvancePaymentPercentage(previewAdvancePercent);
+  };
+
   // ✅ Card Mercado Pago (reutilizável em dois lugares: configurações + atalho no menu lateral)
   const MercadoPagoCard = ({
     wrapperClassName = 'mt-6',
@@ -3253,22 +3276,154 @@ const EstablishmentDashboard = () => {
           </>
         )}
 
-        {isRecebaNaHora && (
-          <div className="mb-5">
-            <h3 className="text-lg font-extrabold text-white mb-2">Conectar Mercado Pago</h3>
-            <p className="text-sm text-gray-300 leading-relaxed mb-3">
-              Receba pagamentos online no Pix ou cartão e reduza faltas nos agendamentos. Seu cliente pode pagar online
-              OU no local — você decide.
-            </p>
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${
-                isMpConnected
-                  ? 'bg-green-500/15 text-green-200 border border-green-500/30'
-                  : 'bg-amber-500/15 text-amber-200 border border-amber-500/30'
-              }`}
-            >
-              {isMpConnected ? '✅ Conta conectada' : '⏳ Ainda não conectado'}
-            </span>
+        {isRecebaNaHora && !isMpConnected && (
+          <div className="space-y-5">
+            {/* Hero card */}
+            <div className="relative overflow-hidden rounded-2xl border border-sky-400/30 bg-gradient-to-br from-sky-500/20 via-blue-600/10 to-[#0f172a] p-5 sm:p-7">
+              <div className="absolute -top-16 -right-16 h-40 w-40 rounded-full bg-sky-400/20 blur-3xl pointer-events-none" />
+              <div className="relative z-10">
+                <h1 className="text-2xl sm:text-3xl font-black text-white leading-tight">💰 Receba Antes</h1>
+                <p className="mt-2 text-base font-bold text-sky-100">Seu cliente escolhe como deseja pagar.</p>
+                <p className="text-sm text-white/70">Você decide como quer receber.</p>
+              </div>
+            </div>
+
+            {/* Config 1: Como pagar */}
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
+              <h4 className="text-sm font-extrabold text-white mb-3">Como seu cliente poderá pagar?</h4>
+              <p className="text-xs text-gray-400 mb-3">Você escolhe como quer trabalhar. Pode mudar a qualquer momento.</p>
+              <div className="space-y-2">
+                {([
+                  { id: 'both' as const, label: 'Online ou no local', desc: 'Cliente escolhe como quer pagar', recommended: true },
+                  { id: 'online_only' as const, label: 'Apenas online', desc: 'Cliente só agenda se pagar antes' },
+                  { id: 'local_only' as const, label: 'Apenas no local', desc: 'Pagamento online desativado' },
+                ] as const).map((opt) => (
+                  <button key={opt.id} type="button" onClick={() => setPreviewPaymentMode(opt.id)}
+                    className={`w-full text-left p-3 rounded-xl border-2 transition-all ${previewPaymentMode === opt.id ? 'border-blue-500 bg-blue-500/15' : 'border-gray-700 bg-[#242628] hover:border-gray-500'}`}>
+                    <span className={`text-sm font-bold ${previewPaymentMode === opt.id ? 'text-blue-300' : 'text-white'}`}>
+                      {previewPaymentMode === opt.id ? '● ' : '○ '}{opt.label}
+                      {'recommended' in opt && opt.recommended && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-green-600/20 border border-green-600/30 text-green-300 font-extrabold">Recomendado</span>}
+                    </span>
+                    <span className="block text-xs text-gray-400 mt-0.5">{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Config 2: Valor antecipado — só se pagamento online */}
+            {previewPaymentMode !== 'local_only' && (
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
+                <h4 className="text-sm font-extrabold text-white mb-1">Quanto cobrar antecipadamente?</h4>
+                <p className="text-xs text-gray-400 mb-3">O restante o cliente paga no local.</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {([{ value: 100 as const, label: '100%', desc: 'Valor integral' }, { value: 50 as const, label: '50%', desc: 'Metade agora, metade no local' }]).map((opt) => (
+                    <button key={opt.value} type="button" onClick={() => setPreviewAdvancePercent(opt.value)}
+                      className={`p-3 rounded-xl border-2 text-center transition-all ${previewAdvancePercent === opt.value ? 'border-blue-500 bg-blue-500/15' : 'border-gray-700 bg-[#242628] hover:border-gray-500'}`}>
+                      <span className={`block text-lg font-black ${previewAdvancePercent === opt.value ? 'text-blue-300' : 'text-white'}`}>{opt.label}</span>
+                      <span className="block text-[10px] text-gray-400 mt-0.5">{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+                {previewAdvancePercent === 50 && (
+                  <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3">
+                    <p className="text-xs text-amber-100"><strong>Exemplo:</strong> serviço de R$ 80 → cliente paga R$ 40 online e R$ 40 no local.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Config 3: Obrigatório ou opcional — só se pagamento online e modo "both" */}
+            {previewPaymentMode === 'both' && (
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
+                <h4 className="text-sm font-extrabold text-white mb-1">Pagamento online é obrigatório?</h4>
+                <p className="text-xs text-gray-400 mb-3">Defina se o cliente pode escolher ou se é obrigado a pagar antes.</p>
+                <div className="space-y-2">
+                  {([
+                    { id: 'optional' as const, label: 'Opcional', desc: 'Cliente escolhe pagar online ou presencialmente' },
+                    { id: 'mandatory' as const, label: 'Obrigatório', desc: 'Cliente só conclui o agendamento após pagar' },
+                  ] as const).map((opt) => (
+                    <button key={opt.id} type="button" onClick={() => setPreviewPaymentRequired(opt.id)}
+                      className={`w-full text-left p-3 rounded-xl border-2 transition-all ${previewPaymentRequired === opt.id ? 'border-blue-500 bg-blue-500/15' : 'border-gray-700 bg-[#242628] hover:border-gray-500'}`}>
+                      <span className={`text-sm font-bold ${previewPaymentRequired === opt.id ? 'text-blue-300' : 'text-white'}`}>
+                        {previewPaymentRequired === opt.id ? '● ' : '○ '}{opt.label}
+                      </span>
+                      <span className="block text-xs text-gray-400 mt-0.5">{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Config 4: Taxa */}
+            {previewPaymentMode !== 'local_only' && (
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="flex-1">
+                  <span className="text-sm font-bold text-white">Taxa da operação cobrada do cliente</span>
+                  <p className="text-xs text-gray-400 mt-0.5">Quando ativado, o cliente paga a taxa — você recebe o valor integral.</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input type="checkbox" checked={previewTaxaCliente} onChange={(e) => setPreviewTaxaCliente(e.target.checked)} className="sr-only peer" />
+                  <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+            )}
+
+            {/* Config 5: AFCoins */}
+            <div className="rounded-2xl border border-[#E6C78B]/25 bg-gradient-to-br from-[#E6C78B]/8 to-black/20 p-4 sm:p-5">
+              <h4 className="text-sm font-extrabold text-[#E6C78B] mb-2">🎁 AFCoins — Fidelização automática</h4>
+              <div className="space-y-2 text-xs text-gray-300">
+                <p>Clientes acumulam moedas a cada agendamento e trocam por benefícios.</p>
+                <ul className="space-y-1 text-gray-400">
+                  <li>✅ Incentiva novos agendamentos</li>
+                  <li>✅ <strong className="text-emerald-300">Todos os benefícios são pagos pelo Agendei Fácil</strong></li>
+                  <li>✅ Você não paga nada</li>
+                </ul>
+              </div>
+              <div className="mt-3">{clientAfcoinsSettingsSection}</div>
+            </div>
+
+            {/* Como funciona */}
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+              <h4 className="text-sm font-extrabold text-white mb-4">Como funciona</h4>
+              <div className="space-y-0">
+                {[
+                  { emoji: '✂️', label: 'Cliente agenda pelo link', color: 'from-sky-400 to-blue-500' },
+                  { emoji: '💳', label: 'Escolhe pagar online ou no local', color: 'from-violet-400 to-purple-600' },
+                  { emoji: '⚡', label: 'Se pagar online, o dinheiro cai na hora', color: 'from-amber-400 to-orange-500' },
+                  { emoji: '📈', label: 'Menos faltas, mais compromisso', color: 'from-emerald-400 to-green-600' },
+                ].map((step, i) => (
+                  <React.Fragment key={i}>
+                    <div className="flex items-center gap-3 rounded-xl bg-[#0c1829] border border-white/[0.08] px-4 py-3">
+                      <div className={`shrink-0 w-8 h-8 rounded-full bg-gradient-to-br ${step.color} flex items-center justify-center`}>
+                        <span className="text-white font-black text-xs">{i + 1}</span>
+                      </div>
+                      <span className="text-lg shrink-0">{step.emoji}</span>
+                      <span className="text-sm font-semibold text-white/90">{step.label}</span>
+                    </div>
+                    {i < 3 && <div className="flex justify-center py-1"><div className="w-px h-3 bg-white/15" /></div>}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+
+            {/* CTA final */}
+            <div className="rounded-2xl border-2 border-sky-400/30 bg-gradient-to-br from-sky-500/15 to-blue-600/10 p-5 sm:p-7 text-center">
+              <h3 className="text-xl font-black text-white mb-2">🚀 Falta só um passo!</h3>
+              <p className="text-sm text-sky-100 mb-1">Suas configurações já estão prontas.</p>
+              <p className="text-sm text-white/70 mb-1">Agora basta conectar sua conta Mercado Pago.</p>
+              <p className="text-xs text-white/50 mb-4">Leva menos de 30 segundos. Se não tem conta, pode criar gratuitamente.</p>
+            </div>
+          </div>
+        )}
+
+        {isRecebaNaHora && isMpConnected && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-green-500/15 text-green-200 border border-green-500/30">
+                ✅ Mercado Pago conectado
+              </span>
+            </div>
+            <h3 className="text-lg font-extrabold text-white mb-1">Configurações de pagamento</h3>
           </div>
         )}
 
@@ -3343,6 +3498,11 @@ const EstablishmentDashboard = () => {
             }
 
             try {
+              // Salvar preview configs antes de redirecionar (só quando não conectado no receba-na-hora)
+              if (isRecebaNaHora && !isMpConnected) {
+                await savePreviewConfigsToDb();
+              }
+
               // ✅ IMPORTANTE (iOS/PWA): abrir a janela SINCRONAMENTE no clique.
               // Se abrir depois de await/fetch, muitos navegadores bloqueiam o popup e "não vai pra lugar nenhum".
               const popup = window.open('about:blank', '_blank');
@@ -3385,11 +3545,17 @@ const EstablishmentDashboard = () => {
           {isRecebaNaHora
             ? isMpConnected
               ? '🔄 Reconectar Mercado Pago'
-              : '🚀 Conectar Mercado Pago'
+              : '🚀 Ativar Pagamentos Online'
             : isMpConnected
               ? '🔄 Reconectar conta Mercado Pago'
               : '🔗 Conectar conta Mercado Pago'}
         </button>
+
+        {!isMpConnected && isRecebaNaHora && (
+          <p className="mt-3 text-xs text-white/50 text-center">
+            ✅ A maioria das barbearias que usam o Agendei Fácil já ativou pagamentos online.
+          </p>
+        )}
 
         {!isMpConnected && !isRecebaNaHora && (
           <div className="mt-4 bg-[#2a2b2c] border border-gray-700 rounded-lg p-3">{clientAfcoinsSettingsSection}</div>
@@ -3409,94 +3575,186 @@ const EstablishmentDashboard = () => {
             </div>
 
             {/* Configuração de Pagamento Antecipado Mercado Pago */}
-            <div className="bg-[#2a2b2c] border border-gray-700 rounded-lg p-3 space-y-2">
-              <label className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={exigirPagamentoAntecipadoMercadoPago}
-                  onChange={(e) => {
-                    const next = e.target.checked;
-                    setExigirPagamentoAntecipadoMercadoPago(next);
+            <div className="space-y-3">
+              {/* Como seus clientes irão pagar — só na variante receba-na-hora */}
+              {isRecebaNaHora && (
+                <div className="bg-[#1e1f20] border border-white/10 rounded-2xl p-4 space-y-3">
+                  <h4 className="text-sm font-extrabold text-white">Como seus clientes irão pagar?</h4>
+                  <div className="space-y-2">
+                    {[
+                      { id: 'both', label: 'Online e no local', desc: 'Cliente escolhe como quer pagar', checked: exigirPagamentoAntecipadoMercadoPago && pagamentoAdiantadoOpcionalMercadoPago },
+                      { id: 'online_only', label: 'Apenas online (obrigatório)', desc: 'Cliente só agenda se pagar antes', checked: exigirPagamentoAntecipadoMercadoPago && !pagamentoAdiantadoOpcionalMercadoPago },
+                      { id: 'local_only', label: 'Apenas no local', desc: 'Pagamento online desativado', checked: !exigirPagamentoAntecipadoMercadoPago },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          if (opt.id === 'both') {
+                            setExigirPagamentoAntecipadoMercadoPago(true);
+                            setPagamentoAdiantadoOpcionalMercadoPago(true);
+                            void autoSaveAmenities({ exigirPagamentoAntecipadoMercadoPago: true, pagamentoAdiantadoOpcionalMercadoPago: true });
+                          } else if (opt.id === 'online_only') {
+                            setExigirPagamentoAntecipadoMercadoPago(true);
+                            setPagamentoAdiantadoOpcionalMercadoPago(false);
+                            void autoSaveAmenities({ exigirPagamentoAntecipadoMercadoPago: true, pagamentoAdiantadoOpcionalMercadoPago: false });
+                          } else {
+                            setExigirPagamentoAntecipadoMercadoPago(false);
+                            setPagamentoAdiantadoOpcionalMercadoPago(false);
+                            void autoSaveAmenities({ exigirPagamentoAntecipadoMercadoPago: false, pagamentoAdiantadoOpcionalMercadoPago: false });
+                          }
+                        }}
+                        className={`w-full text-left p-3 rounded-xl border-2 transition-all ${opt.checked
+                          ? 'border-blue-500 bg-blue-500/15 ring-1 ring-blue-500/30'
+                          : 'border-gray-700 bg-[#242628] hover:border-gray-500'
+                        }`}
+                      >
+                        <span className={`block text-sm font-bold ${opt.checked ? 'text-blue-300' : 'text-white'}`}>
+                          {opt.checked ? '● ' : '○ '}{opt.label}
+                        </span>
+                        <span className="block text-xs text-gray-400 mt-0.5">{opt.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-                    // Se ativar, já deixar "não obrigatório" marcado (recomendado).
-                    // Se desativar, também desativa a opção "não obrigatório".
-                    const nextOpcional = next ? true : false;
-                    setPagamentoAdiantadoOpcionalMercadoPago(nextOpcional);
-
-                    // Salva imediatamente (sem debounce) para não perder ao dar F5
-                    void autoSaveAmenities({
-                      exigirPagamentoAntecipadoMercadoPago: next,
-                      pagamentoAdiantadoOpcionalMercadoPago: nextOpcional,
-                    });
-                  }}
-                  className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-600 rounded"
-                />
-                <span className="text-white text-sm font-semibold">
-                  {isRecebaNaHora
-                    ? 'Oferecer pagamento online (Pix/cartão) nos agendamentos'
-                    : 'quero receber adiantado dos clientes via pix nos agendamentos'}
-                </span>
-              </label>
-
-              {exigirPagamentoAntecipadoMercadoPago && (
-                <label className="flex items-center space-x-2 ml-6">
-                  <input
-                    type="checkbox"
-                    checked={pagamentoAdiantadoOpcionalMercadoPago}
-                    onChange={(e) => {
-                      const next = e.target.checked;
-                      setPagamentoAdiantadoOpcionalMercadoPago(next);
-
-                      // Salva imediatamente (sem debounce) para não perder ao dar F5
-                      void autoSaveAmenities({ pagamentoAdiantadoOpcionalMercadoPago: next });
-                    }}
-                    className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-600 rounded"
-                  />
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-2">
-                      <span className="text-white text-xs">
-                        {isRecebaNaHora
-                          ? 'Cliente NÃO é obrigado a pagar online para agendar'
-                          : 'Não ser obrigatório cliente pagar no pix  para agendar'}
-                      </span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-600/20 border border-green-600/30 text-green-300 font-extrabold">
-                        Recomendado
-                      </span>
+              {/* Valor cobrado antecipadamente — só quando pagamento online está ativo */}
+              {exigirPagamentoAntecipadoMercadoPago && isRecebaNaHora && (
+                <div className="bg-[#1e1f20] border border-white/10 rounded-2xl p-4 space-y-3">
+                  <h4 className="text-sm font-extrabold text-white">Quanto cobrar antecipadamente?</h4>
+                  <p className="text-xs text-gray-400">Escolha o percentual que o cliente paga online. O restante ele paga no local.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 100 as const, label: '100%', desc: 'Valor integral' },
+                      { value: 50 as const, label: '50%', desc: 'Metade agora, metade no local' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          setAdvancePaymentPercentage(opt.value);
+                          void autoSaveAmenities({ advance_payment_percentage: opt.value });
+                        }}
+                        className={`p-3 rounded-xl border-2 text-center transition-all ${advancePaymentPercentage === opt.value
+                          ? 'border-blue-500 bg-blue-500/15 ring-1 ring-blue-500/30'
+                          : 'border-gray-700 bg-[#242628] hover:border-gray-500'
+                        }`}
+                      >
+                        <span className={`block text-lg font-black ${advancePaymentPercentage === opt.value ? 'text-blue-300' : 'text-white'}`}>{opt.label}</span>
+                        <span className="block text-[10px] text-gray-400 mt-0.5">{opt.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {advancePaymentPercentage === 50 && (
+                    <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3">
+                      <p className="text-xs text-amber-100">
+                        <strong>Exemplo:</strong> serviço de R$ 80 → cliente paga R$ 40 online e R$ 40 no local.
+                      </p>
                     </div>
-                    <span className="text-xs text-gray-400">
-                      Se ativado, o cliente agenda normalmente e escolhe se quer pagar agora ou no estabelecimento.
-                    </span>
-                  </div>
-                </label>
+                  )}
+                </div>
               )}
 
-              {exigirPagamentoAntecipadoMercadoPago && (
-                <label className="flex items-start space-x-2 ml-6 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={cobrarTaxaMaquininhaCliente}
-                    onChange={(e) => {
-                      const next = e.target.checked;
-                      setCobrarTaxaMaquininhaCliente(next);
-                      void autoSaveAmenities({ cobrarTaxaMaquininhaCliente: next });
-                    }}
-                    className="form-checkbox h-4 w-4 mt-0.5 text-primary bg-[#1a1b1c] border-gray-600 rounded flex-shrink-0"
-                  />
-                  <div className="flex flex-col">
-                    <span className="text-white text-xs font-semibold">
-                      Taxa da maquininha cobrada do cliente
-                    </span>
-                    <span className="text-xs text-gray-400 mt-0.5 leading-relaxed">
-                      Ative e pare de perder dinheiro com taxa. Quando ligado, a taxa da operação online fica por conta do cliente — você recebe mais líquido, a taxa não é sua.
-                    </span>
+              {/* Taxa da maquininha — só quando pagamento online está ativo */}
+              {exigirPagamentoAntecipadoMercadoPago && isRecebaNaHora && (
+                <div className="flex items-center justify-between gap-3 bg-[#1e1f20] border border-white/10 rounded-2xl p-4">
+                  <div className="flex-1">
+                    <span className="text-sm font-bold text-white">Taxa da operação cobrada do cliente</span>
+                    <p className="text-xs text-gray-400 mt-0.5">Quando ativado, o cliente paga a taxa — você recebe o valor líquido.</p>
                   </div>
-                </label>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={cobrarTaxaMaquininhaCliente}
+                      onChange={(e) => {
+                        const next = e.target.checked;
+                        setCobrarTaxaMaquininhaCliente(next);
+                        void autoSaveAmenities({ cobrarTaxaMaquininhaCliente: next });
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
               )}
 
+              {/* Configurações legado para variante default (fora do receba-na-hora) */}
               {!isRecebaNaHora && (
-                <div className="pt-3 mt-2 border-t border-gray-600/50">{clientAfcoinsSettingsSection}</div>
+                <div className="bg-[#2a2b2c] border border-gray-700 rounded-lg p-3 space-y-2">
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={exigirPagamentoAntecipadoMercadoPago}
+                      onChange={(e) => {
+                        const next = e.target.checked;
+                        setExigirPagamentoAntecipadoMercadoPago(next);
+                        const nextOpcional = next ? true : false;
+                        setPagamentoAdiantadoOpcionalMercadoPago(nextOpcional);
+                        void autoSaveAmenities({ exigirPagamentoAntecipadoMercadoPago: next, pagamentoAdiantadoOpcionalMercadoPago: nextOpcional });
+                      }}
+                      className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-600 rounded"
+                    />
+                    <span className="text-white text-sm font-semibold">quero receber adiantado dos clientes via pix nos agendamentos</span>
+                  </label>
+
+                  {exigirPagamentoAntecipadoMercadoPago && (
+                    <label className="flex items-center space-x-2 ml-6">
+                      <input
+                        type="checkbox"
+                        checked={pagamentoAdiantadoOpcionalMercadoPago}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          setPagamentoAdiantadoOpcionalMercadoPago(next);
+                          void autoSaveAmenities({ pagamentoAdiantadoOpcionalMercadoPago: next });
+                        }}
+                        className="form-checkbox h-4 w-4 text-primary bg-[#1a1b1c] border-gray-600 rounded"
+                      />
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-2">
+                          <span className="text-white text-xs">Não ser obrigatório cliente pagar no pix para agendar</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-600/20 border border-green-600/30 text-green-300 font-extrabold">Recomendado</span>
+                        </div>
+                        <span className="text-xs text-gray-400">Se ativado, o cliente agenda normalmente e escolhe se quer pagar agora ou no estabelecimento.</span>
+                      </div>
+                    </label>
+                  )}
+
+                  {exigirPagamentoAntecipadoMercadoPago && (
+                    <label className="flex items-start space-x-2 ml-6 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={cobrarTaxaMaquininhaCliente}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          setCobrarTaxaMaquininhaCliente(next);
+                          void autoSaveAmenities({ cobrarTaxaMaquininhaCliente: next });
+                        }}
+                        className="form-checkbox h-4 w-4 mt-0.5 text-primary bg-[#1a1b1c] border-gray-600 rounded flex-shrink-0"
+                      />
+                      <div className="flex flex-col">
+                        <span className="text-white text-xs font-semibold">Taxa da maquininha cobrada do cliente</span>
+                        <span className="text-xs text-gray-400 mt-0.5 leading-relaxed">Ative e pare de perder dinheiro com taxa.</span>
+                      </div>
+                    </label>
+                  )}
+
+                  <div className="pt-3 mt-2 border-t border-gray-600/50">{clientAfcoinsSettingsSection}</div>
+                </div>
               )}
             </div>
+
+            {/* AFCoins — quando conectado no receba-na-hora */}
+            {isRecebaNaHora && (
+              <div className="rounded-2xl border border-[#E6C78B]/25 bg-gradient-to-br from-[#E6C78B]/8 to-black/20 p-4 sm:p-5">
+                <h4 className="text-sm font-extrabold text-[#E6C78B] mb-2">🎁 AFCoins — Fidelização automática</h4>
+                <div className="space-y-2 text-xs text-gray-300 mb-3">
+                  <p>Clientes acumulam moedas a cada agendamento e trocam por benefícios.</p>
+                  <p className="text-emerald-300 font-bold">Todos os benefícios são pagos pelo Agendei Fácil. Você não paga nada.</p>
+                </div>
+                {clientAfcoinsSettingsSection}
+              </div>
+            )}
 
             <button
               type="button"
@@ -3617,17 +3875,7 @@ const EstablishmentDashboard = () => {
           </div>
         )}
 
-        {isRecebaNaHora && (
-          <div className="mt-6 rounded-xl border border-[#E6C78B]/25 bg-gradient-to-br from-[#E6C78B]/8 to-black/40 p-4 sm:p-5">
-            <div className="mb-3">
-              <span className="inline-flex items-center rounded-full border border-[#E6C78B]/30 bg-[#E6C78B]/10 px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-[#E6C78B]">
-                Benefício bônus
-              </span>
-              <p className="mt-2 text-xs text-gray-400">Extra do Agendei Fácil — opcional e separado do Mercado Pago.</p>
-            </div>
-            {clientAfcoinsSettingsSection}
-          </div>
-        )}
+        {/* AFCoins dentro do MercadoPagoCard — removido da receba-na-hora (agora fica em card separado fora) */}
 
         {showAfcoinsDisableConfirmModal && (
           <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
@@ -13751,6 +13999,7 @@ Estamos te aguardando!`;
         setExigirPagamentoAntecipadoMercadoPago((establishmentData as any).exigir_pagamento_antecipado_mercadopago ?? false); // Pagamento antecipado Mercado Pago
         setPagamentoAdiantadoOpcionalMercadoPago((establishmentData as any).pagamento_adiantado_opcional_mercadopago ?? false);
         setCobrarTaxaMaquininhaCliente((establishmentData as any).cobrar_taxa_maquininha_cliente ?? false);
+        setAdvancePaymentPercentage((establishmentData as any).advance_payment_percentage === 50 ? 50 : 100);
         setClientAfcoinsEnabled((establishmentData as any).client_afcoins_enabled !== false);
         setFilaEsperaAtiva((establishmentData as any).fila_espera_ativa ?? false);
         // Sanitiza IDs de fila para ignorar profissionais removidos/inválidos.
@@ -22072,6 +22321,7 @@ Estamos te aguardando!`;
     exigirPagamentoAntecipadoMercadoPago?: boolean;
     pagamentoAdiantadoOpcionalMercadoPago?: boolean;
     cobrarTaxaMaquininhaCliente?: boolean;
+    advance_payment_percentage?: number;
   }) => {
     if (!establishment?.id) return;
 
@@ -22098,6 +22348,7 @@ Estamos te aguardando!`;
         exigir_pagamento_antecipado_mercadopago: nextExigirMP,
         pagamento_adiantado_opcional_mercadopago: nextOpcionalMP,
         cobrar_taxa_maquininha_cliente: overrides?.cobrarTaxaMaquininhaCliente ?? cobrarTaxaMaquininhaCliente,
+        advance_payment_percentage: overrides?.advance_payment_percentage ?? advancePaymentPercentage,
         enable_whatsapp_notifications: enableWhatsAppNotifications,
         skip_client_whatsapp_booking_nudge: skipClientWhatsappBookingNudge,
         // require_cancel_password é salvo imediatamente quando o checkbox muda, não precisa do auto-save
@@ -30447,7 +30698,7 @@ Estamos te aguardando!`;
                 </div>
               )}
 
-              {/* Tab Receba na Hora — Mercado Pago (seção dedicada) */}
+              {/* Tab Receba Antes — Mercado Pago */}
               {activeTab === 'receber-adiantado' && (
                 <RecebaNaHoraPageLayout>
                   <MercadoPagoCard wrapperClassName="" variant="receba-na-hora" />

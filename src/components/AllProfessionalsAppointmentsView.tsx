@@ -7217,6 +7217,39 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         )}
                                         {getDisplayedService(apt)}
                                       </div>
+                                      {/* Breakdown de pagamento online — só mostra quando houve pagamento online com 50% */}
+                                      {(() => {
+                                        const pm = String(apt.payment_method || '').toLowerCase();
+                                        const isPaidOnline = pm === 'pix' || pm === 'credito' || pm === 'debito';
+                                        const advPercent = (establishment as any)?.advance_payment_percentage;
+                                        const is50 = advPercent === 50;
+                                        const totalPrice = calculateTotalPrice(apt);
+
+                                        if (isPaidOnline && (apt.status === 'confirmed' || apt.status === 'completed')) {
+                                          const paidOnline = is50 ? Math.round(totalPrice * 0.5) : totalPrice;
+                                          const remaining = totalPrice - paidOnline;
+                                          return (
+                                            <div className="text-[10px] mt-1 space-y-0.5">
+                                              <div className="flex justify-between text-emerald-300">
+                                                <span>💳 Pago online:</span>
+                                                <span className="font-bold">{formatCurrency(paidOnline)}</span>
+                                              </div>
+                                              {remaining > 0 ? (
+                                                <div className="flex justify-between text-amber-300">
+                                                  <span>🏪 Restante no salão:</span>
+                                                  <span className="font-bold">{formatCurrency(remaining)}</span>
+                                                </div>
+                                              ) : (
+                                                <div className="flex justify-between text-emerald-400">
+                                                  <span>✅ Pago integralmente online</span>
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
+
                                       <div className="text-white/70 text-xs mt-1 md:mt-0.5 flex items-center justify-between gap-1">
                                         <span>{getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos)} min • Ver detalhes</span>
                                         {apt.status === 'completed' && (

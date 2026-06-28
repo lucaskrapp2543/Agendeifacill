@@ -4104,6 +4104,18 @@ export function AppointmentForm({
                         R$ {Number(precoFinalComProdutos || 0).toFixed(2).replace('.', ',')}
                       </strong>
                     </div>
+                    {requireAdvancePayment && (establishment as any)?.advance_payment_percentage === 50 && precoFinalComProdutos > 0 && (
+                      <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-amber-100">💳 Pagar agora (50%):</span>
+                          <span className="font-bold text-amber-200">R$ {(Math.round(precoFinalComProdutos * 0.5 * 100) / 100).toFixed(2).replace('.', ',')}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span style={{ color: '#ccc' }}>🏪 Pagar no salão:</span>
+                          <span className="font-bold" style={{ color: '#eee' }}>R$ {(Math.round(precoFinalComProdutos * 0.5 * 100) / 100).toFixed(2).replace('.', ',')}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
