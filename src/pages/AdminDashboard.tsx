@@ -2228,25 +2228,36 @@ const AdminDashboard = () => {
       }
 
       // Combinar dados dos estabelecimentos excluídos
-      const deletedWithEmails = deletedData.map(establishment => {
-        const profile = profilesData.find(p => p.id === establishment.owner_id);
-        return {
-          ...establishment,
-          owner_email: profile?.name || 'Email não encontrado',
-          payment_status: establishment.payment_status || 'unpaid',
-          plan_type: establishment.plan_type || 'monthly',
-          plan_prata_active: Boolean((establishment as any).plan_prata_active),
-          payment_due_date: establishment.payment_due_date || establishment.created_at,
-          payment_paid_at: establishment.payment_paid_at || null,
-          is_blocked: establishment.is_blocked || false,
-          payment_alert_enabled: establishment.payment_alert_enabled || false,
-          promotion_enabled: establishment.promotion_enabled || false,
-          admin_profit_value: Number(establishment.admin_profit_value ?? 0),
-          admin_payment_link: establishment.admin_payment_link || null,
-          mercadopago_billing_amount: Number((establishment as any).mercadopago_billing_amount ?? 0),
-          whatsapp: establishment.whatsapp || ''
-        };
-      });
+      const deletedWithEmails = await Promise.all(
+        (deletedData || []).map(async (establishment) => {
+          const profile = profilesData.find(p => p.id === establishment.owner_id);
+          const { data: lastApt } = await supabase
+            .from('appointments')
+            .select('created_at')
+            .eq('establishment_id', establishment.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+          return {
+            ...establishment,
+            owner_email: profile?.name || 'Email não encontrado',
+            payment_status: establishment.payment_status || 'unpaid',
+            plan_type: establishment.plan_type || 'monthly',
+            plan_prata_active: Boolean((establishment as any).plan_prata_active),
+            payment_due_date: establishment.payment_due_date || establishment.created_at,
+            payment_paid_at: establishment.payment_paid_at || null,
+            is_blocked: establishment.is_blocked || false,
+            last_access: lastApt?.created_at || null,
+            deleted_at: establishment.updated_at || null,
+            payment_alert_enabled: establishment.payment_alert_enabled || false,
+            promotion_enabled: establishment.promotion_enabled || false,
+            admin_profit_value: Number(establishment.admin_profit_value ?? 0),
+            admin_payment_link: establishment.admin_payment_link || null,
+            mercadopago_billing_amount: Number((establishment as any).mercadopago_billing_amount ?? 0),
+            whatsapp: establishment.whatsapp || ''
+          };
+        })
+      );
 
       setEstablishments(establishmentsWithEmails);
       setDeletedEstablishments(deletedWithEmails);
@@ -7188,10 +7199,28 @@ const AdminDashboard = () => {
                             <div className="flex items-center space-x-4">
                               <div>
                                 <span className="text-sm font-medium text-gray-900">{establishment.name}</span>
-                                <div className="flex space-x-2 mt-1">
+                                <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
                                   <span className="text-xs text-gray-500">Código: {establishment.code}</span>
                                   <span className="text-xs text-gray-500">•</span>
                                   <span className="text-xs text-gray-500">{establishment.owner_email}</span>
+                                </div>
+                                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                                  {(establishment as any).deleted_at && (
+                                    <span className="text-[10px] text-red-500">
+                                      🗑️ Excluído em {new Date((establishment as any).deleted_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-gray-400">
+                                    🕐 {formatLastAccess((establishment as any).last_access)}
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
+                                  <span className={`text-[10px] font-bold ${establishment.is_blocked ? 'text-red-500' : 'text-green-500'}`}>
+                                    {establishment.is_blocked ? '🔒 Dashboard bloqueado' : '🟢 Dashboard liberado'}
+                                  </span>
+                                  <span className={`text-[10px] font-bold ${(establishment as any).booking_blocked ? 'text-red-500' : 'text-green-500'}`}>
+                                    {(establishment as any).booking_blocked ? '🔒 Booking bloqueado' : '🟢 Booking liberado'}
+                                  </span>
                                 </div>
                               </div>
                             </div>

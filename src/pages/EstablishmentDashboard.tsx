@@ -1275,9 +1275,9 @@ const EstablishmentDashboard = () => {
     const isMpConn = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
     const isWppConn = baileysDashboardStatus.connected;
     return [
-      ...(!isWppConn ? [{ mobile: '/conectwpp.png', mobileWebp: '/conectwpp.webp', desktop: '/conectwppppp3pc.png', desktopWebp: '/conectwppppp3pc.webp', key: 'wpp' }] : []),
-      ...(!isMpConn ? [{ mobile: '/recebaantesppp3.png', mobileWebp: '/recebaantesppp3.webp', desktop: '/recebaantespp3pc.png', desktopWebp: '/recebaantespp3pc.webp', key: 'mp' }] : []),
-      ...(!hasIndicationCode ? [{ mobile: '/indiqueelucreppp3.png', mobileWebp: '/indiqueelucreppp3.webp', desktop: '/indiqueelucreppp3pc1.png', desktopWebp: '/indiqueelucreppp3pc1.webp', key: 'indication' }] : []),
+      ...(!isWppConn ? [{ mobile: '/conectwpp.png', mobileWebp: '/conectwpp.webp', desktop: '/conectwppppp3pc22t.png', desktopWebp: '/conectwppppp3pc22t.webp', key: 'wpp' }] : []),
+      ...(!isMpConn ? [{ mobile: '/recebaantesppp3.png', mobileWebp: '/recebaantesppp3.webp', desktop: '/recebaantespp3pc22t.png', desktopWebp: '/recebaantespp3pc22t.webp', key: 'mp' }] : []),
+      ...(!hasIndicationCode ? [{ mobile: '/indiqueelucreppp3.png', mobileWebp: '/indiqueelucreppp3.webp', desktop: '/indiqueelucreppp3pc122t.png', desktopWebp: '/indiqueelucreppp3pc122t.webp', key: 'indication' }] : []),
     ];
   }, [baileysDashboardStatus.connected, establishment, hasIndicationCode]);
   const [requireCancelPassword, setRequireCancelPassword] = useState(false); // Exigir senha para cancelar agendamento
@@ -5768,6 +5768,7 @@ const EstablishmentDashboard = () => {
   const [pendingProductForAppointment, setPendingProductForAppointment] = useState<EstablishmentProduct | null>(null);
   const [productDiscountPercent, setProductDiscountPercent] = useState<string>('0');
   const [productDiscountFinalPrice, setProductDiscountFinalPrice] = useState<string>('');
+  const [productQuantity, setProductQuantity] = useState<number>(1);
 
   // Novo estado para controlar o modal do comprovante
   const [showProofModal, setShowProofModal] = useState(false);
@@ -7865,6 +7866,7 @@ const EstablishmentDashboard = () => {
     setPendingProductForAppointment(null);
     setProductDiscountPercent('0');
     setProductDiscountFinalPrice('');
+    setProductQuantity(1);
   };
 
   const handleConfirmProductWithDiscount = async () => {
@@ -7872,9 +7874,20 @@ const EstablishmentDashboard = () => {
     const basePrice = Math.max(0, Number(pendingProductForAppointment.sale_price || 0));
     const finalPrice = parseValorBR(productDiscountFinalPrice);
     const clampedFinalPrice = Math.min(basePrice, Math.max(0, finalPrice));
+    const qty = Math.max(1, Math.min(productQuantity, pendingProductForAppointment.stock_quantity));
 
-    const success = await handleAddProductToAppointment(pendingProductForAppointment, clampedFinalPrice);
-    if (success) {
+    let added = 0;
+    const productCopy = { ...pendingProductForAppointment };
+    for (let i = 0; i < qty; i++) {
+      if (productCopy.stock_quantity <= 0) break;
+      const success = await handleAddProductToAppointment(productCopy, clampedFinalPrice);
+      if (!success) break;
+      productCopy.stock_quantity -= 1;
+      productCopy.sold_quantity += 1;
+      added++;
+    }
+    if (added > 0) {
+      toast(`${added}x ${pendingProductForAppointment.name} adicionado${added > 1 ? 's' : ''}`, 'success');
       closeProductDiscountModal();
     }
   };
@@ -27702,7 +27715,7 @@ Estamos te aguardando!`;
                           src={slide.mobile}
                           alt={`Promo ${i + 1}`}
                           draggable={false}
-                          className={`w-full ${slide.desktop ? 'h-auto' : 'md:h-72 md:object-cover'}`}
+                          className="w-full h-auto"
                         />
                       </picture>
                     ))}
@@ -42376,14 +42389,44 @@ Estamos te aguardando!`;
                   />
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Quantidade
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setProductQuantity(Math.max(1, productQuantity - 1))}
+                      className="w-10 h-10 rounded-lg border border-gray-300 text-gray-700 font-bold text-lg hover:bg-gray-100 transition-colors"
+                    >
+                      −
+                    </button>
+                    <span className="w-12 text-center text-lg font-bold text-gray-900">{productQuantity}</span>
+                    <button
+                      type="button"
+                      onClick={() => setProductQuantity(Math.min(pendingProductForAppointment.stock_quantity, 20, productQuantity + 1))}
+                      disabled={productQuantity >= pendingProductForAppointment.stock_quantity}
+                      className="w-10 h-10 rounded-lg border border-gray-300 text-gray-700 font-bold text-lg hover:bg-gray-100 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      +
+                    </button>
+                    <span className="text-xs text-gray-400 ml-1">({pendingProductForAppointment.stock_quantity} em estoque)</span>
+                  </div>
+                </div>
+
                 <div className="rounded-lg bg-blue-50 border border-blue-100 p-3">
                   <p className="text-sm text-blue-900">
                     Valor final: <span className="font-semibold">{formatCurrency(
                       Math.min(
                         Math.max(0, parseValorBR(productDiscountFinalPrice)),
                         Math.max(0, Number(pendingProductForAppointment.sale_price || 0))
-                      )
+                      ) * productQuantity
                     )}</span>
+                    {productQuantity > 1 && (
+                      <span className="text-blue-600 text-xs ml-1">
+                        ({productQuantity}x {formatCurrency(Math.min(Math.max(0, parseValorBR(productDiscountFinalPrice)), Math.max(0, Number(pendingProductForAppointment.sale_price || 0))))})
+                      </span>
+                    )}
                   </p>
                 </div>
 
