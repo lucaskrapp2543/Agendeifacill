@@ -6248,7 +6248,7 @@ const EstablishmentDashboard = () => {
   }>({
     products: true,
     services: true,
-    professionals: true,
+    professionals: false,
     subscribers: true,
     config: true,
     reserveClient: true,
@@ -41221,46 +41221,68 @@ Estamos te aguardando!`;
 
               {/* Vídeo Tutorial */}
               {showTutorials.professionals && (
-                <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-lg p-4 mb-6">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
-                        <span className="text-gray-700 text-xl">📺</span>
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900">Tutorial: Como Gerenciar Profissionais</h3>
-                        <p className="text-sm text-gray-600">Aprenda a cadastrar e gerenciar profissionais do seu estabelecimento</p>
+                <div className="bg-[#0d1117] rounded-2xl border border-gray-700 overflow-hidden flex flex-col mb-6">
+                  <div className="bg-gradient-to-r from-purple-700 to-purple-900 px-5 py-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xl">👤</span>
+                      <h4 className="text-white font-bold text-base">Tutorial: Como Gerenciar Profissionais</h4>
+                      <button
+                        onClick={() => toggleTutorial('professionals')}
+                        className="ml-auto text-white/70 hover:text-white text-xs border border-white/30 px-2 py-0.5 rounded transition-colors"
+                      >
+                        Ocultar
+                      </button>
+                    </div>
+                    <p className="text-purple-100 text-xs leading-relaxed">
+                      Aprenda a cadastrar e gerenciar profissionais do seu estabelecimento
+                    </p>
+                  </div>
+
+                  <div className="p-4 flex flex-col gap-3">
+                    <p className="text-gray-400 text-xs">Esse é o link para enviar para seus colaboradores baixar o app:</p>
+                    <div className="bg-gray-900 rounded-xl p-3 border border-gray-700">
+                      <code className="text-gray-300 font-mono text-xs break-all">agendeifacil.com/login</code>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          const link = 'https://agendeifacil.com/login';
+                          try {
+                            if (navigator.clipboard && window.isSecureContext) {
+                              await navigator.clipboard.writeText(link);
+                            } else {
+                              const ta = document.createElement('textarea');
+                              ta.value = link;
+                              ta.style.position = 'fixed';
+                              ta.style.left = '-999999px';
+                              document.body.appendChild(ta);
+                              ta.focus();
+                              ta.select();
+                              document.execCommand('copy');
+                              document.body.removeChild(ta);
+                            }
+                            toast('Link copiado para a área de transferência', 'success');
+                          } catch { toast('Erro ao copiar link', 'error'); }
+                        }}
+                        className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-gray-800 hover:bg-gray-700 rounded-xl transition-colors border border-gray-600"
+                      >
+                        <Copy className="h-4 w-4 text-white" />
+                        <span className="text-white text-sm font-medium">Copiar link</span>
+                      </button>
+                    </div>
+
+                    <p className="text-gray-500 text-xs text-center">📱 Veja como gerenciar profissionais na prática</p>
+                    <div className="flex justify-center">
+                      <div className="relative rounded-xl overflow-hidden bg-black w-full max-w-[260px]" style={{ aspectRatio: '9/16' }}>
+                        <iframe
+                          className="absolute inset-0 w-full h-full"
+                          src="https://www.youtube.com/embed/TyEH7xK_ZuY"
+                          title="Tutorial: Como Gerenciar Profissionais"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
                       </div>
                     </div>
-                    <button
-                      onClick={() => toggleTutorial('professionals')}
-                      className="px-3 py-1 bg-black text-white text-sm rounded hover:bg-gray-800 transition-colors"
-                    >
-                      Ocultar Tutorial
-                    </button>
-                  </div>
-
-                  <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden">
-                    <iframe
-                      className="absolute top-0 left-0 w-full h-full"
-                      src="https://www.youtube.com/embed/1Sm25W596v0"
-                      title="Tutorial: Como Gerenciar Profissionais"
-                      frameBorder="0"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                      allowFullScreen
-                    ></iframe>
-                  </div>
-
-                  <div className="mt-3 text-center">
-                    <a
-                      href="https://youtu.be/1Sm25W596v0"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-800 text-sm font-medium transition-colors"
-                    >
-                      <span>📺</span>
-                      <span>Assistir no YouTube</span>
-                    </a>
                   </div>
                 </div>
               )}
@@ -44543,34 +44565,73 @@ Estamos te aguardando!`;
       {/* Modal Tutorial - Profissionais */}
       {showTutorialModals.professionals && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-gray-200">
-            <div className="p-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">👤 Profissionais</h2>
-              <p className="text-gray-700 mb-6 text-lg">
-                Aqui você pode cadastrar e gerenciar profissionais do seu estabelecimento, veja o vídeo tutorial para aprender como funciona/usar.
+          <div className="bg-[#0d1117] rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto border border-gray-700">
+            <div className="bg-gradient-to-r from-purple-700 to-purple-900 px-5 py-4 rounded-t-2xl">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xl">👤</span>
+                <h4 className="text-white font-bold text-base">Profissionais</h4>
+              </div>
+              <p className="text-purple-100 text-xs leading-relaxed">
+                Aqui você pode cadastrar e gerenciar profissionais do seu estabelecimento
               </p>
+            </div>
 
-              <div className="relative w-full h-0 pb-[56.25%] rounded-lg overflow-hidden mb-4">
-                <iframe
-                  className="absolute top-0 left-0 w-full h-full"
-                  src="https://www.youtube.com/embed/1Sm25W596v0"
-                  title="Tutorial: Como Gerenciar Profissionais"
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
-                ></iframe>
+            <div className="p-5 flex flex-col gap-3">
+              <p className="text-gray-400 text-xs">Esse é o link para enviar para seus colaboradores baixar o app:</p>
+              <div className="bg-gray-900 rounded-xl p-3 border border-gray-700">
+                <code className="text-gray-300 font-mono text-xs break-all">agendeifacil.com/login</code>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    const link = 'https://agendeifacil.com/login';
+                    try {
+                      if (navigator.clipboard && window.isSecureContext) {
+                        await navigator.clipboard.writeText(link);
+                      } else {
+                        const ta = document.createElement('textarea');
+                        ta.value = link;
+                        ta.style.position = 'fixed';
+                        ta.style.left = '-999999px';
+                        document.body.appendChild(ta);
+                        ta.focus();
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                      }
+                      toast('Link copiado para a área de transferência', 'success');
+                    } catch { toast('Erro ao copiar link', 'error'); }
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-gray-800 hover:bg-gray-700 rounded-xl transition-colors border border-gray-600"
+                >
+                  <Copy className="h-4 w-4 text-white" />
+                  <span className="text-white text-sm font-medium">Copiar link</span>
+                </button>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-3 mt-6">
+              <p className="text-gray-500 text-xs text-center">📱 Veja como gerenciar profissionais na prática</p>
+              <div className="flex justify-center">
+                <div className="relative rounded-xl overflow-hidden bg-black w-full max-w-[260px]" style={{ aspectRatio: '9/16' }}>
+                  <iframe
+                    className="absolute inset-0 w-full h-full"
+                    src="https://www.youtube.com/embed/TyEH7xK_ZuY"
+                    title="Tutorial: Como Gerenciar Profissionais"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 mt-2">
                 <button
                   onClick={() => dismissTutorialModal('professionals')}
-                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                  className="flex-1 px-4 py-2 bg-gray-800 text-gray-300 rounded-xl hover:bg-gray-700 transition-colors font-medium border border-gray-600 text-sm"
                 >
                   Não quero mais ver isso
                 </button>
                 <button
                   onClick={() => closeTutorialModal('professionals')}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors font-medium text-sm"
                 >
                   Fechar
                 </button>
