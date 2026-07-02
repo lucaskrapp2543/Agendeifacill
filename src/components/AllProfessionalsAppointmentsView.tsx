@@ -19,7 +19,7 @@ import {
   sanitizeAppointmentServiceDisplay,
   type ClientSubscriptionRowLite,
 } from '../lib/subscriberAppointmentFlags';
-import { CANCELLATION_SOURCE, describeCancellationSourcePt } from '../utils/appointmentCancellationMeta';
+import { CANCELLATION_SOURCE, describeCancellationSourcePt, updateAppointmentCancelledWithSource } from '../utils/appointmentCancellationMeta';
 import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
 import {
   buildExclusiveProfessionalBookingLink,
@@ -271,8 +271,8 @@ interface AllProfessionalsAppointmentsViewProps {
   professionals: Professional[];
   appointments: Appointment[];
   monthlyAppointments: Appointment[];
-  /** WhatsApps (normalizados, sem DDI 55) de clientes com apenas 1 agendamento no histórico. */
-  firstTimeClientWhatsapps?: Set<string>;
+  /** Telefones normalizados de clientes recorrentes (≥1 concluído). null = ainda carregando. */
+  returningClientPhones?: Set<string> | null;
   selectedDate: Date;
   professionalPins?: ProfessionalPin[];
   businessHours: {
@@ -361,7 +361,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   professionals,
   appointments,
   monthlyAppointments,
-  firstTimeClientWhatsapps,
+  returningClientPhones,
   selectedDate,
   professionalPins = [],
   businessHours,
@@ -1615,41 +1615,120 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const handleRescheduleAppointment = async (appointmentId: string, newDate: string, newTime: string) => {
+      const isTransientError = (err: any) => {
+        const msg = String(err?.message || '').toLowerCase();
+        return (
+          msg.includes('failed to fetch') ||
+          msg.includes('network') ||
+          msg.includes('service unavailable') ||
+          msg.includes('insufficient resources') ||
+          String(err?.status || '') === '503'
+        );
+      };
+
       try {
         const appointment = appointments.find((apt) => String(apt.id) === String(appointmentId));
-        const oldDate = String(appointment?.appointment_date || '').slice(0, 10);
-        const oldTime = String(appointment?.appointment_time || '');
+        if (!appointment) {
+          toast.error('Agendamento não encontrado.');
+          return;
+        }
+        const oldDate = String(appointment.appointment_date || '').slice(0, 10);
+        const oldTime = String(appointment.appointment_time || '');
 
-        const { error } = await supabase
-          .from('appointments')
-          .update({
-            appointment_date: newDate,
-            appointment_time: newTime,
-          } as any)
-          .eq('id', appointmentId);
+        // 1. Cancela o agendamento anterior — o scheduler WhatsApp envia notificação de cancelamento ao cliente.
+        const tryCancel = async () => {
+          const { error } = await updateAppointmentCancelledWithSource(
+            supabase,
+            { id: appointmentId },
+            {
+              cancellation_source: CANCELLATION_SOURCE.ESTABLISHMENT_STAFF,
+              cancellation_detail: 'Horário alterado pelo painel do estabelecimento.',
+            }
+          );
+          if (error) throw error;
+        };
+        try {
+          await tryCancel();
+        } catch (firstError: any) {
+          if (!isTransientError(firstError)) throw firstError;
+          await new Promise((resolve) => setTimeout(resolve, 450));
+          await tryCancel();
+        }
 
-        if (error) throw error;
+        // 2. Cria novo agendamento — cópia exata com novo horário/data.
+        //    created_at = NOW() automático: scheduler detecta como novo e agenda lembrete WhatsApp no horário correto.
+        const establishmentId = String(establishment?.id || '').trim();
+        const newPayload: Record<string, unknown> = {
+          client_id: appointment.client_id,
+          establishment_id: establishmentId,
+          professional: appointment.professional,
+          service: appointment.service,
+          client_name: appointment.client_name,
+          client_whatsapp: appointment.client_whatsapp || null,
+          appointment_date: newDate,
+          appointment_time: newTime,
+          status: 'pending',
+          price: appointment.price,
+          duration: appointment.duration,
+          payment_method: appointment.payment_method || 'dinheiro',
+          is_subscriber: appointment.is_subscriber ?? false,
+          is_avulso: appointment.is_avulso ?? false,
+          is_squeeze: appointment.is_squeeze ?? false,
+          is_establishment_booking: appointment.is_establishment_booking ?? true,
+          observation: appointment.observation || null,
+        };
+        if (appointment.professional_id) newPayload.professional_id = appointment.professional_id;
+        if (appointment.subscription_id) newPayload.subscription_id = appointment.subscription_id;
+        if ((appointment as any).subscriber_service_id) newPayload.subscriber_service_id = (appointment as any).subscriber_service_id;
+        if ((appointment as any).subscriber_service_name) newPayload.subscriber_service_name = (appointment as any).subscriber_service_name;
 
-        const eventType = oldDate && newDate && oldDate !== newDate ? 'date_changed' : 'rescheduled';
-        await writeAppointmentChangeLog({
-          appointmentId,
-          eventType,
-          description: eventType === 'date_changed' ? 'Data do agendamento alterada.' : 'Horário do agendamento alterado.',
-          oldValues: {
-            appointment_date: oldDate || null,
-            appointment_time: oldTime || null,
-          },
-          newValues: {
-            appointment_date: newDate,
-            appointment_time: newTime,
-          },
-        });
+        const tryInsert = async (payload: Record<string, unknown>) =>
+          supabase.from('appointments').insert(payload).select('id').single();
+
+        let insertResult = await tryInsert(newPayload);
+        if (insertResult.error) {
+          const errMsg = String((insertResult.error as any)?.message || '').toLowerCase();
+          const isMissingCol =
+            errMsg.includes('schema cache') ||
+            errMsg.includes('could not find the') ||
+            (errMsg.includes('column') && errMsg.includes('does not exist'));
+          if (isMissingCol) {
+            const fallback = { ...newPayload };
+            delete fallback.professional_id;
+            delete fallback.subscriber_service_id;
+            delete fallback.subscriber_service_name;
+            insertResult = await tryInsert(fallback);
+          }
+        }
+
+        if (insertResult.error) throw insertResult.error;
+        const newApt = insertResult.data;
+
+        const newAppointmentId = String(newApt?.id || '');
+        const eventType = oldDate !== newDate ? 'date_changed' : 'rescheduled';
+        if (newAppointmentId) {
+          await writeAppointmentChangeLog({
+            appointmentId: newAppointmentId,
+            eventType,
+            description: `Agendamento remarcado de ${oldDate} às ${oldTime}.`,
+            oldValues: {
+              appointment_date: oldDate || null,
+              appointment_time: oldTime || null,
+              original_appointment_id: appointmentId,
+            },
+            newValues: {
+              appointment_date: newDate,
+              appointment_time: newTime,
+            },
+          });
+        }
 
         toast.success('Horário alterado com sucesso!');
         if (onAppointmentUpdate) onAppointmentUpdate();
-      } catch (e) {
+      } catch (e: any) {
         console.error('❌ Erro ao trocar horário:', e);
-        toast.error('Erro ao trocar horário. Tente novamente.');
+        const detailed = [e?.message, e?.details, e?.hint].filter(Boolean).join(' | ');
+        toast.error(detailed || 'Erro ao trocar horário. Tente novamente.');
         throw e;
       }
     };
@@ -7326,13 +7405,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                       </div>
                                       {renderAppointmentClientNameRow(apt, serviceLabels, { variant: 'compact' })}
                                       {(() => {
-                                        if (!firstTimeClientWhatsapps || apt.status === 'cancelled') return null;
-                                        const digits = String(apt.client_whatsapp || '').replace(/\D/g, '');
-                                        const normalized =
-                                          digits.startsWith('55') && (digits.length === 12 || digits.length === 13)
-                                            ? digits.slice(2)
-                                            : digits;
-                                        if (!normalized || !firstTimeClientWhatsapps.has(normalized)) return null;
+                                        if (!returningClientPhones) return null; // ainda carregando
+                                        if (apt.status === 'cancelled') return null;
+                                        if (isAgendaSubscriberAppointment(apt)) return null;
+                                        let phone = String(apt.client_whatsapp || '').replace(/\D/g, '');
+                                        if (!phone) return null;
+                                        while (phone.startsWith('55') && phone.length > 11) phone = phone.slice(2);
+                                        if (returningClientPhones.has(phone) || returningClientPhones.has('55' + phone)) return null;
                                         return (
                                           <div className="mb-1">
                                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-500 text-white">

@@ -158,7 +158,7 @@ export function RescheduleAppointmentModal({
     };
 
     run();
-  }, [isOpen, appointment, selectedDate, establishment.id, toast]);
+  }, [isOpen, appointment, selectedDate, establishment.id]); // toast excluído intencionalmente — referência muda a cada render e causaria loop infinito
 
   const handleClose = () => {
     if (isSaving) return;

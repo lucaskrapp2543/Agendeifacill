@@ -287,7 +287,10 @@ export function TimeSlotSelector({
     // Histórico do sistema: por muito tempo o modal de bloqueio gerava horários de 15min fixos,
     // mesmo quando o estabelecimento usava grade de 20/30min. Para não "quebrar" bloqueios antigos,
     // detectamos se os horários bloqueados estão alinhados com a grade atual. Se não estiverem, assumimos 15min.
+    // Grid-aligned: usado para range-check (evita over-blocking com dados legados de 15min).
     const activeProfessionalBlockedHours = filterTimesAlignedToScheduleGrid(professionalBlockedHours || [], interval);
+    // Todos os bloqueios (incluindo off-grid): usado só para exact-match de slots gerados por "tempo fechado" desativado.
+    const allBlockedHoursSet = new Set((professionalBlockedHours || []).map(String));
     const blockedSlotDuration = interval;
 
     // Quando "tempo fechado" está DESMARCADO, libera próximo slot no horário exato de término
@@ -362,13 +365,13 @@ export function TimeSlotSelector({
         //    - Serviço que começa durante horário bloqueado
         //    - Serviço que engloba completamente horário bloqueado
         // ============================================================
-        if (activeProfessionalBlockedHours.length > 0) {
-          // Verificar se o INÍCIO do serviço está em um horário bloqueado
-          if (activeProfessionalBlockedHours.includes(timeString)) {
+        if (activeProfessionalBlockedHours.length > 0 || allBlockedHoursSet.size > 0) {
+          // Exact-match usa o set completo — captura slots off-grid (ex: 17:30 com grade de 1h e "tempo fechado" desativado)
+          if (allBlockedHoursSet.has(timeString)) {
             isAvailable = false;
             conflictReason = 'Horário Fechado';
           } else {
-            // Verificar se o serviço (considerando sua duração) ultrapassa ou conflita com algum horário bloqueado
+            // Range-check usa só os alinhados à grade — evita over-blocking com dados legados de 15min
             for (const blockedTime of activeProfessionalBlockedHours) {
               const blockedStartMinutes = timeToMinutes(blockedTime);
               // Duração do bloco: compatível com a grade atual (20/30) e com bloqueios legados (15)
@@ -530,13 +533,13 @@ export function TimeSlotSelector({
         //    - Serviço que começa durante horário bloqueado
         //    - Serviço que engloba completamente horário bloqueado
         // ============================================================
-        if (activeProfessionalBlockedHours.length > 0) {
-          // Verificar se o INÍCIO do serviço está em um horário bloqueado
-          if (activeProfessionalBlockedHours.includes(timeString)) {
+        if (activeProfessionalBlockedHours.length > 0 || allBlockedHoursSet.size > 0) {
+          // Exact-match usa o set completo — captura slots off-grid (ex: 17:30 com grade de 1h e "tempo fechado" desativado)
+          if (allBlockedHoursSet.has(timeString)) {
             isAvailable = false;
             conflictReason = 'Horário Fechado';
           } else {
-            // Verificar se o serviço (considerando sua duração) ultrapassa ou conflita com algum horário bloqueado
+            // Range-check usa só os alinhados à grade — evita over-blocking com dados legados de 15min
             for (const blockedTime of activeProfessionalBlockedHours) {
               const blockedStartMinutes = timeToMinutes(blockedTime);
               // Duração do bloco: compatível com a grade atual (20/30) e com bloqueios legados (15)

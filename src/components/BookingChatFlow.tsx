@@ -729,8 +729,8 @@ export function BookingChatFlow({
     [establishment?.use_15_minute_interval, establishment?.use_20_minute_schedule, establishment?.use_60_minute_schedule]
   );
   const professionalBlockedHours = useMemo(
-    () => filterTimesAlignedToScheduleGrid((selectedProfessional as any)?.blocked_hours?.[selectedDateKey] || [], scheduleIntervalMinutes),
-    [scheduleIntervalMinutes, selectedProfessional, selectedDateKey]
+    () => ((selectedProfessional as any)?.blocked_hours?.[selectedDateKey] || []) as string[],
+    [selectedProfessional, selectedDateKey]
   );
   const professionalAbsences = useMemo(
     () => (((selectedProfessional as any)?.absences || []) as string[]),

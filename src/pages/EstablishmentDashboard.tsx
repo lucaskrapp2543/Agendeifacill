@@ -5974,12 +5974,16 @@ const EstablishmentDashboard = () => {
       setProductSalesData(prev => ({ ...prev, [productId]: sales }));
     }
 
-    // Buscar vendas avulsas individuais (com ID para permitir estorno)
+    // Buscar vendas avulsas individuais do mês selecionado (com ID para permitir estorno)
+    const avulsoStart = startOfMonth(selectedProductsMonth);
+    const avulsoEnd = endOfMonth(selectedProductsMonth);
     const { data: avulso } = await supabase
       .from('product_sales')
       .select('id, quantity, unit_price, professional_name, sold_at')
       .eq('establishment_id', establishment?.id)
       .eq('product_id', productId)
+      .gte('sold_at', avulsoStart.toISOString())
+      .lte('sold_at', avulsoEnd.toISOString())
       .order('sold_at', { ascending: false });
     setProductAvulsoSales(prev => ({ ...prev, [productId]: avulso || [] }));
   };
@@ -7674,10 +7678,14 @@ const EstablishmentDashboard = () => {
       });
 
       // 5. Filtrar appointments do período selecionado
-      const periodAppointments = filteredAppointments?.filter(apt => {
-        const aptDate = new Date(apt.appointment_date);
-        return aptDate >= start && aptDate <= end;
-      }) || [];
+      // Comparação por string evita bug de fuso horário: new Date('2026-07-01') = meia-noite UTC,
+      // mas startOfMonth() retorna meia-noite local → no Brasil (UTC-3) o dia 1 cai "antes" do mês.
+      const startStr = format(start, 'yyyy-MM-dd');
+      const endStr = format(end, 'yyyy-MM-dd');
+      const periodAppointments = (filteredAppointments || []).filter(apt => {
+        const aptDate = String(apt.appointment_date || '').slice(0, 10);
+        return aptDate >= startStr && aptDate <= endStr;
+      });
 
       // 6. Processar vendas reais do período
       const periodAppointmentIds = new Set(periodAppointments.map(apt => apt.id));
@@ -7970,6 +7978,8 @@ const EstablishmentDashboard = () => {
       setShowProductDiscountModal(false);
       fetchProducts();
       fetchAppointments();
+      // Invalidar cache de vendas para que "Vendas por Funcionário" re-busque com o produto recém-adicionado
+      setProductSalesData(prev => { const next = { ...prev }; delete next[product.id]; return next; });
       const discountValue = Math.max(0, basePrice - unitPrice);
       if (discountValue > 0) {
         toast(`Produto "${product.name}" adicionado com desconto de ${formatCurrency(discountValue)}!`, 'success');
@@ -15505,6 +15515,13 @@ Estamos te aguardando!`;
     }
   }, [establishment, activeTab]);
 
+  // Carrega clients na abertura do dashboard para popular returningClientPhones
+  // (tag PRIMEIRO AGENDAMENTO na agenda) sem precisar abrir aba "Meus Clientes".
+  useEffect(() => {
+    if (!establishment?.id) return;
+    fetchClients();
+  }, [establishment?.id]);
+
   // Listener para recarregar clientes E AGENDAMENTOS quando um agendamento for criado
   useEffect(() => {
     const handleClientAppointmentCreated = () => {
@@ -19463,62 +19480,45 @@ Estamos te aguardando!`;
     return output;
   }, [dormantClientsByProfessional, dormantClientsByProfessionalFromMissingClients]);
 
-  // Contagem de agendamentos por WhatsApp (normalizado) — busca leve e independente da
-  // aba "Meus Clientes" (que só carrega sob demanda). Usada para destacar "Primeiro
-  // Agendamento" em Meus Agendamentos, em qualquer aba.
-  const [clientPhoneAppointmentCounts, setClientPhoneAppointmentCounts] = useState<Map<string, number>>(new Map());
-
-  const normalizePhoneForFirstTimeCheck = useCallback((raw: unknown): string => {
-    const digits = String(raw || '').replace(/\D/g, '');
-    if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) return digits.slice(2);
-    return digits;
-  }, []);
-
-  const fetchClientPhoneAppointmentCounts = useCallback(async () => {
-    if (!establishment?.id) return;
-    try {
-      const { data, error } = await supabase
-        .from('appointments')
-        .select('client_whatsapp')
-        .eq('establishment_id', establishment.id)
-        .not('client_whatsapp', 'is', null);
-      if (error) throw error;
-      const counts = new Map<string, number>();
-      (data || []).forEach((row: any) => {
-        const key = normalizePhoneForFirstTimeCheck(row?.client_whatsapp);
-        if (!key) return;
-        counts.set(key, (counts.get(key) || 0) + 1);
-      });
-      setClientPhoneAppointmentCounts(counts);
-    } catch (error) {
-      console.warn('⚠️ Falha ao carregar contagem de agendamentos por WhatsApp:', error);
-    }
-  }, [establishment?.id, normalizePhoneForFirstTimeCheck]);
-
-  useEffect(() => {
-    if (!establishment?.id) return;
-    void fetchClientPhoneAppointmentCounts();
-    const interval = window.setInterval(() => {
-      void fetchClientPhoneAppointmentCounts();
-    }, 45000);
-    return () => window.clearInterval(interval);
-  }, [establishment?.id, fetchClientPhoneAppointmentCounts]);
-
-  useEffect(() => {
-    const handleClientAppointmentCreated = () => {
-      void fetchClientPhoneAppointmentCounts();
-    };
-    window.addEventListener('clientAppointmentCreated', handleClientAppointmentCreated);
-    return () => window.removeEventListener('clientAppointmentCreated', handleClientAppointmentCreated);
-  }, [fetchClientPhoneAppointmentCounts]);
-
-  const firstTimeClientWhatsapps = useMemo(() => {
+  // Telefones de clientes retornantes (≥1 agendamento concluído).
+  // Combina duas fontes para cobrir histórico E atualizações em tempo real:
+  // 1. `clients` — histórico completo, carregado via fetchClients (pode estar defasado)
+  // 2. `appointments` + `monthlyAppointments` — agendamentos já carregados, atualizados
+  //    automaticamente sempre que o status muda (concluir/cancelar/etc.)
+  // null = nenhuma fonte disponível ainda → nenhuma tag aparece.
+  const returningClientPhones = useMemo((): Set<string> | null => {
     const set = new Set<string>();
-    clientPhoneAppointmentCounts.forEach((count, phone) => {
-      if (count <= 1) set.add(phone);
-    });
-    return set;
-  }, [clientPhoneAppointmentCounts]);
+    let hasAnySource = false;
+
+    const addPhone = (raw: string) => {
+      let d = String(raw || '').replace(/\D/g, '');
+      if (!d) return;
+      while (d.startsWith('55') && d.length > 11) d = d.slice(2);
+      set.add(d);
+      set.add('55' + d);
+    };
+
+    // Fonte 1: clients (histórico completo)
+    if (clients && clients.length > 0) {
+      hasAnySource = true;
+      clients.forEach((c) => {
+        if ((c.completedCount ?? 0) > 0) addPhone(String(c.whatsapp || ''));
+      });
+    }
+
+    // Fonte 2: agendamentos já carregados com status completed (reativo a mudanças imediatas)
+    const allLoaded = [...appointments, ...monthlyAppointments];
+    if (allLoaded.length > 0) {
+      hasAnySource = true;
+      allLoaded.forEach((apt) => {
+        if (String((apt as any).status || '') === 'completed') {
+          addPhone(String((apt as any).client_whatsapp || ''));
+        }
+      });
+    }
+
+    return hasAnySource ? set : null;
+  }, [clients, appointments, monthlyAppointments]);
 
   // Função para remover cliente da lista de sumidos
   const removeFromMissingList = (clientWhatsapp: string) => {
@@ -20070,46 +20070,105 @@ Estamos te aguardando!`;
       );
     };
 
-    const updatePayload = {
-      appointment_date: newDate,
-      appointment_time: newTime,
-    } as any;
-
-    const tryUpdate = async () => {
-      const { error } = await supabase
-        .from('appointments')
-        .update(updatePayload)
-        .eq('id', appointmentId);
-      if (error) throw error;
-    };
-
     try {
       const appointment = appointments.find((apt) => String(apt.id) === String(appointmentId));
-      const oldDate = String(appointment?.appointment_date || '').slice(0, 10);
-      const oldTime = String(appointment?.appointment_time || '');
+      if (!appointment) {
+        toast('Agendamento não encontrado', 'error');
+        return;
+      }
+      const oldDate = String(appointment.appointment_date || '').slice(0, 10);
+      const oldTime = String(appointment.appointment_time || '');
 
+      // 1. Cancela o agendamento anterior com source 'establishment_staff'
+      //    O scheduler WhatsApp detecta o status 'cancelled' e envia notificação ao cliente sobre o horário antigo.
+      const tryCancel = async () => {
+        const { error } = await updateAppointmentCancelledWithSource(
+          supabase,
+          { id: appointmentId },
+          {
+            cancellation_source: CANCELLATION_SOURCE.ESTABLISHMENT_STAFF,
+            cancellation_detail: 'Horário alterado pelo painel do estabelecimento.',
+          }
+        );
+        if (error) throw error;
+      };
       try {
-        await tryUpdate();
+        await tryCancel();
       } catch (firstError: any) {
         if (!isTransientError(firstError)) throw firstError;
         await new Promise((resolve) => setTimeout(resolve, 450));
-        await tryUpdate();
+        await tryCancel();
       }
 
-      const eventType = oldDate && newDate && oldDate !== newDate ? 'date_changed' : 'rescheduled';
-      await writeAppointmentChangeLog({
-        appointmentId,
-        eventType,
-        description: eventType === 'date_changed' ? 'Data do agendamento alterada.' : 'Horário do agendamento alterado.',
-        oldValues: {
-          appointment_date: oldDate || null,
-          appointment_time: oldTime || null,
-        },
-        newValues: {
-          appointment_date: newDate,
-          appointment_time: newTime,
-        },
-      });
+      // 2. Cria novo agendamento — cópia exata com novo horário/data.
+      //    created_at = NOW() automático: o scheduler detecta como agendamento novo e
+      //    programa o lembrete WhatsApp no horário correto (sem conflito com o antigo).
+      const newPayload: Record<string, unknown> = {
+        client_id: appointment.client_id,
+        establishment_id: appointment.establishment_id,
+        professional: appointment.professional,
+        service: appointment.service,
+        client_name: appointment.client_name,
+        client_whatsapp: appointment.client_whatsapp || null,
+        appointment_date: newDate,
+        appointment_time: newTime,
+        status: 'pending',
+        price: appointment.price,
+        duration: appointment.duration,
+        payment_method: appointment.payment_method || 'dinheiro',
+        is_subscriber: appointment.is_subscriber ?? false,
+        is_avulso: (appointment as any).is_avulso ?? false,
+        is_squeeze: (appointment as any).is_squeeze ?? false,
+        is_establishment_booking: (appointment as any).is_establishment_booking ?? true,
+        observation: appointment.observation || null,
+      };
+      if (appointment.professional_id) newPayload.professional_id = appointment.professional_id;
+      if (appointment.subscription_id) newPayload.subscription_id = appointment.subscription_id;
+      if (appointment.subscriber_service_id) newPayload.subscriber_service_id = appointment.subscriber_service_id;
+      if (appointment.subscriber_service_name) newPayload.subscriber_service_name = appointment.subscriber_service_name;
+
+      const tryInsert = async (payload: Record<string, unknown>) =>
+        supabase.from('appointments').insert(payload).select('id').single();
+
+      let insertResult = await tryInsert(newPayload);
+      if (insertResult.error) {
+        const errMsg = String((insertResult.error as any)?.message || '').toLowerCase();
+        const isMissingCol =
+          errMsg.includes('schema cache') ||
+          errMsg.includes('could not find the') ||
+          (errMsg.includes('column') && errMsg.includes('does not exist'));
+        if (isMissingCol) {
+          const fallback = { ...newPayload };
+          delete fallback.professional_id;
+          delete fallback.subscriber_service_id;
+          delete fallback.subscriber_service_name;
+          insertResult = await tryInsert(fallback);
+        }
+      }
+
+      if (insertResult.error) throw insertResult.error;
+      const newApt = insertResult.data;
+
+      const newAppointmentId = String(newApt?.id || '');
+
+      // 3. Log de auditoria no novo agendamento
+      const eventType = oldDate !== newDate ? 'date_changed' : 'rescheduled';
+      if (newAppointmentId) {
+        await writeAppointmentChangeLog({
+          appointmentId: newAppointmentId,
+          eventType,
+          description: `Agendamento remarcado de ${oldDate} às ${oldTime}.`,
+          oldValues: {
+            appointment_date: oldDate || null,
+            appointment_time: oldTime || null,
+            original_appointment_id: appointmentId,
+          },
+          newValues: {
+            appointment_date: newDate,
+            appointment_time: newTime,
+          },
+        });
+      }
 
       toast('Horário alterado com sucesso!', 'success');
 
@@ -28157,7 +28216,7 @@ Estamos te aguardando!`;
                       professionals={professionals || []}
                       appointments={appointments}
                       monthlyAppointments={monthlyAppointments}
-                      firstTimeClientWhatsapps={firstTimeClientWhatsapps}
+                      returningClientPhones={returningClientPhones}
                       establishmentProducts={products}
                       selectedDate={selectedDate}
                       professionalPins={establishment?.professionals_pins || []}
@@ -37109,7 +37168,11 @@ Estamos te aguardando!`;
                                 </p>
                                 <p className="text-gray-700 flex items-center gap-2 mb-1">
                                   <span className="text-gray-600">✅</span>
-                                  Realizados: {Number(client.completedCount || 0)}
+                                  {Number(client.completedCount || 0) === 0 ? (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-500 text-white">🆕 PRIMEIRO AGENDAMENTO</span>
+                                  ) : (
+                                    <>Realizados: {Number(client.completedCount || 0)}</>
+                                  )}
                                 </p>
                                 {client.isSubscriber && (
                                   <p className="text-gray-700 flex items-center gap-2 mb-1">
