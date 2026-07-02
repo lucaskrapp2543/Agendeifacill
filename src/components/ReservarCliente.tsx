@@ -596,7 +596,7 @@ export default function ReservarCliente({
     while (true) {
       const { data, error } = await supabase
         .from('appointments')
-        .select('client_id, client_name, client_whatsapp, is_avulso')
+        .select('client_id, client_name, client_whatsapp, is_avulso, status')
         .eq('establishment_id', establishmentId)
         .not('client_name', 'is', null)
         .not('client_whatsapp', 'is', null)
@@ -638,7 +638,9 @@ export default function ReservarCliente({
       }
 
       const client = clientsMap.get(keyWhatsapp)!;
-      client.appointmentCount = (client.appointmentCount || 0) + 1;
+      if (String((appointment as any)?.status || '').toLowerCase() === 'completed') {
+        client.appointmentCount = (client.appointmentCount || 0) + 1;
+      }
     });
   };
 

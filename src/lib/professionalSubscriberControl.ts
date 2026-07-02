@@ -22,6 +22,7 @@ export type ProfessionalControlGroupData = {
   professionalId: string | null;
   totalValue: number;
   attendanceTotalValue: number;
+  attendanceRecords: Array<{ attendance_date: string; repassValue: number }>;
   pointsFromAttendances: number;
   attendanceCount: number;
   uniqueClientIds: Set<string>;
@@ -530,6 +531,7 @@ export function buildProfessionalControlGroups(params: {
         professionalId: group.professionalId,
         totalValue: 0,
         attendanceTotalValue: 0,
+        attendanceRecords: [],
         pointsFromAttendances: 0,
         attendanceCount: 0,
         uniqueClientIds: new Set<string>(),
@@ -539,6 +541,10 @@ export function buildProfessionalControlGroups(params: {
     const repassForAttendance = getAttendanceEffectiveRepass(attendance);
     acc[groupKey].totalValue += repassForAttendance;
     acc[groupKey].attendanceTotalValue += repassForAttendance;
+    acc[groupKey].attendanceRecords.push({
+      attendance_date: String(attendance.attendance_date || ''),
+      repassValue: repassForAttendance,
+    });
     acc[groupKey].attendanceCount += 1;
 
     const clientSubId = String(attendance.client_subscription_id || '').trim();
@@ -561,6 +567,7 @@ export function buildProfessionalControlGroups(params: {
         professionalId: group.professionalId,
         totalValue: 0,
         attendanceTotalValue: 0,
+        attendanceRecords: [],
         pointsFromAttendances: 0,
         attendanceCount: 0,
         uniqueClientIds: new Set<string>(),
@@ -629,21 +636,36 @@ export function resolveProfessionalControlGroupMetrics(params: {
       params.deletedProfessionals
     );
 
-  const totalPaid = params.professionalPayments
-    .filter((p) => {
-      if (p.payment_source !== 'subscription') return false;
-      const paymentGroup = getProfessionalGroupFromAttendance({
-        professional_id: p.professional_id,
-        professional_name: p.professional_name,
-      });
-      return paymentGroup.groupKey === params.group.groupKey;
-    })
-    .reduce((sum, p) => sum + (Number(p.amount || 0) || 0), 0);
+  const groupPayments = params.professionalPayments.filter((p) => {
+    if (p.payment_source !== 'subscription') return false;
+    const paymentGroup = getProfessionalGroupFromAttendance({
+      professional_id: p.professional_id,
+      professional_name: p.professional_name,
+    });
+    return paymentGroup.groupKey === params.group.groupKey;
+  });
+
+  const totalPaid = groupPayments.reduce((sum, p) => sum + (Number(p.amount || 0) || 0), 0);
 
   const liquidValue = params.group.attendanceTotalValue ?? params.group.totalValue;
-  const pendingValue = params.isOwnerProfessional
-    ? 0
-    : Math.max(0, liquidValue - totalPaid);
+
+  // Pendente = atendimentos APÓS a data do último pagamento
+  let pendingValue: number;
+  if (params.isOwnerProfessional) {
+    pendingValue = 0;
+  } else if (groupPayments.length === 0) {
+    pendingValue = liquidValue;
+  } else {
+    const lastPaymentDate = groupPayments
+      .map((p) => String(p.payment_date || '').substring(0, 10))
+      .filter(Boolean)
+      .sort()
+      .at(-1) ?? '';
+
+    pendingValue = (params.group.attendanceRecords || [])
+      .filter((r) => String(r.attendance_date || '').substring(0, 10) > lastPaymentDate)
+      .reduce((sum, r) => sum + r.repassValue, 0);
+  }
   const averageTicket =
     params.group.attendanceCount > 0 && liquidValue > 0
       ? liquidValue / params.group.attendanceCount

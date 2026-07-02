@@ -47,6 +47,7 @@ interface TimeSlotSelectorProps {
   use60MinuteSchedule?: boolean; // Nova prop para horários de 1 em 1 hora
   closedTimeEnabled?: boolean; // Se true, mantém grade fechada (não libera fim fora do grid)
   filterPastTimes?: boolean; // Nova prop para filtrar horários passados
+  hidePastSlots?: boolean; // Se true, oculta completamente os slots passados (não mostra como disabled)
   minimumAdvanceMinutes?: number; // Antecedência mínima para booking público
   selectedProfessional?: string; // Profissional selecionado
   professionalAbsences?: string[]; // Dias de ausência do profissional
@@ -79,6 +80,7 @@ export function TimeSlotSelector({
   use60MinuteSchedule = false, // Valor padrão false (horários de 1 em 1 hora)
   closedTimeEnabled = false,
   filterPastTimes = false, // Valor padrão false (não filtrar horários passados)
+  hidePastSlots = false,
   minimumAdvanceMinutes = 0,
   selectedProfessional,
   professionalAbsences = [],
@@ -648,7 +650,9 @@ export function TimeSlotSelector({
   const timeSlots = generateTimeSlots();
   const visibleTimeSlots = hideIntervalSlots
     ? timeSlots.filter((slot) => slot.isAvailable)
-    : timeSlots;
+    : hidePastSlots
+      ? timeSlots.filter((slot) => slot.reason !== 'Horário já passou' && slot.reason !== 'Antecedência mínima')
+      : timeSlots;
 
   useEffect(() => {
     if (!onVisibleSlotsChange) return;

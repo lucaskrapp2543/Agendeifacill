@@ -444,12 +444,6 @@ export const SqueezeServicePickerModal: React.FC<SqueezeServicePickerModalProps>
       [
         { id: 'favorites', label: 'Favoritos', icon: <Flame className="w-3.5 h-3.5" />, count: tabCounts.favorites },
         { id: 'services', label: 'Serviços', icon: <Scissors className="w-3.5 h-3.5" />, count: tabCounts.services },
-        {
-          id: 'subscriptions',
-          label: 'Assinaturas',
-          icon: <Star className="w-3.5 h-3.5" />,
-          count: tabCounts.subscriptions,
-        },
       ];
 
     const renderEmpty = (message: string) => (
@@ -485,7 +479,7 @@ export const SqueezeServicePickerModal: React.FC<SqueezeServicePickerModalProps>
       }
 
       if (hasSearch) {
-        const total = filteredServices.length + filteredSubscriptions.length;
+        const total = filteredServices.length;
         if (total === 0) {
           return renderEmpty(`Nenhum resultado para "${searchQuery}"`);
         }
@@ -509,16 +503,6 @@ export const SqueezeServicePickerModal: React.FC<SqueezeServicePickerModalProps>
                 <div className="space-y-2">
                   {filteredServices.map((item) => (
                     <ServiceCard key={item.id} item={item} onSelect={handleSelect} variant="service" />
-                  ))}
-                </div>
-              </section>
-            )}
-            {filteredSubscriptions.length > 0 && (
-              <section>
-                <h4 className="text-xs font-bold text-amber-300 mb-2 uppercase tracking-wide">⭐ Assinaturas</h4>
-                <div className="space-y-2">
-                  {filteredSubscriptions.map((item) => (
-                    <ServiceCard key={item.id} item={item} onSelect={handleSelect} variant="subscription" />
                   ))}
                 </div>
               </section>
@@ -673,8 +657,8 @@ export const SqueezeServicePickerModal: React.FC<SqueezeServicePickerModalProps>
 
             {hasSearch && (
               <p className="text-[11px] text-gray-500 mt-2">
-                Buscando em serviços e assinaturas • {tabCounts.services + tabCounts.subscriptions} resultado
-                {tabCounts.services + tabCounts.subscriptions === 1 ? '' : 's'}
+                Buscando em serviços • {tabCounts.services} resultado
+                {tabCounts.services === 1 ? '' : 's'}
               </p>
             )}
           </div>

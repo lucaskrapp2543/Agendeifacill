@@ -5257,22 +5257,36 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 }).sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
                 const exclusiveSubscribers = exclusiveSubscribersByGroupKey.get(groupKey) || [];
 
-                const totalPaid = professionalPayments
-                  .filter((p) => {
-                    if (p.payment_source !== 'subscription') return false;
-                    const paymentGroup = resolveSubscriberAttendanceProfessionalGroup(
-                      {
-                        professional_id: p.professional_id,
-                        professional_name: p.professional_name,
-                      },
-                      establishmentProfessionalsForGrouping,
-                      deletedProfessionalsForGrouping
-                    );
-                    return paymentGroup.groupKey === groupKey;
-                  })
-                  .reduce((sum, p) => sum + (p.amount || 0), 0);
+                const groupPayments = professionalPayments.filter((p) => {
+                  if (p.payment_source !== 'subscription') return false;
+                  const paymentGroup = resolveSubscriberAttendanceProfessionalGroup(
+                    {
+                      professional_id: p.professional_id,
+                      professional_name: p.professional_name,
+                    },
+                    establishmentProfessionalsForGrouping,
+                    deletedProfessionalsForGrouping
+                  );
+                  return paymentGroup.groupKey === groupKey;
+                });
 
-                const pendingValue = isOwnerProfessional ? 0 : Math.max(0, totalValue - totalPaid);
+                const totalPaid = groupPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+                let pendingValue: number;
+                if (isOwnerProfessional) {
+                  pendingValue = 0;
+                } else if (groupPayments.length === 0) {
+                  pendingValue = totalValue;
+                } else {
+                  const lastPaymentDate = groupPayments
+                    .map((p) => String(p.payment_date || '').substring(0, 10))
+                    .filter(Boolean)
+                    .sort()
+                    .at(-1) ?? '';
+                  pendingValue = (groupInfo.attendanceRecords || [])
+                    .filter((r: any) => String(r.attendance_date || '').substring(0, 10) > lastPaymentDate)
+                    .reduce((sum: number, r: any) => sum + r.repassValue, 0);
+                }
                 const averageTicket =
                   attendanceCount > 0 && totalValue > 0 ? totalValue / attendanceCount : 0;
                 const previewClients = clientRowsForList.slice(0, 3);

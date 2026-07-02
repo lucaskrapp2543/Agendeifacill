@@ -271,6 +271,8 @@ interface AllProfessionalsAppointmentsViewProps {
   professionals: Professional[];
   appointments: Appointment[];
   monthlyAppointments: Appointment[];
+  /** WhatsApps (normalizados, sem DDI 55) de clientes com apenas 1 agendamento no histórico. */
+  firstTimeClientWhatsapps?: Set<string>;
   selectedDate: Date;
   professionalPins?: ProfessionalPin[];
   businessHours: {
@@ -359,6 +361,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   professionals,
   appointments,
   monthlyAppointments,
+  firstTimeClientWhatsapps,
   selectedDate,
   professionalPins = [],
   businessHours,
@@ -487,6 +490,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
     );
     const [visibleProfessionalIds, setVisibleProfessionalIds] = useState<string[]>([]);
     const [selectedProfessionalForInfo, setSelectedProfessionalForInfo] = useState<string | null>(null);
+    const [modalViewingMonth, setModalViewingMonth] = useState<Date | null>(null);
+    const [pastMonthPendingForModal, setPastMonthPendingForModal] = useState<number | null>(null);
+    const [pastMonthValidPaidForModal, setPastMonthValidPaidForModal] = useState<number | null>(null);
     const [selectedProfessionalForPhotoModal, setSelectedProfessionalForPhotoModal] = useState<string | null>(null);
     const [isUpdatingProfessionalPhoto, setIsUpdatingProfessionalPhoto] = useState(false);
     const [showColorLegend, setShowColorLegend] = useState<'red' | 'yellow' | 'green' | 'gold' | null>(null);
@@ -4694,9 +4700,18 @@ export const AllProfessionalsAppointmentsView: React.FC<
         return total + (baseAfterTax * effectivePercentage) / 100 + tip;
       }, 0);
 
-      const professionalMonthAppointments = mergedMonthAppointments.filter((apt) =>
-        appointmentBelongsToProfessionalColumn(apt, professionalRef)
-      );
+      const professionalMonthAppointments = mergedMonthAppointments
+        .filter((apt) => appointmentBelongsToProfessionalColumn(apt, professionalRef))
+        .map((apt) => {
+          const status = getAppointmentStatus(apt.status);
+          if (status !== 'completed' || isSubscriberFinancialAppointment(apt)) return { ...apt, _computedNet: 0 };
+          const baseValue = calculateServiceTotal(apt);
+          const cardTaxAmount = getCardTaxAmountForServiceBase(apt, baseValue);
+          const baseAfterTax = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
+          const effectivePct = getEffectiveProfessionalPercentageForAppointment(apt, professional);
+          const tip = getProfessionalTipAmount(apt);
+          return { ...apt, _computedNet: (baseAfterTax * effectivePct) / 100 + tip };
+        });
 
       const serviceInsightsRaw = Array.from(
         monthlyCompletedAppointmentsForPro.reduce((acc, apt) => {
@@ -4848,6 +4863,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         metaBonusPercentage: Number(goalProgress?.bonusPercentage || 0),
         metaGoalReached: Boolean(goalProgress?.goalReached),
         metaServiceCount: Array.isArray(goalProgress?.selectedServiceNames) ? goalProgress.selectedServiceNames.length : 0,
+        metaSelectedServiceNames: Array.isArray(goalProgress?.selectedServiceNames) ? (goalProgress.selectedServiceNames as string[]) : [],
         appointmentsToday: dailyAppointments.length, // Apenas concluídos (igual ao contador verde da agenda)
         appointmentsMonth: monthlyAppointmentsForCount.length, // Contagem: todos não cancelados
         subscriberMonthlyAccumulated: subscriberFinancial.accumulated,
@@ -4864,6 +4880,104 @@ export const AllProfessionalsAppointmentsView: React.FC<
         financialAppointments: professionalMonthAppointments,
       };
     };
+
+    // When the professional info modal navigates to a past month, load that month's
+    // appointments (all establishment, filtered client-side) + payments and compute pending.
+    useEffect(() => {
+      if (!modalViewingMonth || !selectedProfessionalForInfo || !establishment?.id) {
+        setPastMonthPendingForModal(null);
+        return;
+      }
+      const monthKey = `${modalViewingMonth.getFullYear()}-${String(modalViewingMonth.getMonth() + 1).padStart(2, '0')}`;
+      const currentMonthKey = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}`;
+      if (monthKey === currentMonthKey) { setPastMonthPendingForModal(null); return; }
+
+      const professionalRef = professionals.find((p) => p.id === selectedProfessionalForInfo) || { id: selectedProfessionalForInfo, name: '' };
+      const monthStart = `${monthKey}-01`;
+      const lastDay = new Date(modalViewingMonth.getFullYear(), modalViewingMonth.getMonth() + 1, 0).getDate();
+      const monthEnd = `${monthKey}-${String(lastDay).padStart(2, '0')}`;
+      let cancelled = false;
+
+      void (async () => {
+        try {
+          const [aptResult, payResult] = await Promise.all([
+            supabase
+              .from('appointments')
+              .select('id,appointment_date,status,price,total_price,additional_products,professional_tip_amount,payment_method,is_subscriber,subscription_id,professional_id,professional_name,professional,collaborator_id')
+              .eq('establishment_id', establishment.id)
+              .eq('status', 'completed')
+              .gte('appointment_date', monthStart)
+              .lte('appointment_date', monthEnd),
+            supabase
+              .from('professional_payments')
+              .select('id,amount,payment_date,for_month,payment_source')
+              .eq('establishment_id', establishment.id)
+              .eq('professional_id', selectedProfessionalForInfo)
+              .gt('amount', 0),
+          ]);
+          if (cancelled) return;
+
+          const allApts = ((aptResult.data || []) as unknown as Appointment[]);
+          const proApts = allApts.filter((apt) => appointmentBelongsToProfessionalColumn(apt, professionalRef as Professional));
+          const proCompletedApts = proApts.filter((apt) => !isSubscriberAppointmentFromFields(apt as any));
+
+          const netFn = (apt: Appointment): number => {
+            if (String((apt as any)?.payment_method || '').toLowerCase() === 'assinante') return 0;
+            const baseValue = calculateServiceTotal(apt);
+            const cardTaxAmount = getCardTaxAmountForServiceBase(apt, baseValue);
+            const baseAfterTax = establishment?.tax_deducted_by_establishment ? baseValue : Math.max(0, baseValue - cardTaxAmount);
+            const effectivePct = getEffectiveProfessionalPercentageForAppointment(apt, professionalRef as Professional);
+            return (baseAfterTax * effectivePct) / 100 + getProfessionalTipAmount(apt);
+          };
+
+          let cumulative = 0;
+          const timeline = proCompletedApts
+            .map((apt) => ({ net: netFn(apt), dateMs: new Date(String((apt as any).appointment_date || '').slice(0, 10) + 'T00:00:00').getTime() }))
+            .filter((r) => r.net > 0 && Number.isFinite(r.dateMs))
+            .sort((a, b) => a.dateMs - b.dateMs)
+            .map((r) => { cumulative += r.net; return { ...r, cumulative }; });
+
+          const totalNet = cumulative;
+          const getRealizedUntil = (ms: number) => {
+            let realized = 0;
+            for (const row of timeline) { if (row.dateMs <= ms) realized = row.cumulative; else break; }
+            return realized;
+          };
+
+          const monthPayments = ((payResult.data || []) as any[]).filter((p) => {
+            const src = String(p.payment_source || '').toLowerCase();
+            if (src === 'subscription' || src === 'assinatura') return false;
+            const forM = String(p.for_month || '').trim();
+            if (forM) return forM.startsWith(monthKey);
+            const dt = new Date(p.payment_date);
+            return dt.getFullYear() === modalViewingMonth.getFullYear() && dt.getMonth() === modalViewingMonth.getMonth();
+          });
+
+          let validPaid = 0;
+          const EPSILON = 0.009;
+          monthPayments
+            .filter((p) => Number(p.amount) > 0)
+            .sort((a: any, b: any) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime())
+            .forEach((p: any) => {
+              const amt = Number(p.amount);
+              const ms = new Date(String(p.payment_date).slice(0, 10) + 'T00:00:00').getTime();
+              if (!Number.isFinite(ms)) return;
+              const realized = getRealizedUntil(ms);
+              const allowed = Math.max(0, realized - validPaid);
+              if (amt <= allowed + EPSILON) validPaid += amt;
+              else if (allowed > EPSILON) validPaid += allowed;
+            });
+
+          if (!cancelled) {
+            setPastMonthPendingForModal(Math.max(0, totalNet - validPaid));
+            setPastMonthValidPaidForModal(validPaid);
+          }
+        } catch {
+          if (!cancelled) { setPastMonthPendingForModal(null); setPastMonthValidPaidForModal(null); }
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [modalViewingMonth, selectedProfessionalForInfo, establishment?.id, selectedDate]);
 
     const getPaymentMethodLabel = (method: unknown): string => {
       const key = String(method || '').trim();
@@ -6617,6 +6731,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     return;
                   }
                   setSelectedProfessionalForInfo(professional.id);
+                  const prevMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() - 1, 1);
+                  setModalViewingMonth(prevMonth);
+                  setPastMonthPendingForModal(null);
+                  setPastMonthValidPaidForModal(null);
                 };
                 const openAvailabilityModal = () => {
                   if (appointmentsLocked) {
@@ -7207,6 +7325,22 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         </span>
                                       </div>
                                       {renderAppointmentClientNameRow(apt, serviceLabels, { variant: 'compact' })}
+                                      {(() => {
+                                        if (!firstTimeClientWhatsapps || apt.status === 'cancelled') return null;
+                                        const digits = String(apt.client_whatsapp || '').replace(/\D/g, '');
+                                        const normalized =
+                                          digits.startsWith('55') && (digits.length === 12 || digits.length === 13)
+                                            ? digits.slice(2)
+                                            : digits;
+                                        if (!normalized || !firstTimeClientWhatsapps.has(normalized)) return null;
+                                        return (
+                                          <div className="mb-1">
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-500 text-white">
+                                              🆕 PRIMEIRO AGENDAMENTO
+                                            </span>
+                                          </div>
+                                        );
+                                      })()}
                                       <div className="text-white/90 text-xs truncate">
                                         {subscriptionLabelColor && (
                                           <span
@@ -8902,7 +9036,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 });
                 return Array.from(merged.values());
               })()}
-              onClose={() => setSelectedProfessionalForInfo(null)}
+              preComputedPastMonthPending={pastMonthPendingForModal}
+              preComputedPastMonthValidPaid={pastMonthValidPaidForModal}
+              financialDisplayMonth={modalViewingMonth}
+              onViewingMonthChange={(month) => {
+                setModalViewingMonth(month);
+                setPastMonthPendingForModal(null);
+                setPastMonthValidPaidForModal(null);
+              }}
+              onClose={() => {
+                setSelectedProfessionalForInfo(null);
+                setModalViewingMonth(null);
+                setPastMonthPendingForModal(null);
+                setPastMonthValidPaidForModal(null);
+              }}
             />
           )}
 

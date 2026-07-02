@@ -11429,8 +11429,18 @@ const EstablishmentDashboard = () => {
       })
       .filter((service) => service.name.length > 0 && service.price > 0);
 
-    if (sanitizedServices.length === 0) {
-      toast('Adicione ao menos 1 serviço com nome e valor maior que zero.', 'warning');
+    if (sanitizedServices.length === 0 && servicesWithPrices.length === 0) {
+      // Limpar serviços legados do banco
+      try {
+        await supabase
+          .from('establishments')
+          .update({ services_with_prices: [] })
+          .eq('id', establishment.id);
+        setServicesWithPrices([]);
+        toast.success('Serviços legados removidos com sucesso!');
+      } catch (e) {
+        toast.error('Erro ao limpar serviços legados');
+      }
       return;
     }
 
@@ -15520,6 +15530,13 @@ Estamos te aguardando!`;
     }
   }, [activeTab]);
 
+  // Limpar badge de assinantes ao entrar na aba
+  useEffect(() => {
+    if (activeTab === 'subscribers') {
+      setPendingSubscribersCount(0);
+    }
+  }, [activeTab]);
+
   // Funções para gerenciar despesas
   const loadExpenses = useCallback(async () => {
     if (!establishment?.id) return;
@@ -19445,6 +19462,63 @@ Estamos te aguardando!`;
     });
     return output;
   }, [dormantClientsByProfessional, dormantClientsByProfessionalFromMissingClients]);
+
+  // Contagem de agendamentos por WhatsApp (normalizado) — busca leve e independente da
+  // aba "Meus Clientes" (que só carrega sob demanda). Usada para destacar "Primeiro
+  // Agendamento" em Meus Agendamentos, em qualquer aba.
+  const [clientPhoneAppointmentCounts, setClientPhoneAppointmentCounts] = useState<Map<string, number>>(new Map());
+
+  const normalizePhoneForFirstTimeCheck = useCallback((raw: unknown): string => {
+    const digits = String(raw || '').replace(/\D/g, '');
+    if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) return digits.slice(2);
+    return digits;
+  }, []);
+
+  const fetchClientPhoneAppointmentCounts = useCallback(async () => {
+    if (!establishment?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('client_whatsapp')
+        .eq('establishment_id', establishment.id)
+        .not('client_whatsapp', 'is', null);
+      if (error) throw error;
+      const counts = new Map<string, number>();
+      (data || []).forEach((row: any) => {
+        const key = normalizePhoneForFirstTimeCheck(row?.client_whatsapp);
+        if (!key) return;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+      setClientPhoneAppointmentCounts(counts);
+    } catch (error) {
+      console.warn('⚠️ Falha ao carregar contagem de agendamentos por WhatsApp:', error);
+    }
+  }, [establishment?.id, normalizePhoneForFirstTimeCheck]);
+
+  useEffect(() => {
+    if (!establishment?.id) return;
+    void fetchClientPhoneAppointmentCounts();
+    const interval = window.setInterval(() => {
+      void fetchClientPhoneAppointmentCounts();
+    }, 45000);
+    return () => window.clearInterval(interval);
+  }, [establishment?.id, fetchClientPhoneAppointmentCounts]);
+
+  useEffect(() => {
+    const handleClientAppointmentCreated = () => {
+      void fetchClientPhoneAppointmentCounts();
+    };
+    window.addEventListener('clientAppointmentCreated', handleClientAppointmentCreated);
+    return () => window.removeEventListener('clientAppointmentCreated', handleClientAppointmentCreated);
+  }, [fetchClientPhoneAppointmentCounts]);
+
+  const firstTimeClientWhatsapps = useMemo(() => {
+    const set = new Set<string>();
+    clientPhoneAppointmentCounts.forEach((count, phone) => {
+      if (count <= 1) set.add(phone);
+    });
+    return set;
+  }, [clientPhoneAppointmentCounts]);
 
   // Função para remover cliente da lista de sumidos
   const removeFromMissingList = (clientWhatsapp: string) => {
@@ -28083,6 +28157,7 @@ Estamos te aguardando!`;
                       professionals={professionals || []}
                       appointments={appointments}
                       monthlyAppointments={monthlyAppointments}
+                      firstTimeClientWhatsapps={firstTimeClientWhatsapps}
                       establishmentProducts={products}
                       selectedDate={selectedDate}
                       professionalPins={establishment?.professionals_pins || []}
@@ -30597,56 +30672,158 @@ Estamos te aguardando!`;
               )}
 
               {activeTab === 'client-page' && (
-                <div className="space-y-6 w-full">
-                  {/* Seção de Link do Estabelecimento */}
-                  <div className="bg-gradient-to-r from-gray-800 to-black rounded-lg p-4 mb-6 border border-gray-600">
-                    {/* Header */}
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 bg-gray-700 rounded-lg flex items-center justify-center">
+                <div className="space-y-5 w-full">
+                  {/* Header */}
+                  <div className="bg-gradient-to-br from-gray-900 to-black rounded-2xl p-5 border border-gray-700">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center flex-shrink-0">
                         <LinkIcon className="h-5 w-5 text-white" />
                       </div>
-                      <h3 className="text-lg font-semibold text-white">
-                        🌐 Sua Página de Agendamentos
-                      </h3>
+                      <h3 className="text-lg font-bold text-white">🌐 Suas Páginas de Agendamentos</h3>
                     </div>
+                    <p className="text-gray-400 text-sm leading-relaxed">
+                      Você tem <span className="text-white font-semibold">2 páginas de agendamento</span> disponíveis para compartilhar com seus clientes.
+                      Elas são <span className="text-emerald-400 font-semibold">100% conectadas</span> — um agendamento feito em qualquer uma aparece no mesmo painel.
+                    </p>
+                  </div>
 
-                    {/* Link Box - Organizado para mobile */}
-                    <div className="bg-[#1a1b1c] rounded-lg p-4 border border-gray-700 mb-4">
-                      <p className="text-white font-medium text-sm mb-3">Link do Estabelecimento:</p>
+                  {/* Dois cards lado a lado */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-                      {/* Link principal */}
-                      <div className="bg-gray-800 rounded-lg p-3 mb-3">
-                        <code className="text-gray-300 font-mono text-sm block break-all">
-                          agendeifacil.com/booking/{establishment?.code}
-                        </code>
+                    {/* Card Página Completa */}
+                    <div className="bg-[#0d1117] rounded-2xl border border-gray-700 overflow-hidden flex flex-col">
+                      <div className="bg-gradient-to-r from-blue-700 to-blue-900 px-5 py-4">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xl">🚀</span>
+                          <h4 className="text-white font-bold text-base">Página Completa</h4>
+                        </div>
+                        <p className="text-blue-100 text-xs leading-relaxed">
+                          Chat interativo moderno com avaliações, fotos e recursos avançados
+                        </p>
                       </div>
 
-                      {/* Botões organizados */}
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => copyLinkToClipboard()}
-                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-black hover:bg-gray-800 rounded-lg transition-colors"
-                        >
-                          <Copy className="h-4 w-4 text-white" />
-                          <span className="text-white text-sm font-medium">Copiar</span>
-                        </button>
-                        <a
-                          href={`${window.location.origin}/booking/${establishment?.code}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 flex items-center justify-center gap-2 p-3 bg-black hover:bg-gray-800 rounded-lg transition-colors"
-                        >
-                          <LinkIcon className="h-4 w-4 text-white" />
-                          <span className="text-white text-sm font-medium">Abrir</span>
-                        </a>
+                      <div className="p-4 flex flex-col gap-3 flex-1">
+                        <div className="bg-gray-900 rounded-xl p-3 border border-gray-700">
+                          <code className="text-gray-300 font-mono text-xs break-all">
+                            agendeifacil.com/booking/{establishment?.code}
+                          </code>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => copyLinkToClipboard()}
+                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-gray-800 hover:bg-gray-700 rounded-xl transition-colors border border-gray-600"
+                          >
+                            <Copy className="h-4 w-4 text-white" />
+                            <span className="text-white text-sm font-medium">Copiar</span>
+                          </button>
+                          <a
+                            href={`${window.location.origin}/booking/${establishment?.code}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors"
+                          >
+                            <LinkIcon className="h-4 w-4 text-white" />
+                            <span className="text-white text-sm font-medium">Abrir</span>
+                          </a>
+                        </div>
+
+                        <p className="text-gray-500 text-xs text-center">📱 Veja como seus clientes irão agendar com você na prática</p>
+                        <div className="flex justify-center">
+                          <div className="relative rounded-xl overflow-hidden bg-black w-full max-w-[260px]" style={{ aspectRatio: '9/16' }}>
+                            <iframe
+                              className="absolute inset-0 w-full h-full"
+                              src="https://www.youtube.com/embed/09Mw-uDTQpM"
+                              title="Como funciona a página completa de agendamento"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Dica */}
-                    <div className="flex items-start gap-2">
-                      <span className="text-gray-400 text-sm">💡</span>
-                      <p className="text-white text-xs font-medium flex-1">
-                        Compartilhe este link com seus clientes para que possam agendar diretamente com você!
+                    {/* Card Página Simples */}
+                    <div className="bg-[#0d1117] rounded-2xl border border-gray-700 overflow-hidden flex flex-col">
+                      <div className="bg-gradient-to-r from-emerald-700 to-emerald-900 px-5 py-4">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xl">✨</span>
+                          <h4 className="text-white font-bold text-base">Página Simples</h4>
+                          <span className="bg-white/20 text-white text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wide">NOVO</span>
+                        </div>
+                        <p className="text-emerald-100 text-xs leading-relaxed">
+                          Passo a passo fácil, ideal para clientes que têm dificuldade com tecnologia
+                        </p>
+                      </div>
+
+                      <div className="p-4 flex flex-col gap-3 flex-1">
+                        <div className="bg-gray-900 rounded-xl p-3 border border-gray-700">
+                          <code className="text-gray-300 font-mono text-xs break-all">
+                            agendeifacil.com/booking/{establishment?.code}/af
+                          </code>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            onClick={async () => {
+                              const link = `${window.location.origin}/booking/${establishment?.code}/af`;
+                              try {
+                                if (navigator.clipboard && window.isSecureContext) {
+                                  await navigator.clipboard.writeText(link);
+                                } else {
+                                  const ta = document.createElement('textarea');
+                                  ta.value = link;
+                                  ta.style.position = 'fixed';
+                                  ta.style.left = '-999999px';
+                                  document.body.appendChild(ta);
+                                  ta.focus();
+                                  ta.select();
+                                  document.execCommand('copy');
+                                  document.body.removeChild(ta);
+                                }
+                                toast('Link copiado para a área de transferência', 'success');
+                              } catch { toast('Erro ao copiar link', 'error'); }
+                            }}
+                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-gray-800 hover:bg-gray-700 rounded-xl transition-colors border border-gray-600"
+                          >
+                            <Copy className="h-4 w-4 text-white" />
+                            <span className="text-white text-sm font-medium">Copiar</span>
+                          </button>
+                          <a
+                            href={`${window.location.origin}/booking/${establishment?.code}/af`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors"
+                          >
+                            <LinkIcon className="h-4 w-4 text-white" />
+                            <span className="text-white text-sm font-medium">Abrir</span>
+                          </a>
+                        </div>
+
+                        <p className="text-gray-500 text-xs text-center">📱 Veja como seus clientes irão agendar com você na prática</p>
+                        <div className="flex justify-center">
+                          <div className="relative rounded-xl overflow-hidden bg-black w-full max-w-[260px]" style={{ aspectRatio: '9/16' }}>
+                            <iframe
+                              className="absolute inset-0 w-full h-full"
+                              src="https://www.youtube.com/embed/6mj6ZOvnwRI"
+                              title="Como funciona a página simples de agendamento"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Nota de conexão */}
+                  <div className="bg-emerald-950/50 border border-emerald-700/40 rounded-xl p-4 flex items-start gap-3">
+                    <span className="text-emerald-400 text-xl mt-0.5 flex-shrink-0">🔗</span>
+                    <div>
+                      <p className="text-emerald-300 font-semibold text-sm">Páginas 100% conectadas entre si</p>
+                      <p className="text-emerald-200/60 text-xs mt-1 leading-relaxed">
+                        Agendamentos feitos pela página completa ou pela página simples aparecem no mesmo painel e na agenda do profissional.
+                        Você pode compartilhar as duas — cada cliente usa a que achar mais fácil.
                       </p>
                     </div>
                   </div>

@@ -1,5 +1,5 @@
 import { Check, EyeOff, History, Minus, Trash2 } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useProfessionalLiquidValue } from '../hooks/useProfessionalLiquidValue';
 import { useProfessionalPayments } from '../hooks/useProfessionalPayments';
@@ -10,14 +10,13 @@ interface ProfessionalPaymentControlProps {
   professionalId: string;
   professionalName: string;
   currentLiquidValue: number;
-  // Quando informado, passa a considerar este valor como "pendente para pagar"
-  // (ex.: novas vendas desde o último pagamento), mesmo que o acumulado do mês tenha ficado "pago a mais".
   newSalesValue?: number;
   validatedPaidAmount?: number;
   validatedPendingAmount?: number;
   ignoredPaymentIds?: string[];
   selectedMonth?: Date;
   onPaymentRecorded?: () => void;
+  readOnly?: boolean;
 }
 
 export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProps> = ({
@@ -30,7 +29,8 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   validatedPendingAmount,
   ignoredPaymentIds: _ignoredPaymentIds = [],
   selectedMonth,
-  onPaymentRecorded
+  onPaymentRecorded,
+  readOnly = false,
 }) => {
   const {
     loading,
@@ -98,6 +98,17 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     ? `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`
     : undefined;
 
+  // Salva espelho no localStorage para o modal do profissional ler
+  useEffect(() => {
+    if (!professionalId || !forMonthKey) return;
+    try {
+      localStorage.setItem(
+        `prof_financial_mirror:${professionalId}:${forMonthKey}`,
+        JSON.stringify({ validPaid: totalPaidEffective, pending: pendingToPay, month: forMonthKey })
+      );
+    } catch { /* ignore */ }
+  }, [professionalId, forMonthKey, totalPaidEffective, pendingToPay]);
+
   const handlePayFullAmount = async () => {
     if (pendingToPay <= 0) {
       toast.error('Não há valor pendente para pagar');
@@ -136,6 +147,16 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     if (amount > pendingToPay) {
       toast.error(`Valor não pode ser maior que ${formatCurrency(pendingToPay)}`);
       return;
+    }
+
+    if (amount > totalLiquidValue && totalLiquidValue > 0) {
+      const monthLabel = forMonthKey
+        ? new Date(forMonthKey + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+        : 'mês selecionado';
+      const confirmed = window.confirm(
+        `⚠️ ATENÇÃO: Você está pagando ${formatCurrency(amount)}, mas o líquido apurado de ${monthLabel} é apenas ${formatCurrency(totalLiquidValue)}.\n\nO excesso de ${formatCurrency(amount - totalLiquidValue)} vai cobrir automaticamente novos atendimentos que forem concluídos neste mês.\n\nTem certeza que deseja continuar?`
+      );
+      if (!confirmed) return;
     }
 
     if (isProcessing) {
@@ -366,7 +387,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             </span>
             {totalPaidEffective > 0 && (
               <span className="text-xs text-gray-400">
-                (Pago: {formatCurrency(totalPaidEffective)})
+                (Saldo: {formatCurrency(totalPaidEffective)})
               </span>
             )}
           </div>
@@ -396,10 +417,23 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
               Pago = total válido no mês • Total = líquido apurado dos serviços concluídos
             </div>
           )}
+
+          {/* Visual do Profissional — espelho dos valores reais, replicado no modal */}
+          {typeof validatedPaidAmount === 'number' && typeof validatedPendingAmount === 'number' && (
+            <div className="mt-2 border-t border-gray-700 pt-2 space-y-0.5">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Visual do Profissional</div>
+              <div className="text-[11px] text-gray-400">
+                Saldo: <span className="font-semibold text-gray-200">{formatCurrency(totalPaidEffective)}</span>
+              </div>
+              <div className="text-[11px] text-gray-400">
+                Pendente V: <span className="font-semibold text-cyan-300">{formatCurrency(pendingToPay)}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Botões - Layout Mobile */}
-        <div className="flex flex-col sm:flex-row gap-2">
+        {!readOnly && <div className="flex flex-col sm:flex-row gap-2">
           {/* Botão PAGAR */}
           {pendingToPay > 0 && !showPaymentOptions && (
             <button
@@ -455,11 +489,11 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
               <span>Histórico</span>
             </button>
           )}
-        </div>
+        </div>}
       </div>
 
       {/* Opções de Pagamento */}
-      {showPaymentOptions && pendingToPay > 0 && (
+      {!readOnly && showPaymentOptions && pendingToPay > 0 && (
         <div className="bg-[#121722] border border-blue-500/30 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-sm font-medium text-blue-300">
@@ -572,15 +606,17 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                   <div className={`text-xs font-medium ${payment.amount > 0 ? 'text-green-600' : 'text-orange-600'}`}>
                     {payment.amount > 0 ? '✓ Pago' : '↩ Retirado'}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDeletePayment(payment.id, payment.amount)}
-                    disabled={isProcessing}
-                    className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Deletar este pagamento"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePayment(payment.id, payment.amount)}
+                      disabled={isProcessing}
+                      className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Deletar este pagamento"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
               );
@@ -624,7 +660,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       )}
 
       {/* Modal PEGAR VALOR */}
-      {showTakeValueModal && (
+      {!readOnly && showTakeValueModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
             <div className="flex items-center justify-between mb-4">

@@ -774,6 +774,23 @@ const Sidebar: React.FC<SidebarProps> = ({
       },
     },
     {
+      id: 'client-page',
+      label: '🌐 Página de Agendamentos',
+      description: 'Veja sua página de agendamentos onde seus clientes agendam com você.',
+      icon: Link,
+      featured: true,
+      featuredTone: 'cyan',
+      isActive: activeTab === 'client-page',
+      onClick: () => {
+        if (isItemLocked('client-page')) {
+          onBlockedItemClick?.();
+          return;
+        }
+        handleItemClick(() => onTabChange('client-page'));
+        setShowAdminMenu(false);
+      },
+    },
+    {
       id: 'fila-espera',
       label: 'Fila de Espera',
       description: 'Controle a fila de atendimento do estabelecimento.',
@@ -831,6 +848,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     'receber-adiantado',
     'indication',
     'subscribers',
+    'client-page',
     'clients',
     'service-categories',
     'professionals',
@@ -841,7 +859,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     'whatsapp-reminders',
     'fila-espera',
     'reviews',
-    'client-page',
     'placa-barbearia',
     'config',
   ];
@@ -874,7 +891,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     dashboard: 'Acompanhe faturamento, pagamentos e repasses.',
     expenses: 'Registre despesas para saber seu lucro real.',
     taxes: 'Configure taxas e veja relatórios por bandeira.',
-    'client-page': 'Veja o link da sua página e revise as configurações antes de divulgar.',
+    'client-page': 'Veja sua página de agendamentos onde seus clientes agendam com você.',
     'placa-barbearia': 'Divulgue seus links em um QR Code bonito para expor no balcão.',
     reviews: 'Modere avaliações dos clientes e publique somente as aprovadas no booking.',
     support: 'Fale com o suporte para ajuda rápida.',

@@ -7,6 +7,7 @@ import {
 } from '../hooks/useProfessionalSubscriberControl';
 import { supabase } from '../lib/supabase';
 import { ProfessionalAttendedClientsModal } from './ProfessionalAttendedClientsModal';
+import { ProfessionalPaymentControl } from './ProfessionalPaymentControl';
 
 interface ProfessionalInfoModalProps {
   professional: {
@@ -37,6 +38,7 @@ interface ProfessionalInfoModalProps {
   metaBonusPercentage?: number;
   metaGoalReached?: boolean;
   metaServiceCount?: number;
+  metaSelectedServiceNames?: string[];
   serviceInsights?: Array<{
     name: string;
     count: number;
@@ -83,6 +85,10 @@ interface ProfessionalInfoModalProps {
     appointmentCount?: number;
   }>;
   onRefreshDormantClientsSource?: () => Promise<void> | void;
+  preComputedPastMonthPending?: number | null;
+  preComputedPastMonthValidPaid?: number | null;
+  financialDisplayMonth?: Date | null;
+  onViewingMonthChange?: (month: Date) => void;
   onClose: () => void;
 }
 
@@ -186,12 +192,211 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   metaBonusPercentage = 0,
   metaGoalReached = false,
   metaServiceCount = 0,
+  metaSelectedServiceNames = [],
   serviceInsights = [],
   financialAppointments = [],
   dormantClientsSource,
   onRefreshDormantClientsSource,
+  preComputedPastMonthPending = null,
+  preComputedPastMonthValidPaid = null,
+  financialDisplayMonth = null,
+  onViewingMonthChange,
   onClose,
 }) => {
+  const [selectedMirrorMonth, setSelectedMirrorMonth] = useState<string>(() => {
+    const now = new Date();
+    const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}`;
+  });
+  type MirrorApt = { date: string; time: string; client: string; service: string; gross: number; net: number; paymentMethod: string; };
+  const [mirrorData, setMirrorData] = useState<{ validPaid: number; pending: number; month: string; totalGross: number; totalNet: number; pct: number; apts: MirrorApt[] } | null>(null);
+  const [isLoadingMirror, setIsLoadingMirror] = useState(false);
+
+  const fetchMirrorData = async (monthKey: string) => {
+    if (!establishmentId || !professional.id) return;
+    setIsLoadingMirror(true);
+    setMirrorData(null);
+    try {
+      const [y, mo] = monthKey.split('-').map(Number);
+      const monthStart = `${monthKey}-01`;
+      const lastDay = new Date(y, mo, 0).getDate();
+      const monthEnd = `${monthKey}-${String(lastDay).padStart(2, '0')}`;
+      const basePct = Number(basePercentage ?? (professional as any).percentage ?? 0);
+      const bonusPct = Number(metaBonusPercentage ?? 0);
+      // Replicates getProfessionalPercentageForAppointment: goal services use bonusPct when goal reached
+      const normTk = (v: unknown) => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+      const goalServiceTokens = metaGoalReached && bonusPct > 0 && metaSelectedServiceNames.length > 0
+        ? metaSelectedServiceNames.map(normTk)
+        : [];
+      const getPct = (svcName: string) => {
+        if (goalServiceTokens.length === 0) return basePct;
+        return goalServiceTokens.includes(normTk(svcName)) ? bonusPct : basePct;
+      };
+      const pct = basePct; // kept for display badge only
+
+      const [aptRes, payRes] = await Promise.all([
+        supabase
+          .from('appointments')
+          .select('*')
+          .eq('establishment_id', establishmentId)
+          .gte('appointment_date', monthStart)
+          .lte('appointment_date', monthEnd),
+        supabase
+          .from('professional_payments')
+          .select('id,amount,payment_date,for_month,payment_source')
+          .eq('establishment_id', establishmentId)
+          .eq('professional_id', professional.id)
+          .gt('amount', 0),
+      ]);
+
+      // Mesma lógica que appointmentBelongsToProfessional no EstablishmentDashboard
+      const normToken = (v: unknown) =>
+        String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+      const isUuid = (s: string) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
+      const profIdNorm = professional.id.toLowerCase();
+      const profNameNorm = normToken(professional.name);
+
+      const belongsToProfessional = (a: any): boolean => {
+        const idCandidates = [
+          String(a.professional_id || '').trim(),
+          String(a.professional_profile_id || '').trim(),
+          String(a.collaborator_id || '').trim(),
+          String(a.professional || '').trim(),
+        ].filter(Boolean).map((v) => v.toLowerCase());
+        if (idCandidates.some((c) => c === profIdNorm)) return true;
+        const nameCandidates = [
+          String(a.professional_name || '').trim(),
+          String(a.professional_display_name || '').trim(),
+          String(a.professional || '').trim(),
+        ].filter(Boolean).filter((v) => !isUuid(v)).map(normToken);
+        return profNameNorm.length > 0 && nameCandidates.includes(profNameNorm);
+      };
+
+      // getAppointmentRevenueBase: price + additional_products, capped by total_price
+      const getRevenueBase = (a: any): number => {
+        const base = Number(a.price || 0) + ((a.additional_products || []) as any[]).reduce((s: number, p: any) => s + Number(p.price || 0), 0);
+        const total = a.total_price != null && Number(a.total_price) > 0 ? Number(a.total_price) : null;
+        return total != null && base > total ? total : base;
+      };
+
+      const isCompleted = (a: any) => {
+        const s = String(a.status || '').trim().toLowerCase();
+        return s === 'completed' || s === 'concluido' || s === 'concluído';
+      };
+
+      // Replica exata do admin: exclui assinante apenas quando price=0.
+      // Assinante com price>0 fica (contribui pro financeiro). Igual a isSubscriberAppointmentForProfessionalControl.
+      const isSubscriberZeroPrice = (a: any) => {
+        const basePrice = Number(a.price ?? 0);
+        if (!Number.isFinite(basePrice) || basePrice > 0) return false;
+        return a.is_subscriber === true || Boolean(a.subscription_id) ||
+          String(a.payment_method || '').toLowerCase() === 'assinante';
+      };
+      const apts = ((aptRes.data || []) as any[]).filter(
+        (a) => isCompleted(a) && belongsToProfessional(a) && !isSubscriberZeroPrice(a)
+      );
+
+      let cumulative = 0;
+      const timeline = apts
+        .map((a) => ({
+          net: (getRevenueBase(a) * getPct(String(a.service || ''))) / 100 + Number(a.professional_tip_amount || 0),
+          dateMs: new Date(String(a.appointment_date).slice(0, 10) + 'T00:00:00').getTime(),
+        }))
+        .filter((r) => r.net > 0 && Number.isFinite(r.dateMs))
+        .sort((a, b) => a.dateMs - b.dateMs)
+        .map((r) => { cumulative += r.net; return { ...r, cumulative }; });
+
+      const totalNet = cumulative;
+      const getRealizedUntil = (ms: number) => {
+        let realized = 0;
+        for (const row of timeline) { if (row.dateMs <= ms) realized = row.cumulative; else break; }
+        return realized;
+      };
+
+      // Mesma lógica de paymentBelongsToSelectedMonth do EstablishmentDashboard
+      const monthPayments = ((payRes.data || []) as any[]).filter((p) => {
+        const src = String(p.payment_source || '').toLowerCase();
+        if (src === 'subscription' || src === 'assinatura') return false;
+        const forM = String(p.for_month ?? '').trim();
+        if (forM !== '') return forM === monthKey;
+        const dt = new Date(p.payment_date);
+        return dt.getFullYear() === y && dt.getMonth() === mo - 1;
+      });
+
+      let validPaid = 0;
+      const EPSILON = 0.009;
+      monthPayments
+        .filter((p) => Number(p.amount) > 0)
+        .sort((a: any, b: any) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime())
+        .forEach((p: any) => {
+          const amt = Number(p.amount);
+          const dateKey = String(p.payment_date || '').slice(0, 10);
+          const ms = dateKey ? new Date(`${dateKey}T00:00:00`).getTime() : NaN;
+          if (!Number.isFinite(ms)) return;
+          const realized = getRealizedUntil(ms);
+          const allowed = Math.max(0, realized - validPaid);
+          if (amt <= allowed + EPSILON) validPaid += amt;
+          else if (allowed > EPSILON) validPaid += allowed;
+        });
+
+      const payMethodLabel: Record<string, string> = { dinheiro: 'Dinheiro', pix: 'PIX', credito: 'Crédito', debito: 'Débito', pendente: 'Pendente' };
+      const totalGross = apts.reduce((s, a) => s + getRevenueBase(a), 0);
+      const mirrorApts: MirrorApt[] = apts
+        .map((a) => ({
+          date: String(a.appointment_date || '').slice(0, 10),
+          time: String(a.appointment_time || '').slice(0, 5),
+          client: String(a.client_name || '').trim() || '—',
+          service: String(a.service || '').trim() || '—',
+          gross: getRevenueBase(a),
+          net: (getRevenueBase(a) * getPct(String(a.service || ''))) / 100 + Number(a.professional_tip_amount || 0),
+          paymentMethod: payMethodLabel[String(a.payment_method || '').toLowerCase()] || String(a.payment_method || '') || 'Dinheiro',
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+
+      const data = { validPaid, pending: Math.max(0, totalNet - validPaid), month: monthKey, totalGross, totalNet, pct, apts: mirrorApts };
+      try { localStorage.setItem(`prof_financial_mirror:${professional.id}:${monthKey}`, JSON.stringify({ validPaid, pending: data.pending, month: monthKey })); } catch { /* ignore */ }
+      setMirrorData(data);
+    } catch {
+      setMirrorData(null);
+    } finally {
+      setIsLoadingMirror(false);
+    }
+  };
+
+  // Reseta ao trocar de mês
+  useEffect(() => {
+    setMirrorData(null);
+    setIsLoadingMirror(false);
+  }, [professional.id, selectedMirrorMonth]);
+
+  const handleCarregarMirror = () => { void fetchMirrorData(selectedMirrorMonth); };
+
+  const goMirrorPrev = () => {
+    const [y, m] = selectedMirrorMonth.split('-').map(Number);
+    const d = new Date(y, m - 2, 1);
+    setSelectedMirrorMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+  const goMirrorNext = () => {
+    const [y, m] = selectedMirrorMonth.split('-').map(Number);
+    const d = new Date(y, m, 1);
+    const now = new Date();
+    if (d.getFullYear() < now.getFullYear() || (d.getFullYear() === now.getFullYear() && d.getMonth() <= now.getMonth())) {
+      setSelectedMirrorMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+  };
+  const mirrorMonthLabel = (() => {
+    const [y, m] = selectedMirrorMonth.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  })();
+  const mirrorDateRange = (() => {
+    const [y, m] = selectedMirrorMonth.split('-').map(Number);
+    return {
+      start: new Date(y, m - 1, 1).toLocaleDateString('pt-BR'),
+      end: new Date(y, m, 0).toLocaleDateString('pt-BR'),
+    };
+  })();
+
   const [pinInput, setPinInput] = useState('');
   // Considera sem senha se: não existe, está vazio, ou é "0000"
   const hasNoPin = !professionalPin || professionalPin.trim() === '' || professionalPin === '0000';
@@ -226,6 +431,9 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   const dormantClientCacheRef = useRef<Map<string, DormantClientInsight[]>>(new Map());
   const [isLoadingPayments, setIsLoadingPayments] = useState(false);
   const [paymentHistory, setPaymentHistory] = useState<ProfessionalPaymentHistoryItem[]>([]);
+  const [viewingMonth, setViewingMonth] = useState<Date>(() => selectedMonth || new Date());
+  const [viewingMonthNet, setViewingMonthNet] = useState<number | null>(null);
+  const [viewingMonthValidPaid, setViewingMonthValidPaid] = useState<number | null>(null);
   const [showPaymentHistory, setShowPaymentHistory] = useState(true);
   const [subscriberPerformancePeriod, setSubscriberPerformancePeriod] =
     useState<SubscriberPerformancePeriod>('current');
@@ -347,10 +555,47 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
     }
   };
 
-  const selectedMonthKey = useMemo(() => {
+  // Sync viewing month when the professional or parent month changes
+  useEffect(() => {
+    setViewingMonth(selectedMonth || new Date());
+    setViewingMonthNet(null);
+    setViewingMonthValidPaid(null);
+  }, [professional.id, selectedMonth]);
+
+  const propMonthKey = useMemo(() => {
     const base = selectedMonth || new Date();
     return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}`;
   }, [selectedMonth]);
+
+  const selectedMonthKey = useMemo(() => {
+    const base = viewingMonth;
+    return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}`;
+  }, [viewingMonth]);
+
+  const viewingMonthLabel = useMemo(() => {
+    return viewingMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  }, [viewingMonth]);
+
+  const goToPrevMonth = () => {
+    const prev = new Date(viewingMonth.getFullYear(), viewingMonth.getMonth() - 1, 1);
+    setViewingMonth(prev);
+    setViewingMonthNet(null);
+    setViewingMonthValidPaid(null);
+    onViewingMonthChange?.(prev);
+  };
+  const goToNextMonth = () => {
+    const next = new Date(viewingMonth.getFullYear(), viewingMonth.getMonth() + 1, 1);
+    if (next <= new Date()) {
+      setViewingMonth(next);
+      setViewingMonthNet(null);
+      setViewingMonthValidPaid(null);
+      onViewingMonthChange?.(next);
+    }
+  };
+  const isCurrentOrFutureMonth = useMemo(() => {
+    const now = new Date();
+    return viewingMonth.getFullYear() === now.getFullYear() && viewingMonth.getMonth() === now.getMonth();
+  }, [viewingMonth]);
 
   useEffect(() => {
     let cancelled = false;
@@ -414,18 +659,224 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
     };
   }, [establishmentId, professional.id, selectedMonthKey]);
 
+  // Load monthly net only when navigating to a month different from the prop's month.
+  // For the prop's month, use monthlyNet from parent (already correctly computed with card taxes etc.)
+  useEffect(() => {
+    if (selectedMonthKey === propMonthKey) {
+      setViewingMonthNet(null); // null = use prop's monthlyNet
+      return;
+    }
+    if (!establishmentId || !professional.id) { setViewingMonthNet(null); return; }
+    const pct = Number(basePercentage || 0);
+    if (pct <= 0) { setViewingMonthNet(null); return; }
+    let cancelled = false;
+    const monthStart = `${selectedMonthKey}-01`;
+    const lastDay = new Date(viewingMonth.getFullYear(), viewingMonth.getMonth() + 1, 0).getDate();
+    const monthEnd = `${selectedMonthKey}-${String(lastDay).padStart(2, '0')}`;
+    const profId = String(professional.id || '').trim();
+    const profName = String(professional.name || '').trim();
+    const profNameBase = profName.replace(/\s*\(.*?\)/g, '').trim(); // "Ricardo (Menor)" → "Ricardo"
+    const selectCols = 'id,appointment_date,price,total_price,additional_products,professional_tip_amount,payment_method,is_subscriber,subscription_id';
+    const baseQuery = () => supabase
+      .from('appointments')
+      .select(selectCols)
+      .eq('establishment_id', establishmentId)
+      .eq('status', 'completed')
+      .gte('appointment_date', monthStart)
+      .lte('appointment_date', monthEnd);
+
+    const load = async () => {
+      try {
+        // Run queries in parallel using different matching strategies.
+        // NOTE: name-based filters use separate .ilike() calls (NOT inside .or()) to avoid
+        // PostgREST parsing the parentheses in names like "Ricardo (Menor)" as group syntax.
+        const queries: Promise<any>[] = [];
+
+        // By UUID fields (no special char issues)
+        if (profId) {
+          const idOr = [`professional_id.eq.${profId}`, `collaborator_id.eq.${profId}`, `professional_profile_id.eq.${profId}`].join(',');
+          queries.push(baseQuery().or(idOr));
+        }
+        // By professional_name field (exact, case-insensitive — separate filter, NOT in .or())
+        if (profName) {
+          queries.push(baseQuery().ilike('professional_name', profName));
+          queries.push(baseQuery().ilike('professional', profName));
+        }
+        // Fallback: by base name without "(Menor)" suffix
+        if (profNameBase && profNameBase !== profName) {
+          queries.push(baseQuery().ilike('professional_name', profNameBase));
+          queries.push(baseQuery().ilike('professional', profNameBase));
+        }
+
+        const results = await Promise.all(queries);
+        const seen = new Set<string>();
+        const rows: any[] = [];
+        for (const r of results) {
+          for (const apt of (r.data || [])) {
+            const key = String(apt.id || `${apt.price}|${apt.total_price}|${apt.payment_method}`);
+            if (!seen.has(key)) { seen.add(key); rows.push(apt); }
+          }
+        }
+
+        const nonSubscriberRows = rows.filter((apt: any) => {
+          const pm = String(apt.payment_method || '').trim().toLowerCase();
+          return !Boolean(apt.is_subscriber) && pm !== 'assinante' && !String(apt.subscription_id || '').trim();
+        });
+
+        const aptNetFn = (apt: any): number => {
+          const tp = Number(apt.total_price ?? 0);
+          const base2 = tp > 0 ? tp : Math.max(0, Number(apt.price ?? 0) +
+            (Array.isArray(apt.additional_products)
+              ? apt.additional_products.reduce((s: number, p: any) => s + Number(p?.price || 0), 0) : 0));
+          return (base2 * pct / 100) + Number(apt.professional_tip_amount || 0);
+        };
+
+        const net = nonSubscriberRows.reduce((sum: number, apt: any) => sum + aptNetFn(apt), 0);
+
+        // Build advance-payment validation timeline (same logic as buildValidatedProfessionalPaymentData)
+        let cumulative = 0;
+        const aptTimeline = nonSubscriberRows
+          .map((apt: any) => ({
+            net: aptNetFn(apt),
+            dateMs: new Date(String(apt.appointment_date || '').slice(0, 10) + 'T00:00:00').getTime(),
+          }))
+          .filter((r: any) => r.net > 0 && Number.isFinite(r.dateMs))
+          .sort((a: any, b: any) => a.dateMs - b.dateMs)
+          .map((r: any) => { cumulative += r.net; return { ...r, cumulative }; });
+
+        const getRealizedUntil = (ms: number): number => {
+          let realized = 0;
+          for (const row of aptTimeline) {
+            if (row.dateMs <= ms) realized = row.cumulative;
+            else break;
+          }
+          return realized;
+        };
+
+        let validPaid = 0;
+        const EPSILON = 0.009;
+        paymentHistory
+          .filter((p) => p.amount > 0)
+          .sort((a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime())
+          .forEach((p) => {
+            const amt = Number(p.amount);
+            const dateMs = new Date(String(p.payment_date).slice(0, 10) + 'T00:00:00').getTime();
+            if (!Number.isFinite(dateMs)) return;
+            const realized = getRealizedUntil(dateMs);
+            const allowed = Math.max(0, realized - validPaid);
+            if (amt <= allowed + EPSILON) validPaid += amt;
+            else if (allowed > EPSILON) validPaid += allowed;
+          });
+
+        if (!cancelled) {
+          setViewingMonthNet(rows.length > 0 ? net : null);
+          setViewingMonthValidPaid(rows.length > 0 ? Math.max(0, net - validPaid) : null);
+        }
+      } catch {
+        if (!cancelled) { setViewingMonthNet(null); setViewingMonthValidPaid(null); }
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [establishmentId, professional.id, professional.name, selectedMonthKey, propMonthKey, basePercentage, viewingMonth, paymentHistory]);
+
   const totalPaid = paymentHistory
     .filter((row) => row.amount > 0)
     .reduce((sum, row) => sum + row.amount, 0);
   const totalWithdrawn = paymentHistory
     .filter((row) => row.amount < 0)
     .reduce((sum, row) => sum + Math.abs(row.amount), 0);
-  const totalPaidDisplay = totalPaid;
   const totalWithdrawnDisplay = totalWithdrawn;
   const paymentCount = paymentHistory.filter((row) => row.amount > 0).length;
   const lastPaymentDate = paymentHistory.find((row) => row.amount > 0)?.payment_date || null;
+
+  // For the prop month: apply same advance-payment detection as buildValidatedProfessionalPaymentData.
+  // A payment made before enough appointments are completed counts as "advance" and is excluded.
+  const totalPaidValidatedForPropMonth = useMemo(() => {
+    if (selectedMonthKey !== propMonthKey) return null;
+    const pct = Number(basePercentage || 0) / 100;
+    const aptTimeline = (financialAppointments || [])
+      .filter((apt) => {
+        const status = String(apt?.status || '').trim().toLowerCase();
+        if (status !== 'completed') return false;
+        const pm = String(apt?.payment_method || '').trim().toLowerCase();
+        return !apt?.is_subscriber && pm !== 'assinante' && !String(apt?.subscription_id || '').trim();
+      })
+      .map((apt) => {
+        // Prefer the pre-computed net (with card-tax deduction + effective %) injected by calculateProfessionalValues.
+        // Falls back to the simplified price*pct formula for any apt that doesn't carry it.
+        const preNet = Number((apt as any)?._computedNet ?? -1);
+        let net: number;
+        if (preNet > 0) {
+          net = preNet;
+        } else {
+          const tp = Number(apt?.total_price ?? 0);
+          const raw = Math.max(0, Number(apt?.price ?? 0) +
+            (Array.isArray(apt?.additional_products) ? apt.additional_products.reduce((s: number, p: any) => s + Number(p?.price || 0), 0) : 0));
+          const base = tp > 0 && raw > tp ? tp : raw > 0 ? raw : tp;
+          net = base * pct;
+        }
+        const dateMs = new Date(String(apt?.appointment_date || '').slice(0, 10) + 'T00:00:00').getTime();
+        return { net, dateMs };
+      })
+      .filter((r) => r.net > 0 && Number.isFinite(r.dateMs))
+      .sort((a, b) => a.dateMs - b.dateMs);
+
+    let cumulative = 0;
+    const timeline = aptTimeline.map((r) => { cumulative += r.net; return { ...r, cumulative }; });
+
+    const getRealizedUntil = (paymentDateMs: number): number => {
+      let realized = 0;
+      for (const row of timeline) {
+        if (row.dateMs <= paymentDateMs) realized = row.cumulative;
+        else break;
+      }
+      return realized;
+    };
+
+    let validPaid = 0;
+    const EPSILON = 0.009;
+    const sortedPayments = paymentHistory
+      .filter((row) => row.amount > 0)
+      .sort((a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
+
+    sortedPayments.forEach((payment) => {
+      const amt = Number(payment.amount || 0);
+      if (!Number.isFinite(amt) || amt <= 0) return;
+      const dateKey = String(payment.payment_date || '').slice(0, 10);
+      const paymentDateMs = new Date(dateKey + 'T00:00:00').getTime();
+      if (!Number.isFinite(paymentDateMs)) return;
+      const realizedUntil = getRealizedUntil(paymentDateMs);
+      const allowed = Math.max(0, realizedUntil - validPaid);
+      if (amt <= allowed + EPSILON) {
+        validPaid += amt;
+      } else if (allowed > EPSILON) {
+        validPaid += allowed;
+      }
+    });
+
+    return validPaid;
+  }, [selectedMonthKey, propMonthKey, financialAppointments, paymentHistory, basePercentage]);
+
+  // For the prop month: use advance-payment-validated paid (so advance doesn't hide pending).
+  // For navigated past months: pending is already pre-computed in viewingMonthValidPaid.
+  const totalPaidDisplay = selectedMonthKey === propMonthKey && totalPaidValidatedForPropMonth !== null
+    ? totalPaidValidatedForPropMonth
+    : totalPaid;
   const reconciledMonthlyNet = totalPaidDisplay;
-  const pendingToReceive = Math.max(0, Number(monthlyNet || 0) - totalPaidDisplay);
+  const effectiveMonthlyNet = selectedMonthKey === propMonthKey
+    ? Number(monthlyNet || 0)
+    : (viewingMonthNet ?? 0);
+  const pendingToReceive = selectedMonthKey === propMonthKey
+    ? Math.max(0, effectiveMonthlyNet - totalPaidDisplay)
+    : preComputedPastMonthPending !== null && preComputedPastMonthPending !== undefined
+      ? preComputedPastMonthPending
+      : (viewingMonthValidPaid ?? Math.max(0, effectiveMonthlyNet - totalPaid));
+
+  const pagStartDate = useMemo(() => {
+    const [y, mo] = propMonthKey.split('-').map(Number);
+    return `${y}-${String(mo).padStart(2, '0')}-01`;
+  }, [propMonthKey]);
 
   const formatDateTime = (value: string) => {
     const dt = new Date(value);
@@ -1344,9 +1795,6 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                             <div key={month.key} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
                               <div className="flex items-center justify-between text-xs">
                                 <span className="font-semibold capitalize">{month.label}</span>
-                                <span className="font-bold text-emerald-300">
-                                  {showValues ? formatCurrency(month.net) : '••••••'}
-                                </span>
                               </div>
                               <div className="flex items-center justify-between mt-1 text-[11px] text-white/70">
                                 <span>{month.attendances} atendimentos</span>
@@ -1358,6 +1806,14 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                                       : `⬇️ ${month.growthPercent.toFixed(1)}%`}
                                 </span>
                               </div>
+                              {mirrorData && month.key === selectedMirrorMonth && (
+                                <div className="flex items-center justify-between mt-1 text-[11px]">
+                                  <span className="text-emerald-300">Pago: {showValues ? formatCurrency(mirrorData.validPaid) : '••••••'}</span>
+                                  {mirrorData.pending > 0.009 && (
+                                    <span className="text-cyan-300">Pendente: {showValues ? formatCurrency(mirrorData.pending) : '••••••'}</span>
+                                  )}
+                                </div>
+                              )}
                               <div className="mt-2 h-1.5 rounded bg-white/10 overflow-hidden">
                                 <div
                                   className="h-1.5 rounded bg-gradient-to-r from-violet-400 to-cyan-400"
@@ -1855,10 +2311,133 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
               )}
             </div>
 
+            {/* Card Pagamentos — espelho do Visual do Profissional */}
+            <div className="bg-white rounded-xl border-2 border-emerald-200 p-4 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <h3 className="text-base font-bold text-gray-800">Pagamentos</h3>
+                <div className="flex items-center gap-1 bg-gray-100 rounded-lg px-1 py-0.5">
+                  <button onClick={goMirrorPrev} className="px-1.5 py-0.5 text-gray-600 hover:text-gray-900 font-bold text-sm">‹</button>
+                  <span className="text-xs font-semibold text-gray-700 capitalize min-w-[120px] text-center">{mirrorMonthLabel}</span>
+                  <button onClick={goMirrorNext} className="px-1.5 py-0.5 text-gray-600 hover:text-gray-900 font-bold text-sm">›</button>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mb-3">{mirrorDateRange.start} até {mirrorDateRange.end}</p>
+              {isLoadingMirror ? (
+                <p className="text-sm text-gray-400 text-center py-4">Carregando...</p>
+              ) : !mirrorData ? (
+                <div className="text-center py-4">
+                  <button
+                    onClick={handleCarregarMirror}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold transition-colors"
+                  >
+                    Carregar
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Resumo igual ao admin: contagem, %, bruto, líquido */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3 bg-[#0b0e13] rounded-lg px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-300">
+                      <span className="font-semibold text-gray-100">{mirrorData.apts.length} atendimento(s) no mês</span>
+                      <span className="bg-blue-600 text-white rounded px-1.5 py-0.5 font-bold">{mirrorData.pct}%</span>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-gray-400">Líquido apurado: <span className="text-emerald-300 font-semibold text-base">{showValues ? formatCurrency(mirrorData.totalNet) : '••••••'}</span></div>
+                    </div>
+                  </div>
+
+                  <ProfessionalPaymentControl
+                    readOnly
+                    establishmentId={establishmentId ?? ''}
+                    professionalId={professional.id}
+                    professionalName={professional.name}
+                    currentLiquidValue={mirrorData.validPaid + mirrorData.pending}
+                    validatedPaidAmount={mirrorData.validPaid}
+                    validatedPendingAmount={mirrorData.pending}
+                    selectedMonth={(() => {
+                      const [y, mo] = selectedMirrorMonth.split('-').map(Number);
+                      return new Date(y, mo - 1, 1);
+                    })()}
+                  />
+
+                  {/* Lista de agendamentos — igual ao admin */}
+                  {mirrorData.apts.length > 0 && (
+                    <div className="mt-2 text-xs">
+                      <details className="group cursor-pointer">
+                        <summary className="list-none cursor-pointer">
+                          <div className="w-full rounded-lg border border-blue-700 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 flex items-center justify-between transition-colors">
+                            <div className="flex items-center gap-2">
+                              <span>📋</span>
+                              <span className="font-semibold text-sm">Clique aqui para ver serviços avulsos feitos</span>
+                              <span className="text-[11px] bg-white/20 px-2 py-0.5 rounded">{mirrorData.apts.length}</span>
+                            </div>
+                            <span className="text-xs font-bold group-open:rotate-180 transition-transform">▼</span>
+                          </div>
+                        </summary>
+                        <div className="mt-3 space-y-3 bg-[#0b0e13] p-3 rounded-lg border border-gray-700">
+                          {mirrorData.apts.map((apt, i) => (
+                            <div key={i} className="bg-[#121722] border border-gray-700 rounded-lg p-3">
+                              <div className="flex justify-between items-start mb-2">
+                                <span className="text-gray-100 font-medium text-sm">{apt.client}</span>
+                                <span className="text-cyan-300 font-semibold text-sm">→ {showValues ? formatCurrency(apt.net) : '••••••'}</span>
+                              </div>
+                              <div className="space-y-1.5">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-gray-400 text-xs">🔧 Serviço</span>
+                                  <span className="text-gray-200 text-xs font-medium">{apt.service}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-gray-400 text-xs">💰 Valor bruto</span>
+                                  <span className="text-gray-200 text-xs font-medium">{showValues ? formatCurrency(apt.gross) : '••••••'}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-gray-400 text-xs">💳 Pagamento</span>
+                                  <span className="text-purple-300 text-xs font-medium">{apt.paymentMethod}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-gray-400 text-xs">📅 Data/Hora</span>
+                                  <span className="text-gray-300 text-xs">{apt.date.split('-').reverse().join('/')} às {apt.time || '--:--'}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end mt-3">
+                    <button
+                      onClick={handleCarregarMirror}
+                      className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-xs font-medium transition-colors"
+                    >
+                      Atualizar
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
             {/* Histórico financeiro do colaborador (igual ao financeiro) */}
-            <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-3 sm:p-5 rounded-xl border-2 border-blue-200">
+            <div className="hidden bg-gradient-to-r from-blue-50 to-blue-100 p-3 sm:p-5 rounded-xl border-2 border-blue-200">
               <div className="flex flex-wrap items-center justify-between gap-2 mb-3 sm:mb-4">
-                <h3 className="text-base sm:text-lg font-semibold text-blue-800">Histórico de pagamentos do mês</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base sm:text-lg font-semibold text-blue-800">Financeiro</h3>
+                  <div className="hidden flex items-center gap-1 bg-white border border-blue-200 rounded-lg px-1 py-0.5">
+                    <button
+                      onClick={goToPrevMonth}
+                      className="px-1.5 py-0.5 text-blue-700 hover:text-blue-900 font-bold text-sm leading-none"
+                      aria-label="Mês anterior"
+                    >‹</button>
+                    <span className="text-xs font-semibold text-blue-800 capitalize min-w-[110px] text-center">{viewingMonthLabel}</span>
+                    <button
+                      onClick={goToNextMonth}
+                      disabled={isCurrentOrFutureMonth}
+                      className="px-1.5 py-0.5 text-blue-700 hover:text-blue-900 font-bold text-sm leading-none disabled:opacity-30"
+                      aria-label="Próximo mês"
+                    >›</button>
+                  </div>
+                </div>
                 <button
                   onClick={() => setShowPaymentHistory((prev) => !prev)}
                   className="px-3 py-1.5 rounded-lg bg-white/80 text-blue-700 text-xs font-semibold border border-blue-200 hover:bg-white"
