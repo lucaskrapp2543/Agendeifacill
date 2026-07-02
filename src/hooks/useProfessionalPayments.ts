@@ -102,7 +102,8 @@ export const useProfessionalPayments = (
     professionalId: string,
     professionalName: string,
     amount: number,
-    forMonth?: string
+    forMonth?: string,
+    paymentDate?: Date
   ) => {
     setLoading(true);
     setError(null);
@@ -113,7 +114,7 @@ export const useProfessionalPayments = (
         professional_id: professionalId,
         professional_name: professionalName,
         amount: amount,
-        payment_date: new Date().toISOString(),
+        payment_date: (paymentDate ?? new Date()).toISOString(),
         payment_source: 'normal'
       };
       if (forMonth) payload.for_month = forMonth;

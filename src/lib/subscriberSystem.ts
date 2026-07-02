@@ -972,10 +972,6 @@ export async function mergeSubscriberAttendancesWithCompletedAppointments(params
     if (subId && nameKey) existingSubIdByNameKey.set(nameKey, subId);
   });
 
-  // DEBUG TEMPORÁRIO
-  const _dbgIncluded: string[] = [];
-  const _dbgNoMatch: string[] = [];
-
   for (const apt of appointments) {
     const appointmentId = String(apt?.id || '').trim();
     if (!appointmentId) continue;
@@ -1026,10 +1022,8 @@ export async function mergeSubscriberAttendancesWithCompletedAppointments(params
     const matchedSubscriptionId = String(matched?.id || '').trim();
     // Só entra no financeiro se existir cadastro em Meus Assinantes.
     if (!matchedSubscriptionId) {
-      _dbgNoMatch.push(`${(apt as any)?.client_name} | ${(apt as any)?.appointment_date} | price=${(apt as any)?.price} | is_sub=${(apt as any)?.is_subscriber} | method=${(apt as any)?.payment_method} | whats=${(apt as any)?.client_whatsapp}`);
       continue;
     }
-    _dbgIncluded.push(`${(apt as any)?.client_name} | ${(apt as any)?.appointment_date} | ${coveredAppointmentIds.has(appointmentId) ? 'EXISTENTE' : 'SINTÉTICO'}`);
 
     const professionalRecord = resolveAppointmentProfessionalForSubscriber(apt as any, professionals);
     const subscription = (matched as any)?.subscriptions || null;
@@ -1065,12 +1059,6 @@ export async function mergeSubscriberAttendancesWithCompletedAppointments(params
     if (validAppointmentIds.size === 0) return false;
     return validAppointmentIds.has(aptId);
   });
-
-  // DEBUG TEMPORÁRIO
-  console.log(`[DEBUG-SUBSCRIBER RESUMO] ${monthStart}→${monthEnd} | incluídos: ${_dbgIncluded.length} | sem-match: ${_dbgNoMatch.length} | existentes-filtrados: ${filteredExisting.length} | sintéticos: ${synthetic.length}`);
-  if (_dbgIncluded.length > 0) console.log('[DEBUG-SUBSCRIBER] INCLUÍDOS:\n' + _dbgIncluded.join('\n'));
-  if (_dbgNoMatch.length > 0) console.log('[DEBUG-SUBSCRIBER] SEM MATCH (perdidos):\n' + _dbgNoMatch.join('\n'));
-  console.log('[DEBUG-SUBSCRIBER] EXISTENTES filtrados:', filteredExisting.map((r: any) => `${r.client_name_snapshot} | ${r.attendance_date} | prof=${r.professional_name}`));
 
   return dedupeSubscriberAttendanceRows([...filteredExisting, ...synthetic]);
 }

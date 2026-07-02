@@ -1123,6 +1123,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [professionalPayments, setProfessionalPayments] = useState<any[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedProfessionalForHistory, setSelectedProfessionalForHistory] = useState<string>('');
+  const [paymentDatePicker, setPaymentDatePicker] = useState<{
+    professional: string;
+    amount: number;
+    minDate: string;
+    maxDate: string;
+    defaultDate: string;
+    date: string;
+  } | null>(null);
   const [professionalClientsModal, setProfessionalClientsModal] = useState<{
     professional: string;
     groupKey: string;
@@ -2234,7 +2242,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   };
 
   // Função para pagar profissional (registrar pagamento e zerar valor)
-  const handlePayProfessional = async (professionalName: string, amount: number) => {
+  const handlePayProfessional = async (professionalName: string, amount: number, explicitPaymentDate?: Date) => {
     if (!confirm(`Confirma o pagamento de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount)} para ${professionalName}?`)) {
       return;
     }
@@ -2248,9 +2256,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       const isCurrentSelectedMonth =
         selectedYear === now.getFullYear() &&
         selectedMonth === now.getMonth();
-      const paymentDateForRecord = isCurrentSelectedMonth
-        ? now
-        : new Date(selectedYear, selectedMonth + 1, 0, 12, 0, 0, 0);
+      const paymentDateForRecord = explicitPaymentDate
+        ?? (isCurrentSelectedMonth ? now : new Date(selectedYear, selectedMonth + 1, 0, 12, 0, 0, 0));
 
       // Registrar pagamento (marcar como "via assinatura" pois vem do sistema de assinantes)
       const insertPayload: any = {
@@ -2258,7 +2265,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         professional_id: professionalId,
         professional_name: professionalName,
         amount: amount,
-        payment_date: now.toISOString(),
+        payment_date: paymentDateForRecord.toISOString(),
         payment_source: 'subscription', // Marcar como pagamento via assinatura
         for_month: selectedForMonth,
       };
@@ -5259,6 +5266,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 }).sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
                 const exclusiveSubscribers = exclusiveSubscribersByGroupKey.get(groupKey) || [];
 
+                const _selectedMonthKey = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`;
+                const _monthStart = new Date(selectedYear, selectedMonth, 1);
+                const _monthEnd = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59, 999);
                 const groupPayments = professionalPayments.filter((p) => {
                   if (p.payment_source !== 'subscription') return false;
                   const paymentGroup = resolveSubscriberAttendanceProfessionalGroup(
@@ -5269,7 +5279,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     establishmentProfessionalsForGrouping,
                     deletedProfessionalsForGrouping
                   );
-                  return paymentGroup.groupKey === groupKey;
+                  if (paymentGroup.groupKey !== groupKey) return false;
+                  // Filtra pelo mês selecionado: usa for_month se disponível, senão payment_date
+                  const forMonth = String((p as any).for_month || '').trim();
+                  if (forMonth) return forMonth === _selectedMonthKey;
+                  const t = new Date(p.payment_date).getTime();
+                  return t >= _monthStart.getTime() && t <= _monthEnd.getTime();
                 });
 
                 const totalPaid = groupPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
@@ -5473,16 +5488,40 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     </div>
 
                     <div className="px-4 sm:px-5 pb-5 flex flex-wrap gap-2">
-                      {pendingValue > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => handlePayProfessional(professional, pendingValue)}
-                          className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2.5 transition-colors"
-                        >
-                          <Wallet className="w-4 h-4" />
-                          Pagar
-                        </button>
-                      )}
+                      {pendingValue > 0 && (() => {
+                        const _now = new Date();
+                        const _isCurrent = selectedYear === _now.getFullYear() && selectedMonth === _now.getMonth();
+                        const _pad = (n: number) => String(n).padStart(2, '0');
+                        const _lastDay = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+                        const _minDate = `${selectedYear}-${_pad(selectedMonth + 1)}-01`;
+                        const _maxDate = `${selectedYear}-${_pad(selectedMonth + 1)}-${_pad(_lastDay)}`;
+                        const _defaultDate = _isCurrent
+                          ? `${_now.getFullYear()}-${_pad(_now.getMonth() + 1)}-${_pad(_now.getDate())}`
+                          : _maxDate;
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (_isCurrent) {
+                                handlePayProfessional(professional, pendingValue);
+                              } else {
+                                setPaymentDatePicker({
+                                  professional,
+                                  amount: pendingValue,
+                                  minDate: _minDate,
+                                  maxDate: _maxDate,
+                                  defaultDate: _defaultDate,
+                                  date: _defaultDate,
+                                });
+                              }
+                            }}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2.5 transition-colors"
+                          >
+                            <Wallet className="w-4 h-4" />
+                            Pagar
+                          </button>
+                        );
+                      })()}
                       <button
                         type="button"
                         onClick={async () => {
@@ -8472,6 +8511,52 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         getAttendanceEffectiveRepass={getAttendanceEffectiveRepass}
         exclusiveSubscriberIds={professionalClientsModal?.exclusiveSubscriberIds || new Set()}
       />
+
+      {/* Modal: seletor de data para pagamento de mês passado */}
+      {paymentDatePicker && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1b1c] rounded-2xl p-6 w-full max-w-sm border border-gray-700 shadow-2xl">
+            <h3 className="text-base font-semibold text-white mb-1">Data do pagamento</h3>
+            <p className="text-xs text-gray-400 mb-4">
+              Escolha uma data dentro do mês <span className="text-white font-medium">{monthNames[selectedMonth]} {selectedYear}</span>. Ela ficará registrada como data de pagamento de{' '}
+              <span className="text-white font-medium">{paymentDatePicker.professional}</span>.
+            </p>
+            <input
+              type="date"
+              min={paymentDatePicker.minDate}
+              max={paymentDatePicker.maxDate}
+              value={paymentDatePicker.date}
+              onChange={(e) => setPaymentDatePicker(prev => prev ? { ...prev, date: e.target.value } : null)}
+              className="w-full rounded-xl border border-gray-600 bg-gray-800 text-white px-3 py-2.5 text-sm mb-5 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setPaymentDatePicker(null)}
+                className="flex-1 rounded-xl border border-gray-600 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-semibold py-2.5 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const { professional, amount, date, minDate, maxDate } = paymentDatePicker;
+                  if (!date || date < minDate || date > maxDate) {
+                    toast.error(`Escolha uma data entre ${minDate} e ${maxDate}`);
+                    return;
+                  }
+                  setPaymentDatePicker(null);
+                  const [y, m, d] = date.split('-').map(Number);
+                  handlePayProfessional(professional, amount, new Date(y, m - 1, d, 12, 0, 0));
+                }}
+                className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold py-2.5 transition-colors"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Histórico de Pagamentos */}
       {showHistoryModal && selectedProfessionalForHistory && (

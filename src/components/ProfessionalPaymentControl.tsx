@@ -45,6 +45,18 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   const [showPaymentOptions, setShowPaymentOptions] = useState(false);
   const [customAmount, setCustomAmount] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
+  const [datePicker, setDatePicker] = useState<{ amount: number; isCustom: boolean; date: string } | null>(null);
+
+  const _now = new Date();
+  const isCurrentMonth = selectedMonth
+    ? selectedMonth.getFullYear() === _now.getFullYear() && selectedMonth.getMonth() === _now.getMonth()
+    : true;
+  const _pad = (n: number) => String(n).padStart(2, '0');
+  const _pickerYear = selectedMonth ? selectedMonth.getFullYear() : _now.getFullYear();
+  const _pickerMonth = selectedMonth ? selectedMonth.getMonth() : _now.getMonth();
+  const _pickerLastDay = new Date(_pickerYear, _pickerMonth + 1, 0).getDate();
+  const _pickerMinDate = `${_pickerYear}-${_pad(_pickerMonth + 1)}-01`;
+  const _pickerMaxDate = `${_pickerYear}-${_pad(_pickerMonth + 1)}-${_pad(_pickerLastDay)}`;
 
   // Estados para o botão "PEGAR VALOR"
   const [showTakeValueModal, setShowTakeValueModal] = useState(false);
@@ -109,7 +121,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     } catch { /* ignore */ }
   }, [professionalId, forMonthKey, totalPaidEffective, pendingToPay]);
 
-  const handlePayFullAmount = async () => {
+  const handlePayFullAmount = async (paymentDate?: Date) => {
     if (pendingToPay <= 0) {
       toast.error('Não há valor pendente para pagar');
       return;
@@ -120,10 +132,15 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       return;
     }
 
+    if (!isCurrentMonth && !paymentDate) {
+      setDatePicker({ amount: pendingToPay, isCustom: false, date: _pickerMaxDate });
+      return;
+    }
+
     setIsProcessing(true);
 
     try {
-      await recordPayment(professionalId, professionalName, pendingToPay, forMonthKey);
+      await recordPayment(professionalId, professionalName, pendingToPay, forMonthKey, paymentDate);
       await Promise.all([refreshPayments(), refreshLiquidValue()]);
       toast.success(`Pagamento de ${formatCurrency(pendingToPay)} registrado para ${professionalName}`);
       onPaymentRecorded?.();
@@ -136,7 +153,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     }
   };
 
-  const handlePayCustomAmount = async () => {
+  const handlePayCustomAmount = async (paymentDate?: Date) => {
     const amount = parseFloat(customAmount.replace(',', '.'));
 
     if (isNaN(amount) || amount <= 0) {
@@ -159,6 +176,11 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       if (!confirmed) return;
     }
 
+    if (!isCurrentMonth && !paymentDate) {
+      setDatePicker({ amount, isCustom: true, date: _pickerMaxDate });
+      return;
+    }
+
     if (isProcessing) {
       toast.error('Processando pagamento... Aguarde!');
       return;
@@ -167,7 +189,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     setIsProcessing(true);
 
     try {
-      await recordPayment(professionalId, professionalName, amount, forMonthKey);
+      await recordPayment(professionalId, professionalName, amount, forMonthKey, paymentDate);
       await Promise.all([refreshPayments(), refreshLiquidValue()]);
       toast.success(`Pagamento de ${formatCurrency(amount)} registrado para ${professionalName}`);
       onPaymentRecorded?.();
@@ -512,7 +534,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             {/* Pagar Todo */}
             <button
               type="button"
-              onClick={handlePayFullAmount}
+              onClick={() => handlePayFullAmount()}
               disabled={isProcessing}
               className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -542,7 +564,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                   <div className="flex space-x-2">
                     <button
                       type="button"
-                      onClick={handlePayCustomAmount}
+                      onClick={() => handlePayCustomAmount()}
                       disabled={isProcessing || !customAmount}
                       className="flex-1 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
@@ -746,6 +768,58 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                   Cancelar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: escolha de data para pagamento de mês passado */}
+      {datePicker && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1b1c] rounded-2xl p-6 w-full max-w-sm border border-gray-700 shadow-2xl">
+            <h3 className="text-base font-semibold text-white mb-1">Data do pagamento</h3>
+            <p className="text-xs text-gray-400 mb-4">
+              Escolha uma data dentro do mês{' '}
+              <span className="text-white font-medium">
+                {selectedMonth?.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+              </span>{' '}
+              para registrar o pagamento de{' '}
+              <span className="text-white font-medium">{professionalName}</span>.
+            </p>
+            <input
+              type="date"
+              min={_pickerMinDate}
+              max={_pickerMaxDate}
+              value={datePicker.date}
+              onChange={(e) => setDatePicker(prev => prev ? { ...prev, date: e.target.value } : null)}
+              className="w-full rounded-xl border border-gray-600 bg-gray-800 text-white px-3 py-2.5 text-sm mb-5 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDatePicker(null)}
+                className="flex-1 rounded-xl border border-gray-600 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-semibold py-2.5 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const { date, isCustom } = datePicker;
+                  if (!date || date < _pickerMinDate || date > _pickerMaxDate) {
+                    toast.error(`Escolha uma data entre ${_pickerMinDate} e ${_pickerMaxDate}`);
+                    return;
+                  }
+                  setDatePicker(null);
+                  const [y, m, d] = date.split('-').map(Number);
+                  const chosen = new Date(y, m - 1, d, 12, 0, 0);
+                  if (isCustom) handlePayCustomAmount(chosen);
+                  else handlePayFullAmount(chosen);
+                }}
+                className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold py-2.5 transition-colors"
+              >
+                Confirmar
+              </button>
             </div>
           </div>
         </div>
