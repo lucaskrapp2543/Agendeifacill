@@ -8,8 +8,11 @@ import { ensureManualClientFromContact } from './manualClientsSync';
 import {
   buildSubscriptionsByNameMap,
   buildSubscriptionsByPhoneMap,
+  EXPLICIT_AVULSO_PAYMENT_METHODS,
   findMatchingSubscriptionForAppointment,
+  findMatchingSubscriptionRelaxed,
   isSubscriberAppointmentForProfessionalControl,
+  normalizeSubscriberNameKey,
   parseSubscriberBoolean
 } from './subscriberAppointmentFlags';
 import { supabase } from './supabase';
@@ -853,6 +856,14 @@ export async function filterSubscriberAttendancesForFinance(
       (data || []).forEach((apt: any) => {
         if (isSubscriberAppointmentForProfessionalControl(apt, clientSubscriptionRows)) {
           validAppointmentIds.add(String(apt.id));
+          return;
+        }
+        // Fallback: explicitamente marcado como assinante (is_subscriber=true ou payment_method='assinante')
+        // mesmo que price > 0, o registro em subscriber_attendances é legítimo
+        if (!parseSubscriberBoolean(apt?.is_loyalty_reward) &&
+            (parseSubscriberBoolean(apt?.is_subscriber) ||
+              String(apt?.payment_method || '').trim().toLowerCase() === 'assinante')) {
+          validAppointmentIds.add(String(apt.id));
         }
       });
     } catch (error) {
@@ -952,23 +963,73 @@ export async function mergeSubscriberAttendancesWithCompletedAppointments(params
   const validAppointmentIds = new Set<string>();
   const synthetic: any[] = [];
 
+  // Mapa de fallback: nome snapshot dos rows existentes → client_subscription_id
+  // Usado quando o nome no agendamento é parcial (ex: "Jhon Cristophe" vs "Jhon Cristophe de Paiva Silva")
+  const existingSubIdByNameKey = new Map<string, string>();
+  existing.forEach((row: any) => {
+    const subId = String(row?.client_subscription_id || '').trim();
+    const nameKey = normalizeSubscriberNameKey(String(row?.client_name_snapshot || ''));
+    if (subId && nameKey) existingSubIdByNameKey.set(nameKey, subId);
+  });
+
+  // DEBUG TEMPORÁRIO
+  const _dbgIncluded: string[] = [];
+  const _dbgNoMatch: string[] = [];
+
   for (const apt of appointments) {
     const appointmentId = String(apt?.id || '').trim();
     if (!appointmentId) continue;
-    if (!isSubscriberAppointmentForProfessionalControl(apt as any, clientSubscriptionRows)) continue;
+    const isStandardSubscriber = isSubscriberAppointmentForProfessionalControl(apt as any, clientSubscriptionRows);
+    const isExplicitSubscriber = !isStandardSubscriber &&
+      !parseSubscriberBoolean((apt as any)?.is_loyalty_reward) &&
+      (parseSubscriberBoolean((apt as any)?.is_subscriber) ||
+        String((apt as any)?.payment_method || '').trim().toLowerCase() === 'assinante');
+    // Terceiro caso: price=0, sem method avulso e sem flags — confirma via match em client_subscriptions
+    const aptPaymentMethod = String((apt as any)?.payment_method || '').trim().toLowerCase();
+    const isZeroPriceCandidate = !isStandardSubscriber && !isExplicitSubscriber &&
+      !parseSubscriberBoolean((apt as any)?.is_loyalty_reward) &&
+      Number((apt as any)?.price ?? 0) === 0 &&
+      !EXPLICIT_AVULSO_PAYMENT_METHODS.has(aptPaymentMethod);
+    if (!isStandardSubscriber && !isExplicitSubscriber && !isZeroPriceCandidate) continue;
 
     validAppointmentIds.add(appointmentId);
 
     if (coveredAppointmentIds.has(appointmentId)) continue;
 
-    const matched = findMatchingSubscriptionForAppointment(
+    let matched = findMatchingSubscriptionForAppointment(
       apt as any,
       subscriptionsByPhone,
       subscriptionsByName
     );
+    // Fallback relaxado: assinante unpaid com flags explícitas OU price=0 sem method avulso.
+    if (!matched && (isExplicitSubscriber || isZeroPriceCandidate)) {
+      matched = findMatchingSubscriptionRelaxed(apt as any, subscriptionsByPhone, subscriptionsByName);
+    }
+    // Fallback por nome dos rows existentes: cobre casos onde o nome no agendamento é parcial
+    // (ex: "Jhon Cristophe" no agendamento vs "Jhon Cristophe de Paiva Silva" no cadastro).
+    if (!matched && (isExplicitSubscriber || isZeroPriceCandidate) && existingSubIdByNameKey.size > 0) {
+      const aptNameKey = normalizeSubscriberNameKey((apt as any)?.client_name);
+      let resolvedSubId: string | null = null;
+      if (aptNameKey) resolvedSubId = existingSubIdByNameKey.get(aptNameKey) || null;
+      if (!resolvedSubId && aptNameKey && aptNameKey.length >= 6) {
+        for (const [key, subId] of existingSubIdByNameKey) {
+          if (key.includes(aptNameKey) || aptNameKey.includes(key)) {
+            resolvedSubId = subId;
+            break;
+          }
+        }
+      }
+      if (resolvedSubId) {
+        matched = (clientSubscriptionRows as any[]).find((row: any) => String(row?.id || '') === resolvedSubId) || null;
+      }
+    }
     const matchedSubscriptionId = String(matched?.id || '').trim();
     // Só entra no financeiro se existir cadastro em Meus Assinantes.
-    if (!matchedSubscriptionId) continue;
+    if (!matchedSubscriptionId) {
+      _dbgNoMatch.push(`${(apt as any)?.client_name} | ${(apt as any)?.appointment_date} | price=${(apt as any)?.price} | is_sub=${(apt as any)?.is_subscriber} | method=${(apt as any)?.payment_method} | whats=${(apt as any)?.client_whatsapp}`);
+      continue;
+    }
+    _dbgIncluded.push(`${(apt as any)?.client_name} | ${(apt as any)?.appointment_date} | ${coveredAppointmentIds.has(appointmentId) ? 'EXISTENTE' : 'SINTÉTICO'}`);
 
     const professionalRecord = resolveAppointmentProfessionalForSubscriber(apt as any, professionals);
     const subscription = (matched as any)?.subscriptions || null;
@@ -1004,6 +1065,12 @@ export async function mergeSubscriberAttendancesWithCompletedAppointments(params
     if (validAppointmentIds.size === 0) return false;
     return validAppointmentIds.has(aptId);
   });
+
+  // DEBUG TEMPORÁRIO
+  console.log(`[DEBUG-SUBSCRIBER RESUMO] ${monthStart}→${monthEnd} | incluídos: ${_dbgIncluded.length} | sem-match: ${_dbgNoMatch.length} | existentes-filtrados: ${filteredExisting.length} | sintéticos: ${synthetic.length}`);
+  if (_dbgIncluded.length > 0) console.log('[DEBUG-SUBSCRIBER] INCLUÍDOS:\n' + _dbgIncluded.join('\n'));
+  if (_dbgNoMatch.length > 0) console.log('[DEBUG-SUBSCRIBER] SEM MATCH (perdidos):\n' + _dbgNoMatch.join('\n'));
+  console.log('[DEBUG-SUBSCRIBER] EXISTENTES filtrados:', filteredExisting.map((r: any) => `${r.client_name_snapshot} | ${r.attendance_date} | prof=${r.professional_name}`));
 
   return dedupeSubscriberAttendanceRows([...filteredExisting, ...synthetic]);
 }

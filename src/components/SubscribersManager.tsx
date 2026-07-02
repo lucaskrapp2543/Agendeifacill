@@ -1763,10 +1763,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const fetchSubscriberAttendances = async (month?: number, year?: number) => {
     const targetMonth = month !== undefined ? month : selectedMonth;
     const targetYear = year !== undefined ? year : selectedYear;
-    const firstDayOfMonth = new Date(targetYear, targetMonth, 1);
-    const lastDayOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
-    const monthStart = firstDayOfMonth.toISOString().split('T')[0];
-    const monthEnd = lastDayOfMonth.toISOString().split('T')[0];
+    // Usa aritmética local em vez de toISOString() (UTC) para evitar bug de fuso:
+    // em UTC-3/UTC-4 o último dia do mês às 23:59 local vira o 1º do mês seguinte em UTC.
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const monthStart = `${targetYear}-${pad(targetMonth + 1)}-01`;
+    const lastDayNum = new Date(targetYear, targetMonth + 1, 0).getDate();
+    const monthEnd = `${targetYear}-${pad(targetMonth + 1)}-${pad(lastDayNum)}`;
 
     const applyRows = async (rows: any[] | null | undefined) => {
       const filtered = await filterSubscriberAttendancesForFinance(rows || [], establishmentId);

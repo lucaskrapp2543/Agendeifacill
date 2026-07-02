@@ -74,7 +74,7 @@ export function normalizeSubscriberNameKey(value: unknown): string {
     .toLowerCase();
 }
 
-const EXPLICIT_AVULSO_PAYMENT_METHODS = new Set([
+export const EXPLICIT_AVULSO_PAYMENT_METHODS = new Set([
   'pix',
   'pix_now',
   'credito',
@@ -261,6 +261,40 @@ export function findMatchingSubscriptionForAppointment(
     const matched = (subscriptionsByName.get(nameKey) || []).find((sub) =>
       isDateInsidePaidSubscription(apt?.appointment_date, sub)
     );
+    if (matched) return matched;
+  }
+
+  return null;
+}
+
+/** Igual a findMatchingSubscriptionForAppointment, mas aceita assinantes mesmo sem payment_status='paid'.
+ *  Usado como fallback para agendamentos marcados explicitamente como assinante (is_subscriber=true / payment_method='assinante'). */
+export function findMatchingSubscriptionRelaxed(
+  apt: SubscriberAppointmentLike,
+  subscriptionsByPhone: Map<string, ClientSubscriptionRowLite[]>,
+  subscriptionsByName: Map<string, ClientSubscriptionRowLite[]>
+): ClientSubscriptionRowLite | null {
+  const aptDate = String(apt?.appointment_date || '').slice(0, 10);
+  const isInDateRange = (sub: ClientSubscriptionRowLite): boolean => {
+    const startDate = String(sub?.start_date || '').slice(0, 10);
+    const endDate = String(sub?.end_date || '').slice(0, 10);
+    if (aptDate && startDate && startDate > aptDate) return false;
+    if (aptDate && endDate && endDate < aptDate) return false;
+    return true;
+  };
+
+  const aptKeys = getWhatsappLookupKeys(String(apt?.client_whatsapp || ''))
+    .map((key) => normalizeSubscriberPhoneDigits(key))
+    .filter(Boolean);
+
+  for (const key of aptKeys) {
+    const matched = (subscriptionsByPhone.get(key) || []).find(isInDateRange);
+    if (matched) return matched;
+  }
+
+  const nameKey = normalizeSubscriberNameKey(apt?.client_name);
+  if (nameKey) {
+    const matched = (subscriptionsByName.get(nameKey) || []).find(isInDateRange);
     if (matched) return matched;
   }
 
