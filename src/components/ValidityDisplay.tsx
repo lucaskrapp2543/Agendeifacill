@@ -134,11 +134,11 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
     return null;
   }
 
-  // Verifica se está em dia (mais de 7 dias restantes e não está vencido)
+  // Verifica se está em dia (mais de 1 dia restante e não está vencido)
   const normalizedDisplayStatus = String(validity?.payment_status || '').toLowerCase().trim();
   const isInGoodStanding =
     (normalizedDisplayStatus === 'paid' && daysRemaining > 0) ||
-    (daysRemaining > 7 && normalizedDisplayStatus !== 'expired' && daysRemaining >= 0);
+    (daysRemaining > 1 && normalizedDisplayStatus !== 'expired' && daysRemaining >= 0);
 
   // Modo discreto - quando está em dia
   if (isInGoodStanding) {

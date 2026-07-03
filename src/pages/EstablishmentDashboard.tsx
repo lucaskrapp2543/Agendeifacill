@@ -14,6 +14,7 @@ import DailyMorningMessageModal from '../components/DailyMorningMessageModal';
 import { ConfigPasswordModal } from '../components/ConfigPasswordModal';
 import { DiscountCouponsModal } from '../components/DiscountCouponsModal';
 import { EstablishmentBillingPaymentModal } from '../components/EstablishmentBillingPaymentModal';
+import { ScheduleHistoryModal } from '../components/ScheduleHistoryModal';
 import { EstablishmentPixSettings } from '../components/EstablishmentPixSettings';
 import { ExpensesManager } from '../components/ExpensesManager';
 import { FinancialDashboard } from '../components/FinancialDashboard';
@@ -4569,6 +4570,7 @@ const EstablishmentDashboard = () => {
   // Estado para popup de alerta de pagamento
   const [showPaymentAlert, setShowPaymentAlert] = useState(false);
   const [showBillingPaymentModal, setShowBillingPaymentModal] = useState(false);
+  const [showScheduleHistoryModal, setShowScheduleHistoryModal] = useState(false);
 
   const handleBillingPaymentSuccess = async () => {
     setShowPaymentAlert(false);
@@ -10266,6 +10268,39 @@ const EstablishmentDashboard = () => {
         establishment.id,
         safeProfessionals
       );
+
+      // Registrar histórico de mudanças em work_hours (fire-and-forget)
+      try {
+        const whDays = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+        const whHistoryRows: any[] = [];
+        for (const nextProf of nextProfessionals) {
+          const dbProf = dbProfessionals.find((p: any) => String(p?.id) === String(nextProf?.id));
+          if (!dbProf) continue;
+          const nextWH = (nextProf as any).work_hours || {};
+          const dbWH = (dbProf as any).work_hours || {};
+          for (const day of whDays) {
+            if (JSON.stringify(nextWH[day]) !== JSON.stringify(dbWH[day])) {
+              whHistoryRows.push({
+                establishment_id: String(establishment.id),
+                change_type: 'work_hours',
+                professional_id: String(nextProf.id),
+                professional_name: String(nextProf.name || ''),
+                day_of_week: day,
+                before_data: dbWH[day] ?? null,
+                after_data: nextWH[day] ?? null,
+                changed_at: new Date().toISOString(),
+              });
+            }
+          }
+        }
+        if (whHistoryRows.length > 0) {
+          supabase.from('schedule_history').insert(whHistoryRows).then(({ error: hErr }) => {
+            if (hErr) console.warn('Histórico de horários (prof): falha ao inserir (não crítico):', hErr);
+          });
+        }
+      } catch (histErr) {
+        console.warn('Histórico de horários (prof): erro inesperado (não crítico):', histErr);
+      }
 
       const { error: updateError } = await supabase
         .from('establishments')
@@ -23334,6 +23369,29 @@ Estamos te aguardando!`;
 
     console.log('💾 Salvando horários de funcionamento:', hours);
 
+    // Registrar histórico de mudanças (fire-and-forget, não bloqueia o save)
+    try {
+      const oldHours = (establishment as any)?.business_hours || {};
+      const historyDays = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+      const historyRows = historyDays
+        .filter(day => JSON.stringify(oldHours[day]) !== JSON.stringify(hours[day]))
+        .map(day => ({
+          establishment_id: String(establishment.id),
+          change_type: 'business_hours',
+          day_of_week: day,
+          before_data: oldHours[day] ?? null,
+          after_data: hours[day] ?? null,
+          changed_at: new Date().toISOString(),
+        }));
+      if (historyRows.length > 0) {
+        supabase.from('schedule_history').insert(historyRows).then(({ error: hErr }) => {
+          if (hErr) console.warn('Histórico de horários: falha ao inserir (não crítico):', hErr);
+        });
+      }
+    } catch (histErr) {
+      console.warn('Histórico de horários: erro inesperado (não crítico):', histErr);
+    }
+
     try {
       const { error } = await supabase
         .from('establishments')
@@ -28107,6 +28165,7 @@ Estamos te aguardando!`;
                     establishmentName={String(establishment?.name || 'Estabelecimento')}
                     onPaid={handleBillingPaymentSuccess}
                   />
+
 
                   {/* Popup de Propaganda */}
                   {showPromotionPopup && establishment && (
@@ -33505,9 +33564,21 @@ Estamos te aguardando!`;
                   {(!isNewUser || quizStep === 6) && (
                     <div id="quiz-section-funcionamento" className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800">
                       <div className="mb-4">
-                        <h3 className="text-lg font-extrabold text-white">
-                          {isNewUser && quizStep === 6 ? '6. Horários e dias de funcionamento' : 'Horários e dias de funcionamento'}
-                        </h3>
+                        <div className="flex items-center justify-between gap-2">
+                          <h3 className="text-lg font-extrabold text-white">
+                            {isNewUser && quizStep === 6 ? '6. Horários e dias de funcionamento' : 'Horários e dias de funcionamento'}
+                          </h3>
+                          {!isNewUser && establishment?.id && (
+                            <button
+                              type="button"
+                              onClick={() => setShowScheduleHistoryModal(true)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/20 transition-colors text-xs font-semibold shrink-0"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                              Histórico
+                            </button>
+                          )}
+                        </div>
                         <div className="mt-2 rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">
                           <p className="font-extrabold">
                             Aqui são os horários que aparecem para seu cliente: abertura e fechamento do estabelecimento.
@@ -38199,9 +38270,21 @@ Estamos te aguardando!`;
               <div className="bg-[#1a1b1c] rounded-lg border border-gray-700 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="p-6">
                   <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-semibold text-white">
-                      Horários de Trabalho - {professionals.find(p => p.id === selectedProfessionalForWorkHours)?.name}
-                    </h3>
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-xl font-semibold text-white">
+                        Horários de Trabalho - {professionals.find(p => p.id === selectedProfessionalForWorkHours)?.name}
+                      </h3>
+                      {establishment?.id && (
+                        <button
+                          type="button"
+                          onClick={() => setShowScheduleHistoryModal(true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/20 transition-colors text-xs font-semibold"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          Histórico
+                        </button>
+                      )}
+                    </div>
                     <button
                       onClick={handleCloseWorkHoursModal}
                       className="text-gray-400 hover:text-white transition-colors"
@@ -45613,6 +45696,15 @@ Estamos te aguardando!`;
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de histórico de alterações de horário — nível global, abre de qualquer tab */}
+      {establishment?.id && (
+        <ScheduleHistoryModal
+          isOpen={showScheduleHistoryModal}
+          onClose={() => setShowScheduleHistoryModal(false)}
+          establishmentId={String(establishment.id)}
+        />
       )}
     </div >
   );
