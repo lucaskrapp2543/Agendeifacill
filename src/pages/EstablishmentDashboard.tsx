@@ -3551,8 +3551,14 @@ const EstablishmentDashboard = () => {
               : '🔗 Conectar conta Mercado Pago'}
         </button>
 
+        {!isMpConnected && (
+          <p className="mt-2 text-xs text-gray-400 text-center">
+            💡 Para conectar uma conta diferente (ex: CNPJ), saia do Mercado Pago no navegador antes de conectar.
+          </p>
+        )}
+
         {!isMpConnected && isRecebaNaHora && (
-          <p className="mt-3 text-xs text-white/50 text-center">
+          <p className="mt-2 text-xs text-white/50 text-center">
             ✅ A maioria das barbearias que usam o Agendei Fácil já ativou pagamentos online.
           </p>
         )}
@@ -3797,7 +3803,10 @@ const EstablishmentDashboard = () => {
                   setExigirPagamentoAntecipadoMercadoPago(false);
                   setPagamentoAdiantadoOpcionalMercadoPago(false);
 
-                  toast.success('Mercado Pago desconectado com sucesso');
+                  toast.success(
+                    'Mercado Pago desconectado! Para conectar uma conta diferente (ex: CNPJ), saia primeiro do Mercado Pago no navegador antes de reconectar.',
+                    { duration: 8000 }
+                  );
                   fetchEstablishment(); // Recarregar dados
                 } catch (error: any) {
                   console.error('❌ Erro ao desconectar Mercado Pago:', error);

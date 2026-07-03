@@ -1149,6 +1149,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     });
   };
 
+  // Contagem de atendimentos do mês por assinante — usa o estado já carregado (inclui rows sintéticos do merge)
+  const mergedAttendanceCountBySubId = useMemo(() => {
+    const counts: Record<string, number> = {};
+    (subscriberAttendances || []).forEach((att: any) => {
+      const id = String(att?.client_subscription_id || '').trim();
+      if (!id) return;
+      counts[id] = (counts[id] || 0) + 1;
+    });
+    return counts;
+  }, [subscriberAttendances]);
+
   const clientNameBySubIdMap = useMemo(() => {
     const m = new Map<string, string>();
     (clientSubscriptions || []).forEach((cs: any) => {
@@ -2553,6 +2564,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         .eq('establishment_id', establishmentId)
         .eq('client_subscription_id', cs.id);
 
+      let rangeMin = '';
+      let rangeMax = '';
+
       if (filter.kind === 'period') {
         const targetDate = new Date(selectedYear, selectedMonth, 1);
         const currentRange = clampDateRangeToSubscription(getCalendarMonthDateRange(targetDate), cs);
@@ -2560,17 +2574,61 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           setAttendanceViewerRows([]);
           return;
         }
-        q = q.gte('attendance_date', currentRange.periodMin).lte('attendance_date', currentRange.periodMax);
+        rangeMin = currentRange.periodMin;
+        rangeMax = currentRange.periodMax;
+        q = q.gte('attendance_date', rangeMin).lte('attendance_date', rangeMax);
       } else {
         const d = parseISO(`${filter.ym}-01`);
-        const first = format(startOfMonth(d), 'yyyy-MM-dd');
-        const last = format(endOfMonth(d), 'yyyy-MM-dd');
-        q = q.gte('attendance_date', first).lte('attendance_date', last);
+        rangeMin = format(startOfMonth(d), 'yyyy-MM-dd');
+        rangeMax = format(endOfMonth(d), 'yyyy-MM-dd');
+        q = q.gte('attendance_date', rangeMin).lte('attendance_date', rangeMax);
       }
 
       const { data, error } = await q.order('attendance_date', { ascending: false });
       if (error) throw error;
-      setAttendanceViewerRows(data || []);
+
+      const realRows: any[] = data || [];
+
+      // Complementar com rows sintéticos do estado subscriberAttendances
+      // (agendamentos concluídos que ainda não têm registro manual em subscriber_attendances)
+      const coveredAptIds = new Set(
+        realRows.map((r: any) => String(r?.appointment_id || '')).filter(Boolean)
+      );
+      const syntheticRows = (subscriberAttendances || []).filter((att: any) => {
+        if (String(att?.client_subscription_id || '') !== String(cs.id)) return false;
+        if (!att?.__synthetic_from_appointment) return false;
+        const date = String(att?.attendance_date || '').slice(0, 10);
+        if (rangeMin && date < rangeMin) return false;
+        if (rangeMax && date > rangeMax) return false;
+        const aptId = String(att?.appointment_id || '');
+        return !aptId || !coveredAptIds.has(aptId);
+      });
+
+      // Buscar horário dos agendamentos para os rows sintéticos (leitura, sem escrita)
+      if (syntheticRows.length > 0) {
+        const aptIds = syntheticRows.map((a: any) => String(a.appointment_id || '')).filter(Boolean);
+        if (aptIds.length > 0) {
+          try {
+            const { data: aptData } = await supabase
+              .from('appointments')
+              .select('id, appointment_time')
+              .in('id', aptIds);
+            if (Array.isArray(aptData)) {
+              const timeById: Record<string, string> = {};
+              aptData.forEach((r: any) => { timeById[String(r.id)] = String(r.appointment_time || ''); });
+              syntheticRows.forEach((att: any) => {
+                att.appointment_time = timeById[String(att.appointment_id || '')] || null;
+              });
+            }
+          } catch { /* sem horário — ainda mostra o restante */ }
+        }
+      }
+
+      const combined = [...realRows, ...syntheticRows].sort((a, b) =>
+        String(b?.attendance_date || '').localeCompare(String(a?.attendance_date || ''))
+      );
+
+      setAttendanceViewerRows(combined);
     } catch (e: any) {
       console.error('Erro ao carregar atendimentos (visualização):', e);
       const msg =
@@ -3021,6 +3079,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       fetchSubscriberAttendances(selectedMonth, selectedYear);
       fetchSubscriberAttendanceCounts(selectedMonth, selectedYear);
       fetchSubscriberAttendanceCountsHistory(selectedMonth, selectedYear);
+
       fetchProfessionalPayments(selectedMonth, selectedYear);
       fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
 
@@ -4648,6 +4707,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       await fetchSubscriberAttendances(selectedMonth, selectedYear);
       await fetchSubscriberAttendanceCounts(selectedMonth, selectedYear);
       await fetchSubscriberAttendanceCountsHistory(selectedMonth, selectedYear);
+  
       await fetchProfessionalPayments(selectedMonth, selectedYear);
       await fetchSubscriptionSaleCommissions(selectedMonth, selectedYear);
       toast.success('Saldo atualizado!');
@@ -4794,6 +4854,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     await fetchSubscriberAttendances(month, year);
     await fetchSubscriberAttendanceCounts(month, year);
     await fetchSubscriberAttendanceCountsHistory(month, year);
+
     await fetchProfessionalPayments(month, year);
     await fetchSubscriptionSaleCommissions(month, year);
   };
@@ -6730,9 +6791,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             {filteredClientSubscriptions.map((cs) => {
               const isPaid = isPaymentStatusPaid(cs);
               const isExpired = isPastIsoDateSafe(cs.end_date);
-              const baseLimit = Number((cs as any)?.monthly_limit || 0);
-              const effectiveLimit = subscriberEffectiveLimitByClientSubId[String(cs.id)] ?? (Number.isFinite(baseLimit) && baseLimit > 0 ? baseLimit : null);
-              const concludedCount = subscriberAttendanceCountsByClientSubId[String(cs.id)] || 0;
 
               // Lógica de status: vencido APENAS se data passou (independente do pagamento)
               const isVencido = isExpired;
@@ -6751,21 +6809,22 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         {cs.profiles?.full_name || 'Cliente Desconhecido'}
                       </h3>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        {(concludedCount > 0 || (effectiveLimit !== null && effectiveLimit > 0)) && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void openAttendanceViewerForClient(cs, { kind: 'period' });
-                            }}
-                            className="bg-black/30 text-white text-xs px-2 py-1 rounded-full font-extrabold hover:bg-black/50 border border-white/10 cursor-pointer transition-colors"
-                            title="Ver quais profissionais concluíram atendimentos no mês selecionado"
-                          >
-                            {effectiveLimit !== null && effectiveLimit > 0
-                              ? `${concludedCount} de ${effectiveLimit}`
-                              : `${concludedCount} concluído(s)`}
-                          </button>
-                        )}
+                        {(() => {
+                          const count = mergedAttendanceCountBySubId[String(cs.id)] || 0;
+                          return (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void openAttendanceViewerForClient(cs, { kind: 'period' });
+                              }}
+                              className="bg-black/30 text-white text-xs px-2 py-1 rounded-full font-extrabold hover:bg-black/50 border border-white/10 cursor-pointer transition-colors"
+                              title="Atendimentos este mês"
+                            >
+                              {count} {count === 1 ? 'atendimento' : 'atendimentos'} esse mês
+                            </button>
+                          );
+                        })()}
 
                         {/* Meses anteriores (ex.: Fev 1) */}
                         {(() => {
@@ -7721,6 +7780,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                               </p>
                               <p className="text-xs text-gray-400">
                                 {format(parse(String(attendance.attendance_date || '').slice(0, 10), 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: ptBR })}
+                                {(attendance as any).appointment_time
+                                  ? ` às ${String((attendance as any).appointment_time).slice(0, 5)}`
+                                  : ''}
                               </p>
                             </div>
                             <div className="flex items-center gap-3">
@@ -7733,19 +7795,21 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                                     )}
                                 </p>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveAttendance(
-                                  attendance.id,
-                                  attendanceProfessional || 'Profissional não informado',
-                                  attendance.attendance_date,
-                                  getAttendanceEffectiveRepass(attendance)
-                                )}
-                                className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-200 rounded-lg transition-colors"
-                                title="Remover atendimento"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
+                              {!(attendance as any).__synthetic_from_appointment && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveAttendance(
+                                    attendance.id,
+                                    attendanceProfessional || 'Profissional não informado',
+                                    attendance.attendance_date,
+                                    getAttendanceEffectiveRepass(attendance)
+                                  )}
+                                  className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-200 rounded-lg transition-colors"
+                                  title="Remover atendimento"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         );

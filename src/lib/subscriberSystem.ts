@@ -1025,6 +1025,20 @@ export async function mergeSubscriberAttendancesWithCompletedAppointments(params
       continue;
     }
 
+    // Exige ao menos um indicador explícito de assinante no agendamento.
+    // Impede que agendamentos avulsos com preço zerado manualmente (ex: R$45 → R$0)
+    // sejam contados como visitas de assinatura só por terem price=0 + match de cadastro.
+    const aptHasExplicitSubscriberFlag =
+      parseSubscriberBoolean((apt as any)?.is_subscriber) ||
+      String((apt as any)?.payment_method || '').trim().toLowerCase() === 'assinante' ||
+      String((apt as any)?.subscriber_service_id || '').trim() !== '' ||
+      String((apt as any)?.subscriber_service_name || '').trim() !== '' ||
+      String((apt as any)?.subscription_id || '').trim() !== '' ||
+      /\(\s*assinante\s*\)/i.test(String((apt as any)?.client_name || ''));
+    if (!aptHasExplicitSubscriberFlag) {
+      continue;
+    }
+
     const professionalRecord = resolveAppointmentProfessionalForSubscriber(apt as any, professionals);
     const subscription = (matched as any)?.subscriptions || null;
     const repassValue = computeSubscriberRepassValue({
