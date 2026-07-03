@@ -3552,9 +3552,19 @@ const EstablishmentDashboard = () => {
         </button>
 
         {!isMpConnected && (
-          <p className="mt-2 text-xs text-gray-400 text-center">
-            💡 Para conectar uma conta diferente (ex: CNPJ), saia do Mercado Pago no navegador antes de conectar.
-          </p>
+          <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl text-center space-y-2">
+            <p className="text-xs text-yellow-300 font-semibold">Quer conectar uma conta diferente (ex: CNPJ)?</p>
+            <p className="text-xs text-gray-400">Saia do Mercado Pago no navegador primeiro para que a nova conta seja reconhecida.</p>
+            <a
+              href="https://www.mercadopago.com.br/logout"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block text-xs text-yellow-400 hover:text-yellow-300 underline font-semibold"
+            >
+              👉 Sair do Mercado Pago agora
+            </a>
+            <p className="text-xs text-gray-500">Depois clique no botão acima para conectar a nova conta.</p>
+          </div>
         )}
 
         {!isMpConnected && isRecebaNaHora && (
