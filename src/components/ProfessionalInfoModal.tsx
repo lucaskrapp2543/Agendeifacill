@@ -34,6 +34,8 @@ interface ProfessionalInfoModalProps {
   subscriberDailyAccumulated?: number;
   establishmentId?: string;
   selectedMonth?: Date;
+  getCardTaxAmountForServiceBase?: (apt: any, serviceBase: number) => number;
+  taxDeductedByEstablishment?: boolean;
   basePercentage?: number;
   metaBonusPercentage?: number;
   metaGoalReached?: boolean;
@@ -188,6 +190,8 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   subscriberDailyAccumulated = 0,
   establishmentId,
   selectedMonth,
+  getCardTaxAmountForServiceBase,
+  taxDeductedByEstablishment = false,
   basePercentage,
   metaBonusPercentage = 0,
   metaGoalReached = false,
@@ -209,7 +213,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
     return `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}`;
   });
   type MirrorApt = { date: string; time: string; client: string; service: string; gross: number; net: number; paymentMethod: string; };
-  const [mirrorData, setMirrorData] = useState<{ validPaid: number; pending: number; month: string; totalGross: number; totalNet: number; pct: number; apts: MirrorApt[] } | null>(null);
+  const [mirrorData, setMirrorData] = useState<{ validPaid: number; pending: number; month: string; totalGross: number; totalNet: number; pct: number; apts: MirrorApt[]; taxLoss: number } | null>(null);
   const [isLoadingMirror, setIsLoadingMirror] = useState(false);
 
   const fetchMirrorData = async (monthKey: string) => {
@@ -342,6 +346,16 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
 
       const payMethodLabel: Record<string, string> = { dinheiro: 'Dinheiro', pix: 'PIX', credito: 'Crédito', debito: 'Débito', pendente: 'Pendente' };
       const totalGross = apts.reduce((s, a) => s + getRevenueBase(a), 0);
+      // Taxa de cartão que sai da parte do profissional. Usa a MESMA função do admin (getCardTaxAmountForServiceBase)
+      // multiplicada pela % dele, para o "líquido a receber" bater exatamente com o financeiro do dono.
+      // IMPORTANTE: só há desconto quando a taxa NÃO é bancada pelo estabelecimento (tax_deducted_by_establishment).
+      const totalTaxLoss = (typeof getCardTaxAmountForServiceBase === 'function' && !taxDeductedByEstablishment)
+        ? Math.round(apts.reduce((s, a) => {
+            const aptTax = getCardTaxAmountForServiceBase(a, getRevenueBase(a));
+            if (!(aptTax > 0)) return s;
+            return s + (aptTax * getPct(String(a.service || ''))) / 100;
+          }, 0) * 100) / 100
+        : 0;
       const mirrorApts: MirrorApt[] = apts
         .map((a) => ({
           date: String(a.appointment_date || '').slice(0, 10),
@@ -354,7 +368,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
         }))
         .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 
-      const data = { validPaid, pending: Math.max(0, totalNet - validPaid), month: monthKey, totalGross, totalNet, pct, apts: mirrorApts };
+      const data = { validPaid, pending: Math.max(0, totalNet - validPaid), month: monthKey, totalGross, totalNet, pct, apts: mirrorApts, taxLoss: totalTaxLoss };
       try { localStorage.setItem(`prof_financial_mirror:${professional.id}:${monthKey}`, JSON.stringify({ validPaid, pending: data.pending, month: monthKey })); } catch { /* ignore */ }
       setMirrorData(data);
     } catch {
@@ -2354,6 +2368,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                     currentLiquidValue={mirrorData.validPaid + mirrorData.pending}
                     validatedPaidAmount={mirrorData.validPaid}
                     validatedPendingAmount={mirrorData.pending}
+                    cardTaxLoss={mirrorData.taxLoss}
                     selectedMonth={(() => {
                       const [y, mo] = selectedMirrorMonth.split('-').map(Number);
                       return new Date(y, mo - 1, 1);

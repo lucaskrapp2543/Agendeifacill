@@ -369,6 +369,7 @@ export function buildNormalPayload(input: BookingPayloadInput) {
     client_whatsapp: input.clientWhatsapp,
     payment_method: 'pagar_local',
     status: 'pending',
+    booking_source: 'af',
   };
 }
 

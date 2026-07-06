@@ -625,6 +625,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
       String(establishment.pin_password || '').trim() !== '0000'
     );
     const [pendingVisibilityUnlockProfessionalId, setPendingVisibilityUnlockProfessionalId] = useState<string | null>(null);
+    const collaboratorVisibilitySignatureRef = useRef<string>('');
     const hiddenProfessionalIdSet = useMemo(
       () => new Set((hiddenProfessionalIds || []).map((id) => String(id || '').trim()).filter(Boolean)),
       [hiddenProfessionalIds]
@@ -643,6 +644,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     const isProfessionalAppointmentsProtected = (professional: Professional): boolean => {
       if (bypassOwnerPinLocks) return false;
+      // Agenda liberada explicitamente para este colaborador/secretaria ver: o dono já autorizou na configuração,
+      // então não exige de novo a senha do dono para abrir.
+      if (isCollaboratorView) {
+        const targetId = String(professional?.id || '').trim();
+        const isAllowedAgenda = (collaboratorAllowedAgendaIds || [])
+          .map((id) => String(id || '').trim())
+          .includes(targetId);
+        if (isAllowedAgenda) return false;
+      }
       return Boolean((professional as any)?.lock_appointments_with_owner_pin) && hasValidProfessionalAppointmentPin(professional.id);
     };
 
@@ -807,6 +817,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
         ? extraIds
         : Array.from(new Set([forcedId, ...extraIds]));
 
+      // Só re-inicializa a visão quando o CONJUNTO de agendas liberadas muda.
+      // Assim o colaborador pode ocultar uma agenda pelo X sem ela reaparecer a cada atualização.
+      const collaboratorVisibilitySignature = `${isSecretaryModeActive ? 's' : 'c'}:${visibleIds.slice().sort().join(',')}`;
+      if (collaboratorVisibilitySignature === collaboratorVisibilitySignatureRef.current) return;
+      collaboratorVisibilitySignatureRef.current = collaboratorVisibilitySignature;
+
       if (visibleIds.length === 0) {
         if (isSecretaryModeActive) {
           setVisibleProfessionalIds([]);
@@ -829,10 +845,21 @@ export const AllProfessionalsAppointmentsView: React.FC<
       professionals,
     ]);
 
+    const collaboratorCanToggleAgenda = (professionalId: string): boolean => {
+      const normalizedId = String(professionalId || '').trim();
+      if (!normalizedId) return false;
+      const forcedId = String(forceProfessionalId || '').trim();
+      const allowedSet = new Set(
+        [forcedId, ...(collaboratorAllowedAgendaIds || []).map((id) => String(id || '').trim())].filter(Boolean)
+      );
+      return allowedSet.has(normalizedId);
+    };
+
     const toggleProfessionalVisibility = (professionalId: string) => {
-      if (isCollaboratorView) return;
       const normalizedId = String(professionalId || '').trim();
       if (!normalizedId) return;
+      // Colaborador pode mostrar/ocultar apenas as agendas que tem permissão (a própria + as liberadas pelo dono).
+      if (isCollaboratorView && !collaboratorCanToggleAgenda(normalizedId)) return;
       const targetProfessional = professionals.find((professional) => String(professional.id || '').trim() === normalizedId);
       if (!targetProfessional) return;
       const isProtectedAndLocked =
@@ -869,9 +896,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
     };
 
     const selectOnlyProfessional = (professionalId: string) => {
-      if (isCollaboratorView) return;
       const normalizedId = String(professionalId || '').trim();
       if (!normalizedId) return;
+      // Colaborador pode focar apenas nas agendas que tem permissão (a própria + as liberadas pelo dono).
+      if (isCollaboratorView && !collaboratorCanToggleAgenda(normalizedId)) return;
       const targetProfessional = professionals.find((professional) => String(professional.id || '').trim() === normalizedId);
       if (!targetProfessional) return;
       const isProtectedAndLocked =
@@ -9080,6 +9108,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   : professionalPins.find((pin) => pin.professional_id === selectedProfessionalForInfo)?.pin
               }
               establishmentId={establishment?.id}
+              getCardTaxAmountForServiceBase={getCardTaxAmountForServiceBase}
+              taxDeductedByEstablishment={Boolean((establishment as any)?.tax_deducted_by_establishment)}
               selectedMonth={selectedDate}
               {...calculateProfessionalValues(selectedProfessionalForInfo)}
               onRefreshDormantClientsSource={onRefreshDormantClientsSource}

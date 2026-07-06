@@ -214,6 +214,11 @@ const AdminDashboard = () => {
   const [isPayingByEstablishment, setIsPayingByEstablishment] = useState<Record<string, boolean>>({});
   const [showPayoutHistoryModal, setShowPayoutHistoryModal] = useState(false);
   const [showLastPaymentsModal, setShowLastPaymentsModal] = useState(false);
+  const [lastPaymentsSearch, setLastPaymentsSearch] = useState('');
+  const [showAfBookingModal, setShowAfBookingModal] = useState(false);
+  const [afBookingRows, setAfBookingRows] = useState<{ establishment_code: string; establishment_id: string; name: string; count: number }[]>([]);
+  const [afBookingTotal, setAfBookingTotal] = useState(0);
+  const [isLoadingAfBooking, setIsLoadingAfBooking] = useState(false);
   const [automaticPaymentInfoByEstablishment, setAutomaticPaymentInfoByEstablishment] = useState<
     Record<string, { timestamp: number; paymentProvider: string; paymentMethod: string }>
   >({});
@@ -3208,6 +3213,58 @@ const AdminDashboard = () => {
     };
   }, [showLastPaymentsModal]);
 
+  useEffect(() => {
+    if (!showAfBookingModal) return;
+    let alive = true;
+    const loadAfBookings = async () => {
+      setIsLoadingAfBooking(true);
+      try {
+        const { data } = await supabase
+          .from('appointments')
+          .select('establishment_code, establishment_id')
+          .eq('booking_source', 'af');
+
+        if (!alive) return;
+        const rows = data || [];
+        setAfBookingTotal(rows.length);
+
+        // Agrupar por estabelecimento
+        const map: Record<string, { establishment_code: string; establishment_id: string; count: number }> = {};
+        for (const r of rows) {
+          const key = String(r.establishment_id || r.establishment_code || '');
+          if (!map[key]) map[key] = { establishment_code: String(r.establishment_code || ''), establishment_id: String(r.establishment_id || ''), count: 0 };
+          map[key].count++;
+        }
+        const grouped = Object.values(map).sort((a, b) => b.count - a.count);
+
+        // Buscar nomes dos estabelecimentos no banco
+        const ids = grouped.map(g => g.establishment_id).filter(Boolean);
+        let nameMap: Record<string, string> = {};
+        if (ids.length > 0) {
+          const { data: estData } = await supabase
+            .from('establishments')
+            .select('id, name, code')
+            .in('id', ids);
+          for (const e of estData || []) {
+            nameMap[String(e.id)] = String(e.name || e.code || e.id);
+          }
+        }
+
+        const enriched = grouped.map(g => ({
+          ...g,
+          name: nameMap[g.establishment_id] || g.establishment_code || g.establishment_id,
+        }));
+        setAfBookingRows(enriched);
+      } catch (err) {
+        console.error('Erro ao carregar agendamentos AF:', err);
+      } finally {
+        if (alive) setIsLoadingAfBooking(false);
+      }
+    };
+    void loadAfBookings();
+    return () => { alive = false; };
+  }, [showAfBookingModal]);
+
   const parseBRLNumberInput = (raw: string): number => {
     const s = String(raw || '').trim();
     if (!s) return NaN;
@@ -4379,9 +4436,10 @@ const AdminDashboard = () => {
   const lastTenDaysPayments = [...metricsEstablishments]
     .filter((est) => {
       const paidAt = getPaymentTimestamp(est);
-      return Number.isFinite(paidAt) && paidAt >= tenDaysAgo && paidAt <= nowTs;
+      return Number.isFinite(paidAt) && paidAt <= nowTs;
     })
-    .sort((a, b) => getPaymentTimestamp(b) - getPaymentTimestamp(a));
+    .sort((a, b) => getPaymentTimestamp(b) - getPaymentTimestamp(a))
+    .slice(0, 100);
   const isAutomaticPaymentInLastDays = (est: Establishment): boolean => {
     const paymentTs = getPaymentTimestamp(est);
     const automaticInfo = automaticPaymentInfoByEstablishment[est.id];
@@ -5610,6 +5668,14 @@ const AdminDashboard = () => {
               <strong>Últimos pagamentos</strong>
               <span className="text-[10px] font-semibold opacity-80">({lastTenDaysPayments.length})</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setShowAfBookingModal(true)}
+              className="inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors bg-white border-purple-200 text-purple-700 hover:bg-purple-50"
+              title="Agendamentos feitos pelo link simplificado /af"
+            >
+              <strong>BOOKING AF:</strong> {afBookingTotal > 0 ? afBookingTotal : '—'}
+            </button>
           </div>
           <div className="mt-1 text-xs text-gray-700 flex flex-wrap gap-x-4 gap-y-1">
             <span>
@@ -6763,16 +6829,23 @@ const AdminDashboard = () => {
               {showLastPaymentsModal && (
                 <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
                   <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-3 border-b">
-                      <div>
+                    <div className="flex items-center justify-between px-4 py-3 border-b gap-3">
+                      <div className="shrink-0">
                         <div className="text-sm font-bold text-gray-900">Últimos pagamentos</div>
                         <div className="text-xs text-gray-600">
-                          Últimos 10 dias • ordem do mais recente para o mais antigo
+                          Últimos 100 • mais recente primeiro
                         </div>
                       </div>
+                      <input
+                        type="text"
+                        value={lastPaymentsSearch}
+                        onChange={e => setLastPaymentsSearch(e.target.value)}
+                        placeholder="Buscar por nome ou código..."
+                        className="flex-1 min-w-0 text-sm border border-gray-300 rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+                      />
                       <button
-                        onClick={() => setShowLastPaymentsModal(false)}
-                        className="p-1 rounded hover:bg-gray-100 text-gray-600"
+                        onClick={() => { setShowLastPaymentsModal(false); setLastPaymentsSearch(''); }}
+                        className="p-1 rounded hover:bg-gray-100 text-gray-600 shrink-0"
                         title="Fechar"
                       >
                         <X className="h-4 w-4" />
@@ -6780,19 +6853,39 @@ const AdminDashboard = () => {
                     </div>
 
                     <div className="p-4 overflow-y-auto max-h-[70vh]">
+                      {(() => {
+                        const _search = lastPaymentsSearch.toLowerCase().trim();
+                        const _filteredAuto = automaticLastTenDaysPayments.filter(est =>
+                          !_search ||
+                          String(est.name || '').toLowerCase().includes(_search) ||
+                          String(est.code || '').includes(_search)
+                        );
+                        const _filteredManual = manualLastTenDaysPayments.filter(est =>
+                          !_search ||
+                          String(est.name || '').toLowerCase().includes(_search) ||
+                          String(est.code || '').includes(_search)
+                        );
+                        const _totalFiltered = _filteredAuto.length + _filteredManual.length;
+                        return (
+                      <>
                       {lastTenDaysPayments.length === 0 ? (
                         <div className="text-sm text-gray-600">
-                          Nenhum estabelecimento marcado como pago nos últimos 10 dias.
+                          Nenhum pagamento encontrado.
                         </div>
                       ) : (
                         <div className="space-y-4">
                           <div className="flex flex-wrap items-center gap-2 text-xs">
                             <span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700 font-semibold">
-                              Automáticos: {automaticLastTenDaysPayments.length}
+                              Automáticos: {_filteredAuto.length}
                             </span>
                             <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700 font-semibold">
-                              Manuais: {manualLastTenDaysPayments.length}
+                              Manuais: {_filteredManual.length}
                             </span>
+                            {_search && (
+                              <span className="text-gray-500">
+                                {_totalFiltered} resultado{_totalFiltered !== 1 ? 's' : ''} para "{lastPaymentsSearch}"
+                              </span>
+                            )}
                             {isLoadingLastPaymentsSources ? (
                               <span className="text-gray-500">Classificando origem do pagamento...</span>
                             ) : null}
@@ -6808,13 +6901,13 @@ const AdminDashboard = () => {
                             <div className="px-3 py-2 bg-emerald-50 border-b border-emerald-200 text-xs font-semibold text-emerald-900">
                               Pagamentos automáticos
                             </div>
-                            {automaticLastTenDaysPayments.length === 0 ? (
+                            {_filteredAuto.length === 0 ? (
                               <div className="px-3 py-3 text-sm text-gray-500">
-                                Nenhum pagamento automático encontrado nesse período.
+                                Nenhum pagamento automático encontrado.
                               </div>
                             ) : (
                               <div className="p-2 space-y-2">
-                                {automaticLastTenDaysPayments.map((est, idx) => {
+                                {_filteredAuto.map((est, idx) => {
                                   const paidAt = getPaymentTimestamp(est);
                                   const paidAtLabel = Number.isFinite(paidAt)
                                     ? new Date(paidAt).toLocaleString('pt-BR')
@@ -6854,13 +6947,13 @@ const AdminDashboard = () => {
                             <div className="px-3 py-2 bg-amber-50 border-b border-amber-200 text-xs font-semibold text-amber-900">
                               Pagamentos manuais
                             </div>
-                            {manualLastTenDaysPayments.length === 0 ? (
+                            {_filteredManual.length === 0 ? (
                               <div className="px-3 py-3 text-sm text-gray-500">
-                                Nenhum pagamento manual encontrado nesse período.
+                                Nenhum pagamento manual encontrado.
                               </div>
                             ) : (
                               <div className="p-2 space-y-2">
-                                {manualLastTenDaysPayments.map((est, idx) => {
+                                {_filteredManual.map((est, idx) => {
                                   const paidAt = getPaymentTimestamp(est);
                                   const paidAtLabel = Number.isFinite(paidAt)
                                     ? new Date(paidAt).toLocaleString('pt-BR')
@@ -6896,6 +6989,56 @@ const AdminDashboard = () => {
                             )}
                           </div>
                         </div>
+                      )}
+                      </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal - Booking AF */}
+              {showAfBookingModal && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
+                  <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+                    <div className="flex items-center justify-between px-4 py-3 border-b">
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">Agendamentos pelo Booking AF</div>
+                        <div className="text-xs text-gray-500">Link simplificado /booking/código/af • total: {afBookingTotal}</div>
+                      </div>
+                      <button onClick={() => setShowAfBookingModal(false)} className="p-1 rounded hover:bg-gray-100 text-gray-500">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="overflow-y-auto flex-1 p-4">
+                      {isLoadingAfBooking ? (
+                        <p className="text-sm text-gray-500 text-center py-6">Carregando...</p>
+                      ) : afBookingRows.length === 0 ? (
+                        <p className="text-sm text-gray-500 text-center py-6">Nenhum agendamento pelo link /af ainda.</p>
+                      ) : (
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-xs text-gray-500 border-b">
+                              <th className="pb-2 font-semibold">Estabelecimento</th>
+                              <th className="pb-2 font-semibold text-center">Código</th>
+                              <th className="pb-2 font-semibold text-right">Agendamentos</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {afBookingRows.map((row, i) => (
+                              <tr key={i} className="border-b last:border-0">
+                                <td className="py-2 text-gray-900 font-medium truncate max-w-[200px]">{row.name}</td>
+                                <td className="py-2 text-center text-gray-500">{row.establishment_code || '—'}</td>
+                                <td className="py-2 text-right">
+                                  <span className="inline-flex items-center justify-center rounded-full bg-purple-100 text-purple-700 font-bold text-xs px-2 py-0.5 min-w-[28px]">
+                                    {row.count}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       )}
                     </div>
                   </div>

@@ -1,5 +1,5 @@
 import { Check, EyeOff, History, Minus, Trash2 } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useProfessionalLiquidValue } from '../hooks/useProfessionalLiquidValue';
 import { useProfessionalPayments } from '../hooks/useProfessionalPayments';
@@ -13,6 +13,7 @@ interface ProfessionalPaymentControlProps {
   newSalesValue?: number;
   validatedPaidAmount?: number;
   validatedPendingAmount?: number;
+  cardTaxLoss?: number;
   ignoredPaymentIds?: string[];
   selectedMonth?: Date;
   onPaymentRecorded?: () => void;
@@ -27,6 +28,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   newSalesValue,
   validatedPaidAmount,
   validatedPendingAmount,
+  cardTaxLoss,
   ignoredPaymentIds: _ignoredPaymentIds = [],
   selectedMonth,
   onPaymentRecorded,
@@ -42,6 +44,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
   const [showHistory, setShowHistory] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const isProcessingRef = useRef(false); // trava síncrona: evita pagamento duplicado em clique duplo rápido
   const [showPaymentOptions, setShowPaymentOptions] = useState(false);
   const [customAmount, setCustomAmount] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
@@ -127,7 +130,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       return;
     }
 
-    if (isProcessing) {
+    if (isProcessingRef.current || isProcessing) {
       toast.error('Processando pagamento... Aguarde!');
       return;
     }
@@ -137,6 +140,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       return;
     }
 
+    isProcessingRef.current = true;
     setIsProcessing(true);
 
     try {
@@ -149,6 +153,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       console.error('Erro ao registrar pagamento:', error);
       toast.error('Erro ao registrar pagamento: ' + error.message);
     } finally {
+      isProcessingRef.current = false;
       setIsProcessing(false);
     }
   };
@@ -181,11 +186,12 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       return;
     }
 
-    if (isProcessing) {
+    if (isProcessingRef.current || isProcessing) {
       toast.error('Processando pagamento... Aguarde!');
       return;
     }
 
+    isProcessingRef.current = true;
     setIsProcessing(true);
 
     try {
@@ -200,6 +206,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       console.error('Erro ao registrar pagamento:', error);
       toast.error('Erro ao registrar pagamento: ' + error.message);
     } finally {
+      isProcessingRef.current = false;
       setIsProcessing(false);
     }
   };
@@ -238,11 +245,12 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       return;
     }
 
-    if (isProcessing) {
+    if (isProcessingRef.current || isProcessing) {
       toast.error('Processando... Aguarde!');
       return;
     }
 
+    isProcessingRef.current = true;
     setIsProcessing(true);
 
     try {
@@ -295,6 +303,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       console.error('Erro ao retirar valor:', error);
       toast.error('Erro ao retirar valor: ' + error.message);
     } finally {
+      isProcessingRef.current = false;
       setIsProcessing(false);
     }
   };
@@ -422,6 +431,18 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           {pendingToPay > 0 && (
             <div className="text-sm text-cyan-300 font-medium">
               Pendente do mês (total): {formatCurrency(pendingToPay)}
+            </div>
+          )}
+          {typeof cardTaxLoss === 'number' && cardTaxLoss > 0.009 && pendingToPay > 0 && (
+            <div className="mt-1 rounded-lg border border-gray-700 bg-[#0b0e13] px-3 py-2 space-y-1">
+              <div className="flex items-center justify-between text-[11px] text-red-300">
+                <span>– Taxa de cartão (parte dele)</span>
+                <span className="font-semibold">– {formatCurrency(cardTaxLoss)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm border-t border-gray-700 pt-1">
+                <span className="text-gray-200 font-semibold">Total líquido a receber</span>
+                <span className="text-emerald-300 font-bold">{formatCurrency(Math.max(0, pendingToPay - cardTaxLoss))}</span>
+              </div>
             </div>
           )}
           {operationalNewSales !== null && (

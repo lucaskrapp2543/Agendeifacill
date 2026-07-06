@@ -96,7 +96,18 @@ export function isStrictSubscriberAppointment(apt: SubscriberAppointmentLike | n
   if (!Number.isFinite(baseServicePrice) || baseServicePrice > 0) return false;
 
   const paymentMethod = String(apt.payment_method || '').trim().toLowerCase();
-  // Avulso pago (dinheiro, pix, cartão…) nunca é visita de assinatura — mesmo com flag solta.
+
+  // Vínculo FORTE com a assinatura: id da assinatura ou do serviço de assinatura preenchido.
+  // Indica uma visita de assinatura REAL (não uma flag solta). Quando existe, ele vence a regra
+  // da forma de pagamento abaixo — assim um assinante que pagou um serviço EXTRA (PIX, cartão…)
+  // continua sendo assinatura em vez de virar avulso ao trocar a forma de pagamento.
+  const hasStrongSubscriptionLink =
+    Boolean(String(apt.subscription_id || '').trim()) ||
+    Boolean(String(apt.subscriber_service_id || '').trim()) ||
+    Boolean(String(apt.subscriber_service_name || '').trim());
+  if (hasStrongSubscriptionLink) return true;
+
+  // Avulso pago (dinheiro, pix, cartão…) SEM vínculo forte nunca é visita de assinatura — mesmo com flag solta.
   if (paymentMethod && paymentMethod !== 'assinante' && paymentMethod !== 'pendente') {
     if (EXPLICIT_AVULSO_PAYMENT_METHODS.has(paymentMethod)) return false;
   }

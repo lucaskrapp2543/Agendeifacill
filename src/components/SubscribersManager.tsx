@@ -1362,6 +1362,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Estado para barra de pesquisa
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Lixeira de assinantes: excluídos com histórico ficam arquivados (archived_at) e podem ser restaurados.
+  const [showTrashModal, setShowTrashModal] = useState(false);
+  const [archivedSubscribers, setArchivedSubscribers] = useState<any[]>([]);
+  const [isLoadingTrash, setIsLoadingTrash] = useState(false);
+  const [restoringSubscriberId, setRestoringSubscriberId] = useState<string | null>(null);
+
   // Estados para edição de descrições
   const [showEditDescriptionModal, setShowEditDescriptionModal] = useState(false);
   const [selectedSubscriptionForEdit, setSelectedSubscriptionForEdit] = useState<Subscription | null>(null);
@@ -4727,6 +4733,51 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     [clientSubscriptions, isDelinquentSubscriber]
   );
 
+  const loadArchivedSubscribers = async () => {
+    if (!establishmentId) return;
+    setIsLoadingTrash(true);
+    try {
+      const { data, error } = await supabase
+        .from('client_subscriptions')
+        .select('id, subscriber_name, subscriber_whatsapp, subscriber_email, start_date, end_date, archived_at, subscription_id, subscriptions(name)')
+        .eq('establishment_id', establishmentId)
+        .not('archived_at', 'is', null)
+        .order('archived_at', { ascending: false });
+      if (error) throw error;
+      setArchivedSubscribers((data as any[]) || []);
+    } catch (err) {
+      console.error('Erro ao carregar lixeira de assinantes:', err);
+      toast.error('Erro ao carregar a lixeira.');
+    } finally {
+      setIsLoadingTrash(false);
+    }
+  };
+
+  const handleOpenTrash = () => {
+    setShowTrashModal(true);
+    void loadArchivedSubscribers();
+  };
+
+  const handleRestoreArchivedSubscriber = async (subscriberId: string, name: string) => {
+    setRestoringSubscriberId(subscriberId);
+    try {
+      const { error } = await supabase
+        .from('client_subscriptions')
+        .update({ archived_at: null, deactivated_at: null, updated_at: new Date().toISOString() })
+        .eq('id', subscriberId);
+      if (error) throw error;
+      toast.success(`${name || 'Assinante'} restaurado.`);
+      setArchivedSubscribers((prev) => prev.filter((s) => String(s.id) !== String(subscriberId)));
+      await fetchClientSubscriptions();
+      onClientUpdated?.();
+    } catch (err) {
+      console.error('Erro ao restaurar assinante:', err);
+      toast.error('Erro ao restaurar assinante.');
+    } finally {
+      setRestoringSubscriberId(null);
+    }
+  };
+
   const matchesSubscriberSearch = (cs: ClientSubscription): boolean => {
     if (!searchTerm.trim()) return true;
 
@@ -6637,8 +6688,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       {/* Lista Meus Assinantes */}
       <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800 text-white">
-        <div className="mb-4">
+        <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-lg sm:text-xl font-semibold">Meus Assinantes</h2>
+          <button
+            type="button"
+            onClick={handleOpenTrash}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-600 bg-[#2a2b2c] hover:bg-[#33353a] text-gray-200 text-sm transition-colors shrink-0"
+            title="Ver assinantes excluídos"
+          >
+            <Trash2 className="w-4 h-4" />
+            Lixeira
+          </button>
         </div>
 
         {/* Barra de Pesquisa - Melhorada para mobile */}
@@ -8762,6 +8822,58 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               >
                 Fechar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTrashModal && (
+        <div className="fixed inset-0 bg-black/75 z-[10000] flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-[#1a1b1c] rounded-2xl border border-gray-700 w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+              <div className="flex items-center gap-2">
+                <Trash2 className="w-5 h-5 text-gray-300" />
+                <h3 className="text-white font-bold text-base">Assinantes excluídos</h3>
+              </div>
+              <button type="button" onClick={() => setShowTrashModal(false)} className="text-gray-400 hover:text-white transition-colors p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-4 py-3 space-y-2">
+              {isLoadingTrash ? (
+                <p className="text-center text-gray-400 py-10 text-sm">Carregando...</p>
+              ) : archivedSubscribers.length === 0 ? (
+                <div className="text-center py-10">
+                  <Trash2 className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+                  <p className="text-gray-400 text-sm font-medium">Nenhum assinante excluído.</p>
+                  <p className="text-gray-600 text-xs mt-1">Assinantes que você excluir (e que têm histórico) aparecem aqui para restaurar.</p>
+                </div>
+              ) : (
+                archivedSubscribers.map((sub) => (
+                  <div key={sub.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-[#232425] border border-gray-700">
+                    <div className="min-w-0">
+                      <p className="text-white font-semibold truncate">{sub.subscriber_name || 'Assinante'}</p>
+                      <p className="text-xs text-gray-400 truncate">
+                        {sub.subscriptions?.name ? `${sub.subscriptions.name} • ` : ''}{sub.subscriber_whatsapp || sub.subscriber_email || '—'}
+                      </p>
+                      {sub.archived_at && (
+                        <p className="text-[11px] text-gray-500 mt-0.5">Excluído em {new Date(sub.archived_at).toLocaleDateString('pt-BR')}</p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRestoreArchivedSubscriber(sub.id, sub.subscriber_name)}
+                      disabled={restoringSubscriberId === sub.id}
+                      className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50 transition-colors"
+                    >
+                      {restoringSubscriberId === sub.id ? 'Restaurando...' : 'Restaurar'}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="px-4 py-3 border-t border-gray-700 flex justify-end">
+              <button type="button" onClick={() => setShowTrashModal(false)} className="px-5 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm transition-colors">Fechar</button>
             </div>
           </div>
         </div>

@@ -127,6 +127,7 @@ interface Professional {
   unique_professional_access_role?: 'owner' | 'collaborator'; // Tipo de acesso quando o acesso único estiver ativo
   professional_powers_enabled?: boolean; // Modo secretaria: ver agendas de outros profissionais
   professional_powers_agenda_ids?: string[]; // IDs das agendas extras visíveis no acesso único
+  collaborator_agenda_ids?: string[]; // IDs das agendas que um COLABORADOR pode ver/gerenciar (continua aparecendo no booking, diferente da secretaria)
   work_hours?: {
     [key: string]: {
       enabled: boolean;
@@ -4330,6 +4331,17 @@ const EstablishmentDashboard = () => {
       }
     }
 
+    // Agendas liberadas para um COLABORADOR ver também não podem ficar escondidas na sessão dele.
+    const collaboratorAgendaIdsRaw = (selectedProfessional as any)?.collaborator_agenda_ids;
+    if (Array.isArray(collaboratorAgendaIdsRaw)) {
+      collaboratorAgendaIdsRaw.forEach((rawId: unknown) => {
+        const normalizedId = String(rawId || '').trim();
+        if (normalizedId && normalizedId !== selectedProfessionalId) {
+          secretaryAgendaIds.add(normalizedId);
+        }
+      });
+    }
+
     return professionals
       .filter((professional) => {
         const id = String(professional?.id || '').trim();
@@ -4345,10 +4357,23 @@ const EstablishmentDashboard = () => {
     const professionalId = String(collaboratorRestrictedProfessionalId || '').trim();
     if (!professionalId) return [];
     const professional = professionals.find((item) => String(item?.id || '').trim() === professionalId);
-    if (!professional || !(professional as any)?.professional_powers_enabled) return [];
-    const rawIds = (professional as any)?.professional_powers_agenda_ids;
-    if (!Array.isArray(rawIds)) return [];
-    return rawIds.map((rawId) => String(rawId || '').trim()).filter(Boolean);
+    if (!professional) return [];
+    const allowedIds = new Set<string>();
+    // Modo Secretaria: agendas liberadas via professional_powers_agenda_ids (só quando o modo está ligado)
+    if ((professional as any)?.professional_powers_enabled && Array.isArray((professional as any)?.professional_powers_agenda_ids)) {
+      (professional as any).professional_powers_agenda_ids.forEach((rawId: unknown) => {
+        const id = String(rawId || '').trim();
+        if (id) allowedIds.add(id);
+      });
+    }
+    // Colaborador: agendas liberadas via collaborator_agenda_ids (continua no booking, só ganha acesso às agendas marcadas)
+    if (Array.isArray((professional as any)?.collaborator_agenda_ids)) {
+      (professional as any).collaborator_agenda_ids.forEach((rawId: unknown) => {
+        const id = String(rawId || '').trim();
+        if (id) allowedIds.add(id);
+      });
+    }
+    return Array.from(allowedIds);
   }, [isCollaboratorRestrictedView, collaboratorRestrictedProfessionalId, professionals]);
 
   const isSecretaryModeActive = useMemo(() => {
@@ -4596,6 +4621,8 @@ const EstablishmentDashboard = () => {
   const [showBlockedItemModal, setShowBlockedItemModal] = useState(false); // Modal para item bloqueado
   const [showInfoModal, setShowInfoModal] = useState(false); // Modal de informações mobile
   const [infoModalContent, setInfoModalContent] = useState<{ title: string; content: string } | null>(null); // Conteúdo do modal
+  const [showIntervalHelpModal, setShowIntervalHelpModal] = useState(false); // Modal visual do intervalo de horários
+  const [showPrazosHelpModal, setShowPrazosHelpModal] = useState(false); // Modal visual dos prazos (antecedência agendar/cancelar)
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false); // Modal upgrade (Plano Prata)
   const [showMercadoPagoModal, setShowMercadoPagoModal] = useState(false); // Modal do card Mercado Pago (atalho no menu)
   const isServiceWizardOnboarding = onboardingStep === 3;
@@ -5639,6 +5666,7 @@ const EstablishmentDashboard = () => {
   // Estados para relatório de taxas
   const [taxesReport, setTaxesReport] = useState<any>(null);
   const [isLoadingTaxes, setIsLoadingTaxes] = useState(false);
+  const [taxesMonth, setTaxesMonth] = useState<Date>(new Date()); // Mês selecionado na tela Minhas Taxas
 
   // Estados para novos clientes
   const [newClientsInfo, setNewClientsInfo] = useState<Record<string, boolean>>({});
@@ -6269,7 +6297,7 @@ const EstablishmentDashboard = () => {
   }>({
     products: true,
     services: true,
-    professionals: false,
+    professionals: true,
     subscribers: true,
     config: true,
     reserveClient: true,
@@ -6283,7 +6311,8 @@ const EstablishmentDashboard = () => {
     if (saved) {
       try {
         const preferences = JSON.parse(saved);
-        setShowTutorials(preferences);
+        // Tutorial de profissionais deve aparecer sempre aberto (sem opção de ocultar)
+        setShowTutorials({ ...preferences, professionals: true });
       } catch (error) {
         console.error('Erro ao carregar preferências dos tutoriais:', error);
       }
@@ -10619,6 +10648,51 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  // Colaborador: liberar quais agendas de outros profissionais ele pode ver/gerenciar (sem virar secretaria, continua no booking)
+  const handleToggleCollaboratorAgenda = async (
+    professionalId: string,
+    agendaProfessionalId: string,
+    selected: boolean
+  ) => {
+    if (!establishment) return;
+
+    const ownerId = String(professionalId || '').trim();
+    const agendaId = String(agendaProfessionalId || '').trim();
+    if (!ownerId || !agendaId || ownerId === agendaId) return;
+
+    try {
+      const updatedProfessionals = professionals.map((professional) => {
+        if (professional.id !== ownerId) return professional;
+        const currentIds = Array.isArray((professional as any)?.collaborator_agenda_ids)
+          ? (professional as any).collaborator_agenda_ids.map((rawId: unknown) => String(rawId || '').trim()).filter(Boolean)
+          : [];
+        const nextIds = selected
+          ? Array.from(new Set([...currentIds, agendaId]))
+          : currentIds.filter((id: string) => id !== agendaId);
+        return {
+          ...professional,
+          collaborator_agenda_ids: nextIds,
+        };
+      });
+
+      setProfessionals(updatedProfessionals);
+      const { error, professionals: safeProfessionals } = await saveProfessionalsSafely(updatedProfessionals);
+      if (error) {
+        toast('Erro ao salvar agendas do colaborador', 'error');
+        return;
+      }
+
+      setProfessionals(safeProfessionals);
+      setEstablishment({
+        ...establishment,
+        professionals: safeProfessionals,
+      });
+    } catch (error) {
+      console.error('❌ Erro ao alternar agenda do colaborador:', error);
+      toast('Erro ao atualizar agendas do colaborador', 'error');
+    }
+  };
+
   const handleToggleLockFinancialWithOwnerPin = async (professionalId: string, lockFinancialWithOwnerPin: boolean) => {
     if (!establishment) return;
 
@@ -10991,6 +11065,15 @@ const EstablishmentDashboard = () => {
                   .filter(Boolean)
               : Array.isArray((dbProfessional as any)?.professional_powers_agenda_ids)
                 ? (dbProfessional as any).professional_powers_agenda_ids
+                    .map((rawId: unknown) => String(rawId || '').trim())
+                    .filter(Boolean)
+                : [],
+            collaborator_agenda_ids: Array.isArray((localProfessional as any)?.collaborator_agenda_ids)
+              ? (localProfessional as any).collaborator_agenda_ids
+                  .map((rawId: unknown) => String(rawId || '').trim())
+                  .filter(Boolean)
+              : Array.isArray((dbProfessional as any)?.collaborator_agenda_ids)
+                ? (dbProfessional as any).collaborator_agenda_ids
                     .map((rawId: unknown) => String(rawId || '').trim())
                     .filter(Boolean)
                 : [],
@@ -11680,6 +11763,11 @@ const EstablishmentDashboard = () => {
           professional_powers_enabled: Boolean((p as any).professional_powers_enabled),
           professional_powers_agenda_ids: Array.isArray((p as any).professional_powers_agenda_ids)
             ? (p as any).professional_powers_agenda_ids
+                .map((rawId: unknown) => String(rawId || '').trim())
+                .filter(Boolean)
+            : [],
+          collaborator_agenda_ids: Array.isArray((p as any).collaborator_agenda_ids)
+            ? (p as any).collaborator_agenda_ids
                 .map((rawId: unknown) => String(rawId || '').trim())
                 .filter(Boolean)
             : [],
@@ -25890,7 +25978,7 @@ Estamos te aguardando!`;
 
     setIsLoadingTaxes(true);
     try {
-      const currentDate = new Date();
+      const currentDate = taxesMonth; // usa o mês selecionado (permite navegar meses anteriores)
       const monthStart = startOfMonth(currentDate);
       const monthEnd = endOfMonth(currentDate);
       const startOfYear = new Date(currentDate.getFullYear(), 0, 1);
@@ -25950,11 +26038,31 @@ Estamos te aguardando!`;
       const monthlyTaxes = calculateTaxesByBrand(monthlyAppointments || []);
       const yearlyTaxes = calculateTaxesByBrand(yearlyAppointments || []);
 
+      // Quanto cada profissional "perdeu" em taxa no mês: parte da taxa do cartão que sai da comissão dele.
+      // Usa as MESMAS funções do financeiro do admin para os valores baterem.
+      const taxLossByProfessional: Record<string, { totalTax: number; profLoss: number; count: number }> = {};
+      (monthlyAppointments || []).forEach((apt: any) => {
+        const baseValue = getAppointmentRevenueBase(apt as Appointment);
+        const taxAmount = getCardTaxAmountFromAppointment(apt as Appointment, baseValue);
+        if (!(taxAmount > 0)) return;
+        const professional = getProfessionalByToken(String(apt.professional || ''));
+        const profName = String(professional?.name || apt.professional || 'Sem profissional').trim() || 'Sem profissional';
+        const pct = getProfessionalPercentageForAppointment(apt as Appointment, professional);
+        // Só há "perda" para o profissional quando a taxa NÃO é bancada pelo estabelecimento.
+        const profLoss = establishment?.tax_deducted_by_establishment ? 0 : (taxAmount * pct) / 100;
+        if (!taxLossByProfessional[profName]) taxLossByProfessional[profName] = { totalTax: 0, profLoss: 0, count: 0 };
+        taxLossByProfessional[profName].totalTax += taxAmount;
+        taxLossByProfessional[profName].profLoss += profLoss;
+        taxLossByProfessional[profName].count += 1;
+      });
+
       setTaxesReport({
         monthly: monthlyTaxes,
         yearly: yearlyTaxes,
         totalMonthlyTax: Object.values(monthlyTaxes).reduce((sum, item) => sum + item.totalTax, 0),
-        totalYearlyTax: Object.values(yearlyTaxes).reduce((sum, item) => sum + item.totalTax, 0)
+        totalYearlyTax: Object.values(yearlyTaxes).reduce((sum, item) => sum + item.totalTax, 0),
+        byProfessional: taxLossByProfessional,
+        taxDeductedByEstablishment: Boolean(establishment?.tax_deducted_by_establishment),
       });
 
     } catch (error) {
@@ -25964,6 +26072,14 @@ Estamos te aguardando!`;
       setIsLoadingTaxes(false);
     }
   };
+
+  // Recalcula o relatório ao trocar o mês selecionado na tela Minhas Taxas.
+  useEffect(() => {
+    if (establishment && activeTab === 'taxes') {
+      calculateTaxesReport();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taxesMonth]);
 
   const normalizeInstagramUrl = (rawValue?: string | null): string | null => {
     const raw = String(rawValue || '').trim();
@@ -26584,6 +26700,8 @@ Estamos te aguardando!`;
       setIdentityGateSelectedProfessionalId(normalizedId);
       setIdentityGatePinInput('');
       setIdentityGatePinStep(false);
+      // Identidade já resolvida nesta sessão: não reabrir o modal a cada mudança em professionals (só volta no F5).
+      suppressIdentityGateInCurrentSessionRef.current = true;
       setShowProfessionalIdentityGate(false);
       return;
     }
@@ -26637,6 +26755,8 @@ Estamos te aguardando!`;
     };
     setProfessionalAccessSession(session);
     persistUniqueAccessSession(session, identityGateRememberLogin);
+    // Identidade já resolvida nesta sessão: não reabrir o modal a cada mudança em professionals (só volta no F5).
+    suppressIdentityGateInCurrentSessionRef.current = true;
     setShowProfessionalIdentityGate(false);
     setIdentityGatePinStep(false);
     setIdentityGatePinInput('');
@@ -31833,6 +31953,9 @@ Estamos te aguardando!`;
                                     <p className="text-xs text-emerald-200/70 mt-1">
                                       Guarde bem: <strong className="text-emerald-100">{establishment.pin_password}</strong> — se esquecer, entre em contato com o suporte que alteramos para você.
                                     </p>
+                                    <p className="text-xs font-semibold text-emerald-100 mt-2">
+                                      👉 Agora clique em <strong>Confirmar e continuar</strong>.
+                                    </p>
                                   </div>
                                 ) : wizardProfessionalCount === 'one' ? (
                                   <p className="text-xs text-gray-500">Opcional para quem trabalha sozinho.</p>
@@ -32287,44 +32410,6 @@ Estamos te aguardando!`;
                                 'Se ativada, os clientes serão obrigados a informar o CPF durante o agendamento. Útil para estabelecimentos que emitem nota fiscal.'
                               )}
                               className="sm:hidden mt-1 text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
-                            >
-                              <HelpCircle className="h-3 w-3" />
-                              Ver mais informações
-                            </button>
-                          </div>
-                        </label>
-
-                        <label className="flex items-center space-x-2">
-                          <input
-                            type="checkbox"
-                            checked={bookingSimplePageEnabled}
-                            onChange={(e) => {
-                              const newValue = e.target.checked;
-                              setBookingSimplePageEnabled(newValue);
-                              if (scheduleConfigAutoSaveTimeoutRef.current) {
-                                clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
-                              }
-                              scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => {
-                                autoSaveScheduleConfig({
-                                  bookingSimplePageEnabled: newValue
-                                });
-                              }, 1000);
-                            }}
-                            className="form-checkbox h-5 w-5 text-primary bg-[#2a2b2c] border-gray-600 rounded"
-                          />
-                          <div className="flex flex-col flex-1">
-                            <span className="text-white text-sm sm:text-base">Pagina de agendamentos simples</span>
-                            <span className="hidden sm:inline text-xs text-gray-400 mt-1">
-                              Ao marcar essa opção, seu sistema vai ter uma página só com um botão escrito Agendar, sem informações e sem fotos.
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => showInfoModalFunc(
-                                'Pagina de agendamentos simples',
-                                'Ao marcar essa opção, seu sistema vai ter uma página simples só com um botão escrito "Agendar".\n\n' +
-                                'Ela não mostra informações do estabelecimento, fotos, comodidades ou detalhes extras. É uma página limpa para o cliente clicar e agendar direto.'
-                              )}
-                              className="mt-1 text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
                             >
                               <HelpCircle className="h-3 w-3" />
                               Ver mais informações
@@ -33315,7 +33400,7 @@ Estamos te aguardando!`;
                               <h4 className="text-sm font-extrabold text-white">⏰ Intervalo entre horários</h4>
                               <p className="text-xs text-gray-400 mt-0.5">A cada quanto tempo aparece um horário para o cliente escolher.</p>
                             </div>
-                            <button type="button" onClick={() => showInfoModalFunc('⏰ Como funciona o intervalo de horários', 'Quando seu cliente abre a página para agendar, ele vê uma lista de horários disponíveis.\n\nEssa opção define o "espaço" entre esses horários:\n\n• 15 min → 09:00, 09:15, 09:30, 09:45, 10:00...\n• 20 min → 09:00, 09:20, 09:40, 10:00...\n• 30 min → 09:00, 09:30, 10:00, 10:30...\n• 1 hora → 09:00, 10:00, 11:00, 12:00...\n\nEscolha o que faz mais sentido pro seu tipo de serviço. Se você faz cortes de 30 minutos, use "30 min". Se faz serviços rápidos de 15 minutos, use "15 min".\n\nVocê pode mudar isso a qualquer momento.')} className="shrink-0 text-[10px] text-blue-300 hover:text-blue-200 underline whitespace-nowrap">Entenda melhor</button>
+                            <button type="button" onClick={() => setShowIntervalHelpModal(true)} className="shrink-0 text-[10px] text-blue-300 hover:text-blue-200 underline whitespace-nowrap">Entenda melhor</button>
                           </div>
                           <div className="grid grid-cols-4 gap-2">
                             {[
@@ -33413,7 +33498,7 @@ Estamos te aguardando!`;
                         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
                           <div className="flex items-start justify-between gap-2 mb-3">
                             <h4 className="text-sm font-extrabold text-white">📋 Prazos do cliente</h4>
-                            <button type="button" onClick={() => showInfoModalFunc('📋 Como funcionam os prazos', 'São duas regras simples:\n\n⏰ ANTECEDÊNCIA PARA AGENDAR\nÉ o tempo mínimo que o cliente precisa ter antes do horário pra conseguir agendar.\n\nExemplo com 1 hora:\nSe agora são 14:00, o cliente só consegue agendar a partir das 15:00. Horários antes disso ficam bloqueados.\n\nIsso evita que alguém agende em cima da hora e você não tenha tempo de se preparar.\n\n❌ ANTECEDÊNCIA PARA CANCELAR\nÉ o tempo mínimo antes do horário em que o cliente ainda pode cancelar sozinho pelo app.\n\nExemplo com 3 horas:\nSe o atendimento é às 15:00, a partir das 12:00 o cliente não consegue mais cancelar pelo sistema. Teria que ligar ou ir pessoalmente.\n\nIsso protege você de cancelamentos de última hora.\n\n💡 Clique novamente no botão selecionado para desmarcar (sem limite).')} className="shrink-0 text-[10px] text-amber-300 hover:text-amber-200 underline whitespace-nowrap">Entenda melhor</button>
+                            <button type="button" onClick={() => setShowPrazosHelpModal(true)} className="shrink-0 text-[10px] text-amber-300 hover:text-amber-200 underline whitespace-nowrap">Entenda melhor</button>
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
@@ -33581,31 +33666,16 @@ Estamos te aguardando!`;
                         </div>
                         <div className="mt-2 rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">
                           <p className="font-extrabold">
-                            Aqui são os horários que aparecem para seu cliente: abertura e fechamento do estabelecimento.
-                          </p>
-                          <p className="mt-1 text-blue-100/90">
-                            Horário do estabelecimento é uma coisa. Horário do profissional é outra (ajuste em <strong>Profissionais &gt; Horário de trabalho</strong>).
-                          </p>
-                          <p className="mt-1 text-blue-100/90">
-                            Se você é único profissional e não tem horário diferente, pode manter os mesmos horários.
+                            Escolha os horários que seu estabelecimento abre e fecha.
                           </p>
                         </div>
                       </div>
 
                       {/* Controle de intervalo */}
                       <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-700 rounded-lg">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                          <p className="text-sm text-yellow-200">
-                            <span className="font-semibold">⚠️ Não tira intervalo em algum dia?</span> Marque no próprio dia
-                            a opção <span className="font-semibold">"Sem intervalo neste dia"</span>.
-                          </p>
-                        </div>
-                        <div className="mt-2 text-xs text-yellow-100/90">
-                          Agora é por dia: você pode ter segunda sem intervalo e terça com dois períodos.
-                          <span className="block mt-1">
-                            Sem intervalo: usa só Abertura + Fechamento do estabelecimento.
-                          </span>
-                        </div>
+                        <p className="text-sm text-yellow-200">
+                          <span className="font-semibold">⚠️ Não faz intervalo em algum dia?</span> Marque <span className="font-semibold">"Sem intervalo neste dia"</span> e coloque só o horário de início e término.
+                        </p>
                       </div>
 
                       <div className="space-y-4">
@@ -35158,6 +35228,161 @@ Estamos te aguardando!`;
                           className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                         >
                           Fechar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal VISUAL - Como os horários aparecem (intervalo) */}
+              {showIntervalHelpModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-start sm:items-center justify-center z-[10050] p-3 sm:p-4 pt-6 sm:pt-4">
+                  <div className="bg-[#1a1b1c] rounded-2xl border border-gray-700 max-w-md w-full max-h-[90vh] overflow-y-auto">
+                    <div className="p-5 sm:p-6">
+                      <div className="flex justify-between items-start gap-3 mb-4">
+                        <h3 className="text-lg font-extrabold text-white">⏰ Como os horários aparecem</h3>
+                        <button
+                          onClick={() => setShowIntervalHelpModal(false)}
+                          className="text-gray-400 hover:text-white transition-colors shrink-0"
+                        >
+                          <X className="h-6 w-6" />
+                        </button>
+                      </div>
+
+                      <p className="text-gray-300 text-sm leading-relaxed mb-5">
+                        Você escolhe <strong className="text-white">de quanto em quanto tempo</strong> os horários aparecem para o cliente marcar. Veja como fica na tela dele:
+                      </p>
+
+                      <div className="rounded-xl border border-blue-500/25 bg-blue-500/5 p-4 mb-3">
+                        <p className="text-xs font-extrabold text-blue-200 mb-2.5">Escolhendo DE 30 EM 30</p>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="px-3.5 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-sm font-bold">09:00</span>
+                          <span className="px-3.5 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400/60 text-sm font-bold line-through">09:30</span>
+                          <span className="px-3.5 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-sm font-bold">10:00</span>
+                          <span className="px-3.5 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-sm font-bold">10:30</span>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-blue-500/25 bg-blue-500/5 p-4 mb-4">
+                        <p className="text-xs font-extrabold text-blue-200 mb-2.5">Escolhendo DE 15 EM 15 <span className="text-blue-300/60 font-medium">(aparecem mais)</span></p>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="px-3.5 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-sm font-bold">09:00</span>
+                          <span className="px-3.5 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-sm font-bold">09:15</span>
+                          <span className="px-3.5 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400/60 text-sm font-bold line-through">09:30</span>
+                          <span className="px-3.5 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-sm font-bold">09:45</span>
+                          <span className="px-3.5 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-sm font-bold">10:00</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4 text-xs">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-3.5 h-3.5 rounded bg-emerald-500/25 border border-emerald-500/50"></span>
+                          <span className="text-gray-300">Livre (cliente marca)</span>
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-3.5 h-3.5 rounded bg-red-500/20 border border-red-500/40"></span>
+                          <span className="text-gray-300">Já reservado (bloqueado)</span>
+                        </span>
+                      </div>
+
+                      <p className="text-gray-400 text-xs leading-relaxed mb-5">
+                        Quanto menor o número, mais horários aparecem. O horário que alguém já marcou fica riscado e o cliente só consegue clicar nos livres. Pode trocar quando quiser. 👍
+                      </p>
+
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => setShowIntervalHelpModal(false)}
+                          className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                        >
+                          Entendi
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal VISUAL - Como funcionam os prazos (antecedência) */}
+              {showPrazosHelpModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-start sm:items-center justify-center z-[10050] p-3 sm:p-4 pt-6 sm:pt-4">
+                  <div className="bg-[#1a1b1c] rounded-2xl border border-gray-700 max-w-md w-full max-h-[90vh] overflow-y-auto">
+                    <div className="p-5 sm:p-6">
+                      <div className="flex justify-between items-start gap-3 mb-4">
+                        <h3 className="text-lg font-extrabold text-white">📋 Como funcionam os prazos</h3>
+                        <button
+                          onClick={() => setShowPrazosHelpModal(false)}
+                          className="text-gray-400 hover:text-white transition-colors shrink-0"
+                        >
+                          <X className="h-6 w-6" />
+                        </button>
+                      </div>
+
+                      <p className="text-gray-300 text-sm leading-relaxed mb-5">
+                        São duas regras bem simples. Veja com exemplos:
+                      </p>
+
+                      <div className="rounded-xl border border-blue-500/25 bg-blue-500/5 p-4 mb-4">
+                        <p className="text-sm font-extrabold text-blue-200 mb-1">⏰ Antecedência para AGENDAR</p>
+                        <p className="text-xs text-gray-300 leading-relaxed mb-3">
+                          É o tempo mínimo antes do horário para o cliente conseguir marcar.
+                        </p>
+                        <p className="text-xs text-gray-400 mb-2">
+                          Exemplo com <strong className="text-white">1 hora</strong> — agora são <strong className="text-white">14:00</strong>:
+                        </p>
+                        <div className="flex flex-wrap gap-2 mb-2.5">
+                          <span className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300/70 text-sm font-bold">🔒 14:00</span>
+                          <span className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300/70 text-sm font-bold">🔒 14:30</span>
+                          <span className="px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-sm font-bold">15:00</span>
+                          <span className="px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-sm font-bold">15:30</span>
+                        </div>
+                        <p className="text-xs text-gray-400 leading-relaxed">
+                          O cliente só marca <strong className="text-emerald-300">das 15:00 em diante</strong>. Evita que agendem em cima da hora.
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 mb-4">
+                        <p className="text-sm font-extrabold text-amber-200 mb-1">🚫 Antecedência para CANCELAR</p>
+                        <p className="text-xs text-gray-300 leading-relaxed mb-3">
+                          É o tempo mínimo antes do horário em que o cliente ainda pode cancelar sozinho pelo app.
+                        </p>
+                        <p className="text-xs text-gray-400 mb-2">
+                          Exemplo com <strong className="text-white">3 horas</strong> — atendimento às <strong className="text-white">15:00</strong>:
+                        </p>
+                        <div className="flex flex-wrap gap-2 mb-2.5">
+                          <span className="px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-sm font-bold">11:00</span>
+                          <span className="px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-sm font-bold">12:00</span>
+                          <span className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300/70 text-sm font-bold">🔒 12:30</span>
+                          <span className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300/70 text-sm font-bold">🔒 13:00</span>
+                        </div>
+                        <p className="text-xs text-gray-400 leading-relaxed">
+                          Ele cancela sozinho <strong className="text-emerald-300">até as 12:00</strong>. Depois disso, só ligando ou indo pessoalmente. Te protege de cancelamento de última hora.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4 text-xs">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-3.5 h-3.5 rounded bg-emerald-500/25 border border-emerald-500/50"></span>
+                          <span className="text-gray-300">Cliente consegue</span>
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-3.5 h-3.5 rounded bg-red-500/20 border border-red-500/40"></span>
+                          <span className="text-gray-300">Bloqueado</span>
+                        </span>
+                      </div>
+
+                      <div className="rounded-lg bg-[#2a2b2c] border border-gray-700 p-3 mb-5">
+                        <p className="text-xs text-gray-300 leading-relaxed">
+                          💡 <strong className="text-white">Dica:</strong> clique de novo no botão já selecionado para desmarcar. Aí fica sem limite de prazo.
+                        </p>
+                      </div>
+
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => setShowPrazosHelpModal(false)}
+                          className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                        >
+                          Entendi
                         </button>
                       </div>
                     </div>
@@ -41328,12 +41553,6 @@ Estamos te aguardando!`;
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xl">👤</span>
                       <h4 className="text-white font-bold text-base">Tutorial: Como Gerenciar Profissionais</h4>
-                      <button
-                        onClick={() => toggleTutorial('professionals')}
-                        className="ml-auto text-white/70 hover:text-white text-xs border border-white/30 px-2 py-0.5 rounded transition-colors"
-                      >
-                        Ocultar
-                      </button>
                     </div>
                     <p className="text-purple-100 text-xs leading-relaxed">
                       Aprenda a cadastrar e gerenciar profissionais do seu estabelecimento
@@ -41876,6 +42095,17 @@ Estamos te aguardando!`;
                         </label>
                       </div>
 
+                      {!Boolean((professional as any).unique_professional_access_enabled) && (
+                        <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3">
+                          <p className="text-xs font-extrabold text-red-300">
+                            ⚠️ Com isso desativado, este profissional fica SEM senha.
+                          </p>
+                          <p className="text-xs text-red-200/80 mt-1 leading-relaxed">
+                            Qualquer pessoa que abrir o sistema consegue entrar na agenda dele sem pedir senha nenhuma. Ative para proteger com a senha exclusiva de 4 dígitos.
+                          </p>
+                        </div>
+                      )}
+
                       {Boolean((professional as any).unique_professional_access_enabled) && (
                         <div className="mt-2 p-3 bg-[#121314] border border-gray-700 rounded-lg space-y-3">
                           <div>
@@ -41914,6 +42144,54 @@ Estamos te aguardando!`;
                           <p className="text-[11px] text-gray-500">
                             Ao ativar, as proteções extras de agenda e financeiro são desativadas automaticamente para este profissional.
                           </p>
+
+                          {((professional as any).unique_professional_access_role || 'owner') === 'collaborator' && (
+                            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-2">
+                              <p className="text-sm font-extrabold text-emerald-200">👀 Quais agendas este colaborador pode ver?</p>
+                              <p className="text-xs text-gray-400 leading-relaxed">
+                                Marque os profissionais cuja agenda ele vai poder abrir e gerenciar (agendar, concluir, cancelar) ao entrar com a senha de 4 dígitos dele. A agenda dele mesmo já aparece sempre.
+                              </p>
+                              {professionals.filter((candidate) => String(candidate.id || '').trim() !== String(professional.id || '').trim()).length === 0 ? (
+                                <p className="text-xs text-gray-500">Cadastre outros profissionais para liberar agendas.</p>
+                              ) : (
+                                <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                                  {professionals
+                                    .filter((candidate) => String(candidate.id || '').trim() !== String(professional.id || '').trim())
+                                    .map((candidate) => {
+                                      const agendaIds = Array.isArray((professional as any)?.collaborator_agenda_ids)
+                                        ? (professional as any).collaborator_agenda_ids
+                                            .map((rawId: unknown) => String(rawId || '').trim())
+                                            .filter(Boolean)
+                                        : [];
+                                      const checked = agendaIds.includes(String(candidate.id || '').trim());
+                                      return (
+                                        <label
+                                          key={`collab-agenda-${professional.id}-${candidate.id}`}
+                                          className="flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-2 cursor-pointer hover:bg-[#222425]"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            onChange={(e) =>
+                                              handleToggleCollaboratorAgenda(
+                                                professional.id,
+                                                String(candidate.id || ''),
+                                                e.target.checked
+                                              )
+                                            }
+                                            className="rounded border-gray-500"
+                                          />
+                                          <span className="text-sm text-white">{candidate.name || 'Profissional'}</span>
+                                        </label>
+                                      );
+                                    })}
+                                </div>
+                              )}
+                              <p className="text-[11px] text-gray-500">
+                                Diferente do Modo Secretaria, o colaborador continua aparecendo normalmente no seu link de agendamento.
+                              </p>
+                            </div>
+                          )}
 
                           <div className="pt-3 border-t border-gray-800 space-y-3">
                             <div className="flex items-center justify-between gap-3">
@@ -42011,7 +42289,31 @@ Estamos te aguardando!`;
           {/* Tab de Minhas Taxas */}
           {activeTab === 'taxes' && (
             <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">Minhas Taxas</h2>
+              <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
+                <h2 className="text-2xl font-bold text-gray-900">Minhas Taxas</h2>
+                <div className="flex items-center gap-1 bg-gray-100 rounded-lg px-1.5 py-1">
+                  <button
+                    onClick={() => setTaxesMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                    className="px-3 py-1 rounded-md hover:bg-gray-200 text-gray-700 font-bold text-lg leading-none"
+                    aria-label="Mês anterior"
+                  >
+                    ‹
+                  </button>
+                  <span className="text-sm font-semibold text-gray-800 capitalize min-w-[120px] text-center">
+                    {taxesMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                  </span>
+                  <button
+                    onClick={() => setTaxesMonth(prev => {
+                      const next = new Date(prev.getFullYear(), prev.getMonth() + 1, 1);
+                      return next > new Date() ? prev : next;
+                    })}
+                    className="px-3 py-1 rounded-md hover:bg-gray-200 text-gray-700 font-bold text-lg leading-none disabled:opacity-40 disabled:cursor-not-allowed"
+                    aria-label="Próximo mês"
+                  >
+                    ›
+                  </button>
+                </div>
+              </div>
 
               {isLoadingTaxes ? (
                 <div className="text-center py-8">
@@ -42035,6 +42337,36 @@ Estamos te aguardando!`;
                       </p>
                     </div>
                   </div>
+
+                  {/* Taxa por profissional no mês */}
+                  {taxesReport.byProfessional && Object.keys(taxesReport.byProfessional).length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-1">Taxa por profissional no mês</h3>
+                      <p className="text-xs text-gray-500 mb-3">
+                        {taxesReport.taxDeductedByEstablishment
+                          ? 'A taxa do cartão é bancada pelo estabelecimento — os profissionais não perdem nada.'
+                          : 'Quanto da taxa do cartão saiu da comissão de cada profissional (a parte dele).'}
+                      </p>
+                      <div className="space-y-2">
+                        {Object.entries(taxesReport.byProfessional)
+                          .sort((a: any, b: any) => b[1].profLoss - a[1].profLoss)
+                          .map(([name, data]: any) => (
+                            <div key={name} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg gap-3">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-gray-900 truncate">{name}</p>
+                                <p className="text-xs text-gray-500">
+                                  {data.count} venda(s) no cartão • taxa total: {formatCurrency(data.totalTax)}
+                                </p>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-lg font-bold text-red-600">- {formatCurrency(data.profLoss)}</p>
+                                <p className="text-[11px] text-gray-500">saiu da parte dele</p>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Taxas por Bandeira - Mês */}
                   <div>
