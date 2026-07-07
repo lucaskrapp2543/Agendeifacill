@@ -5944,6 +5944,14 @@ const EstablishmentDashboard = () => {
   const [expandedSaleProfessional, setExpandedSaleProfessional] = useState<string | null>(null);
   // Estado para mês selecionado na aba de produtos
   const [selectedProductsMonth, setSelectedProductsMonth] = useState(new Date());
+  // Resumo geral: lista TODOS os produtos vendidos no mês (clicando no card "Produtos com Vendas").
+  const [showProductsSummaryModal, setShowProductsSummaryModal] = useState(false);
+  // Detalhamento de vendas de UM produto (modal): quem vendeu, quando, quanto e líquido, + comparativo com o mês anterior.
+  const [showProductDetailModal, setShowProductDetailModal] = useState(false);
+  const [productDetailProduct, setProductDetailProduct] = useState<any>(null);
+  const [productDetailSales, setProductDetailSales] = useState<any[]>([]);
+  const [productDetailComparison, setProductDetailComparison] = useState<any>(null);
+  const [isLoadingProductDetail, setIsLoadingProductDetail] = useState(false);
   // Estado para armazenar vendas de produtos por período
   const [productSalesByPeriod, setProductSalesByPeriod] = useState<Record<string, number>>({});
   const [dashboardProductSalesByPeriod, setDashboardProductSalesByPeriod] = useState<Record<string, number>>({});
@@ -7012,6 +7020,134 @@ const EstablishmentDashboard = () => {
         setProductRevenueByPeriod({});
         setProductPayoutByPeriod({});
       }
+    }
+  };
+
+  // Detalhe de vendas de UM produto no mês (quem vendeu, quando, quanto, repasse e líquido) + total do mês anterior.
+  // Reaproveita a MESMA lógica de comissão (commission_percentages) e custo usada nos totais do card.
+  const fetchProductSalesDetail = async (product: any) => {
+    if (!establishment?.id || !product?.id) return;
+    setProductDetailProduct(product);
+    setShowProductDetailModal(true);
+    setIsLoadingProductDetail(true);
+    setProductDetailSales([]);
+    setProductDetailComparison(null);
+    try {
+      const pid = String(product.id);
+      const commissionMap = (product as any)?.commission_percentages || {};
+      const costPrice = Number(product?.cost_price || 0);
+      const profIdToName: Record<string, string> = {};
+      (establishment.professionals || []).forEach((p: any) => {
+        const id = String(p?.id || '').trim();
+        const name = String(p?.name || '').trim();
+        if (id && name) profIdToName[id] = name;
+      });
+
+      const resolvePct = (profName: string) => {
+        const raw = Number(commissionMap?.[profName] ?? 0);
+        return Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0;
+      };
+
+      const buildSalesForMonth = async (month: Date) => {
+        const start = startOfMonth(month);
+        const end = endOfMonth(month);
+        const rows: any[] = [];
+
+        // 1) Vendas de balcão (product_sales)
+        const { data: avulso } = await supabase
+          .from('product_sales')
+          .select('id, quantity, unit_price, professional_id, professional_name, sold_at')
+          .eq('establishment_id', establishment.id)
+          .eq('product_id', pid)
+          .gte('sold_at', start.toISOString())
+          .lte('sold_at', end.toISOString());
+        (avulso || []).forEach((s: any) => {
+          const qty = Number(s?.quantity || 0);
+          const unit = Number(s?.unit_price || 0);
+          if (!(qty > 0)) return;
+          const value = Math.max(0, qty * unit);
+          const profName = profIdToName[String(s?.professional_id || '').trim()] || String(s?.professional_name || '').trim() || '—';
+          const payout = (value * resolvePct(profName)) / 100;
+          rows.push({
+            id: `balcao-${s.id}`,
+            date: String(s?.sold_at || '').slice(0, 10),
+            professional: profName,
+            client: null,
+            quantity: qty,
+            value,
+            payout,
+            net: Math.max(0, value - costPrice * qty - payout),
+            source: 'Balcão',
+          });
+        });
+
+        // 2) Vendas em atendimento (appointment_products) — precisa dos appointments do mês para achar o profissional/cliente
+        const { data: appts } = await supabase
+          .from('appointments')
+          .select('id, professional, appointment_date, client_name')
+          .eq('establishment_id', establishment.id)
+          .eq('status', 'completed')
+          .gte('appointment_date', format(start, 'yyyy-MM-dd'))
+          .lte('appointment_date', format(end, 'yyyy-MM-dd'));
+        const apptMap: Record<string, any> = {};
+        (appts || []).forEach((a: any) => { apptMap[String(a.id)] = a; });
+        const apptIds = Object.keys(apptMap);
+        for (let i = 0; i < apptIds.length; i += 120) {
+          const idsChunk = apptIds.slice(i, i + 120);
+          const { data: prodRows } = await supabase
+            .from('appointment_products')
+            .select('id, product_id, quantity, unit_price, appointment_id, professional_id')
+            .eq('product_id', pid)
+            .in('appointment_id', idsChunk);
+          (prodRows || []).forEach((r: any) => {
+            const qty = Number(r?.quantity || 0);
+            const unit = Number(r?.unit_price || 0);
+            if (!(qty > 0)) return;
+            const value = Math.max(0, qty * unit);
+            const appt = apptMap[String(r?.appointment_id || '')];
+            const profName =
+              profIdToName[String(r?.professional_id || '').trim()] ||
+              profIdToName[String(appt?.professional || '').trim()] ||
+              String(appt?.professional || '').trim() || '—';
+            const payout = (value * resolvePct(profName)) / 100;
+            rows.push({
+              id: `atend-${r.id}`,
+              date: String(appt?.appointment_date || '').slice(0, 10),
+              professional: profName,
+              client: appt?.client_name || null,
+              quantity: qty,
+              value,
+              payout,
+              net: Math.max(0, value - costPrice * qty - payout),
+              source: 'Atendimento',
+            });
+          });
+        }
+        return rows;
+      };
+
+      const currentSales = await buildSalesForMonth(selectedProductsMonth);
+      currentSales.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+      setProductDetailSales(currentSales);
+
+      const prevMonth = new Date(selectedProductsMonth.getFullYear(), selectedProductsMonth.getMonth() - 1, 1);
+      const prevSales = await buildSalesForMonth(prevMonth);
+      const sumBy = (arr: any[], key: string) => arr.reduce((sum, r) => sum + Number(r[key] || 0), 0);
+      setProductDetailComparison({
+        currentUnits: sumBy(currentSales, 'quantity'),
+        currentRevenue: sumBy(currentSales, 'value'),
+        currentNet: sumBy(currentSales, 'net'),
+        prevUnits: sumBy(prevSales, 'quantity'),
+        prevRevenue: sumBy(prevSales, 'value'),
+        prevNet: sumBy(prevSales, 'net'),
+        prevMonthLabel: prevMonth.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }),
+        currentMonthLabel: selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }),
+      });
+    } catch (err) {
+      console.error('Erro ao carregar detalhe de vendas do produto:', err);
+      toast.error('Erro ao carregar as vendas do produto.');
+    } finally {
+      setIsLoadingProductDetail(false);
     }
   };
 
@@ -35235,6 +35371,200 @@ Estamos te aguardando!`;
                 </div>
               )}
 
+              {/* Modal - Resumo geral: todos os produtos vendidos no mês (abre pelo card "Produtos com Vendas") */}
+              {showProductsSummaryModal && (() => {
+                // Mesma conta do card individual (currentProfit) e do total "Lucro Líquido": revenue - custo*qtd - repasse.
+                const soldProducts = products
+                  .filter((p) => (productSalesByPeriod[p.id] || 0) > 0)
+                  .map((p) => {
+                    const units = productSalesByPeriod[p.id] || 0;
+                    const revenue = productRevenueByPeriod[p.id] || 0;
+                    const payout = productPayoutByPeriod[p.id] || 0;
+                    const net = revenue - (Number((p as any).cost_price || 0) * units) - payout;
+                    return { product: p, units, revenue, payout, net };
+                  })
+                  .sort((a, b) => b.revenue - a.revenue);
+                const totalUnits = soldProducts.reduce((s, x) => s + x.units, 0);
+                const totalRevenue = soldProducts.reduce((s, x) => s + x.revenue, 0);
+                const totalNet = soldProducts.reduce((s, x) => s + x.net, 0);
+                const monthLabel = selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+                return (
+                  <div className="fixed inset-0 bg-black bg-opacity-70 flex items-start sm:items-center justify-center z-[10050] p-3 sm:p-4 pt-6 sm:pt-4">
+                    <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
+                      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+                        <div className="min-w-0">
+                          <h3 className="text-lg font-bold text-gray-900">📦 Produtos vendidos</h3>
+                          <p className="text-xs text-gray-500 capitalize">{monthLabel}</p>
+                        </div>
+                        <button onClick={() => setShowProductsSummaryModal(false)} className="text-gray-400 hover:text-gray-700 p-1 shrink-0">
+                          <X className="h-6 w-6" />
+                        </button>
+                      </div>
+                      <div className="overflow-y-auto flex-1 p-4 sm:p-5 space-y-4">
+                        {/* Totais do mês */}
+                        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                          <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-center">
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Unidades</p>
+                            <p className="text-base sm:text-lg font-bold text-gray-900 mt-0.5">{totalUnits}</p>
+                          </div>
+                          <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-center">
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Faturamento</p>
+                            <p className="text-base sm:text-lg font-bold text-gray-900 mt-0.5">{formatCurrency(totalRevenue)}</p>
+                          </div>
+                          <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-center">
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Líquido</p>
+                            <p className={`text-base sm:text-lg font-bold mt-0.5 ${totalNet >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(totalNet)}</p>
+                          </div>
+                        </div>
+                        {/* Lista de produtos vendidos */}
+                        <div>
+                          <p className="text-xs font-bold text-gray-700 mb-2">
+                            {soldProducts.length} produto(s) com vendas — toque para ver quem vendeu e o comparativo
+                          </p>
+                          {soldProducts.length === 0 ? (
+                            <div className="text-center py-8 border border-dashed border-gray-300 rounded-lg">
+                              <p className="text-gray-500 text-sm capitalize">Nenhum produto vendido em {monthLabel}.</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {soldProducts.map(({ product, units, revenue, net }) => (
+                                <button
+                                  key={product.id}
+                                  onClick={() => { setShowProductsSummaryModal(false); fetchProductSalesDetail(product); }}
+                                  className="w-full flex items-center justify-between gap-3 p-3 rounded-xl bg-white border border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition-all text-left"
+                                >
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <div className="h-11 w-11 rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center shrink-0">
+                                      {String((product as any)?.image_url || '').trim() ? (
+                                        <img src={String((product as any)?.image_url || '')} alt={product.name} className="h-full w-full object-cover" loading="lazy" />
+                                      ) : (
+                                        <span className="text-[9px] text-gray-400 text-center px-0.5">Sem foto</span>
+                                      )}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-semibold text-gray-900 truncate">{product.name}</p>
+                                      <p className="text-[11px] text-gray-500">{units} un. • {formatCurrency(revenue)} faturado</p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <div className="text-right">
+                                      <p className={`text-sm font-bold ${net >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(net)}</p>
+                                      <p className="text-[10px] text-gray-400">líquido</p>
+                                    </div>
+                                    <ChevronRight className="h-4 w-4 text-gray-400" />
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="px-5 py-3 border-t border-gray-200 flex justify-end">
+                        <button onClick={() => setShowProductsSummaryModal(false)} className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-sm font-semibold transition-colors">Fechar</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Modal - Vendas detalhadas de um produto */}
+              {showProductDetailModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-start sm:items-center justify-center z-[10050] p-3 sm:p-4 pt-6 sm:pt-4">
+                  <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
+                    <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+                      <div className="min-w-0">
+                        <h3 className="text-lg font-bold text-gray-900 truncate">🧾 Vendas de {productDetailProduct?.name || 'Produto'}</h3>
+                        <p className="text-xs text-gray-500 capitalize">{productDetailComparison?.currentMonthLabel || selectedProductsMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</p>
+                      </div>
+                      <button onClick={() => setShowProductDetailModal(false)} className="text-gray-400 hover:text-gray-700 p-1 shrink-0">
+                        <X className="h-6 w-6" />
+                      </button>
+                    </div>
+
+                    <div className="overflow-y-auto flex-1 p-5 space-y-4">
+                      {isLoadingProductDetail ? (
+                        <div className="text-center py-10">
+                          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+                          <p className="text-gray-500 text-sm">Carregando vendas...</p>
+                        </div>
+                      ) : (
+                        <>
+                          {productDetailComparison && (
+                            <div className="grid grid-cols-3 gap-3">
+                              {[
+                                { label: 'Unidades', cur: `${productDetailComparison.currentUnits} un.`, prev: `${productDetailComparison.prevUnits} un.` },
+                                { label: 'Faturamento', cur: formatCurrency(productDetailComparison.currentRevenue), prev: formatCurrency(productDetailComparison.prevRevenue) },
+                                { label: 'Líquido', cur: formatCurrency(productDetailComparison.currentNet), prev: formatCurrency(productDetailComparison.prevNet) },
+                              ].map((c) => (
+                                <div key={c.label} className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-center">
+                                  <p className="text-[10px] sm:text-[11px] text-gray-500 uppercase tracking-wide">{c.label}</p>
+                                  <p className="text-base sm:text-lg font-bold text-gray-900 mt-0.5">{c.cur}</p>
+                                  <p className="text-[10px] sm:text-[11px] text-gray-400 mt-1 capitalize">{productDetailComparison.prevMonthLabel}: {c.prev}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {productDetailSales.length > 0 && (() => {
+                            const byProf: Record<string, { qty: number; net: number }> = {};
+                            productDetailSales.forEach((s) => {
+                              const k = s.professional || '—';
+                              if (!byProf[k]) byProf[k] = { qty: 0, net: 0 };
+                              byProf[k].qty += Number(s.quantity || 0);
+                              byProf[k].net += Number(s.net || 0);
+                            });
+                            const list = Object.entries(byProf).sort((a, b) => b[1].qty - a[1].qty);
+                            return (
+                              <div>
+                                <p className="text-xs font-bold text-gray-700 mb-2">Quem vendeu</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {list.map(([name, d]) => (
+                                    <span key={name} className="inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-full px-3 py-1 text-xs">
+                                      <span className="font-semibold text-blue-800">{name}</span>
+                                      <span className="text-blue-600">{d.qty} un. • {formatCurrency(d.net)}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          <div>
+                            <p className="text-xs font-bold text-gray-700 mb-2">Cada venda</p>
+                            {productDetailSales.length === 0 ? (
+                              <div className="text-center py-8 border border-dashed border-gray-300 rounded-lg">
+                                <p className="text-gray-500 text-sm">Nenhuma venda deste produto neste mês.</p>
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                {productDetailSales.map((s) => (
+                                  <div key={s.id} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-gray-50 border border-gray-200">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-semibold text-gray-900 truncate">{s.professional}</p>
+                                      <p className="text-[11px] text-gray-500 truncate">
+                                        {s.date ? new Date(s.date + 'T00:00:00').toLocaleDateString('pt-BR') : '—'} • {s.quantity} un. • {s.source}{s.client ? ` • ${s.client}` : ''}
+                                      </p>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <p className="text-sm font-bold text-gray-900">{formatCurrency(s.value)}</p>
+                                      <p className="text-[11px] text-green-600 font-semibold">Líquido {formatCurrency(s.net)}</p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    <div className="px-5 py-3 border-t border-gray-200 flex justify-end">
+                      <button onClick={() => setShowProductDetailModal(false)} className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-sm font-semibold transition-colors">Fechar</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Modal VISUAL - Como os horários aparecem (intervalo) */}
               {showIntervalHelpModal && (
                 <div className="fixed inset-0 bg-black bg-opacity-70 flex items-start sm:items-center justify-center z-[10050] p-3 sm:p-4 pt-6 sm:pt-4">
@@ -41024,7 +41354,11 @@ Estamos te aguardando!`;
                         }, 0)} unidades
                       </p>
                     </div>
-                    <div className="bg-white rounded-lg p-3 border border-gray-200">
+                    <div
+                      onClick={() => setShowProductsSummaryModal(true)}
+                      className="bg-white rounded-lg p-3 border border-gray-200 cursor-pointer hover:border-blue-400 hover:shadow-md transition-all"
+                      title="Clique para ver todos os produtos vendidos"
+                    >
                       <div className="flex items-center gap-2 mb-1">
                         <p className="text-sm text-gray-600">Produtos com Vendas</p>
                         <div className="group relative">
@@ -41040,6 +41374,7 @@ Estamos te aguardando!`;
                       <p className="text-xl font-bold text-gray-900">
                         {products.filter(product => (productSalesByPeriod[product.id] || 0) > 0).length} produtos
                       </p>
+                      <p className="text-[11px] text-blue-600 font-semibold mt-0.5">👆 clique para ver a lista</p>
                     </div>
                     <div className="bg-white rounded-lg p-3 border border-gray-200">
                       <p className="text-sm text-gray-600">Ticket Médio</p>
@@ -41196,6 +41531,15 @@ Estamos te aguardando!`;
 
                               {/* Botão para ver vendas por funcionário */}
                               <div className="border-t pt-2 mt-2">
+                                {periodSoldQuantity > 0 && (
+                                  <button
+                                    onClick={() => fetchProductSalesDetail(product)}
+                                    className="w-full flex items-center justify-between px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors mb-2"
+                                  >
+                                    <span className="text-blue-700 font-semibold">🧾 Ver vendas detalhadas</span>
+                                    <span className="text-xs text-blue-700 bg-blue-100 rounded-full px-2 py-0.5 font-bold">{periodSoldQuantity} un.</span>
+                                  </button>
+                                )}
                                 {/* % por colaborador */}
                                 <button
                                   onClick={() => handleToggleCommissionEditor(product)}
