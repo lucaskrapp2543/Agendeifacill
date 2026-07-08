@@ -48,6 +48,7 @@ import { createSubscription, deleteSubscription, getClientSubscriptions, getSubs
 import { Database } from '../types/supabase';
 import { downloadSubscriberAccountantReport } from '../utils/subscriberAccountantReport';
 import {
+  applyBonusCreditsToLimit,
   buildCarryoverMonthlyLimit,
   clampDateRangeToSubscription,
   getCalendarMonthDateRange,
@@ -1893,7 +1894,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       const { data: subs, error: subsErr } = await supabase
         .from('client_subscriptions')
-        .select('id, start_date, end_date, monthly_limit')
+        .select('id, start_date, end_date, monthly_limit, bonus_credits')
         .eq('establishment_id', establishmentId);
 
       if (subsErr) {
@@ -1938,7 +1939,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           isIsoDateWithinRange(String(row?.attendance_date || ''), previousRange)
         ).length;
         const allowance = buildCarryoverMonthlyLimit(
-          sub?.monthly_limit,
+          applyBonusCreditsToLimit(sub?.monthly_limit, sub?.bonus_credits),
           currentUsage,
           previousUsage,
           false
@@ -2668,8 +2669,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     const attendanceDateToSave = format(new Date(), 'yyyy-MM-dd');
     const attendanceProfessionalToSave = 'Adicionado em Meus Assinantes';
 
-    // ? Bloquear se bater o limite do cliente (não permitir 5/4)
-    const baseLimit = Number((selectedClientForAttendance as any)?.monthly_limit || 0);
+    // ? Bloquear se bater o limite do cliente (não permitir 5/4) — já com os atendimentos extras (bônus) somados
+    const baseLimit = applyBonusCreditsToLimit((selectedClientForAttendance as any)?.monthly_limit, (selectedClientForAttendance as any)?.bonus_credits);
     const effectiveLimit = subscriberEffectiveLimitByClientSubId[String(selectedClientForAttendance.id)] ?? (Number.isFinite(baseLimit) && baseLimit > 0 ? baseLimit : null);
     const currentCount = subscriberAttendanceCountsByClientSubId[String(selectedClientForAttendance.id)] || 0;
     if (effectiveLimit !== null && effectiveLimit > 0 && currentCount >= effectiveLimit) {
@@ -4085,7 +4086,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   const openLimitModal = (clientSubscription: ClientSubscription) => {
     setSelectedClientForLimit(clientSubscription);
-    setMonthlyLimit((clientSubscription as any).monthly_limit || null);
+    // Reutiliza o state monthlyLimit para guardar o valor de atendimentos EXTRAS (bônus) do cliente.
+    setMonthlyLimit((clientSubscription as any).bonus_credits || null);
     setShowLimitModal(true);
   };
 
@@ -4197,18 +4199,28 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
     setIsSavingLimit(true);
     try {
+      // Atendimentos EXTRAS (bônus): grava em coluna separada (bonus_credits).
+      // NÃO tocamos em monthly_limit para não alterar o divisor de repasse do profissional.
+      const bonusToSave = Number.isFinite(Number(monthlyLimit)) && Number(monthlyLimit) > 0 ? Math.floor(Number(monthlyLimit)) : 0;
       const { error } = await supabase
         .from('client_subscriptions')
         .update({
-          monthly_limit: monthlyLimit,
+          bonus_credits: bonusToSave,
           updated_at: new Date().toISOString()
-        })
+        } as any)
         .eq('id', selectedClientForLimit.id);
 
-      if (error) throw error;
+      if (error) {
+        const errMsg = String(error.message || '').toLowerCase();
+        if ((error as any).code === '42703' || errMsg.includes('bonus_credits')) {
+          toast.error('Falta rodar a migration dos atendimentos extras (coluna bonus_credits). Rode o SQL e tente novamente.');
+          return;
+        }
+        throw error;
+      }
 
-      const limitText = monthlyLimit ? `${monthlyLimit} agendamentos` : 'sem limite';
-      toast.success(`Limite definido: ${limitText} por mês para ${selectedClientForLimit.profiles?.full_name || 'Cliente'}`);
+      const bonusText = bonusToSave > 0 ? `+${bonusToSave} atendimento(s) extra(s)` : 'sem extras';
+      toast.success(`Atendimentos extras: ${bonusText} por mês para ${selectedClientForLimit.profiles?.full_name || 'Cliente'}`);
 
       // Fechar modal e limpar dados
       setShowLimitModal(false);
@@ -6886,6 +6898,16 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           );
                         })()}
 
+                        {/* Atendimentos extras (bônus) que somam ao limite do plano */}
+                        {Number((cs as any)?.bonus_credits || 0) > 0 && (
+                          <span
+                            className="bg-emerald-600/25 text-emerald-100 text-xs px-2 py-1 rounded-full font-extrabold border border-emerald-400/30"
+                            title="Atendimentos extras (bônus) que somam ao limite do plano todo mês"
+                          >
+                            🎁 +{Number((cs as any).bonus_credits)} extra{Number((cs as any).bonus_credits) > 1 ? 's' : ''}/mês
+                          </span>
+                        )}
+
                         {/* Meses anteriores (ex.: Fev 1) */}
                         {(() => {
                           const hist = subscriberAttendanceCountsHistoryByClientSubId[String(cs.id)] || {};
@@ -7123,11 +7145,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       <button
                         onClick={() => openLimitModal(cs)}
                         className="inline-flex items-center justify-center px-2 sm:px-3 py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors bg-black text-white hover:bg-gray-800 border border-gray-700 shadow-md"
-                        title="Definir limite de agendamentos por mês"
+                        title="Dar atendimentos extras (bônus) ao cliente"
                       >
-                        <span className="text-xs sm:text-sm">🔢</span>
-                        <span className="hidden sm:inline ml-1">Limitar Cliente</span>
-                        <span className="sm:hidden ml-1">Limite</span>
+                        <span className="text-xs sm:text-sm">🎁</span>
+                        <span className="hidden sm:inline ml-1">Atendimentos extras</span>
+                        <span className="sm:hidden ml-1">Extras</span>
                       </button>
                       <button
                         onClick={() => openAdjustValueModal(cs)}
@@ -8569,7 +8591,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           <div className="bg-[#1a1b1c] rounded-lg p-6 w-full max-w-md border border-gray-700">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-white">
-                Limitar Cliente
+                🎁 Atendimentos extras
               </h3>
               <button
                 onClick={() => setShowLimitModal(false)}
@@ -8582,19 +8604,19 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             <form onSubmit={handleSaveLimit}>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-400 mb-2">
-                  Limite mensal para <strong>{selectedClientForLimit.profiles?.full_name || 'Cliente'}</strong>
+                  Atendimentos extras (bônus) para <strong>{selectedClientForLimit.profiles?.full_name || 'Cliente'}</strong>
                 </label>
                 <input
                   type="number"
-                  min="1"
+                  min="0"
                   max="50"
                   value={monthlyLimit || ''}
                   onChange={(e) => setMonthlyLimit(e.target.value ? Number(e.target.value) : null)}
                   className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
-                  placeholder="Ex: 2 (para 2 agendamentos por mês)"
+                  placeholder="Ex: 2 (dá 2 atendimentos a mais)"
                 />
                 <p className="text-xs text-gray-500 mt-2">
-                  Deixe vazio para sem limite. O sistema conta o mês atual e, se sobrar do mês anterior, soma esse saldo apenas neste mês.
+                  Esses extras <strong>somam</strong> ao limite do plano deste cliente e valem <strong>todo mês</strong>. Ex.: plano de 4 + 2 extras = 6 por mês. Deixe vazio ou 0 para remover os extras. Não altera o valor pago ao profissional.
                 </p>
               </div>
 
@@ -8611,7 +8633,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   disabled={isSavingLimit}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                 >
-                  {isSavingLimit ? 'Salvando...' : 'Salvar Limite'}
+                  {isSavingLimit ? 'Salvando...' : 'Salvar extras'}
                 </button>
               </div>
             </form>

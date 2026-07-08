@@ -12942,6 +12942,7 @@ Estamos te aguardando!`;
         .select(`
           id,
           monthly_limit,
+          bonus_credits,
           payment_status,
           end_date,
           updated_at,
@@ -13039,7 +13040,10 @@ Estamos te aguardando!`;
       monthEndDate.setDate(0);
       const monthEnd = format(monthEndDate, 'yyyy-MM-dd');
 
-      const monthlyLimit = Number(selectedClientSub?.monthly_limit || 0);
+      const baseMonthlyLimit = Number(selectedClientSub?.monthly_limit || 0);
+      const bonusMonthlyCredits = Number((selectedClientSub as any)?.bonus_credits || 0);
+      // Limite do plano + atendimentos extras (bônus). Só soma quando há limite base definido.
+      const monthlyLimit = Number.isFinite(baseMonthlyLimit) && baseMonthlyLimit > 0 ? baseMonthlyLimit + (Number.isFinite(bonusMonthlyCredits) && bonusMonthlyCredits > 0 ? Math.floor(bonusMonthlyCredits) : 0) : 0;
       if (Number.isFinite(monthlyLimit) && monthlyLimit > 0) {
         const { data: countRows, error: countError } = await (supabase as any)
           .from('subscriber_attendances')

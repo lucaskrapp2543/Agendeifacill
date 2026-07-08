@@ -2052,6 +2052,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
             client_name_override,
             client_whatsapp,
             monthly_limit,
+            bonus_credits,
             subscriptions (
               id,
               name,
@@ -2082,6 +2083,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
               whatsapp,
               plan_name: plan_name || undefined,
               monthly_limit: monthly_limit !== null && monthly_limit !== undefined ? Number(monthly_limit) : null,
+              bonus_credits: Number(row?.bonus_credits || 0),
               subscription: row?.subscriptions || null,
             };
           })
@@ -2134,7 +2136,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const oldStatus = String(apt.status || '').trim().toLowerCase();
         // ✅ Verificar limite do assinante (não permitir 5/4)
         const selectedSub = subscriberOptions.find((s) => String(s.id) === String(selectedSubscriberOptionId));
-        const limit = Number(selectedSub?.monthly_limit || 0);
+        // Limite do plano + atendimentos extras (bônus). Só soma quando há limite base definido.
+        const baseSubLimit = Number(selectedSub?.monthly_limit || 0);
+        const bonusSubCredits = Number((selectedSub as any)?.bonus_credits || 0);
+        const limit = Number.isFinite(baseSubLimit) && baseSubLimit > 0 ? baseSubLimit + (Number.isFinite(bonusSubCredits) && bonusSubCredits > 0 ? Math.floor(bonusSubCredits) : 0) : 0;
         if (Number.isFinite(limit) && limit > 0) {
           // Usar a data do dia da agenda (selectedDate) para evitar dia anterior por UTC
           const y = selectedDate.getFullYear();

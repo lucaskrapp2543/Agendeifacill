@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import {
+  applyBonusCreditsToLimit,
   buildCarryoverMonthlyLimit,
   clampDateRangeToSubscription,
   getCalendarMonthDateRange,
@@ -352,6 +353,8 @@ export const checkMonthlyLimit = async (
     const currentUsage = countAppointmentsInRange(appointments || [], currentRange);
     const previousUsage = countAppointmentsInRange(appointments || [], previousRange);
     const monthlyLimit = (clientSubscription as any).monthly_limit;
+    // Atendimentos extras (bônus): somam ao limite base, mas só quando há limite definido.
+    const bonusCredits = (clientSubscription as any).bonus_credits;
     const subscriptionName = clientSubscription.subscriptions?.name || '';
     const subscriptionConfig = (clientSubscription as any)?.subscriptions || {};
     const hasRequestedServiceLimit = Number.isFinite(requestedServiceLimit) && requestedServiceLimit > 0;
@@ -415,7 +418,13 @@ export const checkMonthlyLimit = async (
       const previousServiceUsage = countAppointmentsInRange(serviceAppointments, previousRange);
       const serviceLimit = Number(finalRequestedService.limit || 0);
       const hasServiceLimit = Number.isFinite(serviceLimit) && serviceLimit > 0;
-      const serviceAllowance = buildCarryoverMonthlyLimit(serviceLimit, currentServiceUsage, previousServiceUsage, false);
+      // Soma os atendimentos extras (bônus) ao limite do serviço, quando o serviço tem limite.
+      const serviceAllowance = buildCarryoverMonthlyLimit(
+        applyBonusCreditsToLimit(serviceLimit, bonusCredits),
+        currentServiceUsage,
+        previousServiceUsage,
+        false
+      );
       const canBookService = !hasServiceLimit || serviceAllowance.canBook;
 
       if (!canBookService) {
@@ -446,7 +455,8 @@ export const checkMonthlyLimit = async (
       };
     }
 
-    const allowance = buildCarryoverMonthlyLimit(monthlyLimit, currentUsage, previousUsage, false);
+    const effectiveBaseLimit = applyBonusCreditsToLimit(monthlyLimit, bonusCredits);
+    const allowance = buildCarryoverMonthlyLimit(effectiveBaseLimit, currentUsage, previousUsage, false);
 
     console.log('?? Limite mensal verificado:', {
       currentUsage: allowance.currentMonthUsage,

@@ -119,3 +119,22 @@ export function buildCarryoverMonthlyLimit(
     canBook: currentMonthUsage < effectiveLimit,
   };
 }
+
+/**
+ * Soma os "atendimentos extras" (bônus fixo, recorrente por mês) ao limite base do assinante.
+ *
+ * IMPORTANTE: este bônus é usado APENAS na validação de limite de agendamentos.
+ * Ele NUNCA deve ser somado ao `monthly_limit` usado como divisor de repasse financeiro
+ * (isso mudaria o valor pago ao profissional). Por isso o bônus vive em coluna separada
+ * (`client_subscriptions.bonus_credits`) e só é aplicado aqui.
+ *
+ * Retorna 0 quando não há limite base (0/null = ilimitado): nesse caso o bônus não faz
+ * sentido e o comportamento continua "sem limite".
+ */
+export function applyBonusCreditsToLimit(baseLimitRaw: unknown, bonusCreditsRaw: unknown): number {
+  const base = Number(baseLimitRaw);
+  if (!Number.isFinite(base) || base <= 0) return 0;
+  const bonus = Number(bonusCreditsRaw);
+  const safeBonus = Number.isFinite(bonus) && bonus > 0 ? Math.floor(bonus) : 0;
+  return Math.floor(base) + safeBonus;
+}

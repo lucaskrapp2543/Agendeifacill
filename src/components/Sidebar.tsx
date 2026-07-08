@@ -451,6 +451,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       id: 'whatsapp-reminders',
       label: 'Lembretes para Clientes',
       icon: MessageCircle,
+      featured: true,
+      featuredTone: 'sky',
       onClick: () => {
         if (isItemLocked('whatsapp-reminders')) {
           onBlockedItemClick?.();
@@ -479,6 +481,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       id: 'clients',
       label: 'Meus Clientes',
       icon: Users,
+      featured: true,
+      featuredTone: 'sky',
       onClick: () => {
         if (isItemLocked('clients')) {
           onBlockedItemClick?.();
@@ -493,6 +497,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       id: 'service-categories',
       label: 'Meus serviços',
       icon: Layers,
+      featured: true,
+      featuredTone: 'violet',
       onClick: () => {
         if (isItemLocked('service-categories')) {
           onBlockedItemClick?.();
@@ -507,6 +513,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       id: 'products',
       label: 'Meus Produtos',
       icon: Package,
+      featured: true,
+      featuredTone: 'violet',
       onClick: () => {
         if (isPlanLockedItem('products')) {
           openUpgradeModalMobileSafe();
@@ -526,6 +534,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       id: 'professionals',
       label: 'Profissionais',
       icon: UserCheck,
+      featured: true,
+      featuredTone: 'violet',
       onClick: () => {
         if (isItemLocked('professionals')) {
           onBlockedItemClick?.();
@@ -540,6 +550,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       id: 'dashboard',
       label: 'Financeiro',
       icon: BarChart3,
+      featured: true,
+      featuredTone: 'emerald',
       onClick: () => {
         if (isItemLocked('dashboard')) {
           onBlockedItemClick?.();
@@ -721,7 +733,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       description: 'Seu cliente escolhe: pagar online ou no local. Menos faltas e dinheiro na conta na hora.',
       icon: CreditCard,
       featured: true,
-      featuredTone: 'sky',
+      featuredTone: 'emerald',
       isActive: activeTab === 'receber-adiantado' || isReceberAdiantadoOpen,
       onClick: () => {
         if (onboardingStep < 4) {
@@ -755,7 +767,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       description: 'Gerencie assinantes e planos mensais do seu estabelecimento.',
       icon: Crown,
       featured: true,
-      featuredTone: 'violet',
+      featuredTone: 'sky',
       isActive: activeTab === 'subscribers',
       lockedByPlan: isPlanLockedItem('subscribers'),
       showBadge: pendingSubscribersCount > 0,
@@ -779,7 +791,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       description: 'Veja sua página de agendamentos onde seus clientes agendam com você.',
       icon: Link,
       featured: true,
-      featuredTone: 'cyan',
+      featuredTone: 'sky',
       isActive: activeTab === 'client-page',
       onClick: () => {
         if (isItemLocked('client-page')) {
@@ -845,18 +857,20 @@ const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   const ADMIN_MENU_PANEL_ORDER: string[] = [
+    // Destaques por família de cor (verde = dinheiro, azul = clientes/agenda, roxo = catálogo/equipe)
     'receber-adiantado',
     'indication',
     'subscribers',
     'client-page',
     'clients',
-    'service-categories',
-    'professionals',
-    'products',
     'dashboard',
+    'products',
+    'professionals',
+    'service-categories',
+    'whatsapp-reminders',
+    // Resto (sem destaque)
     'expenses',
     'taxes',
-    'whatsapp-reminders',
     'fila-espera',
     'reviews',
     'placa-barbearia',
@@ -876,6 +890,64 @@ const Sidebar: React.FC<SidebarProps> = ({
         if (menuItem) return [{ kind: 'menu' as const, item: menuItem }];
         return [];
       });
+
+  // Classes de destaque por tom (verde/azul/roxo) — usadas no painel do Menu Admin.
+  // Mesmas classes já existentes; só extraídas para reaproveitar entre item "shortcut" e "menu".
+  const computeFeaturedToneClasses = (tone: 'cyan' | 'emerald' | 'sky' | 'violet') => ({
+    active:
+      tone === 'emerald'
+        ? 'bg-gradient-to-r from-emerald-600 to-amber-500 text-white border-emerald-300 shadow-lg shadow-emerald-500/20'
+        : tone === 'sky'
+          ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white border-sky-300 shadow-lg shadow-sky-500/20'
+          : tone === 'violet'
+            ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white border-violet-300 shadow-lg shadow-violet-500/20'
+            : 'bg-gradient-to-r from-[#009EE3] to-[#0077B6] text-white border-cyan-300 shadow-lg shadow-cyan-500/20',
+    idleLight:
+      tone === 'emerald'
+        ? 'bg-gradient-to-r from-emerald-50 to-amber-50 text-emerald-950 border-emerald-400 hover:from-emerald-100 hover:to-amber-100 shadow-md shadow-emerald-200/60'
+        : tone === 'sky'
+          ? 'bg-gradient-to-r from-sky-50 to-blue-50 text-sky-950 border-sky-400 hover:from-sky-100 hover:to-blue-100 shadow-md shadow-sky-200/60'
+          : tone === 'violet'
+            ? 'bg-gradient-to-r from-violet-50 to-fuchsia-50 text-violet-950 border-violet-400 hover:from-violet-100 hover:to-fuchsia-100 shadow-md shadow-violet-200/60'
+            : 'bg-gradient-to-r from-cyan-50 to-sky-100 text-cyan-950 border-cyan-400 hover:from-cyan-100 hover:to-sky-200 shadow-md shadow-cyan-200/60',
+    idleDark:
+      tone === 'emerald'
+        ? 'bg-gradient-to-r from-emerald-500/30 to-amber-500/15 text-white border-emerald-400/70 hover:from-emerald-500/40 hover:to-amber-500/25 shadow-md shadow-emerald-500/10'
+        : tone === 'sky'
+          ? 'bg-gradient-to-r from-sky-500/30 to-blue-600/20 text-white border-sky-400/70 hover:from-sky-500/40 hover:to-blue-600/30 shadow-md shadow-sky-500/10'
+          : tone === 'violet'
+            ? 'bg-gradient-to-r from-violet-500/30 to-fuchsia-500/15 text-white border-violet-400/70 hover:from-violet-500/40 hover:to-fuchsia-500/25 shadow-md shadow-violet-500/10'
+            : 'bg-gradient-to-r from-[#009EE3]/30 to-cyan-500/15 text-white border-cyan-400/70 hover:from-[#009EE3]/40 hover:to-cyan-500/25 shadow-md shadow-cyan-500/10',
+  });
+
+  const resolveAdminCardClassName = (opts: {
+    isFeatured: boolean;
+    featuredTone: 'cyan' | 'emerald' | 'sky' | 'violet';
+    isActive: boolean;
+    isPlanLocked: boolean;
+    isOnboardingLocked: boolean;
+  }) => {
+    const base = 'relative w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors';
+    const tone = computeFeaturedToneClasses(opts.featuredTone);
+    const state = opts.isActive
+      ? opts.isFeatured
+        ? tone.active
+        : isLight
+          ? 'bg-gray-900 text-white border-gray-900'
+          : 'bg-white text-black border-white'
+      : opts.isPlanLocked || opts.isOnboardingLocked
+        ? isLight
+          ? 'bg-gray-100 text-gray-500 border-gray-200'
+          : 'bg-white/5 text-white/45 border-white/10'
+        : opts.isFeatured
+          ? isLight
+            ? tone.idleLight
+            : tone.idleDark
+          : isLight
+            ? 'bg-white text-gray-900 hover:bg-gray-50 border-gray-200'
+            : 'bg-white/5 text-white hover:bg-white/10 border-white/10';
+    return `${base} ${state}`;
+  };
 
   // Textos auxiliares (mobile fullscreen) — estilo CNH Digital
   const mobileDescriptions: Record<string, string> = {
@@ -1624,6 +1696,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                 const Icon = item.icon;
                 const isPlanLocked = Boolean((item as any).lockedByPlan);
                 const isOnboardingLocked = !isPlanLocked && isItemLockedByOnboarding(item.id);
+                const isFeatured = Boolean((item as any).featured);
+                const featuredTone = ((item as any).featuredTone || 'cyan') as 'cyan' | 'emerald' | 'sky' | 'violet';
                 return (
                   <button
                     key={`admin-${item.id}`}
@@ -1634,19 +1708,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                         setShowAdminMenu(false);
                       }
                     }}
-                    className={`relative w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
-                      item.isActive
-                        ? isLight
-                          ? 'bg-gray-900 text-white border-gray-900'
-                          : 'bg-white text-black border-white'
-                        : isPlanLocked || isOnboardingLocked
-                          ? isLight
-                            ? 'bg-gray-100 text-gray-500 border-gray-200'
-                            : 'bg-white/5 text-white/45 border-white/10'
-                          : isLight
-                            ? 'bg-white text-gray-900 hover:bg-gray-50 border-gray-200'
-                            : 'bg-white/5 text-white hover:bg-white/10 border-white/10'
-                    }`}
+                    className={resolveAdminCardClassName({ isFeatured, featuredTone, isActive: Boolean(item.isActive), isPlanLocked, isOnboardingLocked })}
                   >
                     <div className="relative">
                       <Icon className="h-5 w-5" />
@@ -1678,54 +1740,12 @@ const Sidebar: React.FC<SidebarProps> = ({
               const isOnboardingLocked = !isPlanLocked && isItemLockedByOnboarding(item.id);
               const isFeatured = Boolean(item.featured);
               const featuredTone = item.featuredTone || 'cyan';
-              const featuredActiveClass =
-                featuredTone === 'emerald'
-                  ? 'bg-gradient-to-r from-emerald-600 to-amber-500 text-white border-emerald-300 shadow-lg shadow-emerald-500/20'
-                  : featuredTone === 'sky'
-                    ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white border-sky-300 shadow-lg shadow-sky-500/20'
-                    : featuredTone === 'violet'
-                      ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white border-violet-300 shadow-lg shadow-violet-500/20'
-                      : 'bg-gradient-to-r from-[#009EE3] to-[#0077B6] text-white border-cyan-300 shadow-lg shadow-cyan-500/20';
-              const featuredIdleLightClass =
-                featuredTone === 'emerald'
-                  ? 'bg-gradient-to-r from-emerald-50 to-amber-50 text-emerald-950 border-emerald-400 hover:from-emerald-100 hover:to-amber-100 shadow-md shadow-emerald-200/60'
-                  : featuredTone === 'sky'
-                    ? 'bg-gradient-to-r from-sky-50 to-blue-50 text-sky-950 border-sky-400 hover:from-sky-100 hover:to-blue-100 shadow-md shadow-sky-200/60'
-                    : featuredTone === 'violet'
-                      ? 'bg-gradient-to-r from-violet-50 to-fuchsia-50 text-violet-950 border-violet-400 hover:from-violet-100 hover:to-fuchsia-100 shadow-md shadow-violet-200/60'
-                      : 'bg-gradient-to-r from-cyan-50 to-sky-100 text-cyan-950 border-cyan-400 hover:from-cyan-100 hover:to-sky-200 shadow-md shadow-cyan-200/60';
-              const featuredIdleDarkClass =
-                featuredTone === 'emerald'
-                  ? 'bg-gradient-to-r from-emerald-500/30 to-amber-500/15 text-white border-emerald-400/70 hover:from-emerald-500/40 hover:to-amber-500/25 shadow-md shadow-emerald-500/10'
-                  : featuredTone === 'sky'
-                    ? 'bg-gradient-to-r from-sky-500/30 to-blue-600/20 text-white border-sky-400/70 hover:from-sky-500/40 hover:to-blue-600/30 shadow-md shadow-sky-500/10'
-                    : featuredTone === 'violet'
-                      ? 'bg-gradient-to-r from-violet-500/30 to-fuchsia-500/15 text-white border-violet-400/70 hover:from-violet-500/40 hover:to-fuchsia-500/25 shadow-md shadow-violet-500/10'
-                      : 'bg-gradient-to-r from-[#009EE3]/30 to-cyan-500/15 text-white border-cyan-400/70 hover:from-[#009EE3]/40 hover:to-cyan-500/25 shadow-md shadow-cyan-500/10';
               return (
                 <button
                   key={`admin-shortcut-${item.id}`}
                   type="button"
                   onClick={item.onClick}
-                  className={`relative w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors ${
-                    item.isActive
-                      ? isFeatured
-                        ? featuredActiveClass
-                        : isLight
-                          ? 'bg-gray-900 text-white border-gray-900'
-                          : 'bg-white text-black border-white'
-                      : isPlanLocked || isOnboardingLocked
-                        ? isLight
-                          ? 'bg-gray-100 text-gray-500 border-gray-200'
-                          : 'bg-white/5 text-white/45 border-white/10'
-                        : isFeatured
-                          ? isLight
-                            ? featuredIdleLightClass
-                            : featuredIdleDarkClass
-                          : isLight
-                            ? 'bg-white text-gray-900 hover:bg-gray-50 border-gray-200'
-                            : 'bg-white/5 text-white hover:bg-white/10 border-white/10'
-                  }`}
+                  className={resolveAdminCardClassName({ isFeatured, featuredTone, isActive: Boolean(item.isActive), isPlanLocked, isOnboardingLocked })}
                 >
                   <div className="relative">
                     <Icon className="h-5 w-5" />
