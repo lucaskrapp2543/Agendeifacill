@@ -320,7 +320,7 @@ export const getEstablishmentSubscribers = async (establishmentId: string) => {
       .from('client_subscriptions')
       .select(`
         *,
-        subscriptions (name, value, duration_months)
+        subscriptions (name, value, duration_months, divide_services_enabled, divided_services)
       `)
       .eq('establishment_id', establishmentId)
       .not('subscriber_name', 'is', null)

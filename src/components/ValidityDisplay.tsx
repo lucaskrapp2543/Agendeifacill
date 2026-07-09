@@ -5,6 +5,7 @@ import { EstablishmentBillingPaymentModal } from './EstablishmentBillingPaymentM
 
 interface ValidityDisplayProps {
   establishmentId: string;
+  dark?: boolean;
 }
 
 interface EstablishmentValidity {
@@ -14,7 +15,7 @@ interface EstablishmentValidity {
   name?: string;
 }
 
-export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentId }) => {
+export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentId, dark = false }) => {
   const [validity, setValidity] = useState<EstablishmentValidity | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [daysRemaining, setDaysRemaining] = useState<number>(0);
@@ -143,9 +144,9 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
   // Modo discreto - quando está em dia
   if (isInGoodStanding) {
     return (
-      <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 px-3 py-1.5 rounded-full border border-gray-200">
+      <div className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border ${dark ? 'bg-white/[0.06] border-white/10' : 'bg-gray-50 border-gray-200'}`}>
         <Calendar className="h-3 w-3 text-green-500" />
-        <span className="text-gray-600">
+        <span className={dark ? 'text-gray-200' : 'text-gray-600'}>
           Válido até {formatDate(validity.payment_due_date)}
         </span>
       </div>

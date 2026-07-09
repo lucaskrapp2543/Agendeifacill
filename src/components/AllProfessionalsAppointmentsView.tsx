@@ -21,6 +21,7 @@ import {
 } from '../lib/subscriberAppointmentFlags';
 import { CANCELLATION_SOURCE, describeCancellationSourcePt, updateAppointmentCancelledWithSource } from '../utils/appointmentCancellationMeta';
 import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAppointmentDuration';
+import { isUsageInContinuousWindow, resolveContinuousUsageWindow } from '../utils/subscriptionUsagePeriod';
 import {
   buildExclusiveProfessionalBookingLink,
   isExclusiveBookingLinkEnabledForProfessional,
@@ -323,6 +324,7 @@ interface AllProfessionalsAppointmentsViewProps {
   use20MinuteSchedule?: boolean;
   use60MinuteSchedule?: boolean;
   useLightLayout?: boolean;
+  realIsLight?: boolean;
   canViewBarbershopCash?: boolean;
   pendingOpenBarbershopCash?: boolean;
   onConsumePendingOpenBarbershopCash?: () => void;
@@ -392,6 +394,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   use20MinuteSchedule,
   use60MinuteSchedule,
   useLightLayout = false,
+  realIsLight = false,
   canViewBarbershopCash = false,
   pendingOpenBarbershopCash = false,
   onConsumePendingOpenBarbershopCash,
@@ -2053,6 +2056,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
             client_whatsapp,
             monthly_limit,
             bonus_credits,
+            start_date,
+            last_payment_date,
+            usage_reset_at,
             subscriptions (
               id,
               name,
@@ -2084,6 +2090,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
               plan_name: plan_name || undefined,
               monthly_limit: monthly_limit !== null && monthly_limit !== undefined ? Number(monthly_limit) : null,
               bonus_credits: Number(row?.bonus_credits || 0),
+              start_date: row?.start_date || null,
+              last_payment_date: row?.last_payment_date || null,
+              usage_reset_at: row?.usage_reset_at || null,
               subscription: row?.subscriptions || null,
             };
           })
@@ -2140,27 +2149,40 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const baseSubLimit = Number(selectedSub?.monthly_limit || 0);
         const bonusSubCredits = Number((selectedSub as any)?.bonus_credits || 0);
         const limit = Number.isFinite(baseSubLimit) && baseSubLimit > 0 ? baseSubLimit + (Number.isFinite(bonusSubCredits) && bonusSubCredits > 0 ? Math.floor(bonusSubCredits) : 0) : 0;
+        // ✅ Assinatura contínua: conta desde o marco (início/renovação/reset), não só o mês
+        const continuousOn = Boolean((establishment as any)?.continuous_subscription_enabled);
+        const continuousWin = continuousOn ? resolveContinuousUsageWindow(selectedSub as any) : null;
         if (Number.isFinite(limit) && limit > 0) {
           // Usar a data do dia da agenda (selectedDate) para evitar dia anterior por UTC
           const y = selectedDate.getFullYear();
           const m = selectedDate.getMonth();
           const first = new Date(y, m, 1);
           const last = new Date(y, m + 1, 0);
-          const min = format(first, 'yyyy-MM-dd');
-          const max = format(last, 'yyyy-MM-dd');
+          const min = continuousWin ? continuousWin.windowStartDate : format(first, 'yyyy-MM-dd');
+          const max = continuousWin ? '2999-12-31' : format(last, 'yyyy-MM-dd');
 
           const { data: countRows, error: countErr } = await (supabase as any)
             .from('subscriber_attendances')
-            .select('id, attendance_date')
+            .select('id, attendance_date, created_at')
             .eq('establishment_id', establishmentId)
             .eq('client_subscription_id', String(selectedSubscriberOptionId))
             .gte('attendance_date', min)
             .lte('attendance_date', max);
 
           if (countErr) throw countErr;
-          const currentCount = Array.isArray(countRows) ? countRows.length : 0;
+          const usableRows = continuousWin
+            ? (Array.isArray(countRows) ? countRows : []).filter((row: any) =>
+              isUsageInContinuousWindow(String(row?.attendance_date || ''), row?.created_at, continuousWin)
+            )
+            : (Array.isArray(countRows) ? countRows : []);
+          const currentCount = usableRows.length;
           if (currentCount >= limit) {
-            toast(`Limite atingido (${limit}/${limit}). Aumente o limite do cliente para registrar mais atendimentos.`, 'error');
+            toast(
+              continuousWin
+                ? `Assinatura contínua: o cliente já usou todos os atendimentos (${currentCount}/${limit}). Resete a contagem em Meus Assinantes para liberar.`
+                : `Limite atingido (${limit}/${limit}). Aumente o limite do cliente para registrar mais atendimentos.`,
+              'error'
+            );
             return;
           }
         }
@@ -5790,11 +5812,11 @@ export const AllProfessionalsAppointmentsView: React.FC<
       <div className="space-y-2 md:space-y-4">
         {/* Validade do sistema — fora do header sticky */}
         {establishment?.id && (
-          <ValidityDisplay establishmentId={establishment.id} />
+          <ValidityDisplay establishmentId={establishment.id} dark={!realIsLight} />
         )}
 
-        {/* Cabeçalho compacto clean */}
-        <div className="sticky top-0 z-30 -mt-1 md:mt-0 mb-1 md:mb-2 rounded-xl border border-white/10 bg-[#0b0b0c]/95 backdrop-blur-md shadow-lg shadow-black/30">
+        {/* Cabeçalho compacto clean — no modo escuro funde com o fundo (sem borda/sombra) */}
+        <div className={`sticky top-0 z-30 -mt-1 md:mt-0 mb-1 md:mb-2 rounded-xl backdrop-blur-md ${useLightLayout ? 'border border-white/10 bg-[#0b0b0c]/95 shadow-lg shadow-black/30' : 'bg-[#0b0b0c]'}`}>
           <div className="px-2.5 py-2 md:px-3 md:py-2.5 space-y-1.5 md:space-y-2">
             {isCollaboratorView && isSecretaryModeActive && (
               <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5">
@@ -6754,7 +6776,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
         )}
 
         {/* Layout Horizontal Scrollável - MOBILE E DESKTOP */}
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden md:mt-0">
+        {/* Modo claro: caixa branca. Modo escuro: transparente (deixa o fundo escuro geral aparecer). */}
+        <div className={`rounded-lg overflow-hidden md:mt-0 ${useLightLayout ? 'bg-white border border-gray-200' : 'bg-transparent'}`}>
           <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
             <div
               className="grid gap-3 w-full"
@@ -7416,7 +7439,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                   className={`${slotColor} border rounded-lg overflow-hidden`}
                                 >
                                   {/* Versão Compacta - Sempre visível */}
-                                  <div className="px-3 py-2 md:py-1.5 md:px-2.5">
+                                  <div className={(apt.status === 'completed' || apt.status === 'pending' || apt.status === 'confirmed') ? 'flex items-stretch' : ''}>
+                                    {/* Faixa lateral esquerda de status (concluído / pendente) — conteúdo fica espremido à direita */}
+                                    {(apt.status === 'completed' || apt.status === 'pending' || apt.status === 'confirmed') && (
+                                      <div className="shrink-0 w-20 md:w-24 bg-black/25 border-r-2 border-dashed border-white/30 flex flex-col items-center justify-center gap-0.5 px-1.5 text-center select-none leading-tight">
+                                        <span className="text-[11px] md:text-xs font-extrabold text-white">Serviço</span>
+                                        <span className="text-[11px] md:text-xs font-extrabold text-white">{apt.status === 'completed' ? 'concluído' : 'em espera'}</span>
+                                        <span className="text-xl md:text-2xl leading-none mt-0.5">{apt.status === 'completed' ? '✅' : '⏳'}</span>
+                                      </div>
+                                    )}
+                                    <div className="px-2.5 py-2 md:py-1.5 flex-1 min-w-0">
                                     <div
                                       onClick={() => toggleAppointmentExpansion(apt.id)}
                                       data-tutorial-id="appointments-detalhes-agendamento"
@@ -7498,16 +7530,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
                                       <div className="text-white/70 text-xs mt-1 md:mt-0.5 flex items-center justify-between gap-1">
                                         <span>{getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos)} min • Ver detalhes</span>
-                                        {apt.status === 'completed' && (
-                                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-black/30 text-white shrink-0">
-                                            ✅ CONCLUÍDO
-                                          </span>
-                                        )}
-                                        {apt.status === 'pending' && (
-                                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-black/30 text-white shrink-0">
-                                            ⏳ PENDENTE
-                                          </span>
-                                        )}
+                                        {/* Concluído e Pendente agora são a faixa lateral esquerda do card (não mais selo aqui dentro) */}
                                         {apt.status === 'pending_payment' && (
                                           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/40 text-purple-100 shrink-0">
                                             💳 AGUARDANDO PAGAMENTO
@@ -7546,6 +7569,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         </button>
                                       </div>
                                     )}
+                                    </div>
                                   </div>
 
                                   {/* Versão Expandida - Popup modal centrado */}

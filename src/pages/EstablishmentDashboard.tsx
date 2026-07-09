@@ -94,6 +94,7 @@ import {
 } from '../utils/reviewThankYouMessage';
 import { isAppStandbyActive, subscribeToAppStandby } from '../utils/appStandby';
 import { LEGACY_LIMITE_CANCELAMENTO_MINUTOS } from '../utils/regrasCancelamento';
+import { isUsageInContinuousWindow, resolveContinuousUsageWindow } from '../utils/subscriptionUsagePeriod';
 import {
   getWhatsAppAppPreference,
   openWhatsAppWithBusinessPriority,
@@ -12943,6 +12944,9 @@ Estamos te aguardando!`;
           id,
           monthly_limit,
           bonus_credits,
+          start_date,
+          last_payment_date,
+          usage_reset_at,
           payment_status,
           end_date,
           updated_at,
@@ -13044,16 +13048,24 @@ Estamos te aguardando!`;
       const bonusMonthlyCredits = Number((selectedClientSub as any)?.bonus_credits || 0);
       // Limite do plano + atendimentos extras (bônus). Só soma quando há limite base definido.
       const monthlyLimit = Number.isFinite(baseMonthlyLimit) && baseMonthlyLimit > 0 ? baseMonthlyLimit + (Number.isFinite(bonusMonthlyCredits) && bonusMonthlyCredits > 0 ? Math.floor(bonusMonthlyCredits) : 0) : 0;
+      // ✅ Assinatura contínua: conta desde o marco (início/renovação/reset), não só o mês
+      const autoContinuousOn = Boolean((establishment as any)?.continuous_subscription_enabled);
+      const autoContinuousWin = autoContinuousOn ? resolveContinuousUsageWindow(selectedClientSub as any) : null;
       if (Number.isFinite(monthlyLimit) && monthlyLimit > 0) {
         const { data: countRows, error: countError } = await (supabase as any)
           .from('subscriber_attendances')
-          .select('id')
+          .select('id, attendance_date, created_at')
           .eq('establishment_id', establishment.id)
           .eq('client_subscription_id', clientSubscriptionId)
-          .gte('attendance_date', monthStart)
-          .lte('attendance_date', monthEnd);
+          .gte('attendance_date', autoContinuousWin ? autoContinuousWin.windowStartDate : monthStart)
+          .lte('attendance_date', autoContinuousWin ? '2999-12-31' : monthEnd);
         if (countError) throw countError;
-        const currentCount = Array.isArray(countRows) ? countRows.length : 0;
+        const usableCountRows = autoContinuousWin
+          ? (Array.isArray(countRows) ? countRows : []).filter((row: any) =>
+            isUsageInContinuousWindow(String(row?.attendance_date || ''), row?.created_at, autoContinuousWin)
+          )
+          : (Array.isArray(countRows) ? countRows : []);
+        const currentCount = usableCountRows.length;
         if (currentCount >= monthlyLimit) {
           await writeAutoSubscriberLog(
             'subscriber_attendance_auto_skipped',
@@ -28125,7 +28137,7 @@ Estamos te aguardando!`;
           </div>
           )}
 
-          <div className={`w-full ${isPremiumFullscreenTab ? 'py-0 px-0' : activeTab === 'appointments' ? `${promoSlides.length === 0 ? 'pt-[70px] md:pt-4' : 'pt-0'} pb-2 px-3 sm:px-6` : 'py-4 px-4 sm:py-8 sm:px-6'}`}>
+          <div className={`w-full ${activeTab === 'appointments' && !useLightLayout ? 'bg-[#0b0b0c] min-h-screen' : ''} ${isPremiumFullscreenTab ? 'py-0 px-0' : activeTab === 'appointments' ? `${promoSlides.length === 0 ? 'pt-[70px] md:pt-4' : 'pt-0'} pb-2 px-3 sm:px-6` : 'py-4 px-4 sm:py-8 sm:px-6'}`}>
             {/* Topo compacto — Meus Agendamentos (WhatsApp + validade sempre visíveis) */}
             {!isPremiumFullscreenTab && activeTab === 'appointments' && establishment && promoSlides.length > 0 && (
               <div className="mb-2 md:pt-3">
@@ -28614,7 +28626,8 @@ Estamos te aguardando!`;
                           });
                         }
                       }}
-                      useLightLayout={useLightLayout}
+                      useLightLayout={false}
+                      realIsLight={useLightLayout}
                       canViewBarbershopCash={
                         !(
                           establishment?.pin_password &&

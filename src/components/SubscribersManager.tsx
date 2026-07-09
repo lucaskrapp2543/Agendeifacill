@@ -54,6 +54,8 @@ import {
   getCalendarMonthDateRange,
   getPreviousCalendarMonthDateRange,
   isIsoDateWithinRange,
+  isUsageInContinuousWindow,
+  resolveContinuousUsageWindow,
 } from '../utils/subscriptionUsagePeriod';
 import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
 import { ClientRecoveryModal } from './ClientRecoveryModal';
@@ -979,6 +981,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [limitSubscriberBookings, setLimitSubscriberBookings] = useState(
     establishment?.limit_subscriber_bookings || false
   );
+  // ✅ Assinatura contínua: limite não zera no mês; reset manual/na renovação
+  const [continuousSubscription, setContinuousSubscription] = useState<boolean>(
+    Boolean((establishment as any)?.continuous_subscription_enabled)
+  );
+  const [isUpdatingContinuous, setIsUpdatingContinuous] = useState(false);
+  const [resettingClientSubId, setResettingClientSubId] = useState<string | null>(null);
   const [isUpdatingLimit, setIsUpdatingLimit] = useState(false);
 
   // Estado para controlar limitação de remarcação no mesmo dia
@@ -1446,6 +1454,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     if (establishment?.limit_subscribers_one_week !== undefined) {
       setLimitSubscribersOneWeek(establishment.limit_subscribers_one_week);
     }
+    if ((establishment as any)?.continuous_subscription_enabled !== undefined) {
+      setContinuousSubscription(Boolean((establishment as any).continuous_subscription_enabled));
+    }
 
     // Se não tiver recipient_id, forçar desativar recorrência Pagar.me
     const hasRecipientId = !!String(establishment?.pagarme_recipient_id || '').trim();
@@ -1482,7 +1493,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         localStorage.setItem(localStorageShowSubscriptionsFullpageKey, establishment.show_subscriptions_fullpage ? 'true' : 'false');
       } catch { }
     }
-  }, [establishment?.limit_subscriber_bookings, establishment?.prevent_same_day_reschedule, establishment?.limit_subscribers_one_week, establishment?.use_pagarme_subscription_pix, establishment?.use_mercadopago_subscription_pix, establishment?.pagarme_recipient_id, establishment?.mercadopago_access_token, establishment?.show_subscriptions_fullpage]);
+  }, [establishment?.limit_subscriber_bookings, establishment?.prevent_same_day_reschedule, establishment?.limit_subscribers_one_week, (establishment as any)?.continuous_subscription_enabled, establishment?.use_pagarme_subscription_pix, establishment?.use_mercadopago_subscription_pix, establishment?.pagarme_recipient_id, establishment?.mercadopago_access_token, establishment?.show_subscriptions_fullpage]);
 
   const handleUpdateShowSubscriptionsFullpage = async (newValue: boolean) => {
     setIsUpdatingShowSubscriptionsFullpage(true);
@@ -1753,6 +1764,106 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
+  // ✅ Assinatura contínua: limite vira pacote de créditos (não zera na virada do mês)
+  const handleUpdateContinuousSubscription = async (newValue: boolean) => {
+    setIsUpdatingContinuous(true);
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ continuous_subscription_enabled: newValue } as any)
+        .eq('id', establishmentId);
+
+      if (error) {
+        const errMsg = String(error.message || '').toLowerCase();
+        if ((error as any).code === '42703' || errMsg.includes('continuous_subscription_enabled')) {
+          toast.error('Falta rodar a migration da assinatura contínua (coluna continuous_subscription_enabled).');
+          return;
+        }
+        throw error;
+      }
+
+      setContinuousSubscription(newValue);
+      toast.success(
+        newValue
+          ? 'Assinatura contínua ativada: o limite não zera mais na virada do mês.'
+          : 'Assinatura contínua desativada: o limite volta a zerar todo mês.'
+      );
+
+      // Recarrega contagens já no novo modo (override evita state defasado)
+      await fetchSubscriberAttendanceCounts(selectedMonth, selectedYear, newValue);
+
+      if (onEstablishmentUpdate) {
+        onEstablishmentUpdate();
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar assinatura contínua:', error);
+      toast.error('Erro ao atualizar configuração de assinatura contínua.');
+    } finally {
+      setIsUpdatingContinuous(false);
+    }
+  };
+
+  // ✅ Reset manual da contagem de um assinante (assinatura contínua).
+  // Grava apenas uma marca de data (usage_reset_at) — NENHUM histórico é apagado.
+  const handleResetClientUsage = async (clientSubscription: ClientSubscription) => {
+    const clientName = clientSubscription.profiles?.full_name || (clientSubscription as any)?.subscriber_name || 'Cliente';
+    const confirmed = window.confirm(
+      `Resetar a contagem de ${clientName}?\n\nA contagem volta a 0 agora e ele pode agendar de novo. O histórico de atendimentos NÃO é apagado.`
+    );
+    if (!confirmed) return;
+
+    setResettingClientSubId(String(clientSubscription.id));
+    try {
+      const { error } = await supabase
+        .from('client_subscriptions')
+        .update({
+          usage_reset_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as any)
+        .eq('id', clientSubscription.id);
+
+      if (error) {
+        const errMsg = String(error.message || '').toLowerCase();
+        if ((error as any).code === '42703' || errMsg.includes('usage_reset_at')) {
+          toast.error('Falta rodar a migration da assinatura contínua (coluna usage_reset_at).');
+          return;
+        }
+        throw error;
+      }
+
+      toast.success(`Contagem de ${clientName} resetada. Ele já pode agendar novamente.`);
+      await fetchClientSubscriptions();
+      await fetchSubscriberAttendanceCounts(selectedMonth, selectedYear);
+    } catch (error) {
+      console.error('Erro ao resetar contagem do assinante:', error);
+      toast.error('Erro ao resetar a contagem do assinante.');
+    } finally {
+      setResettingClientSubId(null);
+    }
+  };
+
+  // Limite de exibição/controle do assinante: limite total (cliente + bônus) ou, se não houver,
+  // a SOMA dos limites por serviço do plano (ex.: Cabelo 4) + bônus. Usado no selo do card e
+  // na lista "Clientes para reset" — apenas exibição, não altera bloqueios.
+  const getDisplayLimitForClientSub = (cs: any): number | null => {
+    const id = String(cs?.id || '');
+    const totalLimit = subscriberEffectiveLimitByClientSubId[id] ?? null;
+    if (totalLimit !== null && totalLimit > 0) return totalLimit;
+
+    const dividedServices = cs?.subscriptions?.divided_services;
+    const sumServiceLimits = Array.isArray(dividedServices)
+      ? dividedServices.reduce((sum: number, item: any) => {
+        const itemLimit = Number(item?.limit || 0);
+        return sum + (Number.isFinite(itemLimit) && itemLimit > 0 ? Math.floor(itemLimit) : 0);
+      }, 0)
+      : 0;
+    if (sumServiceLimits > 0) {
+      const bonus = Number(cs?.bonus_credits || 0);
+      return sumServiceLimits + (Number.isFinite(bonus) && bonus > 0 ? Math.floor(bonus) : 0);
+    }
+    return null;
+  };
+
 
   // Função para buscar profissionais do estabelecimento
   const fetchProfessionals = async () => {
@@ -1884,8 +1995,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   };
 
   // ? Contagem mensal com saldo do mês anterior carregado para o mês selecionado.
-  const fetchSubscriberAttendanceCounts = async (month?: number, year?: number) => {
+  // Com "Assinatura contínua" ativa, a contagem passa a ser acumulada desde o marco
+  // (início/renovação/reset manual) em vez de mensal.
+  const fetchSubscriberAttendanceCounts = async (month?: number, year?: number, continuousOverride?: boolean) => {
     try {
+      const continuousOn = continuousOverride !== undefined ? continuousOverride : continuousSubscription;
       const targetMonth = month !== undefined ? month : selectedMonth;
       const targetYear = year !== undefined ? year : selectedYear;
       const targetDate = new Date(targetYear, targetMonth, 1);
@@ -1894,7 +2008,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       const { data: subs, error: subsErr } = await supabase
         .from('client_subscriptions')
-        .select('id, start_date, end_date, monthly_limit, bonus_credits')
+        .select('id, start_date, end_date, monthly_limit, bonus_credits, last_payment_date, usage_reset_at, client_whatsapp, subscriber_whatsapp, created_at')
         .eq('establishment_id', establishmentId);
 
       if (subsErr) {
@@ -1902,12 +2016,73 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         return;
       }
 
-      const { data: rows, error } = await supabase
+      // Janelas do modo contínuo (marco por assinante) — calculadas antes da query de atendimentos
+      const continuousWindowsBySubId: Record<string, ReturnType<typeof resolveContinuousUsageWindow>> = {};
+      let continuousQueryMin = '9999-12-31';
+      if (continuousOn) {
+        (subs || []).forEach((sub: any) => {
+          const w = resolveContinuousUsageWindow(sub);
+          continuousWindowsBySubId[String(sub?.id || '')] = w;
+          if (w.windowStartDate < continuousQueryMin) continuousQueryMin = w.windowStartDate;
+        });
+        if (continuousQueryMin === '9999-12-31') continuousQueryMin = '0000-01-01';
+      }
+
+      // No modo contínuo, o uso também pode viver nos AGENDAMENTOS de assinante
+      // (ex.: cliente agendou/concluiu pelo booking sem registro manual de atendimento).
+      // Conta as duas fontes — ambas respeitando o marco (reset/renovação) — e usa o maior.
+      let continuousAppointmentUsageBySubId: Record<string, number> = {};
+      if (continuousOn) {
+        try {
+          const normalizePhone = (raw: unknown): string => {
+            let digits = String(raw || '').replace(/\D/g, '');
+            while (digits.startsWith('55') && digits.length > 11) digits = digits.slice(2);
+            return digits;
+          };
+          // Telefone -> assinatura mais recente (mesma regra do booking quando há duplicados)
+          const subIdByPhone: Record<string, { id: string; createdAt: string }> = {};
+          (subs || []).forEach((sub: any) => {
+            const id = String(sub?.id || '');
+            if (!id) return;
+            const createdAt = String(sub?.created_at || '');
+            [normalizePhone(sub?.client_whatsapp), normalizePhone(sub?.subscriber_whatsapp)].forEach((phone) => {
+              if (!phone) return;
+              const existing = subIdByPhone[phone];
+              if (!existing || createdAt > existing.createdAt) subIdByPhone[phone] = { id, createdAt };
+            });
+          });
+
+          const { data: aptRows, error: aptErr } = await supabase
+            .from('appointments')
+            .select('id, appointment_date, created_at, client_whatsapp')
+            .eq('establishment_id', establishmentId)
+            .eq('is_subscriber', true)
+            .gte('appointment_date', continuousQueryMin)
+            .in('status', ['confirmed', 'completed', 'pending']);
+          if (!aptErr) {
+            (aptRows || []).forEach((apt: any) => {
+              const phone = normalizePhone(apt?.client_whatsapp);
+              const match = phone ? subIdByPhone[phone] : undefined;
+              if (!match) return;
+              const w = continuousWindowsBySubId[match.id];
+              if (!w) return;
+              if (!isUsageInContinuousWindow(String(apt?.appointment_date || ''), apt?.created_at, w)) return;
+              continuousAppointmentUsageBySubId[match.id] = (continuousAppointmentUsageBySubId[match.id] || 0) + 1;
+            });
+          }
+        } catch {
+          continuousAppointmentUsageBySubId = {};
+        }
+      }
+
+      let rowsQuery: any = supabase
         .from('subscriber_attendances')
-        .select('client_subscription_id, attendance_date')
-        .eq('establishment_id', establishmentId)
-        .gte('attendance_date', previousMonthRange.periodMin)
-        .lte('attendance_date', currentMonthRange.periodMax);
+        .select('client_subscription_id, attendance_date, created_at')
+        .eq('establishment_id', establishmentId);
+      rowsQuery = continuousOn
+        ? rowsQuery.gte('attendance_date', continuousQueryMin)
+        : rowsQuery.gte('attendance_date', previousMonthRange.periodMin).lte('attendance_date', currentMonthRange.periodMax);
+      const { data: rows, error } = await rowsQuery;
 
       if (error) {
         console.error('Erro ao buscar contagem de atendimentos:', error);
@@ -1929,9 +2104,24 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         const id = String(sub?.id || '');
         if (!id) return;
 
+        const subRows = rowsBySubId[id] || [];
+
+        // ✅ Assinatura contínua: usa a janela do marco (início/renovação/reset) e ignora meses.
+        // Uso = maior entre atendimentos registrados e agendamentos de assinante (ambos pós-marco).
+        if (continuousOn) {
+          const w = continuousWindowsBySubId[id] || resolveContinuousUsageWindow(sub);
+          const attendanceUsage = subRows.filter((row: any) =>
+            isUsageInContinuousWindow(String(row?.attendance_date || ''), row?.created_at, w)
+          ).length;
+          const appointmentUsage = continuousAppointmentUsageBySubId[id] || 0;
+          const limit = applyBonusCreditsToLimit(sub?.monthly_limit, sub?.bonus_credits);
+          counts[id] = Math.max(attendanceUsage, appointmentUsage);
+          effectiveLimits[id] = limit > 0 ? limit : null;
+          return;
+        }
+
         const currentRange = clampDateRangeToSubscription(currentMonthRange, sub);
         const previousRange = clampDateRangeToSubscription(previousMonthRange, sub);
-        const subRows = rowsBySubId[id] || [];
         const currentUsage = subRows.filter((row: any) =>
           isIsoDateWithinRange(String(row?.attendance_date || ''), currentRange)
         ).length;
@@ -5802,6 +5992,110 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             )}
           </div>
 
+          {/* Quarta opção - Assinatura contínua */}
+          <div className="bg-[#2a2b2c] rounded-lg border border-gray-600 overflow-hidden">
+            <div className="p-3 sm:p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm sm:text-base font-medium text-white mb-2 leading-tight">
+                    Assinatura contínua
+                  </h3>
+                  <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
+                    Ao ativar, a assinatura não zera ao iniciar um novo mês: o limite vira um pacote de créditos.
+                  </p>
+                  <p className="text-xs sm:text-sm text-gray-400 mt-1 leading-relaxed">
+                    Exemplo: plano de 4 cortes — o cliente cortou 1 vez no mês e virou o mês: ele ainda tem 3 pendentes. Usou os 4? O 5º é bloqueado até você resetar na lista abaixo (a contagem também reseta sozinha quando a assinatura é renovada/paga).
+                  </p>
+                </div>
+                <div className="flex-shrink-0">
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={continuousSubscription}
+                      onChange={(e) => handleUpdateContinuousSubscription(e.target.checked)}
+                      disabled={isUpdatingContinuous}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-5 sm:w-11 sm:h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-gray-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-black"></div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {isUpdatingContinuous && (
+              <div className="px-3 sm:px-4 pb-3 sm:pb-4">
+                <div className="flex items-center gap-2 text-gray-400">
+                  <div className="animate-spin h-3 w-3 sm:h-4 sm:w-4 border-2 border-gray-400 border-t-transparent rounded-full"></div>
+                  <span className="text-xs sm:text-sm">Atualizando configuração...</span>
+                </div>
+              </div>
+            )}
+
+            {/* Clientes para reset — só aparece com a assinatura contínua ativa */}
+            {continuousSubscription && (
+              <div className="border-t border-gray-600 px-3 sm:px-4 py-3 sm:py-4">
+                <h4 className="text-xs sm:text-sm font-bold text-white mb-1">🔄 Clientes para reset</h4>
+                <p className="text-[11px] sm:text-xs text-gray-400 mb-3">
+                  Todos os assinantes ativos — <strong>quem já bateu ou está perto do limite fica no topo</strong>. Resetar zera a contagem agora (o histórico não é apagado) e o cliente volta a poder agendar.
+                </p>
+                {(() => {
+                  // Uso desde o marco (a contagem já cobre atendimentos + agendamentos e respeita o reset)
+                  const usedForReset = (cs: any): number => subscriberAttendanceCountsByClientSubId[String(cs.id)] || 0;
+                  // Ordena por "restantes até o limite" (menor primeiro); sem limite vai pro final
+                  const remainingRank = (cs: any): number => {
+                    const used = usedForReset(cs);
+                    const limit = getDisplayLimitForClientSub(cs);
+                    if (limit === null || limit <= 0) return Number.MAX_SAFE_INTEGER;
+                    return Math.max(0, limit - used);
+                  };
+                  const resetList = (clientSubscriptions || [])
+                    .filter((cs: any) => !cs?.archived_at)
+                    .sort((a: any, b: any) => {
+                      const diff = remainingRank(a) - remainingRank(b);
+                      if (diff !== 0) return diff;
+                      return String(a?.profiles?.full_name || a?.subscriber_name || '').localeCompare(
+                        String(b?.profiles?.full_name || b?.subscriber_name || '')
+                      );
+                    });
+                  if (resetList.length === 0) {
+                    return <p className="text-xs text-gray-500">Nenhum assinante ativo.</p>;
+                  }
+                  return (
+                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                      {resetList.map((cs: any) => {
+                        const id = String(cs.id);
+                        const used = usedForReset(cs);
+                        const limit = getDisplayLimitForClientSub(cs);
+                        const atLimit = limit !== null && limit > 0 && used >= limit;
+                        const nearLimit = !atLimit && limit !== null && limit > 0 && used >= limit - 1 && used > 0;
+                        return (
+                          <div key={id} className="flex items-center justify-between gap-2 bg-[#1f2021] border border-gray-700 rounded-lg px-3 py-2">
+                            <div className="min-w-0">
+                              <p className="text-xs sm:text-sm font-semibold text-white truncate">
+                                {cs?.profiles?.full_name || cs?.subscriber_name || 'Cliente'}
+                              </p>
+                              <p className={`text-[11px] ${atLimit ? 'text-red-400 font-bold' : nearLimit ? 'text-amber-400 font-bold' : 'text-gray-400'}`}>
+                                Usado: {used}{limit !== null ? ` de ${limit}` : ' (sem limite)'} {atLimit ? '• limite atingido' : nearLimit ? '• falta 1' : ''}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleResetClientUsage(cs)}
+                              disabled={resettingClientSubId === id}
+                              className="shrink-0 px-3 py-1.5 text-[11px] sm:text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50"
+                            >
+                              {resettingClientSubId === id ? 'Resetando...' : '🔄 Resetar'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+
         </div>
       </div>
 
@@ -6882,7 +7176,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                       </h3>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {(() => {
-                          const count = mergedAttendanceCountBySubId[String(cs.id)] || 0;
+                          // Limite da assinatura (total ou soma por serviço, + bônus) — só exibição
+                          const cardLimit = getDisplayLimitForClientSub(cs);
+                          // Assinatura contínua LIGADA: mostra o SALDO da assinatura (respeita o reset).
+                          // Desligada: mostra o histórico do mês (comportamento original).
+                          const count = continuousSubscription
+                            ? (subscriberAttendanceCountsByClientSubId[String(cs.id)] || 0)
+                            : (mergedAttendanceCountBySubId[String(cs.id)] || 0);
+                          const suffix = continuousSubscription ? 'na assinatura' : 'esse mês';
                           return (
                             <button
                               type="button"
@@ -6891,9 +7192,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                                 void openAttendanceViewerForClient(cs, { kind: 'period' });
                               }}
                               className="bg-black/30 text-white text-xs px-2 py-1 rounded-full font-extrabold hover:bg-black/50 border border-white/10 cursor-pointer transition-colors"
-                              title="Atendimentos este mês"
+                              title={continuousSubscription ? 'Atendimentos usados da assinatura (zera no reset/renovação)' : 'Atendimentos este mês'}
                             >
-                              {count} {count === 1 ? 'atendimento' : 'atendimentos'} esse mês
+                              {cardLimit !== null && cardLimit > 0
+                                ? `${count} de ${cardLimit} ${cardLimit === 1 ? 'atendimento' : 'atendimentos'} ${suffix}`
+                                : `${count} ${count === 1 ? 'atendimento' : 'atendimentos'} ${suffix}`}
                             </button>
                           );
                         })()}

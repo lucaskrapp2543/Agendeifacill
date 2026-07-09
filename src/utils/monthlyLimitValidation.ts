@@ -7,6 +7,9 @@ import {
   getPreviousCalendarMonthDateRange,
   getSubscriptionUsageDateRange,
   isIsoDateWithinRange,
+  isUsageInContinuousWindow,
+  resolveContinuousUsageWindow,
+  type ContinuousUsageWindow,
   type IsoDateRange,
 } from './subscriptionUsagePeriod';
 
@@ -124,7 +127,7 @@ const fetchSubscriberAppointmentsForLimit = async (
 ): Promise<{ appointments: any[]; error: any }> => {
   const { data, error } = await supabase
     .from('appointments')
-    .select('id, appointment_date, client_whatsapp, subscriber_service_id, subscriber_service_name, service')
+    .select('id, appointment_date, created_at, client_whatsapp, subscriber_service_id, subscriber_service_name, service')
     .eq('establishment_id', establishmentId)
     .eq('is_subscriber', true)
     .gte('appointment_date', periodMin)
@@ -327,11 +330,34 @@ export const checkMonthlyLimit = async (
       };
     }
 
-    const currentRange = clampDateRangeToSubscription(currentCalendarRange, clientSubscription as any);
-    const previousRange = clampDateRangeToSubscription(previousCalendarRange, clientSubscription as any);
+    // ✅ Assinatura contínua: quando ligada no estabelecimento, o limite não zera na
+    // virada do mês — a janela de contagem vira [marco -> futuro] (marco = início,
+    // renovação ou reset manual). Fallback seguro: qualquer erro => modo mensal normal.
+    let continuousWindow: ContinuousUsageWindow | null = null;
+    try {
+      const { data: estRow } = await supabase
+        .from('establishments')
+        .select('continuous_subscription_enabled')
+        .eq('id', establishmentId)
+        .maybeSingle();
+      if ((estRow as any)?.continuous_subscription_enabled) {
+        continuousWindow = resolveContinuousUsageWindow(clientSubscription as any);
+      }
+    } catch {
+      continuousWindow = null;
+    }
+
+    const currentRange = continuousWindow
+      ? { periodMin: continuousWindow.windowStartDate, periodMax: '2999-12-31' }
+      : clampDateRangeToSubscription(currentCalendarRange, clientSubscription as any);
+    const previousRange = continuousWindow
+      ? null
+      : clampDateRangeToSubscription(previousCalendarRange, clientSubscription as any);
     const usageRange = getSubscriptionUsageDateRange(clientSubscription as any, targetDate);
-    const queryMin = previousRange?.periodMin || currentRange?.periodMin || usageRange.periodMin;
-    const queryMax = currentRange?.periodMax || usageRange.periodMax;
+    const queryMin = continuousWindow
+      ? continuousWindow.windowStartDate
+      : previousRange?.periodMin || currentRange?.periodMin || usageRange.periodMin;
+    const queryMax = continuousWindow ? '2999-12-31' : currentRange?.periodMax || usageRange.periodMax;
 
     const { appointments, error: appointmentsError } = await fetchSubscriberAppointmentsForLimit(
       establishmentId,
@@ -350,8 +376,15 @@ export const checkMonthlyLimit = async (
       };
     }
 
-    const currentUsage = countAppointmentsInRange(appointments || [], currentRange);
-    const previousUsage = countAppointmentsInRange(appointments || [], previousRange);
+    // No modo contínuo, o reset manual corta no horário exato (created_at > usage_reset_at).
+    const effectiveAppointments = continuousWindow
+      ? (appointments || []).filter((apt: any) =>
+        isUsageInContinuousWindow(String(apt?.appointment_date || ''), (apt as any)?.created_at, continuousWindow!)
+      )
+      : (appointments || []);
+
+    const currentUsage = countAppointmentsInRange(effectiveAppointments, currentRange);
+    const previousUsage = countAppointmentsInRange(effectiveAppointments, previousRange);
     const monthlyLimit = (clientSubscription as any).monthly_limit;
     // Atendimentos extras (bônus): somam ao limite base, mas só quando há limite definido.
     const bonusCredits = (clientSubscription as any).bonus_credits;
@@ -407,7 +440,7 @@ export const checkMonthlyLimit = async (
         dividedServices.length === 1;
 
       const serviceAppointments = resolveServiceAppointmentsForLimit(
-        appointments || [],
+        effectiveAppointments,
         String(finalRequestedService.id || ''),
         String(finalRequestedService.name || ''),
         {
@@ -433,7 +466,9 @@ export const checkMonthlyLimit = async (
           currentUsage: serviceAllowance.currentMonthUsage,
           monthlyLimit: serviceAllowance.effectiveLimit,
           subscriptionName,
-          errorMessage: `Voc? j? atingiu o limite do servi?o "${finalRequestedService.name}" neste m?s (${serviceAllowance.currentMonthUsage}/${serviceAllowance.effectiveLimit}).`,
+          errorMessage: continuousWindow
+            ? `Você já usou todos os atendimentos do serviço "${finalRequestedService.name}" da sua assinatura (${serviceAllowance.currentMonthUsage}/${serviceAllowance.effectiveLimit}). Fale com o estabelecimento para renovar.`
+            : `Voc? j? atingiu o limite do servi?o "${finalRequestedService.name}" neste m?s (${serviceAllowance.currentMonthUsage}/${serviceAllowance.effectiveLimit}).`,
         };
       }
 
@@ -474,7 +509,9 @@ export const checkMonthlyLimit = async (
         currentUsage: allowance.currentMonthUsage,
         monthlyLimit: allowance.effectiveLimit,
         subscriptionName,
-        errorMessage: `Aten??o: voc? j? atingiu o limite dos seus servi?os como assinante neste m?s (${allowance.currentMonthUsage}/${allowance.effectiveLimit} agendamentos utilizados).`
+        errorMessage: continuousWindow
+          ? `Você já usou todos os atendimentos da sua assinatura (${allowance.currentMonthUsage}/${allowance.effectiveLimit}). Fale com o estabelecimento para renovar.`
+          : `Aten??o: voc? j? atingiu o limite dos seus servi?os como assinante neste m?s (${allowance.currentMonthUsage}/${allowance.effectiveLimit} agendamentos utilizados).`
       };
     }
 

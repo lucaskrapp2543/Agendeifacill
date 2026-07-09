@@ -203,6 +203,12 @@ const LandingVendas = () => {
                 Login
               </button>
             </div>
+            {/* Imagem colada logo abaixo da ppp3 — apenas mobile */}
+            <img
+              src={img('/novaim.webp')}
+              alt="Agendei Fácil"
+              className="w-full h-auto block"
+            />
             {/* Faixa diagonal separadora */}
             <div className="relative bg-black overflow-hidden" style={{ height: '60px' }}>
               <svg viewBox="0 0 400 60" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
@@ -212,21 +218,7 @@ const LandingVendas = () => {
                 <polygon points="0,0 400,0 400,45 0,18" fill="#000000" opacity="0.4" />
               </svg>
             </div>
-            {/* Vídeo mobile - formato reels/vertical */}
-            <div className="flex justify-center mt-6 mb-4 px-8">
-              <div className="w-full max-w-[300px]">
-                <div className="relative rounded-2xl overflow-hidden border border-gray-700/50 shadow-2xl bg-black" style={{ aspectRatio: '9/16' }}>
-                  <iframe
-                    src="https://www.youtube.com/embed/6F5I6FDbito?rel=0"
-                    title="Agendei Fácil"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                    className="absolute inset-0 w-full h-full"
-                    style={{ border: 'none' }}
-                  />
-                </div>
-              </div>
-            </div>
+            {/* Vídeo mobile movido para antes do FAQ (ver seção sm:hidden mais abaixo) */}
           </div>
 
           <div className="text-center mb-10 bg-black sm:bg-transparent">
@@ -811,7 +803,7 @@ const LandingVendas = () => {
               <img
                 src={img('/pizza.png')}
                 alt=""
-                className="w-full h-auto rounded-lg border border-gray-800 opacity-95"
+                className="w-full h-auto block"
               />
             </div>
             <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 sm:p-6 max-w-xl mx-auto">
@@ -822,6 +814,30 @@ const LandingVendas = () => {
           </div>
 
           <PlanosCards whatsappNumber="5548991484275" hidePrata />
+        </div>
+      </section>
+
+      {/* ── Vídeo (movido do topo) — apenas mobile, logo acima do FAQ ── */}
+      <section className="sm:hidden bg-[#0f1011] pt-8 pb-2">
+        <div className="text-center px-6 mb-5">
+          <h2 className="text-2xl font-bold text-white leading-snug">
+            Veja o sistema <span className="text-blue-400">por dentro</span>
+          </h2>
+          <p className="text-gray-400 text-sm mt-2">Um tour rápido de como tudo funciona.</p>
+        </div>
+        <div className="flex justify-center px-8">
+          <div className="w-full max-w-[300px]">
+            <div className="relative rounded-2xl overflow-hidden border border-gray-700/50 shadow-2xl bg-black" style={{ aspectRatio: '9/16' }}>
+              <iframe
+                src="https://www.youtube.com/embed/6F5I6FDbito?rel=0"
+                title="Agendei Fácil"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                className="absolute inset-0 w-full h-full"
+                style={{ border: 'none' }}
+              />
+            </div>
+          </div>
         </div>
       </section>
 

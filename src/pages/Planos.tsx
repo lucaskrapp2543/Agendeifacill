@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, ChevronDown } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import PlanosCards from '../components/PlanosCards';
 import { readPartnerReferralCupomFromSearch } from '../lib/partnerReferralCode';
@@ -22,6 +22,35 @@ export default function Planos() {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const nextImage = () => setCurrentImageIndex((prev) => (prev + 1) % carouselImages.length);
   const prevImage = () => setCurrentImageIndex((prev) => (prev - 1 + carouselImages.length) % carouselImages.length);
+
+  // ✅ FAQ (mesmo da página inicial)
+  const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const faqs = [
+    {
+      q: 'Meu cliente precisa baixar algum aplicativo?',
+      a: 'Não. Tudo funciona direto no navegador do celular ou computador. Zero downloads, zero atrito.',
+    },
+    {
+      q: 'O cliente precisa criar uma conta para agendar?',
+      a: 'Não. Basta informar nome e telefone. O agendamento é feito em poucos cliques, sem cadastro.',
+    },
+    {
+      q: 'Posso usar no celular?',
+      a: 'Sim. O sistema é 100% responsivo e funciona perfeitamente no celular, tablet e computador.',
+    },
+    {
+      q: 'O pagamento online é obrigatório?',
+      a: 'Não. É opcional. O cliente escolhe se prefere pagar online na hora do agendamento ou pagar no local.',
+    },
+    {
+      q: 'Posso cancelar quando quiser?',
+      a: 'Sim. Sem multa, sem fidelidade, sem burocracia. Cancele quando quiser.',
+    },
+    {
+      q: 'Funciona para barbearia e salão de beleza?',
+      a: 'Sim. O sistema funciona para qualquer estabelecimento de beleza e bem-estar — barbearia, salão, estética, nail design e mais.',
+    },
+  ];
 
   useEffect(() => {
     // Evita duplicar timers em dev/StrictMode
@@ -92,7 +121,13 @@ export default function Planos() {
   };
 
   return (
-    <div className="min-h-screen bg-[#070708] text-white">
+    <div className="min-h-screen bg-black text-white">
+      {/* Imagem de topo — mesma da landing (novaim), apenas mobile, full-width */}
+      <img
+        src="/novaim.webp"
+        alt="Agendei Fácil"
+        className="sm:hidden w-full h-auto block"
+      />
       <div className="max-w-6xl mx-auto px-4 py-8 sm:py-10">
         <div className="text-center mb-8 sm:mb-10">
           <img
@@ -101,10 +136,28 @@ export default function Planos() {
             className="w-full max-w-[420px] mx-auto mb-5 rounded-2xl border border-white/10 shadow-xl"
             loading="lazy"
           />
-          <div className="text-3xl sm:text-4xl font-extrabold tracking-tight">PLANOS</div>
-          <div className="mt-2 text-white/80">
-            Escolha o plano ideal para o seu estabelecimento.
+          {/* Vídeo (mesmo da landing) — logo abaixo do clientesk, só mobile */}
+          <div className="sm:hidden mt-6 mb-8">
+            <h2 className="text-2xl font-bold text-white leading-snug">
+              Veja o sistema <span className="text-blue-400">por dentro</span>
+            </h2>
+            <p className="text-gray-400 text-sm mt-2 mb-5">Um tour rápido de como tudo funciona.</p>
+            <div className="flex justify-center px-2">
+              <div className="w-full max-w-[300px]">
+                <div className="relative rounded-2xl overflow-hidden border border-gray-700/50 shadow-2xl bg-black" style={{ aspectRatio: '9/16' }}>
+                  <iframe
+                    src="https://www.youtube.com/embed/6F5I6FDbito?rel=0"
+                    title="Agendei Fácil"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    className="absolute inset-0 w-full h-full"
+                    style={{ border: 'none' }}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
+          <div className="text-3xl sm:text-4xl font-extrabold tracking-tight">PLANOS</div>
           {referralCupom && (
             <div className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-emerald-400/40 bg-emerald-500/15 px-4 py-2 text-sm font-semibold text-emerald-100">
               <span>Cupom de indicação:</span>
@@ -114,17 +167,10 @@ export default function Planos() {
           )}
         </div>
 
-        {/* ✅ Bloco "NÃO É PARCELAMENTO" no início */}
+        {/* Mensagem curta (título "NÃO É PARCELAMENTO" removido a pedido) */}
         <div className="mb-10">
           <div className="text-center">
-            <div className="text-2xl sm:text-3xl font-extrabold leading-tight">
-              NÃO É PARCELAMENTO
-              <br />
-              É MENSALIDADE
-              <br />
-              ESTILO NETFLIX PAGA O MÊS QUE USAR
-            </div>
-            <div className="mt-4 text-white/80 leading-relaxed">
+            <div className="text-white/80 leading-relaxed">
               Zero burocracia para cancelar.
               <br />
               Sistema rápido, intuitivo e sem chatice.
@@ -134,25 +180,19 @@ export default function Planos() {
           </div>
         </div>
 
-        {/* ✅ Pizza acima do PRATA */}
-        <div className="max-w-2xl mx-auto mb-6">
-          {/* Cache-buster: imagens em /public podem ficar cacheadas (especialmente em mobile) */}
+        {/* Imagem pizza logo abaixo do "Zero burocracia..." */}
+        <div className="max-w-2xl mx-auto mb-8">
           <img
-            src="/praia.png?v=20260117"
-            alt="Praia"
-            className="w-full h-auto rounded-lg border border-white/10"
+            src="/pizza.png"
+            alt="Agendei Fácil"
+            className="w-full h-auto block"
             loading="lazy"
           />
         </div>
 
-        <div className="max-w-4xl mx-auto mb-6 sm:mb-8 text-center">
-          <p className="inline-block px-4 py-2 rounded-2xl border border-cyan-300/30 bg-gradient-to-r from-cyan-500/20 via-blue-500/20 to-indigo-500/20 shadow-[0_0_35px_rgba(56,189,248,0.25)]">
-            <span className="text-lg sm:text-2xl font-extrabold tracking-tight bg-gradient-to-r from-cyan-200 via-white to-cyan-200 bg-clip-text text-transparent">
-              TUDO QUE UMA BARBEARIA E SALAO DE BELEZA PRECISA ESTA AQUI
-            </span>
-          </p>
+        <div className="text-center mb-6 text-lg sm:text-xl font-semibold text-white/90">
+          Escolha o plano ideal para o seu estabelecimento.
         </div>
-
         <PlanosCards whatsappNumber="5548991484275" hidePrata referralCupom={referralCupom || null} />
 
         {/* ✅ Botão abaixo do plano Diamante */}
@@ -219,6 +259,52 @@ export default function Planos() {
           </div>
         </div>
       </div>
+
+      {/* ── FAQ (mesmo da página inicial) ── */}
+      <section id="faq" className="py-16 bg-black">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-10">
+            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">
+              Perguntas frequentes
+            </h2>
+            <p className="text-gray-400 text-sm sm:text-base">
+              Tire suas dúvidas antes de começar.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {faqs.map((faq, i) => (
+              <div key={i} className="bg-[#1a1b1c] border border-gray-800 rounded-xl overflow-hidden">
+                <button
+                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                  className="w-full flex items-center justify-between px-5 py-4 text-left gap-3"
+                >
+                  <span className="text-white font-semibold text-sm sm:text-base">{faq.q}</span>
+                  <ChevronDown
+                    className={`w-5 h-5 text-gray-400 flex-shrink-0 transition-transform ${openFaq === i ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                {openFaq === i && (
+                  <div className="px-5 pb-5">
+                    <p className="text-gray-400 text-sm leading-relaxed">{faq.a}</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Link para a página oficial do sistema */}
+          <div className="text-center mt-12">
+            <a
+              href="/"
+              className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 font-semibold text-base sm:text-lg transition-colors"
+            >
+              Ir para a página oficial do sistema
+              <span aria-hidden="true">→</span>
+            </a>
+          </div>
+        </div>
+      </section>
 
       {/* ✅ Popups de prova social (somente nesta página) */}
       <div

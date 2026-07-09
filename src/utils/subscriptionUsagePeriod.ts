@@ -138,3 +138,56 @@ export function applyBonusCreditsToLimit(baseLimitRaw: unknown, bonusCreditsRaw:
   const safeBonus = Number.isFinite(bonus) && bonus > 0 ? Math.floor(bonus) : 0;
   return Math.floor(base) + safeBonus;
 }
+
+/**
+ * "Assinatura contínua" (establishments.continuous_subscription_enabled):
+ * o limite NÃO zera na virada do mês — vira um pacote de créditos que só
+ * reinicia no marco mais recente entre:
+ *  - início da assinatura (start_date)
+ *  - última renovação/pagamento (last_payment_date — todos os fluxos de renovação já gravam)
+ *  - último reset manual (usage_reset_at — botão "Clientes para reset")
+ * Nenhum histórico é apagado: o reset é só uma marca de data usada na contagem.
+ */
+export type ContinuousUsageWindow = {
+  windowStartDate: string; // yyyy-MM-dd — usos a partir desta data contam
+  resetAtIso: string | null; // timestamp do reset manual (corte fino no mesmo dia)
+};
+
+export function resolveContinuousUsageWindow(clientSubscription: {
+  start_date?: string | null;
+  last_payment_date?: string | null;
+  usage_reset_at?: string | null;
+} | null | undefined): ContinuousUsageWindow {
+  const start = String(clientSubscription?.start_date || '').slice(0, 10);
+  const lastPayment = String(clientSubscription?.last_payment_date || '').slice(0, 10);
+  const resetAtRaw = String(clientSubscription?.usage_reset_at || '').trim();
+  const resetDate = resetAtRaw.slice(0, 10);
+
+  let windowStartDate = '0000-01-01';
+  for (const candidate of [start, lastPayment, resetDate]) {
+    if (candidate && candidate > windowStartDate) windowStartDate = candidate;
+  }
+
+  return { windowStartDate, resetAtIso: resetAtRaw || null };
+}
+
+/** Decide se um uso (atendimento/agendamento) conta dentro da janela contínua. */
+export function isUsageInContinuousWindow(
+  usageDateIso: string,
+  usageCreatedAtIso: string | null | undefined,
+  window: ContinuousUsageWindow
+): boolean {
+  const day = String(usageDateIso || '').slice(0, 10);
+  if (!day || day < window.windowStartDate) return false;
+  if (window.resetAtIso) {
+    const createdAt = String(usageCreatedAtIso || '').trim();
+    if (createdAt) {
+      // Reset manual zera na hora: só conta o que foi criado DEPOIS do reset.
+      if (createdAt <= window.resetAtIso) return false;
+    } else if (day <= window.resetAtIso.slice(0, 10)) {
+      // Sem created_at (registro legado): usa a data, excluindo o próprio dia do reset.
+      return false;
+    }
+  }
+  return true;
+}
