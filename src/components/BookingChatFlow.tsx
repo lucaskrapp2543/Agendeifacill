@@ -378,10 +378,20 @@ export function BookingChatFlow({
       };
     });
 
-    const hasDisplayOrder = normalized.some((service: any) => Number.isFinite(Number(service?.display_order)));
-    if (!hasDisplayOrder) return normalized;
+    // ✅ Bloqueio por categoria: não mostrar serviços cuja categoria excluiu o profissional
+    // selecionado (excluded_professional_ids). Sem profissional selecionado, mostra tudo.
+    const selectedProfIdNorm = String(selectedProfessionalId || (selectedProfessional as any)?.id || '').trim();
+    const visibleForProfessional = selectedProfIdNorm
+      ? normalized.filter((service: any) => {
+        const excluded = Array.isArray(service?.excluded_professional_ids) ? service.excluded_professional_ids : [];
+        return !excluded.some((x: any) => String(x || '').trim() === selectedProfIdNorm);
+      })
+      : normalized;
 
-    return [...normalized].sort((a: any, b: any) => {
+    const hasDisplayOrder = visibleForProfessional.some((service: any) => Number.isFinite(Number(service?.display_order)));
+    if (!hasDisplayOrder) return visibleForProfessional;
+
+    return [...visibleForProfessional].sort((a: any, b: any) => {
       const aOrder = Number(a?.display_order);
       const bOrder = Number(b?.display_order);
       const aHas = Number.isFinite(aOrder);

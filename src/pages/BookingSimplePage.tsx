@@ -196,10 +196,18 @@ const BookingSimplePage = () => {
     return list.filter((p: any) => !p?.hidden_from_booking);
   }, [establishment]);
 
-  const services: SimpleService[] = useMemo(
-    () => (Array.isArray(establishment?.services_with_prices) ? establishment.services_with_prices : []),
-    [establishment]
-  );
+  const services: SimpleService[] = useMemo(() => {
+    const all: SimpleService[] = Array.isArray(establishment?.services_with_prices)
+      ? establishment.services_with_prices
+      : [];
+    // Bloqueio por categoria: não mostrar serviços cuja categoria excluiu o profissional escolhido
+    const profId = String(state.professional?.id || '').trim();
+    if (!profId) return all;
+    return all.filter((service) => {
+      const excluded = Array.isArray(service?.excluded_professional_ids) ? service.excluded_professional_ids : [];
+      return !excluded.some((x) => String(x || '').trim() === profId);
+    });
+  }, [establishment, state.professional]);
 
   const toggleService = (service: SimpleService) => {
     setState((s) => {

@@ -40,6 +40,8 @@ export interface SimpleService {
   price: number;
   duration: number;
   image_url?: string | null;
+  /** Profissionais bloqueados pela categoria do serviço (não veem o serviço no agendamento). */
+  excluded_professional_ids?: string[];
 }
 
 /** Origem: BookingPage.tsx ~989-1167 (fetchEstablishment, sem os fallbacks de coluna legada). */
@@ -86,6 +88,17 @@ export async function loadEstablishmentAndServices(code: string): Promise<{ esta
           );
         });
 
+        const parseExcludedIds = (raw: any): string[] => {
+          if (Array.isArray(raw)) return raw.map((x) => String(x || '').trim()).filter(Boolean);
+          if (typeof raw === 'string') {
+            try {
+              const parsed = JSON.parse(raw);
+              return Array.isArray(parsed) ? parsed.map((x) => String(x || '').trim()).filter(Boolean) : [];
+            } catch { return []; }
+          }
+          return [];
+        };
+
         servicesFromCategories = visible
           .filter((s: any) => s?.id && s?.name)
           .map((s: any) => ({
@@ -94,6 +107,11 @@ export async function loadEstablishmentAndServices(code: string): Promise<{ esta
             price: Number(s.price || 0),
             duration: Number(s.duration || 30),
             image_url: String(s?.image_url || '').trim() || null,
+            // Bloqueio de profissionais definido na CATEGORIA (união com o do serviço, se existir)
+            excluded_professional_ids: Array.from(new Set([
+              ...parseExcludedIds(s?.excluded_professional_ids),
+              ...parseExcludedIds(s?.service_categories?.excluded_professional_ids),
+            ])),
           }));
       }
     } catch {
