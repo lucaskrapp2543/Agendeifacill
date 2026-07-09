@@ -327,6 +327,9 @@ export function BookingChatFlow({
     }
   }, [shouldAskPaymentMethod, selectedPaymentMethod]);
 
+  // Lightbox: clicar na foto do serviço abre a imagem ampliada em tela cheia
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+
   const allServices = useMemo(() => {
     const legacyServices = Array.isArray((establishment as any)?.legacy_services_with_prices)
       ? ((establishment as any).legacy_services_with_prices as any[])
@@ -1958,12 +1961,21 @@ export function BookingChatFlow({
                             <img
                               src={serviceImageUrl}
                               alt={`Foto de ${service.name}`}
-                              className="h-14 w-14 sm:h-16 sm:w-16 rounded-xl object-cover border border-white/25 shrink-0 bg-black/20"
+                              className={`h-14 w-14 sm:h-16 sm:w-16 rounded-xl object-cover border border-white/25 shrink-0 bg-black/20 ${String(service?.image_url || '').trim() ? 'cursor-zoom-in' : ''}`}
                               loading="lazy"
                               decoding="async"
+                              title={String(service?.image_url || '').trim() ? 'Toque para ampliar a foto' : undefined}
+                              onClick={(e) => {
+                                // Só amplia quando o serviço tem foto própria; com a imagem padrão,
+                                // o clique segue o fluxo normal (selecionar o serviço).
+                                const realImageUrl = String(service?.image_url || '').trim();
+                                if (!realImageUrl) return;
+                                e.stopPropagation();
+                                setImagePreviewUrl(realImageUrl);
+                              }}
                             />
                             <div className="min-w-0">
-                              <div className="font-semibold text-white truncate">{service.name}</div>
+                              <div className="font-semibold text-white break-words leading-snug">{service.name}</div>
                               <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-white/80">
                                 <span className="font-bold">{toMoney(Number(service?.price || 0))}</span>
                                 <span>•</span>
@@ -1995,6 +2007,29 @@ export function BookingChatFlow({
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* Lightbox: foto do serviço ampliada (fecha ao tocar em qualquer lugar) */}
+            {imagePreviewUrl && (
+              <div
+                className="fixed inset-0 z-[10060] bg-black/90 flex items-center justify-center p-4"
+                onClick={() => setImagePreviewUrl(null)}
+              >
+                <button
+                  type="button"
+                  onClick={() => setImagePreviewUrl(null)}
+                  className="absolute top-4 right-4 h-10 w-10 rounded-full bg-white/15 hover:bg-white/25 text-white text-xl font-bold flex items-center justify-center"
+                  aria-label="Fechar foto"
+                >
+                  ✕
+                </button>
+                <img
+                  src={imagePreviewUrl}
+                  alt="Foto do serviço ampliada"
+                  className="max-h-[85vh] max-w-[94vw] rounded-2xl object-contain shadow-2xl"
+                />
+                <p className="absolute bottom-4 left-0 right-0 text-center text-white/70 text-xs">Toque em qualquer lugar para fechar</p>
               </div>
             )}
 

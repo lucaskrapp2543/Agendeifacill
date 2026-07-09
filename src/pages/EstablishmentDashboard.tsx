@@ -28628,6 +28628,14 @@ Estamos te aguardando!`;
                       }}
                       useLightLayout={false}
                       realIsLight={useLightLayout}
+                      whatsappAlert={
+                        baileysDashboardStatus.loaded &&
+                        !baileysDashboardStatus.connected &&
+                        // apiError = falha ao CONSULTAR (API fora do ar) — não é sessão caída; não alertar
+                        !baileysDashboardStatus.apiError &&
+                        ['connecting', 'reconnecting', 'error'].includes(String(baileysDashboardStatus.status || ''))
+                      }
+                      onOpenWhatsAppReminders={() => handleTabChange('whatsapp-reminders')}
                       canViewBarbershopCash={
                         !(
                           establishment?.pin_password &&
@@ -39132,7 +39140,31 @@ Estamos te aguardando!`;
             }}
             intervalMinutes={use20MinuteSchedule ? 20 : use15MinuteInterval ? 30 : 15}
             maxDurationMinutes={120}
-            serviceCategories={serviceCategories}
+            serviceCategories={(() => {
+              // Não listar categorias bloqueadas para o profissional do atendimento (excluded_professional_ids).
+              // OBS: selectedAppointmentForProduct é o ID do agendamento (string) — buscar o objeto no state.
+              // E appointments.professional guarda o ID do profissional (dados novos) ou o nome (legado).
+              const aptId = String(selectedAppointmentForProduct || '').trim();
+              const apt: any = (appointments || []).find((a: any) => String(a?.id || '') === aptId) || null;
+              const aptProf = String(apt?.professional ?? '').trim();
+              const aptProfId = String(apt?.professional_id ?? '').trim();
+              const prof = (professionals || []).find((p: any) => {
+                const pid = String(p?.id ?? '').trim();
+                const pname = String(p?.name ?? '').trim().toLowerCase();
+                return (
+                  (aptProfId && pid === aptProfId) ||
+                  (aptProf && (pid === aptProf || (pname && pname === aptProf.toLowerCase())))
+                );
+              });
+              const profId = String(prof?.id || '').trim();
+              if (!profId) return serviceCategories;
+              return (serviceCategories || []).filter((category: any) => {
+                const excludedIds = Array.isArray((category as any)?.excluded_professional_ids)
+                  ? (category as any).excluded_professional_ids.map((x: any) => String(x || '').trim())
+                  : [];
+                return !excludedIds.includes(profId);
+              });
+            })()}
             serviceSubcategories={serviceSubcategories}
             onAdd={async (product: AdditionalProduct) => {
               if (!selectedAppointmentForProduct) return false;

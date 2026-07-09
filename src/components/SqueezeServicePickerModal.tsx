@@ -117,14 +117,30 @@ async function loadSqueezePickerData(
       duration,
       service_categories!inner (
         establishment_id,
-        name
+        name,
+        excluded_professional_ids
       )
     `
     )
     .eq('service_categories.establishment_id', establishmentId)
     .eq('is_active', true);
 
+  const parseExcludedIds = (raw: any): string[] => {
+    if (Array.isArray(raw)) return raw.map((x) => String(x || '').trim()).filter(Boolean);
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.map((x) => String(x || '').trim()).filter(Boolean) : [];
+      } catch { return []; }
+    }
+    return [];
+  };
+  const squeezeProfIdNorm = String(selectedProfessionalId || '').trim();
+
   (subcategoriesData || []).forEach((sub: any) => {
+    // Categoria bloqueada para o profissional do encaixe (excluded_professional_ids) — não listar
+    const excludedIds = parseExcludedIds(sub?.service_categories?.excluded_professional_ids);
+    if (squeezeProfIdNorm && excludedIds.includes(squeezeProfIdNorm)) return;
     categoryServices.push({
       id: String(sub.id),
       name: String(sub?.name || '').trim(),

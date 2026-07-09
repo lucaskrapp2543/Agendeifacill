@@ -325,6 +325,9 @@ interface AllProfessionalsAppointmentsViewProps {
   use60MinuteSchedule?: boolean;
   useLightLayout?: boolean;
   realIsLight?: boolean;
+  /** WhatsApp tinha sessão e caiu (connecting/reconnecting/error) — mostra alerta acima da validade. */
+  whatsappAlert?: boolean;
+  onOpenWhatsAppReminders?: () => void;
   canViewBarbershopCash?: boolean;
   pendingOpenBarbershopCash?: boolean;
   onConsumePendingOpenBarbershopCash?: () => void;
@@ -395,6 +398,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
   use60MinuteSchedule,
   useLightLayout = false,
   realIsLight = false,
+  whatsappAlert = false,
+  onOpenWhatsAppReminders,
   canViewBarbershopCash = false,
   pendingOpenBarbershopCash = false,
   onConsumePendingOpenBarbershopCash,
@@ -5810,6 +5815,21 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     return (
       <div className="space-y-2 md:space-y-4">
+        {/* Alerta: WhatsApp tinha sessão e caiu — acima da validade */}
+        {whatsappAlert && (
+          <div className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 ${realIsLight ? 'bg-red-50 border-red-300' : 'bg-red-500/10 border-red-500/40'}`}>
+            <p className={`text-xs font-bold ${realIsLight ? 'text-red-700' : 'text-red-200'}`}>
+              📵 Seu WhatsApp desconectou
+            </p>
+            <button
+              type="button"
+              onClick={() => { if (onOpenWhatsAppReminders) onOpenWhatsAppReminders(); }}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors"
+            >
+              Conectar
+            </button>
+          </div>
+        )}
         {/* Validade do sistema — fora do header sticky */}
         {establishment?.id && (
           <ValidityDisplay establishmentId={establishment.id} dark={!realIsLight} />
