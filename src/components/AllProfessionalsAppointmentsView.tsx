@@ -1,6 +1,6 @@
 import { addDays, format, isSameDay, parse, startOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, CheckCircle2, ChevronLeft, ChevronRight, Clock, Coins, Crown, Lock, Package, Phone, Plus, Trash2, User, UserPlus, Users, X } from 'lucide-react';
+import { Calendar, CheckCircle2, ChevronLeft, ChevronRight, Clock, Coins, Crown, Eye, EyeOff, Lock, Package, Phone, Plus, Trash2, User, UserPlus, Users, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -2837,6 +2837,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
         currency: 'BRL',
       }).format(value);
     };
+
+    // 👁️ Privacidade: ocultar valores dos cards da agenda (ex.: gravar tela sem expor preços).
+    // Só afeta a EXIBIÇÃO nos cards — nenhum cálculo/financeiro muda. Persiste por aparelho.
+    const [hideCardValues, setHideCardValues] = useState<boolean>(() => {
+      try { return localStorage.getItem('agenda:hideCardValues') === 'true'; } catch { return false; }
+    });
+    const toggleHideCardValues = () => {
+      setHideCardValues((current) => {
+        const next = !current;
+        try { localStorage.setItem('agenda:hideCardValues', next ? 'true' : 'false'); } catch { /* ignore */ }
+        return next;
+      });
+    };
+    const displayCardMoney = (value: number) => (hideCardValues ? 'R$ ••••' : formatCurrency(value));
 
     const formatDuration = (minutes: number) => {
       const hours = Math.floor(minutes / 60);
@@ -6018,6 +6032,27 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           </span>
                         </button>
                       )}
+                      {/* 👁️ Ocultar valores dos cards (privacidade p/ gravar tela) */}
+                      <button
+                        type="button"
+                        onClick={toggleHideCardValues}
+                        className="shrink-0 flex flex-col items-center gap-0.5 group"
+                        title={hideCardValues ? 'Valores ocultos — toque para mostrar' : 'Ocultar os valores dos agendamentos (privacidade para gravar a tela)'}
+                      >
+                        <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full border-2 flex items-center justify-center transition-colors ${hideCardValues
+                          ? 'border-violet-400 bg-violet-500/20'
+                          : 'border-dashed border-white/25 bg-white/5 group-hover:bg-white/10'
+                        }`}>
+                          {hideCardValues ? (
+                            <EyeOff className="w-4 h-4 md:w-5 md:h-5 text-violet-200" />
+                          ) : (
+                            <Eye className="w-4 h-4 md:w-5 md:h-5 text-white/60 group-hover:text-white/85" />
+                          )}
+                        </div>
+                        <span className={`text-[9px] md:text-[10px] font-bold ${hideCardValues ? 'text-violet-200' : 'text-white/45 group-hover:text-white/65'}`}>
+                          {hideCardValues ? 'Ocultos' : 'Valores'}
+                        </span>
+                      </button>
                     </>
                   )}
                 </div>
@@ -7367,7 +7402,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 {squeeze.appointment_time} 🟣 {isAgendaSubscriberAppointment(squeeze) ? 'ENCAIXE ASSINANTE' : 'ENCAIXE'}
                                               </span>
                                               <span className="text-white text-xs font-bold">
-                                                {formatCurrency(calculateTotalPrice(squeeze))}
+                                                {displayCardMoney(calculateTotalPrice(squeeze))}
                                               </span>
                                             </div>
                                             <div className="text-white font-semibold text-sm md:text-xs mb-1 md:mb-0.5 truncate">
@@ -7485,7 +7520,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           )}
                                         </span>
                                         <span className="text-white text-xs font-bold">
-                                          {formatCurrency(calculateTotalPrice(apt))}
+                                          {displayCardMoney(calculateTotalPrice(apt))}
                                         </span>
                                       </div>
                                       {renderAppointmentClientNameRow(apt, serviceLabels, { variant: 'compact' })}
@@ -7530,12 +7565,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <div className="text-[10px] mt-1 space-y-0.5">
                                               <div className="flex justify-between text-emerald-300">
                                                 <span>💳 Pago online:</span>
-                                                <span className="font-bold">{formatCurrency(paidOnline)}</span>
+                                                <span className="font-bold">{displayCardMoney(paidOnline)}</span>
                                               </div>
                                               {remaining > 0 ? (
                                                 <div className="flex justify-between text-amber-300">
                                                   <span>🏪 Restante no salão:</span>
-                                                  <span className="font-bold">{formatCurrency(remaining)}</span>
+                                                  <span className="font-bold">{displayCardMoney(remaining)}</span>
                                                 </div>
                                               ) : (
                                                 <div className="flex justify-between text-emerald-400">
@@ -7691,18 +7726,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           </div>
                                         )}
                                         {apt.client_whatsapp && (
-                                          <a
-                                            href="#"
-                                            onClick={(e) => {
-                                              e.preventDefault();
-                                              const phoneNumber = `55${String(apt.client_whatsapp || '').replace(/\D/g, '')}`;
-                                              openWhatsAppWithBusinessPriority(phoneNumber, '');
-                                            }}
-                                            className="text-white/90 text-xs flex items-center gap-1 hover:text-white"
-                                          >
-                                            <Phone className="w-3 h-3" />
-                                            {apt.client_whatsapp}
-                                          </a>
+                                          <div className="text-white/90 text-xs flex items-center gap-2">
+                                            {/* Número como TEXTO (não clicável) — evita abrir WhatsApp sem querer ao tentar fechar a comanda */}
+                                            <span className="flex items-center gap-1">
+                                              <Phone className="w-3 h-3" />
+                                              {apt.client_whatsapp}
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                const phoneNumber = `55${String(apt.client_whatsapp || '').replace(/\D/g, '')}`;
+                                                openWhatsAppWithBusinessPriority(phoneNumber, '');
+                                              }}
+                                              className="shrink-0 inline-flex items-center gap-1 rounded-md bg-emerald-600/80 hover:bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5 transition-colors"
+                                              title="Abrir conversa no WhatsApp"
+                                            >
+                                              💬 WhatsApp
+                                            </button>
+                                          </div>
                                         )}
                                         <div className="text-white/80 text-xs mt-1">
                                           CPF: {displayedCpf ? formatCpfDisplay(displayedCpf) : 'Não informado'}
