@@ -136,27 +136,6 @@ export default function Planos() {
             className="w-full max-w-[420px] mx-auto mb-5 rounded-2xl border border-white/10 shadow-xl"
             loading="lazy"
           />
-          {/* Vídeo (mesmo da landing) — logo abaixo do clientesk, só mobile */}
-          <div className="sm:hidden mt-6 mb-8">
-            <h2 className="text-2xl font-bold text-white leading-snug">
-              Veja o sistema <span className="text-blue-400">por dentro</span>
-            </h2>
-            <p className="text-gray-400 text-sm mt-2 mb-5">Um tour rápido de como tudo funciona.</p>
-            <div className="flex justify-center px-2">
-              <div className="w-full max-w-[300px]">
-                <div className="relative rounded-2xl overflow-hidden border border-gray-700/50 shadow-2xl bg-black" style={{ aspectRatio: '9/16' }}>
-                  <iframe
-                    src="https://www.youtube.com/embed/6F5I6FDbito?rel=0"
-                    title="Agendei Fácil"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                    className="absolute inset-0 w-full h-full"
-                    style={{ border: 'none' }}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
           <div className="text-3xl sm:text-4xl font-extrabold tracking-tight">PLANOS</div>
           {referralCupom && (
             <div className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-emerald-400/40 bg-emerald-500/15 px-4 py-2 text-sm font-semibold text-emerald-100">

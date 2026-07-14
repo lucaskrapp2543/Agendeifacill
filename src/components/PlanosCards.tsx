@@ -53,7 +53,7 @@ export default function PlanosCards({
   const prataOk = [
     '1 profissional',
     'Agendamentos ilimitados',
-    'Página de agendamentos exclusiva\u00A0sua',
+    'Duas páginas de agendamentos exclusiva\u00A0sua',
     'Relatórios detalhados financeiro',
     'Gestão completa de clientes',
     'Sistema de prêmio para clientes\u00A0fiéis',
@@ -75,7 +75,7 @@ export default function PlanosCards({
   const prataPrincipalOk = [
     '1 profissional',
     'Agendamentos ilimitados',
-    'Página de agendamentos exclusiva\u00A0sua',
+    'Duas páginas de agendamentos exclusiva\u00A0sua',
     'Sistema de fila de espera',
     'Relatórios detalhados financeiro',
     'Controle de % cada profissional',
@@ -91,6 +91,8 @@ export default function PlanosCards({
   const prataPrincipalX = [
     'Sistema de estoque',
     'Sistema completo de assinantes',
+    'WhatsApp conectado ao sistema',
+    'cobrança recorrente',
     'Lembretes automáticos para clientes 1h antes no WhatsApp',
     'Lembretes automatico para clientes assinantes 1h antes no WhatsApp'
   ];
@@ -98,7 +100,7 @@ export default function PlanosCards({
   const diamanteOk = [
     'Profissionais ilimitados',
     'Agendamentos ilimitados',
-    'Página de agendamentos exclusiva\u00A0sua',
+    'Duas páginas de agendamentos exclusiva\u00A0sua',
     'Sistema de fila de espera',
     'Sistema de estoque',
     'Sistema completo de assinantes',
