@@ -395,8 +395,8 @@ const LandingPage = () => {
                   >
                     <div className="w-full flex-shrink-0">
                       <img
-                        src="/A2.png"
-                        alt="Imagem A2"
+                        src="/A233.webp"
+                        alt="Imagem A233"
                         className="w-full h-auto hover:scale-105 transition-transform duration-300"
                       />
                     </div>

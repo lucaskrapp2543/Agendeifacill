@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Planos from './Planos';
 
 interface QuizState {
   step: number;
@@ -18,8 +19,6 @@ const Conhecer = () => {
   });
   const [showConfetti, setShowConfetti] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const [currentDeviceIndex, setCurrentDeviceIndex] = useState(0);
-  
 
   const totalSteps = 8;
   const progress = (quizState.step / totalSteps) * 100;
@@ -91,7 +90,17 @@ const Conhecer = () => {
   };
 
 
-  const images = ['/feedback.png', '/VS1.png', '/s1.png', '/s2.png'];
+  const images = ['/feedback.png', '/VS1.png', '/s1.png', '/s2.png', '/feedbacknv11.png', '/feedbacknv22.png'];
+
+  // Lightbox: clicar num feedback abre a imagem ampliada em tela cheia
+  const [feedbackPreviewUrl, setFeedbackPreviewUrl] = useState<string | null>(null);
+
+  // Áudio do barbeiro (step 7) — player estilo WhatsApp
+  const quizAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [quizAudioPlaying, setQuizAudioPlaying] = useState(false);
+  const [quizAudioProgress, setQuizAudioProgress] = useState(0);
+  const [quizAudioTime, setQuizAudioTime] = useState('0:00');
+  const [quizAudioRate, setQuizAudioRate] = useState(1);
 
   const nextImage = () => {
     setCurrentImageIndex((prev) => (prev + 1) % images.length);
@@ -101,15 +110,7 @@ const Conhecer = () => {
     setCurrentImageIndex((prev) => (prev - 1 + images.length) % images.length);
   };
 
-  const nextDevice = () => {
-    setCurrentDeviceIndex((prev) => (prev + 1) % 2); // 0 = celular, 1 = PC
-  };
-
-  const prevDevice = () => {
-    setCurrentDeviceIndex((prev) => (prev - 1 + 2) % 2);
-  };
-
-  // Controlar duração do efeito de confetes
+// Controlar duração do efeito de confetes
   useEffect(() => {
     if (showConfetti) {
       const timer = setTimeout(() => {
@@ -125,7 +126,7 @@ const Conhecer = () => {
   }, [quizState.step]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex flex-col">
+    <div className="min-h-screen bg-black flex flex-col">
       {/* CSS para animação de pulsação */}
       <style>
         {`
@@ -144,7 +145,7 @@ const Conhecer = () => {
       </style>
       
       {/* Barra de Progresso - Fixa no topo */}
-      <div className="fixed top-0 left-0 right-0 z-50 w-full bg-gray-200 h-4">
+      <div className="fixed top-0 left-0 right-0 z-50 w-full bg-gray-800 h-4">
         <div className="relative">
         <div 
             className="bg-blue-600 h-4 transition-all duration-500 ease-out relative"
@@ -173,9 +174,13 @@ const Conhecer = () => {
       )}
 
 
+      {/* Step 8: página /planos completa (mesmo componente — sempre idêntica à original) */}
+      {quizState.step === 8 && <Planos />}
+
+      {quizState.step !== 8 && (
        <div className="flex-1 flex items-center justify-center p-2 pt-4">
          <div className="max-w-2xl w-full">
-           <div className="bg-white rounded-2xl shadow-xl p-4 text-center">
+           <div className="bg-black rounded-2xl p-4 text-center">
             
             {/* Step 1: Seleção do tipo de negócio */}
             {quizState.step === 1 && (
@@ -198,33 +203,39 @@ const Conhecer = () => {
                    />
                    </div>
                  </div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4">
+                <h1 className="text-2xl sm:text-3xl font-bold text-white mb-4">
                   Agendei Fácil seria para?
                 </h1>
                 
                 <div className="space-y-4">
                   <button
                     onClick={() => handleBusinessTypeSelect('barbearia')}
-                    className="w-full p-6 bg-gray-800 hover:bg-gray-700 text-white rounded-2xl font-bold text-xl shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all duration-300 flex items-center justify-between border-2 border-gray-600 hover:border-gray-500"
+                    className="w-full p-4 bg-gray-800 hover:bg-gray-700 text-white rounded-2xl font-bold text-lg flex items-center gap-4 transition-colors border border-white/10"
                   >
-                    <span className="flex-1 text-center">Barbearia</span>
-                    <img src="/barbeiro.png" alt="Barbearia" className="w-10 h-10" />
+                    <span className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
+                      <img src="/barbeiro.png" alt="Barbearia" className="w-7 h-7" />
+                    </span>
+                    <span className="flex-1 text-left">Barbearia</span>
                   </button>
                   
                   <button
                     onClick={() => handleBusinessTypeSelect('salao')}
-                    className="w-full p-6 bg-gray-800 hover:bg-gray-700 text-white rounded-2xl font-bold text-xl shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all duration-300 flex items-center justify-between border-2 border-gray-600 hover:border-gray-500"
+                    className="w-full p-4 bg-gray-800 hover:bg-gray-700 text-white rounded-2xl font-bold text-lg flex items-center gap-4 transition-colors border border-white/10"
                   >
-                    <span className="flex-1 text-center">Salão de Beleza</span>
-                    <img src="/salao.png" alt="Salão" className="w-10 h-10" />
+                    <span className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
+                      <img src="/salao.png" alt="Salão" className="w-7 h-7" />
+                    </span>
+                    <span className="flex-1 text-left">Salão de Beleza</span>
                   </button>
                   
                   <button
                     onClick={() => handleBusinessTypeSelect('lavacar')}
-                    className="w-full p-6 bg-gray-800 hover:bg-gray-700 text-white rounded-2xl font-bold text-xl shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all duration-300 flex items-center justify-between border-2 border-gray-600 hover:border-gray-500"
+                    className="w-full p-4 bg-gray-800 hover:bg-gray-700 text-white rounded-2xl font-bold text-lg flex items-center gap-4 transition-colors border border-white/10"
                   >
-                    <span className="flex-1 text-center">Lava-car</span>
-                    <img src="/lavalava.png" alt="Lava-car" className="w-10 h-10" />
+                    <span className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
+                      <img src="/lavalava.png" alt="Lava-car" className="w-7 h-7" />
+                    </span>
+                    <span className="flex-1 text-left">Lava-car</span>
                   </button>
                 </div>
               </>
@@ -251,17 +262,17 @@ const Conhecer = () => {
                        <div className="text-3xl">🚗</div>
                      )}
                    </div>
-                   <h1 className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight">
+                   <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight">
                      Então você está no lugar certo!
                    </h1>
-                   <p className="text-xs sm:text-base text-gray-600 leading-relaxed">
+                   <p className="text-xs sm:text-base text-gray-300 leading-relaxed">
                      <span className="block sm:inline">Conheça em poucos cliques o Agendei Fácil,</span>
                      <span className="block sm:inline">o sistema de agendamentos mais completo do Brasil.</span>
                    </p>
                  </div>
 
-                <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg mb-4 mt-4">
-                  <h2 className="text-lg sm:text-xl font-bold text-blue-900 mb-3">
+                <div className="bg-blue-500/10 border-l-4 border-blue-500 p-4 rounded-lg mb-4 mt-4">
+                  <h2 className="text-lg sm:text-xl font-bold text-blue-200 mb-3">
                     Atualmente você tem algum sistema de agendamentos?
                   </h2>
                   
@@ -285,7 +296,7 @@ const Conhecer = () => {
 
                 <button
                   onClick={() => setQuizState(prev => ({ ...prev, step: 1 }))}
-                  className="text-gray-500 hover:text-gray-700 underline"
+                  className="text-gray-400 hover:text-gray-200 underline"
                 >
                   ← Voltar
                 </button>
@@ -299,16 +310,16 @@ const Conhecer = () => {
                    <div className="mb-3 flex justify-center items-center">
                      <div className="w-[80vw] h-[80vw] max-w-[450px] max-h-[450px] rounded-2xl overflow-hidden">
                      <img 
-                       src="/fofoca.gif" 
-                       alt="Gif fofoca" 
+                       src="/barbeirosurpreso2.gif"
+                       alt="Barbeiros fofocando"
                          className="w-full h-full object-cover"
                      />
                      </div>
                    </div>
-                   <p className="text-sm sm:text-base text-gray-500 mb-3 text-center">
+                   <p className="text-sm sm:text-base text-gray-400 mb-3 text-center">
                      Nos ajude a te entender melhor
                    </p>
-                   <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 mb-2 text-center leading-tight px-2 bg-yellow-100 p-4 rounded-lg border-l-4 border-yellow-500">
+                   <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-white mb-2 text-center leading-tight px-2 bg-yellow-500/10 p-4 rounded-lg border-l-4 border-yellow-500">
                      Qual vacilo do outro sistema fez você chegar até aqui? 👀
                    </h1>
                    <p className="text-xs text-gray-400 mb-4 text-center">
@@ -332,17 +343,17 @@ const Conhecer = () => {
                        onClick={() => handleReasonToggle(reason)}
                        className={`w-full p-4 sm:p-5 text-left rounded-lg border transition-colors flex items-center gap-4 ${
                          quizState.selectedReasons.includes(reason)
-                           ? 'bg-blue-50 border-blue-400 text-blue-900'
-                           : 'bg-gray-50 border-gray-300 text-gray-800 hover:bg-gray-100'
+                           ? 'bg-green-500/20 border-green-400 text-green-100'
+                           : 'bg-white/5 border-white/15 text-gray-100 hover:bg-white/10'
                        }`}
                      >
                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
                          quizState.selectedReasons.includes(reason)
-                           ? 'bg-blue-500 border-blue-500'
+                           ? 'bg-green-500 border-green-500'
                            : 'border-gray-400'
                        }`}>
                          {quizState.selectedReasons.includes(reason) && (
-                           <div className="w-3 h-3 bg-white rounded-full"></div>
+                           <span className="text-white text-xs font-bold">✓</span>
                          )}
                        </div>
                        <span className="text-base sm:text-lg font-medium leading-relaxed">{reason}</span>
@@ -353,7 +364,7 @@ const Conhecer = () => {
                  {quizState.selectedReasons.length > 0 && (
                    <button
                      onClick={handleReasonsSubmit}
-                     className="w-full p-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                     className="w-full p-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-bold"
                    >
                      Esses são os motivos
                    </button>
@@ -361,7 +372,7 @@ const Conhecer = () => {
 
                  <button
                    onClick={() => setQuizState(prev => ({ ...prev, step: 2 }))}
-                   className="mt-4 text-gray-500 hover:text-gray-700 underline"
+                   className="mt-4 text-gray-400 hover:text-gray-200 underline"
                  >
                    ← Voltar
                  </button>
@@ -375,31 +386,46 @@ const Conhecer = () => {
                    <div className="mb-4 flex justify-center items-center">
                      <div className="w-[70vw] h-[70vw] max-w-[400px] max-h-[400px] rounded-2xl overflow-hidden">
                      <img 
-                       src="/dor.gif" 
-                       alt="Gif dor" 
+                       src="/barbeirochorando.gif"
+                       alt="Barbeiro chorando"
                          className="w-full h-full object-cover"
                      />
                      </div>
                    </div>
-                   <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4">
-                     Realmente isso dói
+                   {quizState.selectedReasons.length > 0 && (
+                     <div className="mb-4 bg-white/5 border border-white/10 rounded-xl p-4 text-left">
+                       <p className="text-sm font-semibold text-gray-400 mb-2">Você marcou:</p>
+                       <div className="space-y-1.5">
+                         {quizState.selectedReasons.map((reason) => (
+                           <div key={reason} className="flex items-center gap-2">
+                             <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                               <span className="text-white text-xs font-bold">✓</span>
+                             </span>
+                             <span className="text-sm font-medium text-gray-100">{reason}</span>
+                           </div>
+                         ))}
+                       </div>
+                     </div>
+                   )}
+                   <h1 className="text-xl sm:text-2xl font-bold text-white mb-3">
+                     Isso dói no bolso, né? 😮‍💨
                    </h1>
-                   <h2 className="text-lg sm:text-xl font-bold text-blue-600 mb-6">
-                     Mas calma temos a solução
+                   <h2 className="text-lg sm:text-xl font-bold text-white mb-6">
+                     Mas calma — o Agendei Fácil <span className="text-green-400">resolve TODOS esses</span> 👇
                    </h2>
                  </div>
 
                  <div className="space-y-4">
                    <button
                      onClick={handleConhecerAgendeiFacil}
-                     className="w-full p-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                     className="w-full p-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-bold"
                    >
-                     Conhecer Agendei Fácil
+                     Quero ver a solução 👀
                    </button>
                    
                    <button
                      onClick={() => setQuizState(prev => ({ ...prev, step: 2 }))}
-                     className="w-full p-4 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                     className="w-full p-4 bg-white/10 text-gray-200 rounded-lg hover:bg-white/20 transition-colors"
                    >
                      ← Voltar
                    </button>
@@ -418,25 +444,25 @@ const Conhecer = () => {
                        className="w-full max-w-lg h-auto rounded-lg"
                      />
                    </div>
-                   <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4">
+                   <h1 className="text-xl sm:text-2xl font-bold text-white mb-4">
                      Provavelmente esse é você
                    </h1>
-                   <h2 className="text-lg sm:text-xl font-bold text-blue-600 mb-6">
-                     Mas calma temos a solução
+                   <h2 className="text-lg sm:text-xl font-bold text-white mb-6">
+                     Mas calma — <span className="text-green-400">temos a solução</span>
                    </h2>
                  </div>
 
                  <div className="space-y-4">
                    <button
                      onClick={handleConhecerAgendeiFacil}
-                     className="w-full p-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                     className="w-full p-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-bold"
                    >
                      Conhecer Agendei Fácil
                    </button>
                    
                    <button
                      onClick={() => setQuizState(prev => ({ ...prev, step: 2 }))}
-                     className="w-full p-4 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                     className="w-full p-4 bg-white/10 text-gray-200 rounded-lg hover:bg-white/20 transition-colors"
                    >
                      ← Voltar
                    </button>
@@ -450,48 +476,73 @@ const Conhecer = () => {
                  <div className="mb-6">
                    <div className="mb-4 flex justify-center items-center">
                      <img 
-                       src="/baner.png" 
-                       alt="Banner" 
+                       src="/A233.webp"
+                       alt="Sistema de agendamentos mais completo do Brasil"
                        className="w-[90vw] max-w-[500px] object-contain rounded-xl"
                      />
                    </div>
-                   <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4">
+                   <h1 className="text-xl sm:text-2xl font-bold text-white mb-4">
                      Somos o sistema de agendamento e gestão mais completo de todos
                    </h1>
-                   <p className="text-sm text-gray-600 mb-4">
+                   <p className="text-sm text-gray-300 mb-4">
                      Olha abaixo o que oferecemos
                    </p>
                  </div>
 
-                 <div className="space-y-3 mb-6">
+                 <div className="space-y-5 mb-6">
                    {[
-                     'Página exclusiva e editável sua',
-                     'Seu cliente agenda em poucos cliques',
-                     'Seu cliente não precisa baixar app',
-                     'Seu cliente recebe lembrete 30min antes',
-                     'Seus clientes não veem sua concorrência',
-                     'Você tem controle total financeiro',
-                     'Controle total de agendamentos',
-                     'Sistema de estoque completo',
-                     'Controle total % colaboradores, se tiver',
-                     'Controle total de taxas de maquininha',
-                     'Sistema de assinaturas incluso',
-                     'Temos app agendei fácil, se quiser',
-                     'Você recebe notificações quando alguém agenda ou cancela com você',
-                     'Você tem sistema totalmente intuitivo e fácil de usar'
-                   ].map((feature) => (
-                     <div key={feature} className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-200">
-                       <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
-                         <span className="text-white text-xs font-bold">✓</span>
+                     {
+                       title: '💰 Pro seu bolso',
+                       items: [
+                         { text: 'Cliente paga adiantado (opcional) → dinheiro na SUA conta na hora', highlight: true },
+                         { text: 'Lembrete automático no WhatsApp → menos faltas', highlight: true },
+                         { text: 'Você sabe exatamente quanto lucra', highlight: true },
+                         { text: 'Comissão de cada profissional na régua', highlight: false },
+                         { text: 'Controle das taxas da maquininha', highlight: false },
+                         { text: 'Assinaturas = renda todo mês', highlight: false },
+                       ],
+                     },
+                     {
+                       title: '🙌 Pros seus clientes',
+                       items: [
+                         { text: 'Página sua, exclusiva e editável', highlight: false },
+                         { text: 'Agenda em poucos cliques, sem baixar app', highlight: false },
+                         { text: 'Seus clientes não veem a concorrência', highlight: true },
+                       ],
+                     },
+                     {
+                       title: '⚙️ Pro seu dia a dia',
+                       items: [
+                         { text: 'Controle completo da agenda', highlight: true },
+                         { text: 'Notificação quando agendam ou cancelam', highlight: false },
+                         { text: 'Sistema de estoque completo', highlight: false },
+                         { text: 'App próprio (Android e iPhone)', highlight: false },
+                         { text: 'Simples de usar no celular e no PC', highlight: false },
+                       ],
+                     },
+                   ].map((group) => (
+                     <div key={group.title}>
+                       <p className="text-sm font-extrabold text-gray-200 uppercase tracking-wide mb-2 text-center">{group.title}</p>
+                       <div className="space-y-2">
+                         {group.items.map((item) => (
+                           <div
+                             key={item.text}
+                             className="flex items-center gap-3 p-3 rounded-lg border bg-green-500/10 border-green-500/30"
+                           >
+                             <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
+                               <span className="text-white text-xs font-bold">✓</span>
+                             </div>
+                             <span className="text-sm text-green-300 text-left font-medium">{item.text}</span>
+                           </div>
+                         ))}
                        </div>
-                       <span className="text-sm text-green-800 font-medium">{feature}</span>
                      </div>
                    ))}
                  </div>
 
                  <div className="mb-6">
-                   <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-l-4 border-blue-500 p-4 rounded-lg mb-4">
-                     <p className="text-base sm:text-lg font-bold text-center text-gray-900 leading-relaxed">
+                   <div className="bg-blue-500/10 border-l-4 border-blue-500 p-4 rounded-lg mb-4">
+                     <p className="text-base sm:text-lg font-bold text-center text-white leading-relaxed">
                        <span className="text-green-600">Gostou?</span> Isso é só{' '}
                        <span className="text-red-600 font-extrabold">40%</span> do que oferecemos{' '}
                        <span className="text-green-600 font-extrabold">tem muito mais</span>.
@@ -502,7 +553,7 @@ const Conhecer = () => {
                   <div className="space-y-3">
                     <button
                       onClick={handleGostei}
-                      className="w-full p-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                      className="w-full p-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-bold"
                     >
                       To gostando mostra mais 👀
                     </button>
@@ -514,258 +565,121 @@ const Conhecer = () => {
              {quizState.step === 7 && (
                <>
                  <div className="mb-6">
-                   {/* Texto destacado sobre a página do cliente */}
-                   <div className="bg-green-600 border-l-4 border-green-700 p-4 rounded-lg mb-4">
-                     <p className="text-sm font-bold text-white text-center">
-                       Você ganha uma página personalizada e editável, onde seu cliente agenda em poucos cliques. 🔥
-                     </p>
-                   </div>
-                   
-                   {/* Imagem areacliente */}
-                   <div className="flex justify-center mb-4">
+                   {/* Imagem de topo */}
+                   <div className="mb-4 flex justify-center">
                      <img
-                       src="/areacliente.png"
-                       alt="Área do cliente"
-                       className="w-full max-w-lg h-auto rounded-lg"
+                       src="/umbrind.webp"
+                       alt="Agendei Fácil"
+                       className="w-full max-w-lg h-auto rounded-2xl"
                      />
                    </div>
-
-                   {/* Texto destacado */}
-                   <div className="text-center mb-4 px-4">
-                     <p className="text-base sm:text-lg font-bold leading-relaxed text-gray-900">
-                       O <span className="text-red-600 font-extrabold">Agendei Fácil</span> avisa você! Todos os agendamentos chegam direto no app,{' '}
-                       <span className="text-red-600 font-extrabold">exemplo abaixo</span>.
-                     </p>
-                   </div>
-                   {/* Imagem antesxdepois */}
-                   <div className="flex justify-center mb-4">
-                     <img
-                       src="/antesxdepois.png"
-                       alt="antesxdepois"
-                       className="w-full max-w-lg h-auto rounded-lg"
-                     />
-                   </div>
-                   
-                   <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4">
-                     Aplicativo Agendei Fácil totalmente intuitivo e fácil de usar
+                   {/* Gancho de prova social */}
+                   <h1 className="text-xl sm:text-2xl font-bold text-white mb-2">
+                     Não confie em mim 😅
                    </h1>
-                   
-                   {/* Texto destacado */}
-                   <div className="text-center mb-4 px-4">
-                     <p className="text-base sm:text-lg font-bold leading-relaxed text-gray-900">
-                       Use também no seu{' '}
-                       <span className="text-red-600 font-extrabold">computador</span>, ou nos{' '}
-                       <span className="text-red-600 font-extrabold">dois</span> ao mesmo tempo.
-                     </p>
-                   </div>
-                   
-                   {/* Carrossel de dispositivos */}
-                   <div className="relative mb-4">
-                     <div 
-                       className="relative overflow-hidden rounded-lg cursor-grab active:cursor-grabbing"
-                       onTouchStart={(e) => {
-                         const startX = e.touches[0].clientX;
-                         const handleTouchMove = (e: TouchEvent) => {
-                           const currentX = e.touches[0].clientX;
-                           const diffX = startX - currentX;
-                           
-                           if (Math.abs(diffX) > 50) { // Threshold para swipe
-                             if (diffX > 0) {
-                               nextDevice(); // Swipe left = next
-                             } else {
-                               prevDevice(); // Swipe right = previous
-                             }
-                             document.removeEventListener('touchmove', handleTouchMove);
-                             document.removeEventListener('touchend', handleTouchEnd);
-                           }
-                         };
-                         
-                         const handleTouchEnd = () => {
-                           document.removeEventListener('touchmove', handleTouchMove);
-                           document.removeEventListener('touchend', handleTouchEnd);
-                         };
-                         
-                         document.addEventListener('touchmove', handleTouchMove);
-                         document.addEventListener('touchend', handleTouchEnd);
+                   <h2 className="text-lg sm:text-xl font-bold text-green-400 mb-5">
+                     Confia em quem usa todo dia 👇
+                   </h2>
+
+                   {/* Áudio de um barbeiro parceiro — player estilo WhatsApp */}
+                   <audio
+                     ref={quizAudioRef}
+                     preload="metadata"
+                     onPlay={() => {
+                       setQuizAudioPlaying(true);
+                       if (quizAudioRef.current) quizAudioRef.current.playbackRate = quizAudioRate;
+                     }}
+                     onPause={() => setQuizAudioPlaying(false)}
+                     onEnded={() => { setQuizAudioPlaying(false); setQuizAudioProgress(0); setQuizAudioTime('0:00'); }}
+                     onTimeUpdate={(e) => {
+                       const audio = e.currentTarget;
+                       if (audio.duration > 0) {
+                         setQuizAudioProgress((audio.currentTime / audio.duration) * 100);
+                         const m = Math.floor(audio.currentTime / 60);
+                         const s = Math.floor(audio.currentTime % 60);
+                         setQuizAudioTime(`${m}:${String(s).padStart(2, '0')}`);
+                       }
+                     }}
+                   >
+                     {/* ogg (leve, 112KB) para Android/Chrome; mp3 como reserva para iPhone */}
+                     <source src="/audioapresentacao.ogg" type="audio/ogg" />
+                     <source src="/audiobarbeiro.mp3" type="audio/mpeg" />
+                   </audio>
+                   <div className="bg-[#111b12] border border-green-500/30 rounded-2xl p-3 mb-2 flex items-center gap-3">
+                     <img
+                       src="/fotoronaldo.webp"
+                       alt="Ronaldo, barbeiro parceiro"
+                       className="w-12 h-12 rounded-full object-cover border-2 border-green-500/60 flex-shrink-0"
+                     />
+                     <button
+                       type="button"
+                       onClick={() => {
+                         const audio = quizAudioRef.current;
+                         if (!audio) return;
+                         if (audio.paused) { void audio.play(); } else { audio.pause(); }
                        }}
-                       onMouseDown={(e) => {
-                         const startX = e.clientX;
-                         const handleMouseMove = (e: MouseEvent) => {
-                           const currentX = e.clientX;
-                           const diffX = startX - currentX;
-                           
-                           if (Math.abs(diffX) > 50) { // Threshold para swipe
-                             if (diffX > 0) {
-                               nextDevice(); // Drag left = next
-                             } else {
-                               prevDevice(); // Drag right = previous
-                             }
-                             document.removeEventListener('mousemove', handleMouseMove);
-                             document.removeEventListener('mouseup', handleMouseUp);
-                           }
-                         };
-                         
-                         const handleMouseUp = () => {
-                           document.removeEventListener('mousemove', handleMouseMove);
-                           document.removeEventListener('mouseup', handleMouseUp);
-                         };
-                         
-                         document.addEventListener('mousemove', handleMouseMove);
-                         document.addEventListener('mouseup', handleMouseUp);
-                       }}
+                       className="w-11 h-11 rounded-full bg-green-500 hover:bg-green-400 flex items-center justify-center flex-shrink-0 text-black text-base font-black transition-colors"
+                       aria-label={quizAudioPlaying ? 'Pausar áudio' : 'Ouvir áudio'}
                      >
-                       {/* Imagem celular */}
-                       <div className={`transition-transform duration-500 ease-in-out ${currentDeviceIndex === 0 ? 'translate-x-0' : '-translate-x-full'}`}>
-                         <img
-                           src="/celular.png"
-                           alt="celular"
-                           className="w-[90vw] h-[90vw] max-w-[600px] max-h-[600px] object-contain rounded-lg"
-                         />
+                       {quizAudioPlaying ? '❚❚' : '▶'}
+                     </button>
+                     <div className="flex-1 min-w-0">
+                       <div className="h-2 bg-white/15 rounded-full overflow-hidden">
+                         <div className="h-full bg-green-400 rounded-full" style={{ width: `${quizAudioProgress}%` }} />
                        </div>
-                       
-                       {/* Imagem PC */}
-                       <div className={`absolute top-0 left-full transition-transform duration-500 ease-in-out ${currentDeviceIndex === 1 ? '-translate-x-full' : 'translate-x-0'}`}>
-                         <img
-                           src="/pc.png"
-                           alt="pc"
-                           className="w-[90vw] h-[90vw] max-w-[600px] max-h-[600px] object-contain rounded-lg"
-                         />
+                       <div className="flex items-center justify-between mt-1.5">
+                         <span className="text-[11px] font-semibold text-green-200/90">Barbeiro parceiro 🎧</span>
+                         <span className="flex items-center gap-2">
+                           <button
+                             type="button"
+                             onClick={() => {
+                               const next = quizAudioRate === 1 ? 1.5 : quizAudioRate === 1.5 ? 2 : 1;
+                               setQuizAudioRate(next);
+                               if (quizAudioRef.current) quizAudioRef.current.playbackRate = next;
+                             }}
+                             className="px-2 py-0.5 rounded-full bg-white/15 hover:bg-white/25 text-[10px] font-bold text-white leading-none transition-colors"
+                             aria-label="Mudar velocidade do áudio"
+                           >
+                             {quizAudioRate}x
+                           </button>
+                           <span className="text-[11px] text-green-200/70">{quizAudioTime}</span>
+                         </span>
                        </div>
-                       
-                       {/* Botão anterior */}
-                       <button
-                         onClick={prevDevice}
-                         className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-70 transition-all"
-                       >
-                         ←
-                       </button>
-                       
-                       {/* Botão próximo */}
-                       <button
-                         onClick={nextDevice}
-                         className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-70 transition-all"
-                       >
-                         →
-                       </button>
-                     </div>
-                     
-                     {/* Indicadores de dispositivo */}
-                     <div className="flex justify-center mt-3 space-x-2">
-                       <button
-                         onClick={() => setCurrentDeviceIndex(0)}
-                         className={`w-3 h-3 rounded-full transition-colors ${
-                           currentDeviceIndex === 0 ? 'bg-blue-500' : 'bg-gray-300'
-                         }`}
-                       />
-                       <button
-                         onClick={() => setCurrentDeviceIndex(1)}
-                         className={`w-3 h-3 rounded-full transition-colors ${
-                           currentDeviceIndex === 1 ? 'bg-blue-500' : 'bg-gray-300'
-                         }`}
-                       />
                      </div>
                    </div>
-                   
-                   {/* Texto destacado */}
-                   <div className="text-center mb-4 px-4">
-                     <p className="text-sm text-gray-600 mt-2">
-                       👆 <span className="font-semibold">Arraste para o lado</span> para ver ambos
-                     </p>
-                   </div>
-                   
-                   {/* Imagem 10quiz - movida para o final */}
-                   <div className="flex justify-center mb-4">
-                     <img
-                       src="/10quiz.png"
-                       alt="10quiz"
-                       className="w-full max-w-lg h-auto rounded-lg"
-                     />
-                   </div>
-                 </div>
+                   <p className="text-xs text-gray-400 mb-3">Áudio real de um cliente do Agendei Fácil</p>
 
-                  <div className="space-y-3">
-                    <button
-                      onClick={handlePresente}
-                     className="w-full p-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
-                    >
-                     Gostei, Qual valor?
-                    </button>
-                    
-                    <button
-                     onClick={() => setQuizState(prev => ({ ...prev, step: 5 }))}
-                     className="w-full p-4 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                    >
-                     ← Voltar
-                    </button>
-                  </div>
-               </>
-             )}
-
-             {/* Step 8: Presente */}
-             {quizState.step === 8 && (
-               <>
-                 <div className="mb-4">
-                   <div className="bg-green-600 border-l-4 border-green-700 p-4 rounded-lg mb-4">
-                     <p className="text-sm sm:text-base font-bold text-white text-center leading-relaxed">
-                       Você não achou que eu iria deixar você chegar até aqui sem um <span className="text-green-200">presente né</span>?
-                     </p>
-                   </div>
-                   
-                   <div className="mb-1 flex justify-center items-center">
-                     <div className="w-[85vw] h-[85vw] max-w-[500px] max-h-[500px] rounded-2xl overflow-hidden">
-                     <img 
-                       src="/leonardo.gif" 
-                       alt="Gif Leonardo" 
-                         className="w-full h-full object-cover"
-                     />
-                     </div>
-                   </div>
-                   
-                   {/* Imagem bonus */}
-                   <div className="flex justify-center mb-2">
-                     <img
-                       src="/bonus.png"
-                       alt="Bonus"
-                       className="w-full max-w-lg h-auto rounded-lg"
-                     />
-                   </div>
-                   
-                   <div className="flex justify-center mb-2">
-                     <img
-                       src="/presente.png"
-                       alt="Presente"
-                       className="w-full max-w-xl h-auto rounded-lg"
-                     />
-                   </div>
-                   
-                   <div className="bg-green-600 border-l-4 border-green-700 p-4 rounded-lg mb-4">
-                     <p className="text-sm font-bold text-white text-center">
-                       Não se preocupe, esse valor <span className="text-green-200 text-lg">R$ 47,90</span> não aumenta nunca, é sempre esse valor para você. Caso queira pagar anual, ganha 2 meses grátis.
-                     </p>
-                   </div>
-                   
-                   <p className="text-xs text-gray-500 mb-3 text-center">
-                     Se liga em alguns dos milhares de feedbacks de quem já tá com a gente 🚀
+                   {/* Financeiro real do cliente do áudio (autorizado por ele) */}
+                   <p className="text-sm font-bold text-white mb-2">
+                     📈 Olha o print que ele nos mandou do crescimento 👇
                    </p>
-                   
-                   {/* Carrossel de imagens */}
+                   <img
+                     src="/clientefinanceiro.webp"
+                     alt="Financeiro do cliente do áudio: crescimento entre os meses"
+                     className="w-full h-auto rounded-xl cursor-zoom-in mb-1"
+                     onClick={() => setFeedbackPreviewUrl('/clientefinanceiro.webp')}
+                   />
+                   <p className="text-xs text-gray-400 mb-6">🔍 Toque para ampliar</p>
+
+                   {/* Feedbacks de clientes */}
+                   <h2 className="text-base sm:text-lg font-bold text-white mb-1">
+                     E olha o que falam da gente 🚀
+                   </h2>
+                   <p className="text-xs text-gray-400 mb-3">🔍 Toque na imagem para ampliar</p>
                    <div className="relative mb-4">
                      <div className="relative overflow-hidden rounded-lg">
                        <img
                          src={images[currentImageIndex]}
-                         alt={`Slide ${currentImageIndex + 1}`}
-                         className="w-full h-auto rounded-lg transition-opacity duration-300"
+                         alt={`Feedback ${currentImageIndex + 1}`}
+                         className="w-full h-auto rounded-lg transition-opacity duration-300 cursor-zoom-in"
+                         onClick={() => setFeedbackPreviewUrl(images[currentImageIndex])}
                        />
-                       
-                       {/* Botão anterior */}
                        <button
                          onClick={prevImage}
                          className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-70 transition-all"
                        >
                          ←
                        </button>
-                       
-                       {/* Botão próximo */}
                        <button
                          onClick={nextImage}
                          className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-70 transition-all"
@@ -773,67 +687,67 @@ const Conhecer = () => {
                          →
                        </button>
                      </div>
-                     
-                     {/* Indicadores de slide */}
                      <div className="flex justify-center mt-3 space-x-2">
                        {images.map((_, index) => (
                          <button
                            key={index}
                            onClick={() => setCurrentImageIndex(index)}
                            className={`w-2 h-2 rounded-full transition-colors ${
-                             index === currentImageIndex ? 'bg-blue-500' : 'bg-gray-300'
+                             index === currentImageIndex ? 'bg-green-500' : 'bg-gray-600'
                            }`}
                          />
                        ))}
                      </div>
                    </div>
                    
-                   <h2 className="text-sm sm:text-base font-bold text-black text-center px-2 mb-3">
-                     COMO FUNCIONA AGENDEI FÁCIL
-                   </h2>
-                   
-                   <div className="w-full max-w-4xl mx-auto mb-4">
-                     <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
-                       <iframe
-                         src="https://www.youtube.com/embed/tQMWQLLLDPo"
-                         title="Vídeo do Agendei Fácil"
-                         className="absolute top-0 left-0 w-full h-full rounded-lg shadow-lg"
-                         frameBorder="0"
-                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                         allowFullScreen
-                       />
-                     </div>
-                   </div>
                  </div>
 
-                 <div className="space-y-3">
-                   <button
-                     onClick={() => navigate('/cadastroag')}
-                     className="w-full p-4 sm:p-5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all duration-300 font-bold text-sm sm:text-base shadow-xl hover:shadow-2xl"
-                     style={{
-                       animation: 'scalePulse 1.5s ease-in-out infinite'
-                     }}
-                   >
-                     Criar conta Agendei Fácil
-                   </button>
-                   
-                   <p className="text-sm text-gray-600 mb-3 text-center">
-                     Ficou alguma dúvida? Clique abaixo
-                   </p>
-                   
-                   <button
-                     onClick={() => window.open('https://wa.me/554891265320?text=Quero%20mais%20informações%20do%20Agendei%20Fácil,%20vim%20pelo%20Quiz!', '_blank')}
-                     className="w-full p-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-semibold text-sm sm:text-base"
-                   >
-                     Falar com alguém no WhatsApp
-                   </button>
-                 </div>
+                  <div className="space-y-3">
+                    <button
+                      onClick={handlePresente}
+                     className="w-full p-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-bold"
+                    >
+                     Gostei, Qual valor?
+                    </button>
+                    
+                    <button
+                     onClick={() => setQuizState(prev => ({ ...prev, step: 5 }))}
+                     className="w-full p-4 bg-white/10 text-gray-200 rounded-lg hover:bg-white/20 transition-colors"
+                    >
+                     ← Voltar
+                    </button>
+                  </div>
                </>
              )}
+
 
           </div>
         </div>
       </div>
+      )}
+
+      {/* Lightbox: feedback ampliado (fecha ao tocar em qualquer lugar) */}
+      {feedbackPreviewUrl && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center p-3"
+          onClick={() => setFeedbackPreviewUrl(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setFeedbackPreviewUrl(null)}
+            className="absolute top-4 right-4 h-10 w-10 rounded-full bg-white/15 hover:bg-white/25 text-white text-xl font-bold flex items-center justify-center"
+            aria-label="Fechar imagem"
+          >
+            ✕
+          </button>
+          <img
+            src={feedbackPreviewUrl}
+            alt="Feedback ampliado"
+            className="max-h-[88vh] max-w-[96vw] rounded-xl object-contain"
+          />
+          <p className="absolute bottom-4 left-0 right-0 text-center text-white/70 text-xs">Toque em qualquer lugar para fechar</p>
+        </div>
+      )}
 
     </div>
   );

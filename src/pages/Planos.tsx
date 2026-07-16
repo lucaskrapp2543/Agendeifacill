@@ -11,17 +11,11 @@ export default function Planos() {
   const waLink = (mensagem: string) => `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(mensagem)}`;
 
   // ✅ Popups (somente na página /planos)
-  const [socialProof, setSocialProof] = useState<{ name: string; plan: 'ouro' | 'diamante' } | null>(
+  const [socialProof, setSocialProof] = useState<{ name: string; plan: 'prata' | 'diamante'; business: string } | null>(
     null
   );
   const [socialProofVisible, setSocialProofVisible] = useState(false);
   const socialProofStartedRef = useRef(false);
-
-  // ✅ Carrossel (mesmo da página inicial, abaixo do /paginaextra.png)
-  const carouselImages = ['/feedback.png', '/VS1.png', '/s1.png', '/s2.png'];
-  const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const nextImage = () => setCurrentImageIndex((prev) => (prev + 1) % carouselImages.length);
-  const prevImage = () => setCurrentImageIndex((prev) => (prev - 1 + carouselImages.length) % carouselImages.length);
 
   // ✅ FAQ (mesmo da página inicial)
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -58,37 +52,51 @@ export default function Planos() {
     socialProofStartedRef.current = true;
 
     const names = [
-      'João',
-      'Maria',
-      'Pedro',
-      'Ana',
-      'Lucas',
-      'Fernanda',
-      'Rafael',
-      'Camila',
-      'Guilherme',
-      'Juliana',
-      'Bruno',
-      'Beatriz',
-      'Matheus',
-      'Larissa',
-      'Felipe',
-      'Mariana',
-      'Diego',
-      'Letícia',
-      'Thiago',
-      'Carolina'
+      'João', 'Maria', 'Pedro', 'Ana', 'Lucas', 'Fernanda', 'Rafael', 'Camila',
+      'Guilherme', 'Juliana', 'Bruno', 'Beatriz', 'Matheus', 'Larissa', 'Felipe',
+      'Mariana', 'Diego', 'Letícia', 'Thiago', 'Carolina', 'André', 'Vanessa',
+      'Gabriel', 'Amanda', 'Rodrigo', 'Patrícia', 'Eduardo', 'Aline', 'Marcelo',
+      'Renata', 'Gustavo', 'Tatiane', 'Leandro', 'Priscila', 'Fábio', 'Daniela',
+      'Vitor', 'Simone', 'Alexandre', 'Kelly', 'Márcio', 'Cristiane', 'Jonathan',
+      'Elaine', 'Wesley', 'Adriana', 'Caio', 'Bianca'
     ];
-    const plans: Array<'ouro' | 'diamante'> = ['ouro', 'diamante'];
+    // Barbearia e salão aparecem mais (público principal)
+    const businesses = [
+      'barbearia', 'salão de beleza', 'barbearia', 'lava-car',
+      'salão de beleza', 'clínica odonto', 'barbearia', 'clínica de estética'
+    ];
+    // Diamante aparece um pouco mais (é o plano mais escolhido)
+    const plans: Array<'prata' | 'diamante'> = ['prata', 'diamante', 'diamante'];
 
     const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
+    const shuffle = <T,>(arr: T[]) => {
+      const copy = [...arr];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    };
+
+    // Fila embaralhada: cada nome aparece UMA única vez até a fila esgotar (48 nomes ≈ 8min).
+    // Só re-embaralha quando acaba — nada de "Vanessa assinou" duas vezes seguidas.
+    const buildQueue = () =>
+      shuffle(names).map((name) => ({ name, plan: pick(plans), business: pick(businesses) }));
+    let queue = buildQueue();
+    let queueIndex = 0;
+    const nextProof = () => {
+      if (queueIndex >= queue.length) {
+        queue = buildQueue();
+        queueIndex = 0;
+      }
+      return queue[queueIndex++];
+    };
 
     let timeoutId: number | undefined;
 
     const cycle = () => {
       timeoutId = window.setTimeout(() => {
-        const next = { name: pick(names), plan: pick(plans) };
-        setSocialProof(next);
+        setSocialProof(nextProof());
         setSocialProofVisible(true);
 
         // Dura 3s na tela
@@ -110,13 +118,13 @@ export default function Planos() {
     };
   }, []);
 
-  const planLabel = (p: 'ouro' | 'diamante') => {
-    if (p === 'ouro') return 'ouro';
+  const planLabel = (p: 'prata' | 'diamante') => {
+    if (p === 'prata') return 'prata';
     return 'diamante';
   };
 
-  const planBadgeClasses = (p: 'ouro' | 'diamante') => {
-    if (p === 'ouro') return 'bg-amber-300 text-black';
+  const planBadgeClasses = (p: 'prata' | 'diamante') => {
+    if (p === 'prata') return 'bg-slate-300 text-slate-900';
     return 'bg-sky-200 text-sky-900';
   };
 
@@ -130,12 +138,31 @@ export default function Planos() {
       />
       <div className="max-w-6xl mx-auto px-4 py-8 sm:py-10">
         <div className="text-center mb-8 sm:mb-10">
-          <img
-            src="/clientesk.png"
-            alt="Clientes"
-            className="w-full max-w-[420px] mx-auto mb-5 rounded-2xl border border-white/10 shadow-xl"
-            loading="lazy"
-          />
+          {/* Vídeo (formato reels) — acima do título PLANOS */}
+          <div className="mb-10">
+            <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
+              VEJA O SISTEMA <span className="text-pink-500">POR DENTRO</span> 👀
+            </h2>
+            <p className="text-white/60 text-sm mt-1 mb-5">Um tour rápido de como tudo funciona 👇</p>
+            <div className="flex justify-center px-2">
+              <div className="w-full max-w-[300px]">
+                <div
+                  className="relative rounded-2xl overflow-hidden border-2 border-pink-500 shadow-[0_0_25px_rgba(236,72,153,0.35)] bg-black"
+                  style={{ aspectRatio: '9/16' }}
+                >
+                  <iframe
+                    src="https://www.youtube.com/embed/DibbRkvtbgI?rel=0"
+                    title="Veja o sistema por dentro"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    className="absolute inset-0 w-full h-full"
+                    style={{ border: 'none' }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="text-3xl sm:text-4xl font-extrabold tracking-tight">PLANOS</div>
           {referralCupom && (
             <div className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-emerald-400/40 bg-emerald-500/15 px-4 py-2 text-sm font-semibold text-emerald-100">
@@ -182,66 +209,23 @@ export default function Planos() {
             rel="noopener noreferrer"
             className="block w-full rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold px-5 py-4 text-center transition-colors"
           >
-            Voltar para o atendimento <span className="underline">(clique aqui)</span>
+            💬 Tenho dúvidas — conversar com a equipe comercial
           </a>
         </div>
 
-        {/* ✅ Carrossel de feedbacks (igual da página inicial) */}
-        <div className="mt-10">
-          <div className="text-center mb-4">
-            <div className="text-xl sm:text-2xl font-extrabold">Feedbacks reais</div>
-            <div className="text-white/70 text-sm">Veja algumas demonstrações e resultados de clientes.</div>
-          </div>
-
-          <div className="max-w-4xl mx-auto">
-            <div className="relative mb-4">
-              <div className="relative overflow-hidden rounded-lg border border-white/10">
-                <img
-                  src={carouselImages[currentImageIndex]}
-                  alt={`Slide ${currentImageIndex + 1}`}
-                  className="w-full h-auto rounded-lg transition-opacity duration-300"
-                />
-
-                <button
-                  type="button"
-                  onClick={prevImage}
-                  className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/60 text-white p-2 rounded-full hover:bg-black/80 transition-all"
-                  aria-label="Anterior"
-                >
-                  ←
-                </button>
-
-                <button
-                  type="button"
-                  onClick={nextImage}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/60 text-white p-2 rounded-full hover:bg-black/80 transition-all"
-                  aria-label="Próximo"
-                >
-                  →
-                </button>
-              </div>
-
-              <div className="flex justify-center mt-3 space-x-2">
-                {carouselImages.map((_, index) => (
-                  <button
-                    key={index}
-                    type="button"
-                    onClick={() => setCurrentImageIndex(index)}
-                    className={`w-2 h-2 rounded-full transition-colors ${
-                      index === currentImageIndex ? 'bg-blue-500' : 'bg-gray-700'
-                    }`}
-                    aria-label={`Ir para slide ${index + 1}`}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* ── FAQ (mesmo da página inicial) ── */}
       <section id="faq" className="py-16 bg-black">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Imagem acima do FAQ (mesma usada no quiz — repetida de propósito) */}
+          <div className="mb-8 flex justify-center">
+            <img
+              src="/A233.webp"
+              alt="Sistema de agendamentos mais completo do Brasil"
+              className="w-full max-w-lg h-auto rounded-2xl"
+            />
+          </div>
           <div className="text-center mb-10">
             <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">
               Perguntas frequentes
@@ -300,8 +284,8 @@ export default function Planos() {
                   </div>
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-extrabold text-white leading-tight truncate">
-                    {socialProof.name} assinou plano {planLabel(socialProof.plan)}
+                  <div className="text-sm font-extrabold text-white leading-tight">
+                    {socialProof.name} assinou o plano {planLabel(socialProof.plan)} para sua {socialProof.business}
                   </div>
                   <div className="mt-1 flex items-center gap-2">
                     <span

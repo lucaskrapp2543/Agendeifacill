@@ -1056,12 +1056,31 @@ const CadastroAg = () => {
               </div>
 
               {showPaymentOptions && (
-                <div ref={paymentOptionsRef} className="space-y-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
-                  <div>
-                    <h3 className="text-base font-bold text-gray-900">Escolha como pagar</h3>
-                    <p className="text-sm text-gray-600">
+                <div ref={paymentOptionsRef} className="space-y-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-lg">
+                  <div className="text-center">
+                    <h3 className="text-lg font-extrabold text-gray-900">Escolha como pagar</h3>
+                    <div className="mx-auto mt-2 inline-flex items-baseline gap-2 rounded-xl bg-gray-900 px-4 py-2">
+                      <span className="text-xs font-bold text-gray-300">{selectedPlanConfig.label}:</span>
+                      {checkoutAmountToday < selectedPlanConfig.amount ? (
+                        <>
+                          <span className="text-xs text-gray-400 line-through">{formatBrl(selectedPlanConfig.amount)}</span>
+                          <span className="text-xl font-black text-emerald-400">{formatBrl(checkoutAmountToday)}</span>
+                          <span className="text-xs font-semibold text-gray-300">hoje</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-xl font-black text-emerald-400">{formatBrl(checkoutAmountToday)}</span>
+                          <span className="text-xs font-semibold text-gray-300">/mês</span>
+                        </>
+                      )}
+                    </div>
+                    <p className="mx-auto mt-2 max-w-sm text-sm text-gray-600">
                       A conta só será criada automaticamente depois que o Mercado Pago confirmar o pagamento.
                     </p>
+                    <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-700">
+                      <CheckCircle className="h-3.5 w-3.5" />
+                      Pagamento seguro via Mercado Pago
+                    </span>
                   </div>
 
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1069,11 +1088,19 @@ const CadastroAg = () => {
                       type="button"
                       onClick={() => handleCreateCheckout('pix')}
                       disabled={!!isCreatingCheckout}
-                      className="rounded-xl border border-emerald-200 bg-white p-4 text-left shadow-sm transition hover:border-emerald-400 hover:bg-emerald-50 disabled:opacity-60"
+                      className="group flex items-center gap-4 rounded-2xl border-2 border-emerald-200 bg-white p-4 text-left transition hover:border-emerald-500 hover:shadow-md disabled:opacity-60"
                     >
-                      <QrCode className="mb-2 h-6 w-6 text-emerald-600" />
-                      <div className="font-extrabold text-gray-900">PIX</div>
-                      <div className="text-xs text-gray-600">Válido por 30 dias após aprovação.</div>
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
+                        <QrCode className="h-6 w-6 text-emerald-600" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-extrabold text-gray-900">PIX</span>
+                        <span className="block text-xs text-gray-500">Aprovação rápida e automática</span>
+                        <span className="mt-1 inline-block rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                          Válido por 30 dias após aprovação
+                        </span>
+                      </span>
+                      <span className="text-xl text-gray-300 transition group-hover:text-emerald-500">›</span>
                     </button>
 
                     <button
@@ -1095,11 +1122,19 @@ const CadastroAg = () => {
                         setShowCardForm(true);
                       }}
                       disabled={!!isCreatingCheckout}
-                      className="rounded-xl border border-blue-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-400 hover:bg-blue-50 disabled:opacity-60"
+                      className="group flex items-center gap-4 rounded-2xl border-2 border-blue-200 bg-white p-4 text-left transition hover:border-blue-500 hover:shadow-md disabled:opacity-60"
                     >
-                      <CreditCard className="mb-2 h-6 w-6 text-blue-600" />
-                      <div className="font-extrabold text-gray-900">Cartão de crédito</div>
-                      <div className="text-xs text-gray-600">Assinatura mensal automática.</div>
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-100">
+                        <CreditCard className="h-6 w-6 text-blue-600" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-extrabold text-gray-900">Cartão de crédito</span>
+                        <span className="block text-xs text-gray-500">Renova sozinho todo mês</span>
+                        <span className="mt-1 inline-block rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                          Assinatura mensal automática
+                        </span>
+                      </span>
+                      <span className="text-xl text-gray-300 transition group-hover:text-blue-500">›</span>
                     </button>
                   </div>
 
@@ -1149,39 +1184,65 @@ const CadastroAg = () => {
                   )}
 
                   {checkoutData?.qr_code_base64 && (
-                    <div className="rounded-xl border border-emerald-200 bg-white p-4 text-center">
-                      <p className="mb-3 text-sm font-bold text-gray-900">PIX gerado</p>
-                      <img
-                        src={`data:image/png;base64,${checkoutData.qr_code_base64}`}
-                        alt="QR Code PIX"
-                        className="mx-auto h-48 w-48 rounded-lg border border-gray-200"
-                      />
-                      {checkoutData?.qr_code && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            navigator.clipboard.writeText(String(checkoutData.qr_code || ''));
-                            toast.success('Código PIX copiado!');
-                          }}
-                          className="mt-3 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700"
-                        >
-                          <Copy className="h-4 w-4" />
-                          Copiar PIX copia e cola
-                        </button>
-                      )}
+                    <div className="overflow-hidden rounded-2xl border-2 border-emerald-300 bg-white shadow-md">
+                      <div className="bg-emerald-600 px-4 py-3 text-center">
+                        <p className="text-sm font-extrabold text-white">Falta pouco! Pague o PIX para liberar sua conta 🚀</p>
+                      </div>
+                      <div className="p-4 text-center">
+                        <div className="mx-auto inline-block rounded-2xl bg-white p-3 shadow-md ring-1 ring-emerald-100">
+                          <img
+                            src={`data:image/png;base64,${checkoutData.qr_code_base64}`}
+                            alt="QR Code PIX"
+                            className="mx-auto h-48 w-48"
+                          />
+                        </div>
+                        <p className="mt-3 text-3xl font-black text-gray-900">{formatBrl(checkoutAmountToday)}</p>
+                        <p className="text-[11px] font-semibold text-gray-500">valor exato do PIX • {selectedPlanConfig.label}</p>
+                        <div className="mx-auto mt-4 max-w-xs space-y-1.5 text-left">
+                          <p className="flex items-center gap-2 text-xs text-gray-600">
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[10px] font-black text-emerald-700">1</span>
+                            Abra o app do seu banco
+                          </p>
+                          <p className="flex items-center gap-2 text-xs text-gray-600">
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[10px] font-black text-emerald-700">2</span>
+                            Escaneie o QR Code ou use o copia e cola
+                          </p>
+                          <p className="flex items-center gap-2 text-xs text-gray-600">
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[10px] font-black text-emerald-700">3</span>
+                            Sua conta é criada na hora, sozinha ✅
+                          </p>
+                        </div>
+                        {checkoutData?.qr_code && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(String(checkoutData.qr_code || ''));
+                              toast.success('Código PIX copiado!');
+                            }}
+                            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-extrabold text-white transition hover:bg-emerald-700"
+                          >
+                            <Copy className="h-4 w-4" />
+                            Copiar PIX copia e cola
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
 
                   {(paymentStatusMessage || checkoutId) && (
-                    <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-900">
-                      {paymentStatusMessage || 'Aguardando confirmação do pagamento...'}
+                    <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3.5">
+                      <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+                      <p className="text-sm font-semibold text-amber-800">
+                        {paymentStatusMessage || 'Aguardando confirmação do pagamento...'}
+                      </p>
                     </div>
                   )}
                 </div>
               )}
 
               {/* Info */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center gap-2.5 rounded-xl border border-blue-200 bg-blue-50 p-3.5">
+                <CheckCircle className="h-4 w-4 shrink-0 text-blue-600" />
                 <p className="text-sm text-blue-800">
                   Cadastro automático: se o pagamento não for aprovado, a conta não é criada.
                 </p>
