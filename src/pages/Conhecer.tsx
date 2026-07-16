@@ -187,10 +187,10 @@ const Conhecer = () => {
               <>
                  {/* Imagem BRASIL no topo */}
                  <div className="mb-4 flex justify-center items-center">
-                   <img 
-                     src="/BRASIL.png" 
-                     alt="Brasil" 
-                     className="w-full max-w-48 h-auto rounded-lg"
+                   <img
+                     src="/ca.webp"
+                     alt="Agendei Fácil"
+                     className="w-full max-w-md h-auto rounded-xl"
                    />
                  </div>
                  
@@ -203,39 +203,30 @@ const Conhecer = () => {
                    />
                    </div>
                  </div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-white mb-4">
-                  Agendei Fácil seria para?
+                <h1 className="text-xl sm:text-2xl font-bold text-blue-400 mt-2 mb-8">
+                  Para qual negócio você deseja? 👇
                 </h1>
                 
-                <div className="space-y-4">
+                <div className="space-y-6">
                   <button
                     onClick={() => handleBusinessTypeSelect('barbearia')}
-                    className="w-full p-4 bg-gray-800 hover:bg-gray-700 text-white rounded-2xl font-bold text-lg flex items-center gap-4 transition-colors border border-white/10"
+                    className="w-full rounded-2xl overflow-hidden transition-transform hover:scale-[1.02] active:scale-[0.98]"
                   >
-                    <span className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
-                      <img src="/barbeiro.png" alt="Barbearia" className="w-7 h-7" />
-                    </span>
-                    <span className="flex-1 text-left">Barbearia</span>
+                    <img src="/barbeariabotom.webp" alt="Barbearia" className="w-full h-auto block" />
                   </button>
                   
                   <button
                     onClick={() => handleBusinessTypeSelect('salao')}
-                    className="w-full p-4 bg-gray-800 hover:bg-gray-700 text-white rounded-2xl font-bold text-lg flex items-center gap-4 transition-colors border border-white/10"
+                    className="w-full rounded-2xl overflow-hidden transition-transform hover:scale-[1.02] active:scale-[0.98]"
                   >
-                    <span className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
-                      <img src="/salao.png" alt="Salão" className="w-7 h-7" />
-                    </span>
-                    <span className="flex-1 text-left">Salão de Beleza</span>
+                    <img src="/salaobotom.webp" alt="Salão de Beleza" className="w-full h-auto block" />
                   </button>
                   
                   <button
                     onClick={() => handleBusinessTypeSelect('lavacar')}
-                    className="w-full p-4 bg-gray-800 hover:bg-gray-700 text-white rounded-2xl font-bold text-lg flex items-center gap-4 transition-colors border border-white/10"
+                    className="w-full rounded-2xl overflow-hidden transition-transform hover:scale-[1.02] active:scale-[0.98]"
                   >
-                    <span className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
-                      <img src="/lavalava.png" alt="Lava-car" className="w-7 h-7" />
-                    </span>
-                    <span className="flex-1 text-left">Lava-car</span>
+                    <img src="/lavacarbotom.webp" alt="Lava-car" className="w-full h-auto block" />
                   </button>
                 </div>
               </>
@@ -265,9 +256,9 @@ const Conhecer = () => {
                    <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight">
                      Então você está no lugar certo!
                    </h1>
-                   <p className="text-xs sm:text-base text-gray-300 leading-relaxed">
-                     <span className="block sm:inline">Conheça em poucos cliques o Agendei Fácil,</span>
-                     <span className="block sm:inline">o sistema de agendamentos mais completo do Brasil.</span>
+                   <p className="text-sm sm:text-base text-gray-200 leading-relaxed">
+                     <span className="block sm:inline">Conheça em poucos cliques o <span className="font-bold text-blue-400 whitespace-nowrap">Agendei&nbsp;Fácil</span>,</span>
+                     <span className="block sm:inline">o sistema de agendamentos <span className="font-bold text-blue-400 whitespace-nowrap">mais&nbsp;completo&nbsp;do&nbsp;Brasil</span>.</span>
                    </p>
                  </div>
 

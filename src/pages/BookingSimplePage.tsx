@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Loader2, MapPin, ScissorsLineDashed, Sparkles, User, X } from 'lucide-react';
 import { PaymentModal } from '../components/PaymentModal';
+import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { TimeSlotSelector } from '../components/TimeSlotSelector';
 import { useToast } from '../components/ui/Toaster';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
@@ -12,22 +13,28 @@ import {
   registerAfcoinLocalPayBundle,
 } from '../utils/afcoin';
 import { AFCOIN_POINTS_LOCAL, AFCOIN_POINTS_ONLINE, isLocalAfcoinPaymentMethod } from '../utils/appointmentPayment';
+import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import {
   buildBusinessHoursForDate,
   buildNormalPayload,
   buildPendingPaymentPayload,
+  buildSubscriberPayload,
   checkAppointmentConflict,
   ensureGuestSession,
   getMinimumAdvanceMinutes,
   getScheduleIntervalMinutes,
   loadEstablishmentAndServices,
   loadExistingAppointmentsForDate,
+  loadSubscriberPlanOptions,
+  loadSubscriptionPlanForRenewal,
   resolvePaymentRequirement,
+  resolveSubscriberByPhone,
   supabase,
   withTimeout,
   type PaymentRequirement,
   type SimpleProfessional,
   type SimpleService,
+  type SimpleSubscriberOption,
 } from '../utils/bookingSimpleEngine';
 
 /**
@@ -42,7 +49,7 @@ import {
  * para a lógica de agendamento copiada (não compartilhada) de lá.
  */
 
-type WizardStep = 'welcome' | 'name' | 'phone' | 'professional' | 'service' | 'datetime' | 'summary' | 'payment_mode' | 'payment' | 'success';
+type WizardStep = 'welcome' | 'name' | 'phone' | 'subscriber_choice' | 'expired_choice' | 'professional' | 'service' | 'datetime' | 'summary' | 'payment_mode' | 'payment' | 'success';
 
 const STEP_ORDER: WizardStep[] = ['welcome', 'name', 'phone', 'professional', 'service', 'datetime', 'summary'];
 
@@ -167,6 +174,26 @@ const BookingSimplePage = () => {
   const [paymentPendingNotice, setPaymentPendingNotice] = useState(false);
   const [pendingRequirement, setPendingRequirement] = useState<PaymentRequirement | null>(null);
 
+  // ===== Assinante (detecção pelo telefone + agendamento pelo plano) =====
+  const [checkingSubscriber, setCheckingSubscriber] = useState(false);
+  const [detectedSubscriber, setDetectedSubscriber] = useState<any>(null);
+  const [subscriberFlow, setSubscriberFlow] = useState(false);
+  const [subscriberOptions, setSubscriberOptions] = useState<SimpleSubscriberOption[]>([]);
+  const [selectedSubscriberIds, setSelectedSubscriberIds] = useState<string[]>([]);
+  const [subscriberLimits, setSubscriberLimits] = useState<Record<string, {
+    canBook: boolean;
+    currentUsage: number;
+    monthlyLimit: number | null;
+    remaining: number | null;
+  }>>({});
+  const [loadingSubscriberLimits, setLoadingSubscriberLimits] = useState(false);
+  const [subscriberOverallUsage, setSubscriberOverallUsage] = useState<{ currentUsage: number; monthlyLimit: number | null } | null>(null);
+
+  // ===== Assinatura vencida (renovação — mesmo modal do booking normal) =====
+  const [expiredSubscriber, setExpiredSubscriber] = useState<any>(null);
+  const [renewalPlan, setRenewalPlan] = useState<any>(null);
+  const [showRenewModal, setShowRenewModal] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -193,8 +220,18 @@ const BookingSimplePage = () => {
 
   const visibleProfessionals: SimpleProfessional[] = useMemo(() => {
     const list = Array.isArray(establishment?.professionals) ? establishment.professionals : [];
-    return list.filter((p: any) => !p?.hidden_from_booking);
-  }, [establishment]);
+    const visible = list.filter((p: any) => !p?.hidden_from_booking);
+    // Assinatura com profissionais exclusivos: trava a lista neles (origem: BookingChatFlow ~278-287)
+    if (!subscriberFlow) return visible;
+    const lockedMultiIds = Array.isArray(detectedSubscriber?.subscriber_professional_ids)
+      ? detectedSubscriber.subscriber_professional_ids.map((x: any) => String(x || '').trim()).filter(Boolean)
+      : [];
+    const lockedSingleId = String(detectedSubscriber?.subscriber_professional_id || '').trim();
+    const lockedIds = lockedMultiIds.length > 0 ? lockedMultiIds : (lockedSingleId ? [lockedSingleId] : []);
+    if (lockedIds.length === 0) return visible;
+    const locked = visible.filter((p: any) => lockedIds.includes(String(p?.id || '').trim()));
+    return locked.length > 0 ? locked : visible;
+  }, [establishment, subscriberFlow, detectedSubscriber]);
 
   const services: SimpleService[] = useMemo(() => {
     const all: SimpleService[] = Array.isArray(establishment?.services_with_prices)
@@ -229,6 +266,155 @@ const BookingSimplePage = () => {
     [state.services]
   );
 
+  // ===== Assinante: derivados da seleção =====
+  const isDividedSubscriberPlan = useMemo(
+    () => subscriberOptions.some((option) => option.divide_services_enabled),
+    [subscriberOptions]
+  );
+  const selectedSubscriberOptions = useMemo(
+    () => subscriberOptions.filter((option) => selectedSubscriberIds.includes(option.id)),
+    [selectedSubscriberIds, subscriberOptions]
+  );
+  const subscriberPlanName = useMemo(
+    () => String(subscriberOptions[0]?.plan_name || detectedSubscriber?.subscriptions?.name || '').trim(),
+    [subscriberOptions, detectedSubscriber]
+  );
+  const subscriberWeekdays = useMemo(() => subscriberOptions[0]?.weekdays ?? [], [subscriberOptions]);
+  const subscriberEndDate = useMemo(
+    () => String(detectedSubscriber?.end_date || '').slice(0, 10),
+    [detectedSubscriber]
+  );
+  const subscriberDuration = useMemo(
+    () => selectedSubscriberOptions.reduce((sum, option) => sum + (Number(option.duration) || 0), 0),
+    [selectedSubscriberOptions]
+  );
+  const subscriberServiceName = useMemo(
+    () => selectedSubscriberOptions.map((option) => option.name.trim()).filter(Boolean).join(' + '),
+    [selectedSubscriberOptions]
+  );
+
+  // Valores efetivos usados por data/horário, resumo e confirmação (assinante x normal)
+  const effectiveDuration = subscriberFlow ? subscriberDuration : totalDuration;
+  const effectiveServiceName = subscriberFlow ? subscriberServiceName : combinedServiceName;
+  const hasServiceSelection = subscriberFlow ? selectedSubscriberOptions.length > 0 : state.services.length > 0;
+
+  const toggleSubscriberOption = (option: SimpleSubscriberOption) => {
+    const limitInfo = subscriberLimits[option.id];
+    if (limitInfo && limitInfo.canBook === false) return;
+    setSelectedSubscriberIds((prev) => {
+      const isSelected = prev.includes(option.id);
+      if (isSelected) return prev.filter((id) => id !== option.id);
+      // Plano sem divisão de serviços: escolha única (igual ao booking normal)
+      if (!option.divide_services_enabled) return [option.id];
+      return [...prev, option.id];
+    });
+  };
+
+  // Detecta assinante depois do telefone (origem: BookingChatFlow ~1250-1285)
+  const handlePhoneNext = async () => {
+    if (!establishment?.id) return;
+    setCheckingSubscriber(true);
+    try {
+      const resolved = await resolveSubscriberByPhone(establishment.id, state.clientWhatsapp);
+      if (resolved.status === 'active' && resolved.data) {
+        const options = await loadSubscriberPlanOptions(establishment.id, resolved.data);
+        if (options.length > 0) {
+          setDetectedSubscriber(resolved.data);
+          setSubscriberOptions(options);
+          setSelectedSubscriberIds([]);
+          setSubscriberFlow(false); // só ativa quando a pessoa escolher "Usar minha assinatura"
+          setExpiredSubscriber(null);
+          setRenewalPlan(null);
+          try {
+            const overall = await checkMonthlyLimit(state.clientWhatsapp, establishment.id, new Date());
+            const numericLimit = Number((overall as any)?.monthlyLimit);
+            setSubscriberOverallUsage({
+              currentUsage: Number((overall as any)?.currentUsage || 0),
+              monthlyLimit: Number.isFinite(numericLimit) && numericLimit > 0 ? numericLimit : null,
+            });
+          } catch {
+            setSubscriberOverallUsage(null);
+          }
+          setStep('subscriber_choice');
+          return;
+        }
+      }
+      // Assinatura vencida: oferece renovar (mesmo formato do booking normal)
+      if (resolved.status === 'expired' && resolved.data) {
+        setDetectedSubscriber(null);
+        setSubscriberFlow(false);
+        setSubscriberOptions([]);
+        setSelectedSubscriberIds([]);
+        setExpiredSubscriber(resolved.data);
+        setRenewalPlan(await loadSubscriptionPlanForRenewal(establishment.id, resolved.data));
+        setStep('expired_choice');
+        return;
+      }
+
+      // Sem assinatura ativa (ou plano sem serviços): segue o fluxo normal
+      setDetectedSubscriber(null);
+      setSubscriberFlow(false);
+      setSubscriberOptions([]);
+      setSelectedSubscriberIds([]);
+      setExpiredSubscriber(null);
+      setRenewalPlan(null);
+      setStep('professional');
+    } finally {
+      setCheckingSubscriber(false);
+    }
+  };
+
+  // Uso/limite de cada serviço do plano — mesma validação central do booking normal
+  // (checkMonthlyLimit cuida de limite mensal, contínuo, dividido e bônus).
+  useEffect(() => {
+    if (!subscriberFlow || !establishment?.id || !detectedSubscriber || subscriberOptions.length === 0) {
+      setSubscriberLimits({});
+      return;
+    }
+    let cancelled = false;
+    setLoadingSubscriberLimits(true);
+    (async () => {
+      try {
+        const referenceDate = state.selectedDate ? new Date(`${state.selectedDate}T12:00:00`) : new Date();
+        const entries = await Promise.all(
+          subscriberOptions.map(async (option) => {
+            const check = await checkMonthlyLimit(state.clientWhatsapp, establishment.id, referenceDate, {
+              id: option.service_id,
+              name: option.name || null,
+              limit: option.service_limit,
+            });
+            const numericLimit = Number((check as any)?.monthlyLimit);
+            const monthlyLimit = Number.isFinite(numericLimit) && numericLimit > 0 ? numericLimit : null;
+            const currentUsage = Number((check as any)?.currentUsage || 0);
+            return [option.id, {
+              canBook: Boolean((check as any)?.canBook),
+              currentUsage,
+              monthlyLimit,
+              remaining: monthlyLimit ? Math.max(0, monthlyLimit - currentUsage) : null,
+            }] as const;
+          })
+        );
+        if (cancelled) return;
+        const next: Record<string, { canBook: boolean; currentUsage: number; monthlyLimit: number | null; remaining: number | null }> = {};
+        entries.forEach(([key, value]) => { next[key] = value; });
+        setSubscriberLimits(next);
+      } catch {
+        if (!cancelled) setSubscriberLimits({});
+      } finally {
+        if (!cancelled) setLoadingSubscriberLimits(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [subscriberFlow, establishment?.id, detectedSubscriber, subscriberOptions, state.clientWhatsapp, state.selectedDate]);
+
+  // Se um serviço selecionado atingir o limite (ex.: ao trocar a data), desmarca sozinho
+  useEffect(() => {
+    if (!subscriberFlow) return;
+    setSelectedSubscriberIds((prev) => prev.filter((id) => subscriberLimits[id]?.canBook !== false));
+  }, [subscriberFlow, subscriberLimits]);
+
   const isOpenNow = useMemo(() => isEstablishmentOpenNow(establishment), [establishment]);
 
   const todayStr = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
@@ -245,7 +431,14 @@ const BookingSimplePage = () => {
   const isDaySelectable = (d: Date): boolean => {
     if (d < todayStart) return false;
     const dayKey = BUSINESS_HOURS_DAY_KEYS[d.getDay()];
-    return Boolean(establishment?.business_hours?.[dayKey]?.enabled);
+    if (!establishment?.business_hours?.[dayKey]?.enabled) return false;
+    if (subscriberFlow) {
+      // Plano com dias restritos (origem: BookingChatFlow ~601-611)
+      if (subscriberWeekdays.length > 0 && !subscriberWeekdays.includes(dayKey)) return false;
+      // Não deixa agendar depois do vencimento da assinatura
+      if (subscriberEndDate && format(d, 'yyyy-MM-dd') > subscriberEndDate) return false;
+    }
+    return true;
   };
 
   const pickDate = (dateStr: string) => {
@@ -283,12 +476,17 @@ const BookingSimplePage = () => {
   };
 
   const goBack = () => {
+    // Assinante detectado: o passo anterior ao profissional é a escolha da assinatura
+    if (step === 'professional' && detectedSubscriber) {
+      setStep('subscriber_choice');
+      return;
+    }
     const idx = STEP_ORDER.indexOf(step);
     if (idx > 0) setStep(STEP_ORDER[idx - 1]);
   };
 
   const handleConfirm = async () => {
-    if (!establishment?.id || !state.professional || state.services.length === 0 || !state.selectedDate || !state.selectedTime) {
+    if (!establishment?.id || !state.professional || !hasServiceSelection || !state.selectedDate || !state.selectedTime) {
       toast.error('Preencha todas as informações antes de confirmar.');
       return;
     }
@@ -312,13 +510,54 @@ const BookingSimplePage = () => {
         professionalRef: state.professional.id,
         targetDate: state.selectedDate,
         targetTime: state.selectedTime,
-        durationMinutes: totalDuration,
+        durationMinutes: effectiveDuration,
         scheduleIntervalMinutes: intervalMinutes,
       });
 
       if (!conflict.ok) {
         toast.error(conflict.message || 'Horário indisponível.');
         setStep('datetime');
+        return;
+      }
+
+      // ===== Assinante: valida vencimento, dias do plano e limites, e cria sem cobrança =====
+      if (subscriberFlow) {
+        if (subscriberEndDate && state.selectedDate > subscriberEndDate) {
+          toast.error(`Sua assinatura vence em ${subscriberEndDate.split('-').reverse().join('/')}. Escolha uma data antes do vencimento ou renove com o estabelecimento.`);
+          setStep('datetime');
+          return;
+        }
+        const selectedDayKey = BUSINESS_HOURS_DAY_KEYS[new Date(`${state.selectedDate}T12:00:00`).getDay()];
+        if (subscriberWeekdays.length > 0 && !subscriberWeekdays.includes(selectedDayKey)) {
+          toast.error('Sua assinatura não permite agendar neste dia da semana.');
+          setStep('datetime');
+          return;
+        }
+        // Revalidação fresca na validação central (limite mensal/contínuo/dividido/bônus)
+        for (const option of selectedSubscriberOptions) {
+          const check = await checkMonthlyLimit(state.clientWhatsapp, establishment.id, new Date(`${state.selectedDate}T12:00:00`), {
+            id: option.service_id,
+            name: option.name || null,
+            limit: option.service_limit,
+          });
+          if (!check.canBook) {
+            toast.error(check.errorMessage || `Limite da assinatura atingido para ${option.name}.`);
+            setStep('service');
+            return;
+          }
+        }
+
+        const subscriptionId = String(
+          selectedSubscriberOptions[0]?.subscription_id || detectedSubscriber?.subscription_id || ''
+        ).trim() || null;
+        const payload = buildSubscriberPayload(buildPayloadInput(userId), subscriptionId);
+        const { error: insertError } = await withTimeout(
+          supabase.from('appointments').insert([payload]).select('id').single(),
+          20000, 'insert (assinante)'
+        );
+        if (insertError) throw insertError;
+        toast.success('Agendamento confirmado!');
+        setStep('success');
         return;
       }
 
@@ -366,9 +605,9 @@ const BookingSimplePage = () => {
     appointmentTime: state.selectedTime,
     professionalId: state.professional!.id,
     professionalName: state.professional!.name,
-    serviceName: combinedServiceName,
-    price: totalPrice,
-    duration: totalDuration,
+    serviceName: effectiveServiceName,
+    price: subscriberFlow ? 0 : totalPrice,
+    duration: effectiveDuration,
     clientName: state.clientName.trim(),
     clientWhatsapp: state.clientWhatsapp,
   });
@@ -636,10 +875,110 @@ const BookingSimplePage = () => {
             <button
               type="button"
               className={PRIMARY_BUTTON}
-              disabled={state.clientWhatsapp.replace(/\D/g, '').length < 10}
-              onClick={goNext}
+              disabled={state.clientWhatsapp.replace(/\D/g, '').length < 10 || checkingSubscriber}
+              onClick={handlePhoneNext}
             >
-              Próximo
+              {checkingSubscriber ? 'Verificando...' : 'Próximo'}
+            </button>
+          </div>
+        )}
+
+        {step === 'subscriber_choice' && detectedSubscriber && (
+          <div className="flex-1 flex flex-col gap-5">
+            <div className="rounded-2xl border-2 p-5 text-center" style={{ borderColor: GOLD, backgroundColor: 'rgba(230,199,139,0.08)' }}>
+              <p className="text-3xl mb-1">👑</p>
+              <h2 className="text-2xl font-extrabold text-white mb-1">Você é assinante!</h2>
+              {subscriberPlanName && (
+                <p className="text-gray-300">
+                  Plano <strong style={{ color: GOLD }}>{subscriberPlanName}</strong>
+                </p>
+              )}
+              {subscriberOverallUsage?.monthlyLimit ? (
+                <p className="text-sm text-gray-400 mt-2">
+                  Você já usou <strong className="text-white">{subscriberOverallUsage.currentUsage}</strong> de{' '}
+                  <strong className="text-white">{subscriberOverallUsage.monthlyLimit}</strong> atendimentos
+                  {subscriberOverallUsage.monthlyLimit - subscriberOverallUsage.currentUsage > 0
+                    ? ` — restam ${subscriberOverallUsage.monthlyLimit - subscriberOverallUsage.currentUsage}`
+                    : ' — limite do mês atingido'}
+                </p>
+              ) : null}
+              {subscriberEndDate && (
+                <p className="text-xs text-gray-500 mt-1">Assinatura válida até {subscriberEndDate.split('-').reverse().join('/')}</p>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className={PRIMARY_BUTTON}
+              onClick={() => {
+                setSubscriberFlow(true);
+                setState((s) => ({ ...s, services: [], selectedDate: '', selectedTime: '' }));
+                setStep('professional');
+              }}
+            >
+              👑 Usar minha assinatura
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSubscriberFlow(false);
+                setSelectedSubscriberIds([]);
+                setStep('professional');
+              }}
+              className="w-full min-h-[52px] rounded-2xl text-lg font-bold px-6 py-4 bg-transparent border-2 border-gray-600 text-gray-300 hover:border-gray-400 transition-colors"
+            >
+              Agendar fora da assinatura
+            </button>
+            <button
+              type="button"
+              onClick={() => setStep('phone')}
+              className="text-sm font-medium text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              ← Voltar
+            </button>
+          </div>
+        )}
+
+        {step === 'expired_choice' && expiredSubscriber && (
+          <div className="flex-1 flex flex-col gap-5">
+            <div className="rounded-2xl border-2 border-amber-500/50 p-5 text-center" style={{ backgroundColor: 'rgba(245,158,11,0.08)' }}>
+              <p className="text-3xl mb-1">⚠️</p>
+              <h2 className="text-2xl font-extrabold text-white mb-1">Sua assinatura está vencida</h2>
+              {String(expiredSubscriber?.end_date || '').slice(0, 10) && (
+                <p className="text-gray-300">
+                  Venceu em{' '}
+                  <strong className="text-amber-300">
+                    {String(expiredSubscriber.end_date).slice(0, 10).split('-').reverse().join('/')}
+                  </strong>
+                </p>
+              )}
+              <p className="text-sm text-gray-400 mt-2">
+                Renove para continuar usando os benefícios do seu plano, ou agende como cliente normal.
+              </p>
+            </div>
+
+            {renewalPlan && (
+              <button type="button" className={PRIMARY_BUTTON} onClick={() => setShowRenewModal(true)}>
+                Renovar assinatura
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setSubscriberFlow(false);
+                setSelectedSubscriberIds([]);
+                setStep('professional');
+              }}
+              className="w-full min-h-[52px] rounded-2xl text-lg font-bold px-6 py-4 bg-transparent border-2 border-gray-600 text-gray-300 hover:border-gray-400 transition-colors"
+            >
+              Agendar sem assinatura
+            </button>
+            <button
+              type="button"
+              onClick={() => setStep('phone')}
+              className="text-sm font-medium text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              ← Voltar
             </button>
           </div>
         )}
@@ -676,7 +1015,60 @@ const BookingSimplePage = () => {
           </div>
         )}
 
-        {step === 'service' && (
+        {step === 'service' && subscriberFlow && (
+          <div className="flex-1 flex flex-col gap-4 pb-24">
+            <h2 className="text-2xl font-extrabold text-white">Escolha o serviço da assinatura</h2>
+            <p className="text-gray-400">
+              {isDividedSubscriberPlan ? 'Pode escolher mais de um — tudo incluso no seu plano.' : 'Incluso no seu plano, sem custo.'}
+            </p>
+            {loadingSubscriberLimits && (
+              <div className="flex items-center gap-2 text-gray-400 text-sm">
+                <Loader2 className="h-4 w-4 animate-spin" style={{ color: GOLD }} />
+                Carregando seus limites...
+              </div>
+            )}
+            <div className="flex flex-col gap-3">
+              {subscriberOptions.map((option) => {
+                const isSelected = selectedSubscriberIds.includes(option.id);
+                const limitInfo = subscriberLimits[option.id];
+                const blocked = limitInfo?.canBook === false;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    disabled={blocked}
+                    onClick={() => toggleSubscriberOption(option)}
+                    className={`${CARD_BASE} ${blocked ? 'border-gray-800 bg-[#151618] opacity-60 cursor-not-allowed' : isSelected ? CARD_SELECTED : CARD_UNSELECTED}`}
+                  >
+                    <div className="w-12 h-12 rounded-xl bg-[#242628] flex items-center justify-center shrink-0">
+                      <span className="text-2xl">👑</span>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-lg font-semibold text-white">{option.name}</p>
+                      <p className="text-gray-400">Incluso na assinatura · {option.duration} min</p>
+                      {limitInfo?.monthlyLimit ? (
+                        <p className={`text-sm font-semibold mt-0.5 ${blocked ? 'text-red-400' : 'text-emerald-400'}`}>
+                          {blocked
+                            ? `Limite do mês atingido (${limitInfo.currentUsage} de ${limitInfo.monthlyLimit})`
+                            : `Você usou ${limitInfo.currentUsage} de ${limitInfo.monthlyLimit} — restam ${limitInfo.remaining}`}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div
+                      className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 border-2 ${
+                        isSelected ? 'border-[#E6C78B] bg-[#E6C78B]' : 'border-gray-600'
+                      }`}
+                    >
+                      {isSelected && <Check className="h-4 w-4 text-black" />}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {step === 'service' && !subscriberFlow && (
           <div className="flex-1 flex flex-col gap-4 pb-24">
             <h2 className="text-2xl font-extrabold text-white">Escolha o serviço</h2>
             <p className="text-gray-400">Pode escolher mais de um.</p>
@@ -725,21 +1117,23 @@ const BookingSimplePage = () => {
           </div>
         )}
 
-        {step === 'datetime' && state.professional && state.services.length > 0 && (
+        {step === 'datetime' && state.professional && hasServiceSelection && (
           <div className="flex-1 flex flex-col gap-4">
             <h2 className="text-2xl font-extrabold text-white">Escolha data e horário</h2>
 
             {!state.selectedDate ? (
               <div className="flex flex-col gap-3">
-                <button type="button" onClick={() => pickDate(todayStr)} className={`${CARD_BASE} ${CARD_UNSELECTED}`}>
-                  <div className="w-12 h-12 rounded-xl bg-[#242628] flex items-center justify-center shrink-0">
-                    <Sparkles className="h-6 w-6" style={{ color: GOLD }} />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-lg font-semibold text-white">Hoje</p>
-                    <p className="text-gray-400">{todayStr.split('-').reverse().slice(0, 2).join('/')}</p>
-                  </div>
-                </button>
+                {isDaySelectable(new Date()) && (
+                  <button type="button" onClick={() => pickDate(todayStr)} className={`${CARD_BASE} ${CARD_UNSELECTED}`}>
+                    <div className="w-12 h-12 rounded-xl bg-[#242628] flex items-center justify-center shrink-0">
+                      <Sparkles className="h-6 w-6" style={{ color: GOLD }} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-lg font-semibold text-white">Hoje</p>
+                      <p className="text-gray-400">{todayStr.split('-').reverse().slice(0, 2).join('/')}</p>
+                    </div>
+                  </button>
+                )}
 
                 {!showMoreDates && (
                   <button
@@ -831,7 +1225,7 @@ const BookingSimplePage = () => {
                 ) : (
                   <TimeSlotSelector
                     selectedDate={new Date(`${state.selectedDate}T00:00:00`)}
-                    selectedDuration={totalDuration}
+                    selectedDuration={effectiveDuration}
                     existingAppointments={dayAppointments}
                     selectedTime={state.selectedTime}
                     onTimeSelect={(time) => {
@@ -876,9 +1270,20 @@ const BookingSimplePage = () => {
           </div>
         )}
 
-        {step === 'summary' && state.professional && state.services.length > 0 && (
+        {step === 'summary' && state.professional && hasServiceSelection && (
           <div className="flex-1 flex flex-col gap-6">
             <h2 className="text-2xl font-extrabold text-white">Confirme seu agendamento</h2>
+            {subscriberFlow && (
+              <div
+                className="flex items-center gap-2 rounded-2xl border-2 px-4 py-3"
+                style={{ borderColor: GOLD, backgroundColor: 'rgba(230,199,139,0.08)' }}
+              >
+                <span className="text-xl">👑</span>
+                <p className="text-white font-semibold">
+                  Agendando pela assinatura{subscriberPlanName ? <> <strong style={{ color: GOLD }}>{subscriberPlanName}</strong></> : null}
+                </p>
+              </div>
+            )}
             <div className="rounded-2xl border-2 border-gray-700 bg-[#1c1d20] p-5 space-y-3 text-lg text-white">
               <p>
                 <span className="text-gray-400">Cliente:</span> <strong>{state.clientName}</strong>
@@ -891,16 +1296,33 @@ const BookingSimplePage = () => {
               </p>
 
               <div className="border-t border-gray-700 pt-3 space-y-1.5">
-                {state.services.map((sv) => (
-                  <div key={sv.id} className="flex items-center justify-between text-base">
-                    <span className="text-gray-300">{sv.name}</span>
-                    <span>{formatPrice(sv.price)}</span>
-                  </div>
-                ))}
-                <div className="flex items-center justify-between pt-1.5 border-t border-gray-700">
-                  <span className="text-gray-400">Total ({totalDuration} min)</span>
-                  <strong style={{ color: GOLD }}>{formatPrice(totalPrice)}</strong>
-                </div>
+                {subscriberFlow ? (
+                  <>
+                    {selectedSubscriberOptions.map((option) => (
+                      <div key={option.id} className="flex items-center justify-between text-base">
+                        <span className="text-gray-300">{option.name}</span>
+                        <span className="text-emerald-400 font-semibold">Incluso ✓</span>
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between pt-1.5 border-t border-gray-700">
+                      <span className="text-gray-400">Total ({effectiveDuration} min)</span>
+                      <strong className="text-emerald-400">Incluso na assinatura 👑</strong>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {state.services.map((sv) => (
+                      <div key={sv.id} className="flex items-center justify-between text-base">
+                        <span className="text-gray-300">{sv.name}</span>
+                        <span>{formatPrice(sv.price)}</span>
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between pt-1.5 border-t border-gray-700">
+                      <span className="text-gray-400">Total ({totalDuration} min)</span>
+                      <strong style={{ color: GOLD }}>{formatPrice(totalPrice)}</strong>
+                    </div>
+                  </>
+                )}
               </div>
 
               <p className="border-t border-gray-700 pt-3">
@@ -1073,7 +1495,43 @@ const BookingSimplePage = () => {
         )}
       </div>
 
-      {step === 'service' && state.services.length > 0 && (
+      {/* Renovação de assinatura vencida — mesmo modal do booking normal (BookingPage ~5744-5779) */}
+      {showRenewModal && renewalPlan && establishment && (
+        <SubscriptionPixModal
+          isOpen={showRenewModal}
+          onClose={() => {
+            setShowRenewModal(false);
+            // Re-verifica o telefone: se a renovação foi paga, entra como assinante ativo
+            void handlePhoneNext();
+          }}
+          initialPrefill={{
+            name: String(expiredSubscriber?.subscriber_name || state.clientName || '').trim(),
+            whatsapp: String(expiredSubscriber?.subscriber_whatsapp || expiredSubscriber?.client_whatsapp || state.clientWhatsapp || '').trim(),
+          }}
+          establishmentId={String(establishment.id || '')}
+          recipientId={String(establishment.pagarme_recipient_id || '')}
+          establishmentName={String(establishment.name || 'este estabelecimento')}
+          establishmentWhatsapp={String(establishment.whatsapp || '')}
+          subscription={{
+            id: String(renewalPlan.id),
+            name: String(renewalPlan.name || 'Assinatura'),
+            value: Number(renewalPlan.value || 0),
+            duration_months: renewalPlan.duration_months ?? null,
+          }}
+          allowedPix={Boolean(renewalPlan?.payment_pix_enabled ?? true)}
+          allowedCard={Boolean(renewalPlan?.payment_card_enabled ?? true)}
+          initialFlow="default"
+          externalPaymentLink={String(renewalPlan.custom_link || '').trim() || undefined}
+          paymentProvider={
+            Boolean(establishment?.use_mercadopago_subscription_pix === true) &&
+            !!String(establishment?.mercadopago_access_token || '').trim()
+              ? 'mercadopago'
+              : 'pagarme'
+          }
+        />
+      )}
+
+      {step === 'service' && hasServiceSelection && (
         <div className="fixed bottom-0 left-0 right-0 z-20 px-5 pb-5 pt-6 pointer-events-none">
           <div
             className="pointer-events-none absolute inset-x-0 bottom-0 h-32"
@@ -1086,10 +1544,11 @@ const BookingSimplePage = () => {
               className={`${PRIMARY_BUTTON} shadow-xl shadow-black/50 flex items-center justify-center gap-2`}
             >
               <span>
-                Continuar · {state.services.length} serviço{state.services.length > 1 ? 's' : ''}
+                Continuar · {(subscriberFlow ? selectedSubscriberOptions.length : state.services.length)} serviço
+                {(subscriberFlow ? selectedSubscriberOptions.length : state.services.length) > 1 ? 's' : ''}
               </span>
               <span className="opacity-60">·</span>
-              <span>{formatPrice(totalPrice)}</span>
+              <span>{subscriberFlow ? 'Incluso 👑' : formatPrice(totalPrice)}</span>
             </button>
           </div>
         </div>

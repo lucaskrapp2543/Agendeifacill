@@ -1,5 +1,6 @@
 import { format } from 'date-fns';
-import { createGuestClientAndLogin, supabase } from '../lib/supabase';
+import { checkWhatsAppSubscriber as checkLegacySubscriber, createGuestClientAndLogin, getSubscriptions, supabase } from '../lib/supabase';
+import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
 import { resolveBookingPaymentAmount } from './appointmentPayment';
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from './scheduleGrid';
 
@@ -468,6 +469,187 @@ export async function withTimeout<T>(promise: Promise<T>, ms: number, label: str
     promise,
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`Timeout (${ms}ms): ${label}`)), ms)),
   ]);
+}
+
+// ============================================================================
+// ASSINANTES — agendamento como assinante na página simples.
+// Origem (sincronizado em 2026-07-16):
+// - resolveSubscriberByPhone: BookingChatFlow.tsx ~979-1016 (resolveSubscriberAfterPhone)
+// - loadSubscriberPlanOptions: BookingChatFlow.tsx ~426-477 (subscriberServiceOptions) +
+//   BookingPage.tsx ~274-279 (filtro pelo plano do assinante detectado)
+// - buildSubscriberPayload: BookingChatFlow.tsx ~1453-1501 — apenas os campos que são
+//   colunas reais em produção (is_subscriber, subscription_id, payment_method 'assinante',
+//   price 0). Os campos subscriber_service_* do chat são usados só em memória para a
+//   validação e removidos antes do insert (ver BookingPage.tsx ~1896-1903).
+// ============================================================================
+
+export interface SimpleSubscriberOption {
+  /** planId (plano único) ou planId::serviceId (plano com serviços divididos). */
+  id: string;
+  subscription_id: string | null;
+  service_id: string | null;
+  service_limit: number | null;
+  name: string;
+  duration: number;
+  plan_name: string;
+  /** Dias da semana permitidos pelo plano (vazio = todos). */
+  weekdays: string[];
+  divide_services_enabled: boolean;
+}
+
+/** Detecta assinante pelo telefone (sistema novo com fallback legado). */
+export async function resolveSubscriberByPhone(
+  establishmentId: string,
+  phoneRaw: string
+): Promise<{ status: 'active' | 'expired' | 'none'; data: any }> {
+  const estId = String(establishmentId || '').trim();
+  if (!estId || !String(phoneRaw || '').trim()) return { status: 'none', data: null };
+
+  const isSubscriberRecordExpired = (record: any): boolean => {
+    if (Boolean(record?.is_expired)) return true;
+    const paymentStatus = String(record?.payment_status || '').toLowerCase().trim();
+    if (paymentStatus === 'unpaid') return true;
+    const endDateStr = String(record?.end_date || '').slice(0, 10);
+    if (!endDateStr) return true;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const endDate = new Date(`${endDateStr}T00:00:00`);
+    return Number.isNaN(endDate.getTime()) || endDate.getTime() < today.getTime();
+  };
+
+  // A detecção pode vir de RPC antiga que não retorna a coluna nova
+  // subscriber_professional_ids (lista) — complementa com um fetch direto da linha.
+  const enrichWithProfessionalIds = async (record: any): Promise<any> => {
+    const recordId = String(record?.id || '').trim();
+    if (!recordId || Array.isArray(record?.subscriber_professional_ids)) return record;
+    try {
+      const { data } = await supabase
+        .from('client_subscriptions')
+        .select('subscriber_professional_ids')
+        .eq('id', recordId)
+        .maybeSingle();
+      if (Array.isArray((data as any)?.subscriber_professional_ids)) {
+        return { ...record, subscriber_professional_ids: (data as any).subscriber_professional_ids };
+      }
+    } catch {
+      // Coluna pode não existir ainda — segue com o registro original.
+    }
+    return record;
+  };
+
+  try {
+    const { data, error } = await checkNewSubscriber(phoneRaw, estId);
+    if (data && !error) {
+      return isSubscriberRecordExpired(data)
+        ? { status: 'expired', data }
+        : { status: 'active', data: await enrichWithProfessionalIds(data) };
+    }
+  } catch {
+    // Segue para o fallback legado.
+  }
+  try {
+    const { data, error } = await checkLegacySubscriber(phoneRaw, estId);
+    if (data && !error) {
+      return isSubscriberRecordExpired(data)
+        ? { status: 'expired', data }
+        : { status: 'active', data: await enrichWithProfessionalIds(data) };
+    }
+  } catch {
+    // Segue como não-assinante.
+  }
+  return { status: 'none', data: null };
+}
+
+/** Carrega os serviços do plano do assinante (expande divided_services quando habilitado). */
+export async function loadSubscriberPlanOptions(
+  establishmentId: string,
+  detectedSubscriber: any
+): Promise<SimpleSubscriberOption[]> {
+  const { data: subscriptionsData, error } = await getSubscriptions(establishmentId);
+  if (error || !Array.isArray(subscriptionsData)) return [];
+
+  const detectedPlanId = String(
+    detectedSubscriber?.subscription_id || detectedSubscriber?.subscriptions?.id || ''
+  ).trim();
+  const plans = detectedPlanId
+    ? subscriptionsData.filter((plan: any) => String(plan?.id || '').trim() === detectedPlanId)
+    : subscriptionsData;
+
+  const expanded = plans.flatMap((plan: any): SimpleSubscriberOption[] => {
+    const planId = String(plan?.id || '').trim();
+    const planName = String(plan?.name || '').trim();
+    const weekdays = Array.isArray(plan?.weekdays)
+      ? plan.weekdays.map((day: any) => String(day || '').toLowerCase().trim()).filter(Boolean)
+      : [];
+    const dividedEnabled = Boolean(plan?.divide_services_enabled);
+    const divided = Array.isArray(plan?.divided_services) ? plan.divided_services : [];
+
+    if (!dividedEnabled || divided.length === 0) {
+      return [{
+        id: planId || 'subscription',
+        subscription_id: planId || null,
+        service_id: String(plan?.service_id || '').trim() || null,
+        service_limit: Number(plan?.service_limit || 0) || null,
+        name: String(plan?.booking_service_name || plan?.name || '').trim() || 'Serviço da assinatura',
+        duration: Number(plan?.service_duration || plan?.duration || 30) || 30,
+        plan_name: planName,
+        weekdays,
+        divide_services_enabled: false,
+      }];
+    }
+
+    return divided
+      .map((entry: any, index: number): SimpleSubscriberOption | null => {
+        const entryId = String(entry?.id || '').trim();
+        const entryName = String(entry?.name || '').trim();
+        const entryDuration = Number(entry?.duration || 0);
+        const entryLimit = Number(entry?.limit || 0);
+        if (!entryName || !Number.isFinite(entryDuration) || entryDuration <= 0) return null;
+        return {
+          id: `${planId || 'subscription'}::${entryId || `service-${index}`}`,
+          subscription_id: planId || null,
+          service_id: entryId || null,
+          service_limit: Number.isFinite(entryLimit) && entryLimit > 0 ? entryLimit : null,
+          name: entryName,
+          duration: entryDuration,
+          plan_name: planName,
+          weekdays,
+          divide_services_enabled: true,
+        };
+      })
+      .filter((option): option is SimpleSubscriberOption => option !== null);
+  });
+
+  return expanded;
+}
+
+/**
+ * Plano bruto da assinatura do cliente (para renovação de assinatura vencida).
+ * Origem: BookingPage.tsx ~563-576 (handleOpenRenewSubscription).
+ */
+export async function loadSubscriptionPlanForRenewal(
+  establishmentId: string,
+  subscriberRecord: any
+): Promise<any | null> {
+  const { data, error } = await getSubscriptions(establishmentId);
+  if (error || !Array.isArray(data)) return null;
+  const planId = String(
+    subscriberRecord?.subscription_id || subscriberRecord?.subscriptions?.id || ''
+  ).trim();
+  if (!planId) return null;
+  return data.find((plan: any) => String(plan?.id || '').trim() === planId) || null;
+}
+
+/** Payload do agendamento como assinante (sem cobrança — o plano cobre o serviço). */
+export function buildSubscriberPayload(input: BookingPayloadInput, subscriptionId: string | null) {
+  return {
+    ...buildNormalPayload(input),
+    price: 0,
+    total_price: 0,
+    payment_method: 'assinante',
+    is_subscriber: true,
+    subscription_id: subscriptionId,
+  };
 }
 
 export { format, getScheduleIntervalMinutes, supabase };

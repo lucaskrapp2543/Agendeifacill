@@ -590,29 +590,36 @@ export function buildExclusiveSubscribersByGroupKey(params: {
   const map = new Map<string, Array<{ id: string; name: string }>>();
 
   (params.clientSubscriptions || []).forEach((cs: any) => {
+    // Novo: lista de profissionais; fallback para o campo antigo (único)
+    const multiIds = Array.isArray(cs?.subscriber_professional_ids)
+      ? cs.subscriber_professional_ids.map((x: any) => String(x || '').trim()).filter(Boolean)
+      : [];
     const profId = String(cs?.subscriber_professional_id || '').trim();
     const profName = String(cs?.subscriber_professional_name || '').trim();
-    if (!profId && !profName) return;
+    const effectiveIds = multiIds.length > 0 ? multiIds : (profId ? [profId] : []);
+    if (effectiveIds.length === 0 && !profName) return;
 
-    let groupKey = '';
-    if (profId) {
-      groupKey = `id:${profId}`;
+    let groupKeys: string[] = [];
+    if (effectiveIds.length > 0) {
+      groupKeys = effectiveIds.map((id) => `id:${id}`);
     } else {
       const activeMatch = params.establishmentProfessionals.find(
         (pro) => normalizeProfessionalNameKey(pro.name) === normalizeProfessionalNameKey(profName)
       );
-      groupKey = activeMatch?.id ? `id:${activeMatch.id}` : `name:${normalizeProfessionalNameKey(profName)}`;
+      groupKeys = [activeMatch?.id ? `id:${activeMatch.id}` : `name:${normalizeProfessionalNameKey(profName)}`];
     }
 
     const subscriberName =
       String(cs?.client_name_override || cs?.subscriber_name || cs?.profiles?.full_name || 'Assinante').trim() ||
       'Assinante';
 
-    const list = map.get(groupKey) || [];
-    if (!list.some((item) => item.id === String(cs.id))) {
-      list.push({ id: String(cs.id), name: subscriberName });
-    }
-    map.set(groupKey, list);
+    groupKeys.forEach((groupKey) => {
+      const list = map.get(groupKey) || [];
+      if (!list.some((item) => item.id === String(cs.id))) {
+        list.push({ id: String(cs.id), name: subscriberName });
+      }
+      map.set(groupKey, list);
+    });
   });
 
   map.forEach((list, key) => {

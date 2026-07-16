@@ -275,9 +275,14 @@ export function BookingChatFlow({
       const exclusiveList = visibleProfessionals.filter((p: any) => String(p?.id || '').trim() === exclusiveId);
       if (exclusiveList.length > 0) return exclusiveList;
     }
-    const lockedProfessionalId = String((detectedSubscriber as any)?.subscriber_professional_id || '').trim();
-    if (!isSubscriberFlow || !lockedProfessionalId) return visibleProfessionals;
-    const lockedList = visibleProfessionals.filter((p: any) => String(p?.id || '').trim() === lockedProfessionalId);
+    // Novo: lista de profissionais vinculados; fallback para o campo antigo (único)
+    const lockedMultiIds = Array.isArray((detectedSubscriber as any)?.subscriber_professional_ids)
+      ? (detectedSubscriber as any).subscriber_professional_ids.map((x: any) => String(x || '').trim()).filter(Boolean)
+      : [];
+    const lockedSingleId = String((detectedSubscriber as any)?.subscriber_professional_id || '').trim();
+    const lockedIds = lockedMultiIds.length > 0 ? lockedMultiIds : (lockedSingleId ? [lockedSingleId] : []);
+    if (!isSubscriberFlow || lockedIds.length === 0) return visibleProfessionals;
+    const lockedList = visibleProfessionals.filter((p: any) => lockedIds.includes(String(p?.id || '').trim()));
     return lockedList.length > 0 ? lockedList : visibleProfessionals;
   }, [detectedSubscriber, establishment?.professionals, exclusiveProfessionalId, isSubscriberFlow]);
 
@@ -992,11 +997,32 @@ export function BookingChatFlow({
       const endDate = new Date(`${endDateStr}T00:00:00`);
       return Number.isNaN(endDate.getTime()) || endDate.getTime() < today.getTime();
     };
+    // A detecção pode vir de RPC antiga que não retorna a coluna nova
+    // subscriber_professional_ids (lista de profissionais vinculados) —
+    // complementa com um fetch direto da linha antes de usar no fluxo.
+    const enrichWithProfessionalIds = async (record: any): Promise<any> => {
+      const recordId = String(record?.id || '').trim();
+      if (!recordId || Array.isArray(record?.subscriber_professional_ids)) return record;
+      try {
+        const { data } = await supabase
+          .from('client_subscriptions')
+          .select('subscriber_professional_ids')
+          .eq('id', recordId)
+          .maybeSingle();
+        if (Array.isArray((data as any)?.subscriber_professional_ids)) {
+          return { ...record, subscriber_professional_ids: (data as any).subscriber_professional_ids };
+        }
+      } catch {
+        // Coluna pode não existir ainda — segue com o registro original.
+      }
+      return record;
+    };
+
     try {
       const { data: firstData, error: firstError } = await checkNewSubscriber(phoneRaw, establishmentId);
       if (firstData && !firstError) {
         const isExpired = isSubscriberRecordExpired(firstData);
-        if (!isExpired) return { status: 'active', data: firstData };
+        if (!isExpired) return { status: 'active', data: await enrichWithProfessionalIds(firstData) };
         return { status: 'expired', data: firstData };
       }
     } catch {
@@ -1006,7 +1032,7 @@ export function BookingChatFlow({
       const { data: secondData, error: secondError } = await checkLegacySubscriber(phoneRaw, establishmentId);
       if (secondData && !secondError) {
         const isExpired = isSubscriberRecordExpired(secondData);
-        if (!isExpired) return { status: 'active', data: secondData };
+        if (!isExpired) return { status: 'active', data: await enrichWithProfessionalIds(secondData) };
         return { status: 'expired', data: secondData };
       }
     } catch {

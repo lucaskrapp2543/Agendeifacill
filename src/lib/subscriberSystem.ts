@@ -110,6 +110,11 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
       subscriber_observation: normalizedObservation || null,
       subscriber_professional_id: String(data.professional_id || '').trim() || null,
       subscriber_professional_name: String(data.professional_name || '').trim() || null,
+      // Múltiplos profissionais (lista); o campo singular acima guarda o 1º para compatibilidade.
+      subscriber_professional_ids:
+        Array.isArray((data as any).professional_ids) && (data as any).professional_ids.length > 0
+          ? (data as any).professional_ids.map((x: any) => String(x || '').trim()).filter(Boolean)
+          : null,
     };
     const updatePayload: any = { ...basePayload };
     delete updatePayload.client_id;
@@ -156,6 +161,7 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
         errMsg.includes('subscriber_payment_method') ||
         errMsg.includes('subscriber_observation') ||
         errMsg.includes('subscriber_professional_id') ||
+        errMsg.includes('subscriber_professional_ids') ||
         errMsg.includes('subscriber_professional_name') ||
         errMsg.includes('deactivated_at') ||
         errMsg.includes('archived_at')
@@ -166,10 +172,12 @@ export const createIndependentSubscriber = async (data: CreateSubscriberData) =>
       delete fallbackBasePayload.subscriber_payment_method;
       delete fallbackBasePayload.subscriber_observation;
       delete fallbackBasePayload.subscriber_professional_id;
+      delete fallbackBasePayload.subscriber_professional_ids;
       delete fallbackBasePayload.subscriber_professional_name;
       delete fallbackUpdatePayload.subscriber_payment_method;
       delete fallbackUpdatePayload.subscriber_observation;
       delete fallbackUpdatePayload.subscriber_professional_id;
+      delete fallbackUpdatePayload.subscriber_professional_ids;
       delete fallbackUpdatePayload.subscriber_professional_name;
       delete fallbackUpdatePayload.deactivated_at;
       delete fallbackUpdatePayload.archived_at;

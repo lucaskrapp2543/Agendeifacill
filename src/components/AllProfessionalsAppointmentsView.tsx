@@ -5514,22 +5514,38 @@ export const AllProfessionalsAppointmentsView: React.FC<
       setSqueezeSubscriptionClientsLoading(true);
       try {
         const dateStr = format(selectedDate, 'yyyy-MM-dd');
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from('client_subscriptions')
           .select(
-            'id, subscription_id, client_id, subscriber_name, subscriber_whatsapp, client_whatsapp, client_name_override, payment_status, start_date, end_date, subscriber_professional_id'
+            'id, subscription_id, client_id, subscriber_name, subscriber_whatsapp, client_whatsapp, client_name_override, payment_status, start_date, end_date, subscriber_professional_id, subscriber_professional_ids'
           )
           .eq('establishment_id', establishment.id)
           .eq('subscription_id', subscriptionPlanId);
+
+        // Fallback para banco ainda sem a coluna nova (lista de profissionais)
+        if (error && String(error.message || '').toLowerCase().includes('subscriber_professional_ids')) {
+          ({ data, error } = await supabase
+            .from('client_subscriptions')
+            .select(
+              'id, subscription_id, client_id, subscriber_name, subscriber_whatsapp, client_whatsapp, client_name_override, payment_status, start_date, end_date, subscriber_professional_id'
+            )
+            .eq('establishment_id', establishment.id)
+            .eq('subscription_id', subscriptionPlanId));
+        }
 
         if (error) throw error;
 
         const clients = (data || [])
           .filter((row: any) => isDateInsidePaidSubscription(dateStr, row))
           .filter((row: any) => {
-            const linkedProId = String(row?.subscriber_professional_id || '').trim();
-            if (!linkedProId) return true;
-            return linkedProId === String(professionalId || '').trim();
+            // Novo: lista de profissionais vinculados; fallback para o campo antigo (único)
+            const multiIds = Array.isArray(row?.subscriber_professional_ids)
+              ? row.subscriber_professional_ids.map((x: any) => String(x || '').trim()).filter(Boolean)
+              : [];
+            const singleId = String(row?.subscriber_professional_id || '').trim();
+            const linkedIds = multiIds.length > 0 ? multiIds : (singleId ? [singleId] : []);
+            if (linkedIds.length === 0) return true;
+            return linkedIds.includes(String(professionalId || '').trim());
           })
           .map((row: any) => {
             const name =

@@ -423,7 +423,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [newClientPhone, setNewClientPhone] = useState('');
   const [newClientEmail, setNewClientEmail] = useState('');
   const [newSubscriberPaymentMethod, setNewSubscriberPaymentMethod] = useState('');
-  const [newSubscriberProfessionalId, setNewSubscriberProfessionalId] = useState('');
+  // Múltiplos profissionais podem atender o assinante (vazio = todos)
+  const [newSubscriberProfessionalIds, setNewSubscriberProfessionalIds] = useState<string[]>([]);
   const [newSubscriberObservation, setNewSubscriberObservation] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -1248,29 +1249,36 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     const map = new Map<string, Array<{ id: string; name: string }>>();
 
     (clientSubscriptions || []).forEach((cs: any) => {
+      // Novo: lista de profissionais; fallback para o campo antigo (único)
+      const multiIds = Array.isArray(cs?.subscriber_professional_ids)
+        ? cs.subscriber_professional_ids.map((x: any) => String(x || '').trim()).filter(Boolean)
+        : [];
       const profId = String(cs?.subscriber_professional_id || '').trim();
       const profName = String(cs?.subscriber_professional_name || '').trim();
-      if (!profId && !profName) return;
+      const effectiveIds = multiIds.length > 0 ? multiIds : (profId ? [profId] : []);
+      if (effectiveIds.length === 0 && !profName) return;
 
-      let groupKey = '';
-      if (profId) {
-        groupKey = `id:${profId}`;
+      let groupKeys: string[] = [];
+      if (effectiveIds.length > 0) {
+        groupKeys = effectiveIds.map((id) => `id:${id}`);
       } else {
         const activeMatch = establishmentProfessionalsForGrouping.find(
           (pro) => normalizeNameKey(pro.name) === normalizeNameKey(profName)
         );
-        groupKey = activeMatch?.id ? `id:${activeMatch.id}` : `name:${normalizeNameKey(profName)}`;
+        groupKeys = [activeMatch?.id ? `id:${activeMatch.id}` : `name:${normalizeNameKey(profName)}`];
       }
 
       const subscriberName =
         String(cs?.client_name_override || cs?.subscriber_name || cs?.profiles?.full_name || 'Assinante').trim() ||
         'Assinante';
 
-      const list = map.get(groupKey) || [];
-      if (!list.some((item) => item.id === String(cs.id))) {
-        list.push({ id: String(cs.id), name: subscriberName });
-      }
-      map.set(groupKey, list);
+      groupKeys.forEach((groupKey) => {
+        const list = map.get(groupKey) || [];
+        if (!list.some((item) => item.id === String(cs.id))) {
+          list.push({ id: String(cs.id), name: subscriberName });
+        }
+        map.set(groupKey, list);
+      });
     });
 
     map.forEach((list, key) => {
@@ -1353,7 +1361,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [editSubscriberEmail, setEditSubscriberEmail] = useState('');
   const [editSubscriberSubscriptionId, setEditSubscriberSubscriptionId] = useState('');
   const [editSubscriberPaymentMethod, setEditSubscriberPaymentMethod] = useState('');
-  const [editSubscriberProfessionalId, setEditSubscriberProfessionalId] = useState('');
+  // Múltiplos profissionais podem atender o assinante (vazio = todos)
+  const [editSubscriberProfessionalIds, setEditSubscriberProfessionalIds] = useState<string[]>([]);
   const [editSubscriberObservation, setEditSubscriberObservation] = useState('');
   const [isSavingEndDate, setIsSavingEndDate] = useState(false);
 
@@ -3400,8 +3409,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         whatsapp: normalizedPhone,
         email: newClientEmail || undefined,
         payment_method: newSubscriberPaymentMethod || undefined,
-        professional_id: newSubscriberProfessionalId || undefined,
-        professional_name: newSubscriberProfessionalId ? getProfessionalNameById(newSubscriberProfessionalId) || undefined : undefined,
+        professional_id: newSubscriberProfessionalIds[0] || undefined,
+        professional_name: newSubscriberProfessionalIds[0] ? getProfessionalNameById(newSubscriberProfessionalIds[0]) || undefined : undefined,
+        professional_ids: newSubscriberProfessionalIds.length > 0 ? newSubscriberProfessionalIds : undefined,
         observation: newSubscriberObservation.trim().slice(0, 150) || undefined,
         subscription_id: selectedSubscriptionToAdd,
         establishment_id: establishmentId,
@@ -3422,7 +3432,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setNewClientPhone('');
       setNewClientEmail('');
       setNewSubscriberPaymentMethod('');
-      setNewSubscriberProfessionalId('');
+      setNewSubscriberProfessionalIds([]);
       setNewSubscriberObservation('');
       setStartDate('');
       setEndDate('');
@@ -4022,8 +4032,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         subscriber_email: String(editSubscriberEmail || '').trim() || null,
         payment_status: newStatus,
         subscriber_payment_method: editSubscriberPaymentMethod || null,
-        subscriber_professional_id: editSubscriberProfessionalId || null,
-        subscriber_professional_name: editSubscriberProfessionalId ? getProfessionalNameById(editSubscriberProfessionalId) || null : null,
+        subscriber_professional_id: editSubscriberProfessionalIds[0] || null,
+        subscriber_professional_name: editSubscriberProfessionalIds[0] ? getProfessionalNameById(editSubscriberProfessionalIds[0]) || null : null,
+        subscriber_professional_ids: editSubscriberProfessionalIds.length > 0 ? editSubscriberProfessionalIds : null,
         subscriber_observation: editSubscriberObservation.trim().slice(0, 150) || null,
         updated_at: new Date().toISOString()
       };
@@ -4045,6 +4056,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           errMsg.includes('subscriber_email') ||
           errMsg.includes('subscriber_payment_method') ||
           errMsg.includes('subscriber_professional_id') ||
+          errMsg.includes('subscriber_professional_ids') ||
           errMsg.includes('subscriber_professional_name') ||
           errMsg.includes('subscriber_observation') ||
           errMsg.includes('last_payment_date')
@@ -4105,7 +4117,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setEditSubscriberEmail('');
       setEditSubscriberSubscriptionId('');
       setEditSubscriberPaymentMethod('');
-      setEditSubscriberProfessionalId('');
+      setEditSubscriberProfessionalIds([]);
       setEditSubscriberObservation('');
 
       // Recarregar dados
@@ -4129,7 +4141,14 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     setEditSubscriberEmail(String((clientSubscription as any)?.subscriber_email || clientSubscription.profiles?.email || ''));
     setEditSubscriberSubscriptionId(String(clientSubscription.subscription_id || ''));
     setEditSubscriberPaymentMethod(String((clientSubscription as any)?.subscriber_payment_method || ''));
-    setEditSubscriberProfessionalId(String((clientSubscription as any)?.subscriber_professional_id || ''));
+    {
+      // Carrega a lista de profissionais (nova coluna) com fallback pro campo antigo (único)
+      const loadedIds = Array.isArray((clientSubscription as any)?.subscriber_professional_ids)
+        ? (clientSubscription as any).subscriber_professional_ids.map((x: any) => String(x || '').trim()).filter(Boolean)
+        : [];
+      const singleId = String((clientSubscription as any)?.subscriber_professional_id || '').trim();
+      setEditSubscriberProfessionalIds(loadedIds.length > 0 ? loadedIds : (singleId ? [singleId] : []));
+    }
     setEditSubscriberObservation(String((clientSubscription as any)?.subscriber_observation || ''));
     setShowEditEndDateModal(true);
   };
@@ -6932,22 +6951,37 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             </select>
           </div>
           <div>
-            <label htmlFor="newSubscriberProfessionalId" className="block text-sm font-medium text-gray-400 mb-1">
-              Qual profissional vai atender esse cliente?
+            <label className="block text-sm font-medium text-gray-400 mb-1">
+              Quais profissionais vão atender esse cliente?
             </label>
-            <select
-              id="newSubscriberProfessionalId"
-              value={newSubscriberProfessionalId}
-              onChange={(e) => setNewSubscriberProfessionalId(e.target.value)}
-              className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 text-white focus:outline-none focus:border-gray-500"
-            >
-              <option value="">Todos</option>
+            <div className="rounded-lg border border-gray-600 bg-[#2a2b2c] divide-y divide-gray-700 overflow-hidden">
+              <label className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-white/5">
+                <input
+                  type="checkbox"
+                  checked={newSubscriberProfessionalIds.length === 0}
+                  onChange={() => setNewSubscriberProfessionalIds([])}
+                  className="h-4 w-4 accent-blue-500"
+                />
+                <span className="text-white text-sm font-semibold">Todos</span>
+              </label>
               {(professionals || []).map((professional) => (
-                <option key={professional.id} value={professional.id}>
-                  {professional.full_name}
-                </option>
+                <label key={professional.id} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-white/5">
+                  <input
+                    type="checkbox"
+                    checked={newSubscriberProfessionalIds.includes(String(professional.id))}
+                    onChange={() => {
+                      const id = String(professional.id);
+                      setNewSubscriberProfessionalIds((prev) =>
+                        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+                      );
+                    }}
+                    className="h-4 w-4 accent-blue-500"
+                  />
+                  <span className="text-white text-sm">{professional.full_name}</span>
+                </label>
               ))}
-            </select>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Pode marcar mais de um. "Todos" = qualquer profissional atende.</p>
           </div>
           <div>
             <label htmlFor="newSubscriberObservation" className="block text-sm font-medium text-gray-400 mb-1">Observação (opcional)</label>
@@ -7815,7 +7849,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   setEditSubscriberEmail('');
                   setEditSubscriberSubscriptionId('');
                   setEditSubscriberPaymentMethod('');
-                  setEditSubscriberProfessionalId('');
+                  setEditSubscriberProfessionalIds([]);
                   setEditSubscriberObservation('');
                 }}
                 className="text-gray-400 hover:text-white transition-colors"
@@ -7946,22 +7980,37 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               </div>
 
               <div>
-                <label htmlFor="editSubscriberProfessionalId" className="block text-sm font-medium text-gray-400 mb-1">
-                  Qual profissional vai atender esse cliente?
+                <label className="block text-sm font-medium text-gray-400 mb-1">
+                  Quais profissionais vão atender esse cliente?
                 </label>
-                <select
-                  id="editSubscriberProfessionalId"
-                  value={editSubscriberProfessionalId}
-                  onChange={(e) => setEditSubscriberProfessionalId(e.target.value)}
-                  className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white"
-                >
-                  <option value="">Todos</option>
+                <div className="rounded-lg border border-gray-600 bg-[#2a2b2c] divide-y divide-gray-700 overflow-hidden">
+                  <label className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-white/5">
+                    <input
+                      type="checkbox"
+                      checked={editSubscriberProfessionalIds.length === 0}
+                      onChange={() => setEditSubscriberProfessionalIds([])}
+                      className="h-4 w-4 accent-blue-500"
+                    />
+                    <span className="text-white text-sm font-semibold">Todos</span>
+                  </label>
                   {(professionals || []).map((professional) => (
-                    <option key={professional.id} value={professional.id}>
-                      {professional.full_name}
-                    </option>
+                    <label key={professional.id} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-white/5">
+                      <input
+                        type="checkbox"
+                        checked={editSubscriberProfessionalIds.includes(String(professional.id))}
+                        onChange={() => {
+                          const id = String(professional.id);
+                          setEditSubscriberProfessionalIds((prev) =>
+                            prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+                          );
+                        }}
+                        className="h-4 w-4 accent-blue-500"
+                      />
+                      <span className="text-white text-sm">{professional.full_name}</span>
+                    </label>
                   ))}
-                </select>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Pode marcar mais de um. "Todos" = qualquer profissional atende.</p>
               </div>
 
               <div>
@@ -8028,7 +8077,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     setEditSubscriberEmail('');
                     setEditSubscriberSubscriptionId('');
                     setEditSubscriberPaymentMethod('');
-                    setEditSubscriberProfessionalId('');
+                    setEditSubscriberProfessionalIds([]);
                     setEditSubscriberObservation('');
                   }}
                   className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
