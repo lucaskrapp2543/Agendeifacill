@@ -4,6 +4,8 @@ import { toast } from 'react-hot-toast';
 import { useProfessionalLiquidValue } from '../hooks/useProfessionalLiquidValue';
 import { useProfessionalPayments } from '../hooks/useProfessionalPayments';
 import { supabase } from '../lib/supabase';
+import { resolveSubscriberAttendanceProfessionalGroup } from '../lib/subscriberSystem';
+import { buildProfessionalControlGroups, loadProfessionalControlSnapshot } from '../lib/professionalSubscriberControl';
 
 interface ProfessionalPaymentControlProps {
   establishmentId: string;
@@ -18,6 +20,8 @@ interface ProfessionalPaymentControlProps {
   selectedMonth?: Date;
   onPaymentRecorded?: () => void;
   readOnly?: boolean;
+  /** Dono (100%) não acumula repasse de assinatura — pula o cálculo/pagamento de assinatura. */
+  isOwnerProfessional?: boolean;
 }
 
 export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProps> = ({
@@ -33,6 +37,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   selectedMonth,
   onPaymentRecorded,
   readOnly = false,
+  isOwnerProfessional = false,
 }) => {
   const {
     loading,
@@ -65,6 +70,11 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   const [showTakeValueModal, setShowTakeValueModal] = useState(false);
   const [takeValueAmount, setTakeValueAmount] = useState('');
   const [takeValueReason, setTakeValueReason] = useState('');
+
+  // Assinatura pendente do mês (mesma conta de "Meus Assinantes" / agenda) — pago junto no PAGAR.
+  const [subscriptionAccumulated, setSubscriptionAccumulated] = useState(0);
+  const [subscriptionPaid, setSubscriptionPaid] = useState(0);
+  const subscriptionPending = Math.max(0, subscriptionAccumulated - subscriptionPaid);
 
   // Usar hook para calcular valor líquido correto
   const {
@@ -99,6 +109,105 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       ? Math.max(0, totalPaidEffective + pendingToPay)
       : totalLiquidValue;
 
+  // ===== Financeiro de ASSINATURA deste profissional no mês =====
+  // Usa a MESMA engine de "Meus Assinantes" (loadProfessionalControlSnapshot + buildProfessionalControlGroups),
+  // que já mescla subscriber_attendances com agendamentos de assinatura CONCLUÍDOS. Assim o valor bate
+  // exatamente com Meus Assinantes (não a fonte incompleta do subscriber_attendances cru).
+  const loadSubscriptionFinancial = async () => {
+    const estId = String(establishmentId || '').trim();
+    const proId = String(professionalId || '').trim();
+    if (isOwnerProfessional || !estId || !proId) {
+      setSubscriptionAccumulated(0);
+      setSubscriptionPaid(0);
+      return;
+    }
+    try {
+      const ref = selectedMonth || new Date();
+      const snapshot = await loadProfessionalControlSnapshot({ establishmentId: estId, month: ref.getMonth(), year: ref.getFullYear() });
+      const groups = buildProfessionalControlGroups({
+        subscriberAttendances: snapshot.subscriberAttendances,
+        subscriptionSaleCommissions: snapshot.subscriptionSaleCommissions,
+        establishmentProfessionals: snapshot.establishmentProfessionals,
+        deletedProfessionals: snapshot.deletedProfessionals,
+        clientSubscriptions: snapshot.clientSubscriptions,
+        subscriptions: snapshot.subscriptions,
+      });
+      const groupKey = `id:${proId}`;
+      const group = groups.find((g: any) => g.groupKey === groupKey);
+      if (!group) {
+        setSubscriptionAccumulated(0);
+        setSubscriptionPaid(0);
+        return;
+      }
+      const accumulated = Number(group.attendanceTotalValue ?? group.totalValue ?? 0);
+
+      // Pagamentos de assinatura deste grupo no mês (mesma lógica de Meus Assinantes ~5605-5623)
+      const monthKey = `${ref.getFullYear()}-${String(ref.getMonth() + 1).padStart(2, '0')}`;
+      const monthStartT = new Date(ref.getFullYear(), ref.getMonth(), 1).getTime();
+      const monthEndT = new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 23, 59, 59, 999).getTime();
+      const paid = (snapshot.professionalPayments || [])
+        .filter((p: any) => {
+          if (String(p?.payment_source || '') !== 'subscription') return false;
+          const pg = resolveSubscriberAttendanceProfessionalGroup(
+            { professional_id: p.professional_id, professional_name: p.professional_name },
+            snapshot.establishmentProfessionals,
+            snapshot.deletedProfessionals
+          );
+          if (pg.groupKey !== groupKey) return false;
+          const fm = String(p?.for_month || '').trim();
+          if (fm) return fm === monthKey;
+          const t = new Date(p.payment_date).getTime();
+          return t >= monthStartT && t <= monthEndT;
+        })
+        .reduce((sum: number, p: any) => sum + Number(p?.amount || 0), 0);
+
+      setSubscriptionAccumulated(Math.max(0, accumulated));
+      setSubscriptionPaid(Math.max(0, paid));
+    } catch (error) {
+      console.error('Erro ao carregar assinatura pendente (controle de pagamento):', error);
+      setSubscriptionAccumulated(0);
+      setSubscriptionPaid(0);
+    }
+  };
+
+  useEffect(() => {
+    void loadSubscriptionFinancial();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [establishmentId, professionalId, professionalName, selectedMonth, isOwnerProfessional]);
+
+  // Registra o pagamento da assinatura (source: subscription) — MESMO registro que "Meus Assinantes" cria,
+  // então lá reconhece como pago automaticamente. Isolado do pagamento normal (source: normal).
+  const paySubscriptionPending = async (paymentDate?: Date): Promise<boolean> => {
+    if (isOwnerProfessional || subscriptionPending <= 0) return true;
+    const ref = selectedMonth || new Date();
+    const monthKey = `${ref.getFullYear()}-${String(ref.getMonth() + 1).padStart(2, '0')}`;
+    const now = new Date();
+    const isCurrentMonthSel = ref.getFullYear() === now.getFullYear() && ref.getMonth() === now.getMonth();
+    const dateForRecord = paymentDate ?? (isCurrentMonthSel ? now : new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 12, 0, 0, 0));
+    const basePayload: any = {
+      establishment_id: establishmentId,
+      professional_id: professionalId,
+      professional_name: professionalName,
+      amount: subscriptionPending,
+      payment_date: dateForRecord.toISOString(),
+      payment_source: 'subscription',
+      for_month: monthKey,
+    };
+    let { error } = await supabase.from('professional_payments').insert(basePayload);
+    if (error && String(error.message || '').toLowerCase().includes('for_month')) {
+      const legacy = { ...basePayload };
+      delete legacy.for_month;
+      ({ error } = await supabase.from('professional_payments').insert(legacy));
+    }
+    if (error) {
+      console.error('Erro ao registrar pagamento de assinatura:', error);
+      toast.error('Pagamento normal ok, mas houve erro ao registrar a parte da assinatura.');
+      return false;
+    }
+    await loadSubscriptionFinancial();
+    return true;
+  };
+
   // Histórico precisa ser transparente: mostra todos os pagamentos registrados,
   // mesmo quando algum lançamento foi desconsiderado pela regra anti-adiantamento.
   const professionalPayments = getProfessionalPayments(professionalId);
@@ -125,7 +234,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   }, [professionalId, forMonthKey, totalPaidEffective, pendingToPay]);
 
   const handlePayFullAmount = async (paymentDate?: Date) => {
-    if (pendingToPay <= 0) {
+    if (pendingToPay <= 0 && subscriptionPending <= 0) {
       toast.error('Não há valor pendente para pagar');
       return;
     }
@@ -136,7 +245,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     }
 
     if (!isCurrentMonth && !paymentDate) {
-      setDatePicker({ amount: pendingToPay, isCustom: false, date: _pickerMaxDate });
+      setDatePicker({ amount: pendingToPay + subscriptionPending, isCustom: false, date: _pickerMaxDate });
       return;
     }
 
@@ -144,9 +253,22 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     setIsProcessing(true);
 
     try {
-      await recordPayment(professionalId, professionalName, pendingToPay, forMonthKey, paymentDate);
-      await Promise.all([refreshPayments(), refreshLiquidValue()]);
-      toast.success(`Pagamento de ${formatCurrency(pendingToPay)} registrado para ${professionalName}`);
+      // Pagamento normal (serviços) — source 'normal', via hook, como sempre.
+      if (pendingToPay > 0) {
+        await recordPayment(professionalId, professionalName, pendingToPay, forMonthKey, paymentDate);
+        await Promise.all([refreshPayments(), refreshLiquidValue()]);
+      }
+      // Pagamento da assinatura junto — source 'subscription', reflete em Meus Assinantes.
+      const subscriptionPaidNow = subscriptionPending;
+      if (subscriptionPending > 0) {
+        await paySubscriptionPending(paymentDate);
+      }
+      const totalPaidNow = pendingToPay + subscriptionPaidNow;
+      toast.success(
+        subscriptionPaidNow > 0 && pendingToPay > 0
+          ? `Pago ${formatCurrency(totalPaidNow)} para ${professionalName} (serviços + assinatura)`
+          : `Pagamento de ${formatCurrency(totalPaidNow)} registrado para ${professionalName}`
+      );
       onPaymentRecorded?.();
       setShowPaymentOptions(false);
     } catch (error: any) {
@@ -212,7 +334,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   };
 
   const handlePaymentClick = () => {
-    if (pendingToPay <= 0) {
+    if (pendingToPay <= 0 && subscriptionPending <= 0) {
       toast.error('Não há valor pendente para pagar');
       return;
     }
@@ -433,6 +555,11 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
               Pendente do mês (total): {formatCurrency(pendingToPay)}
             </div>
           )}
+          {subscriptionPending > 0 && (
+            <div className="text-sm text-amber-300 font-medium">
+              👑 Assinatura pendente do mês: {formatCurrency(subscriptionPending)}
+            </div>
+          )}
           {typeof cardTaxLoss === 'number' && cardTaxLoss > 0.009 && pendingToPay > 0 && (
             <div className="mt-1 rounded-lg border border-gray-700 bg-[#0b0e13] px-3 py-2 space-y-1">
               <div className="flex items-center justify-between text-[11px] text-red-300">
@@ -478,13 +605,13 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
         {/* Botões - Layout Mobile */}
         {!readOnly && <div className="flex flex-col sm:flex-row gap-2">
           {/* Botão PAGAR */}
-          {pendingToPay > 0 && !showPaymentOptions && (
+          {(pendingToPay > 0 || subscriptionPending > 0) && !showPaymentOptions && (
             <button
               type="button"
               onClick={handlePaymentClick}
               disabled={isProcessing || loading}
               className="w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-              title={`Pagar ${formatCurrency(pendingToPay)} para ${professionalName}`}
+              title={`Pagar ${formatCurrency(pendingToPay + subscriptionPending)} para ${professionalName}${subscriptionPending > 0 ? ' (serviços + assinatura)' : ''}`}
             >
               <Check className="w-4 h-4" />
               <span>PAGAR</span>
@@ -536,7 +663,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       </div>
 
       {/* Opções de Pagamento */}
-      {!readOnly && showPaymentOptions && pendingToPay > 0 && (
+      {!readOnly && showPaymentOptions && (pendingToPay > 0 || subscriptionPending > 0) && (
         <div className="bg-[#121722] border border-blue-500/30 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-sm font-medium text-blue-300">
@@ -551,8 +678,29 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             </button>
           </div>
 
+          {/* Detalhe do que será pago (serviços + assinatura) */}
+          {subscriptionPending > 0 && (
+            <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-1 text-xs">
+              {pendingToPay > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-300">Serviços (normal)</span>
+                  <span className="font-semibold text-emerald-300">{formatCurrency(pendingToPay)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <span className="text-amber-200">👑 Assinatura do mês</span>
+                <span className="font-semibold text-amber-300">{formatCurrency(subscriptionPending)}</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-amber-500/20 pt-1">
+                <span className="text-gray-200 font-semibold">Total</span>
+                <span className="font-bold text-white">{formatCurrency(pendingToPay + subscriptionPending)}</span>
+              </div>
+              <p className="text-[10px] text-amber-200/70 pt-0.5">Pagar aqui também quita a assinatura em "Meus Assinantes".</p>
+            </div>
+          )}
+
           <div className="space-y-3">
-            {/* Pagar Todo */}
+            {/* Pagar Todo (serviços + assinatura) */}
             <button
               type="button"
               onClick={() => handlePayFullAmount()}
@@ -560,7 +708,11 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
               className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Check className="w-4 h-4" />
-              <span>Pagar Pendente ({formatCurrency(pendingToPay)})</span>
+              <span>
+                {subscriptionPending > 0
+                  ? `Pagar Tudo (${formatCurrency(pendingToPay + subscriptionPending)})`
+                  : `Pagar Pendente (${formatCurrency(pendingToPay)})`}
+              </span>
             </button>
 
             {/* Pagar Valor Específico */}

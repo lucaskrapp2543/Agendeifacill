@@ -197,6 +197,7 @@ export function useProfessionalSubscriberControl({
     primaryRange,
     periodRanges,
     metrics,
+    professionalGroup,
     exclusiveSubscribers,
     exclusiveSubscriberIds,
     subscriberAttendances: merged.subscriberAttendances,

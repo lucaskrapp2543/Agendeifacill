@@ -462,6 +462,25 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
     enabled: Boolean(establishmentId && isAuthenticated),
   });
 
+  // Assinatura do DIA a partir dos MESMOS registros que compõem o mês em "Meus Assinantes"
+  // (professionalGroup.attendanceRecords da engine oficial — atribuição e modo pontos idênticos).
+  // Usa o DIA SELECIONADO na agenda (prop selectedMonth = selectedDate do pai), igual ao
+  // "Atendimento normal" — não o "hoje" do relógio. Assim o diário bate com o dia visto.
+  const subscriberDailyFromControl = useMemo(() => {
+    const dayRef = selectedMonth || new Date();
+    const dayStr = `${dayRef.getFullYear()}-${String(dayRef.getMonth() + 1).padStart(2, '0')}-${String(dayRef.getDate()).padStart(2, '0')}`;
+    const records = subscriberControl.professionalGroup?.attendanceRecords || [];
+    const ofDay = records.filter((r) => String(r.attendance_date || '').slice(0, 10) === dayStr);
+    return {
+      liquid: ofDay.reduce((sum, r) => sum + Number(r.repassValue || 0), 0),
+      count: ofDay.length,
+    };
+  }, [subscriberControl.professionalGroup, selectedMonth]);
+
+  // Assinatura do MÊS pela mesma fonte de "Meus Assinantes" (metrics do hook).
+  const subscriberMonthValue = subscriberControl.metrics.totalValue || 0;
+  const subscriberMonthCount = subscriberControl.metrics.attendanceCount || 0;
+
   const handlePinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     // Senha mestre sempre funciona
@@ -1666,15 +1685,30 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                   </div>
                 )}
                 <div className="bg-white p-3 sm:p-4 rounded-lg">
-                  <p className="text-sm text-gray-600 mb-1">Valor Líquido</p>
+                  <p className="text-sm text-gray-600 mb-1">Atendimento normal</p>
                   <p className="text-xl sm:text-2xl font-bold text-green-700">
                     {showValues ? formatCurrency(dailyNet) : '••••••'}
                   </p>
                 </div>
               </div>
+              <div className="mt-3 bg-white p-3 sm:p-4 rounded-lg border border-amber-200">
+                <p className="text-sm text-gray-600 mb-1">Atendimento assinatura 👑</p>
+                <p className="text-xl sm:text-2xl font-bold text-amber-600">
+                  {showValues ? formatCurrency(subscriberDailyFromControl.liquid) : '••••••'}
+                </p>
+              </div>
+              <div className="mt-3 bg-green-600 p-3 sm:p-4 rounded-lg">
+                <p className="text-sm text-green-100 mb-1">Total do dia (normal + assinatura)</p>
+                <p className="text-xl sm:text-2xl font-black text-white">
+                  {showValues ? formatCurrency(dailyNet + subscriberDailyFromControl.liquid) : '••••••'}
+                </p>
+              </div>
               <div className="mt-3 text-center">
                 <p className="text-xs sm:text-sm text-gray-600">
                   Atendimentos concluídos hoje: <span className="font-bold text-green-800">{appointmentsToday}</span>
+                  {subscriberDailyFromControl.count > 0 && (
+                    <span className="text-amber-700"> + {subscriberDailyFromControl.count} de assinatura</span>
+                  )}
                 </p>
               </div>
             </div>
@@ -1701,9 +1735,19 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                   </p>
                 </div>
               </div>
-              {Math.abs(monthlyNet - reconciledMonthlyNet) > 0.01 && (
+              {subscriberMonthCount > 0 && (
+                <div className="mt-2 flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 border border-amber-200 text-xs sm:text-sm">
+                  <span className="text-gray-600">
+                    👑 Assinaturas no mês ({subscriberMonthCount} atendimento{subscriberMonthCount === 1 ? '' : 's'})
+                  </span>
+                  <span className="font-bold text-amber-600">
+                    {showValues ? formatCurrency(subscriberMonthValue) : '••••••'}
+                  </span>
+                </div>
+              )}
+              {Math.abs((monthlyNet + subscriberMonthValue) - reconciledMonthlyNet) > 0.01 && (
                 <div className="mt-2 text-xs text-gray-500">
-                  Líquido do mês (total): {showValues ? formatCurrency(monthlyNet) : '••••••'}
+                  Líquido do mês (total): {showValues ? formatCurrency(monthlyNet + subscriberMonthValue) : '••••••'}
                 </div>
               )}
               <div className="mt-3 text-center">

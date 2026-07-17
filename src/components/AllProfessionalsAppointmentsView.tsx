@@ -7,8 +7,12 @@ import { supabase } from '../lib/supabase';
 import { buildSubscriberAttendanceSnapshotFields, computeSubscriberRepassValue, findClientSubscriptionForAppointment, findExistingSubscriberAttendance, insertSubscriberAttendanceOnce, removeSubscriberAttendanceForCancelledAppointment, resolveAppointmentProfessionalForSubscriber } from '../lib/subscriberSystem';
 import {
   buildCompletionPaymentPatch,
+  buildSubscriptionsByNameMap,
+  buildSubscriptionsByPhoneMap,
   clientNameHasSubscriberLabel,
   enrichAppointmentsWithSubscriberFlags,
+  findMatchingSubscriptionForAppointment,
+  findMatchingSubscriptionRelaxed,
   formatSubscriberAgendaClientName,
   isDateInsidePaidSubscription,
   isSubscriberAppointmentForAgendaDisplay,
@@ -327,6 +331,8 @@ interface AllProfessionalsAppointmentsViewProps {
   realIsLight?: boolean;
   /** WhatsApp tinha sessão e caiu (connecting/reconnecting/error) — mostra alerta acima da validade. */
   whatsappAlert?: boolean;
+  whatsappSilentAlert?: boolean;
+  whatsappSilentAlertCount?: number;
   onOpenWhatsAppReminders?: () => void;
   canViewBarbershopCash?: boolean;
   pendingOpenBarbershopCash?: boolean;
@@ -399,6 +405,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
   useLightLayout = false,
   realIsLight = false,
   whatsappAlert = false,
+  whatsappSilentAlert = false,
+  whatsappSilentAlertCount = 0,
   onOpenWhatsAppReminders,
   canViewBarbershopCash = false,
   pendingOpenBarbershopCash = false,
@@ -757,7 +765,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
       let cancelled = false;
       void (async () => {
         try {
-          const { data, error } = await supabase
+          // Config do plano junto (para o chip de repasse 💰 no card). Se a query rica
+          // falhar por qualquer motivo, cai no select original para não perder o selo 👑.
+          let { data, error } = await supabase
             .from('client_subscriptions')
             .select(`
               id,
@@ -768,9 +778,36 @@ export const AllProfessionalsAppointmentsView: React.FC<
               subscriber_name,
               subscriber_whatsapp,
               client_name_override,
-              client_whatsapp
+              client_whatsapp,
+              monthly_limit,
+              subscriptions (
+                id,
+                name,
+                value,
+                fixed_commission_value,
+                divide_total_enabled,
+                divide_total_attendances,
+                divided_services
+              )
             `)
             .eq('establishment_id', establishmentId);
+
+          if (error) {
+            ({ data, error } = await supabase
+              .from('client_subscriptions')
+              .select(`
+                id,
+                subscription_id,
+                payment_status,
+                start_date,
+                end_date,
+                subscriber_name,
+                subscriber_whatsapp,
+                client_name_override,
+                client_whatsapp
+              `)
+              .eq('establishment_id', establishmentId));
+          }
 
           if (cancelled) return;
           if (error) throw error;
@@ -795,6 +832,36 @@ export const AllProfessionalsAppointmentsView: React.FC<
       (apt: Appointment | null | undefined) =>
         isSubscriberAppointmentForAgendaDisplay(apt as any, agendaSubscriberRows),
       [agendaSubscriberRows]
+    );
+
+    // Repasse do profissional por atendimento de assinatura (chip 💰 no card).
+    // Usa os MESMOS matchers e a MESMA fórmula da engine (computeSubscriberRepassValue),
+    // então o valor do chip = o valor que entra em Meus Assinantes/modal ao concluir.
+    const subscriberRepassMaps = useMemo(
+      () => ({
+        byPhone: buildSubscriptionsByPhoneMap(agendaSubscriberRows as any[]),
+        byName: buildSubscriptionsByNameMap(agendaSubscriberRows as any[]),
+      }),
+      [agendaSubscriberRows]
+    );
+
+    const getSubscriberRepassForAppointment = useCallback(
+      (apt: Appointment): number => {
+        try {
+          const matched =
+            findMatchingSubscriptionForAppointment(apt as any, subscriberRepassMaps.byPhone, subscriberRepassMaps.byName) ||
+            findMatchingSubscriptionRelaxed(apt as any, subscriberRepassMaps.byPhone, subscriberRepassMaps.byName);
+          if (!matched) return 0;
+          return computeSubscriberRepassValue({
+            subscription: (matched as any)?.subscriptions,
+            monthlyLimit: Number((matched as any)?.monthly_limit || 0),
+            appointmentPrice: Number((apt as any)?.price || 0),
+          });
+        } catch {
+          return 0;
+        }
+      },
+      [subscriberRepassMaps]
     );
 
     useEffect(() => {
@@ -2421,10 +2488,22 @@ export const AllProfessionalsAppointmentsView: React.FC<
         </span>
       );
 
+      const subscriberRepassForChip = getSubscriberRepassForAppointment(apt);
+      const subscriberRepassChip =
+        subscriberRepassForChip > 0 ? (
+          <span
+            className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-emerald-300/60 bg-emerald-600/90 px-1.5 py-0.5 text-[10px] font-extrabold text-white shadow-sm"
+            title="Quanto o profissional recebe por este atendimento de assinatura"
+          >
+            💰 {formatCurrency(subscriberRepassForChip)}
+          </span>
+        ) : null;
+
       const goldNameStrip = (
         <div className="rounded-lg border border-amber-400/70 bg-gradient-to-r from-amber-950/95 via-amber-900 to-yellow-950 px-2.5 py-1.5 ring-1 ring-amber-500/30 shadow-inner shadow-black/25">
           <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
             <span className="truncate text-amber-50 font-bold text-sm min-w-0 flex-1">{displayName}</span>
+            {subscriberRepassChip}
             {subscriberBadge}
             {serviceLabelNodes}
             {avulsoEditButton}
@@ -4853,6 +4932,40 @@ export const AllProfessionalsAppointmentsView: React.FC<
         return total + (baseAfterTax * effectivePercentage) / 100 + tip;
       }, 0);
 
+      // 👑 SERVIÇO EXTRA pago dentro de atendimento de ASSINATURA: entra no líquido normal
+      // (mesma regra do extra em atendimento avulso). O repasse por visita (ex.: R$18,75)
+      // segue no trilho de assinatura (linha 👑 do modal, via engine) — sem duplicação.
+      // Gorjeta em atendimento de assinatura continua de fora (regra atual).
+      const subscriberExtrasNetFor = (apt: Appointment): number => {
+        const extrasBase = (apt.additional_products || []).reduce(
+          (sum, p) => sum + (Number((p as any)?.price) || 0),
+          0
+        );
+        if (!(extrasBase > 0)) return 0;
+        const cardTaxAmount = getCardTaxAmountForServiceBase(apt, extrasBase);
+        const afterTax = establishment?.tax_deducted_by_establishment
+          ? extrasBase
+          : Math.max(0, extrasBase - cardTaxAmount);
+        return (afterTax * getEffectiveProfessionalPercentageForAppointment(apt, professional)) / 100;
+      };
+      const dailySubscriberExtrasNet = appointments
+        .filter(
+          (apt) =>
+            appointmentBelongsToProfessionalColumn(apt, professionalRef) &&
+            isAppointmentFromSelectedDay(apt) &&
+            getAppointmentStatus(apt.status) === 'completed' &&
+            isSubscriberFinancialAppointment(apt)
+        )
+        .reduce((sum, apt) => sum + subscriberExtrasNetFor(apt), 0);
+      const monthlySubscriberExtrasNet = mergedMonthAppointments
+        .filter(
+          (apt) =>
+            appointmentBelongsToProfessionalColumn(apt, professionalRef) &&
+            getAppointmentStatus(apt.status) === 'completed' &&
+            isSubscriberFinancialAppointment(apt)
+        )
+        .reduce((sum, apt) => sum + subscriberExtrasNetFor(apt), 0);
+
       const professionalMonthAppointments = mergedMonthAppointments
         .filter((apt) => appointmentBelongsToProfessionalColumn(apt, professionalRef))
         .map((apt) => {
@@ -5009,9 +5122,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
       return {
         dailyGross,
-        dailyNet,
+        // Líquidos = normal + SERVIÇO EXTRA pago em atendimentos de assinatura (gorjeta de
+        // assinatura fica fora). O repasse por visita fica FORA daqui: o modal soma a
+        // assinatura na exibição usando a engine de Meus Assinantes — sem duplicar.
+        dailyNet: dailyNet + dailySubscriberExtrasNet,
         monthlyGross: monthlyGross + (isOwnerProfessional(professional) ? 0 : subscriberFinancial.pending),
-        monthlyNet: monthlyNet + (isOwnerProfessional(professional) ? 0 : subscriberFinancial.pending),
+        monthlyNet: monthlyNet + monthlySubscriberExtrasNet,
         basePercentage: percentage,
         metaBonusPercentage: Number(goalProgress?.bonusPercentage || 0),
         metaGoalReached: Boolean(goalProgress?.goalReached),
@@ -5857,6 +5973,22 @@ export const AllProfessionalsAppointmentsView: React.FC<
               className="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors"
             >
               Conectar
+            </button>
+          </div>
+        )}
+        {/* Alerta extra: WhatsApp diz "conectado" mas não enviou NADA hoje (sessão travada).
+            Detecção por evidência: 10+ agendamentos de hoje já passaram e 0 envios no log. */}
+        {!whatsappAlert && whatsappSilentAlert && (
+          <div className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 ${realIsLight ? 'bg-amber-50 border-amber-300' : 'bg-amber-500/10 border-amber-500/40'}`}>
+            <p className={`text-xs font-bold ${realIsLight ? 'text-amber-700' : 'text-amber-200'}`}>
+              ⚠️ Seu WhatsApp pode estar travado: {whatsappSilentAlertCount} agendamentos hoje e nenhuma mensagem enviada. Desconecte e conecte de novo.
+            </p>
+            <button
+              type="button"
+              onClick={() => { if (onOpenWhatsAppReminders) onOpenWhatsAppReminders(); }}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-colors"
+            >
+              Verificar
             </button>
           </div>
         )}

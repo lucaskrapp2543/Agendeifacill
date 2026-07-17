@@ -47,7 +47,7 @@ import { ValidityHeader } from '../components/ValidityHeader';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../hooks/useNotifications';
 import { addExpense, createEstablishment, deleteExpense, getEstablishmentGoals, getEstablishmentPremiumSubscribers, getExpensesByMonth, getProfessionalGoal, getSubscriptions, isNewClient, setProfessionalGoal, supabase, updateEstablishment } from '../lib/supabase';
-import { createIndependentSubscriber, insertSubscriberAttendance, persistSubscriberAppointmentFlagsIfNeeded, removeSubscriberAttendanceForCancelledAppointment, resolveAppointmentProfessionalForSubscriber } from '../lib/subscriberSystem';
+import { createIndependentSubscriber, insertSubscriberAttendance, mergeSubscriberAttendancesWithCompletedAppointments, persistSubscriberAppointmentFlagsIfNeeded, removeSubscriberAttendanceForCancelledAppointment, resolveAppointmentProfessionalForSubscriber } from '../lib/subscriberSystem';
 import { syncSubscribersToManualClients } from '../lib/manualClientsSync';
 import {
   enrichAppointmentsWithSubscriberFlags,
@@ -1272,6 +1272,12 @@ const EstablishmentDashboard = () => {
     apiError?: string | null;
   }>({ loaded: false, connected: false, status: '' });
   const [baileysWasConnectedOnce, setBaileysWasConnectedOnce] = useState(false);
+  // Detecção extra de sessão "conectada mas muda" (diz conectado porém nada sai):
+  // evidência = 10+ agendamentos de hoje com horário já passado e NENHUM envio hoje.
+  const [whatsappSilentAlert, setWhatsappSilentAlert] = useState<{ active: boolean; appointmentsCount: number }>({
+    active: false,
+    appointmentsCount: 0,
+  });
 
   // Carrossel promocional — só mostra slides de funções que o barbeiro ainda não tem
   const promoSlides = useMemo(() => {
@@ -7615,17 +7621,25 @@ const EstablishmentDashboard = () => {
       const start = startOfMonth(selectedMonth);
       const end = endOfMonth(selectedMonth);
 
-      const [
-        attendancesResult,
-        saleCommissionsResult,
-        paymentsResult
-      ] = await Promise.all([
-        supabase
+      // Select rico (colunas que a engine de merge precisa). Se a base for antiga e faltar
+      // coluna, cai no select original e segue APENAS com as linhas cruas (sem merge).
+      let attendancesResult = await supabase
+        .from('subscriber_attendances')
+        .select('id, appointment_id, professional_id, professional_name, repass_value, client_subscription_id, attendance_date, client_name_snapshot')
+        .eq('establishment_id', establishment.id)
+        .gte('attendance_date', format(start, 'yyyy-MM-dd'))
+        .lte('attendance_date', format(end, 'yyyy-MM-dd'));
+      const richAttendanceSelectOk = !attendancesResult.error;
+      if (attendancesResult.error) {
+        attendancesResult = await supabase
           .from('subscriber_attendances')
           .select('professional_name, repass_value, client_subscription_id')
           .eq('establishment_id', establishment.id)
           .gte('attendance_date', format(start, 'yyyy-MM-dd'))
-          .lte('attendance_date', format(end, 'yyyy-MM-dd')),
+          .lte('attendance_date', format(end, 'yyyy-MM-dd'));
+      }
+
+      const [saleCommissionsResult, paymentsResult] = await Promise.all([
         supabase
           .from('subscription_sale_commissions')
           .select('professional_name, commission_amount')
@@ -7644,6 +7658,25 @@ const EstablishmentDashboard = () => {
       if (attendancesResult.error) throw attendancesResult.error;
       if (saleCommissionsResult.error) throw saleCommissionsResult.error;
       if (paymentsResult.error) throw paymentsResult.error;
+
+      // Completa com agendamentos de assinatura CONCLUÍDOS que não viraram registro no
+      // ledger — MESMA engine de "Meus Assinantes" e do card 👑 (ProfessionalPaymentControl),
+      // para "Assinaturas no mês / Pendente" baterem com o resto da tela.
+      let attendanceRows: any[] = (attendancesResult.data as any[]) || [];
+      if (richAttendanceSelectOk) {
+        try {
+          attendanceRows = await mergeSubscriberAttendancesWithCompletedAppointments({
+            establishmentId: establishment.id,
+            monthStart: format(start, 'yyyy-MM-dd'),
+            monthEnd: format(end, 'yyyy-MM-dd'),
+            existingRows: attendanceRows,
+            professionals: ((establishment.professionals || []) as any[]),
+          });
+        } catch (mergeError) {
+          console.warn('Merge de assinaturas indisponível, usando linhas cruas:', mergeError);
+          attendanceRows = (attendancesResult.data as any[]) || [];
+        }
+      }
 
       const [subsCfgRes, clientSubsCfgRes] = await Promise.all([
         supabase
@@ -7716,7 +7749,7 @@ const EstablishmentDashboard = () => {
         return professionalName;
       };
 
-      ((attendancesResult.data as any[]) || []).forEach((row: any) => {
+      attendanceRows.forEach((row: any) => {
         const professionalName = ensureProfessional(String(row?.professional_name || ''));
         if (!professionalName) return;
         const clientSubscriptionId = String(row?.client_subscription_id || '').trim();
@@ -15387,6 +15420,108 @@ Estamos te aguardando!`;
     };
   }, [user?.id, establishment?.id]);
 
+  // 🔎 Camada EXTRA de detecção de WhatsApp travado ("conectado" que não envia nada):
+  // status diz conectado, MAS hoje já passaram 10+ agendamentos e NENHUMA mensagem saiu
+  // (qualquer tipo), sendo que há histórico de envios em dias anteriores → alerta na agenda.
+  // Somente LEITURA de evidências (agendamentos + logs de envio) — não toca em sessão,
+  // tokens ou conexão. Qualquer falha na checagem = sem alerta (nunca alarme falso por rede).
+  useEffect(() => {
+    if (!user?.id || !establishment?.id || !baileysDashboardStatus.connected) {
+      setWhatsappSilentAlert({ active: false, appointmentsCount: 0 });
+      return;
+    }
+
+    let cancelled = false;
+
+    const checkWhatsappSilentFailure = async () => {
+      try {
+        const now = new Date();
+        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const nowTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+        // 1) Agendamentos de HOJE cujo horário JÁ PASSOU (o lembrete sai antes do horário,
+        //    então se o horário passou, o envio já deveria ter acontecido). Conservador: não
+        //    depende da configuração de antecedência do lembrete.
+        const { data: todaysAppts, error: apptsError } = await supabase
+          .from('appointments')
+          .select('id, appointment_time, status')
+          .eq('establishment_id', establishment.id)
+          .eq('appointment_date', todayStr);
+        if (apptsError || cancelled) return;
+        const pastAppointmentsCount = (todaysAppts || []).filter((apt: any) => {
+          const st = String(apt?.status || '').trim().toLowerCase();
+          if (st === 'cancelled') return false;
+          const time = String(apt?.appointment_time || '').slice(0, 5);
+          return Boolean(time) && time <= nowTime;
+        }).length;
+        if (pastAppointmentsCount < 10) {
+          if (!cancelled) setWhatsappSilentAlert({ active: false, appointmentsCount: 0 });
+          return;
+        }
+
+        // 2) Logs de envio — MESMA fonte do painel "Últimos envios" (API já existente)
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = String(sessionData?.session?.access_token || '').trim();
+        if (!token || cancelled) return;
+        const response = await fetch(
+          `${buildWhatsAppApiUrlForDashboard('message-logs')}?user_id=${encodeURIComponent(user.id)}&limit=200`,
+          {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          }
+        );
+        const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+        if (!contentType.includes('application/json')) return;
+        const result = await response.json();
+        if (!response.ok || !result?.ok || cancelled) return;
+        const logs: any[] = Array.isArray(result?.logs) ? result.logs : [];
+
+        const isSameLocalDay = (raw: unknown) => {
+          const dt = new Date(String(raw || ''));
+          if (Number.isNaN(dt.getTime())) return false;
+          return (
+            dt.getFullYear() === now.getFullYear() &&
+            dt.getMonth() === now.getMonth() &&
+            dt.getDate() === now.getDate()
+          );
+        };
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+        // Enviou QUALQUER coisa hoje (sent/accepted)? Então o WhatsApp está funcionando.
+        const sentSomethingToday = logs.some((log: any) => {
+          const st = String(log?.status || '').trim().toLowerCase();
+          if (st !== 'sent' && st !== 'accepted') return false;
+          return isSameLocalDay(log?.sent_at) || isSameLocalDay(log?.created_at);
+        });
+        // Histórico antes de hoje: sem histórico não dá para inferir nada (recém-conectado
+        // ou lembretes desativados) → não alertar.
+        const hasHistoryBeforeToday = logs.some((log: any) => {
+          const dt = new Date(String(log?.sent_at || log?.created_at || ''));
+          return !Number.isNaN(dt.getTime()) && dt.getTime() < startOfToday;
+        });
+
+        if (!cancelled) {
+          setWhatsappSilentAlert({
+            active: !sentSomethingToday && hasHistoryBeforeToday,
+            appointmentsCount: pastAppointmentsCount,
+          });
+        }
+      } catch {
+        if (!cancelled) setWhatsappSilentAlert({ active: false, appointmentsCount: 0 });
+      }
+    };
+
+    void checkWhatsappSilentFailure();
+    const silentCheckIntervalId = window.setInterval(() => {
+      void checkWhatsappSilentFailure();
+    }, 10 * 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(silentCheckIntervalId);
+    };
+  }, [user?.id, establishment?.id, baileysDashboardStatus.connected]);
+
   useEffect(() => {
     if (!showDetailedAttendancesPanel) return;
     // Mantém o mobile leve ao trocar período/filtro (render progressivo).
@@ -15469,10 +15604,12 @@ Estamos te aguardando!`;
       // quando o período for o mês selecionado, usar a MESMA base do financeiro mensal.
       // Isso evita divergência entre "Valores do Mês" e "Atendimentos por profissional".
       if (isExactSelectedMonthRange) {
+        // Mantém atendimentos de ASSINATURA na lista: cada consumidor filtra localmente.
+        // Necessário para o líquido contar o SERVIÇO EXTRA pago em atendimento de assinatura
+        // (calculateProfessionalNetValue/calculateProfessionalNetForAppointment tratam o resto).
         const sameBaseRows = (monthlyAppointments || [])
           .filter((apt) => !isWaitlistAppointment(apt))
-          .filter((apt) => isCompletedAppointmentStatus(apt))
-          .filter((apt) => !shouldExcludeFromFinancialAttendanceBase(apt));
+          .filter((apt) => isCompletedAppointmentStatus(apt));
         setProfessionalRevenueAppointments(sameBaseRows as Appointment[]);
         setProfessionalRevenueRangeError('');
         return;
@@ -15491,10 +15628,10 @@ Estamos te aguardando!`;
           .order('appointment_time', { ascending: true });
 
         if (error) throw error;
+        // Mantém atendimentos de ASSINATURA na lista (mesma razão do bloco acima).
         const completedRows = ((data || []) as any[])
           .filter((apt) => !isWaitlistAppointment(apt))
-          .filter((apt) => isCompletedAppointmentStatus(apt))
-          .filter((apt) => !shouldExcludeFromFinancialAttendanceBase(apt));
+          .filter((apt) => isCompletedAppointmentStatus(apt));
         setProfessionalRevenueAppointments(completedRows as Appointment[]);
       } catch (err: any) {
         console.error('Erro ao carregar período da Receita por Profissional:', err);
@@ -25198,7 +25335,10 @@ Estamos te aguardando!`;
     // IMPORTANTE: Produtos V2 (appointment_products) NÃO entram, mas serviços extra (additional_products) SIM
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (!isCompletedAppointmentStatus(appointment)) return total;
-      if (shouldExcludeFromFinancialAttendanceBase(appointment)) return total;
+      if (shouldExcludeFromFinancialAttendanceBase(appointment)) {
+        // 👑 assinatura: conta só o SERVIÇO EXTRA pago (repasse fica no trilho de assinatura)
+        return total + getSubscriberAppointmentExtrasNet(professional, appointment);
+      }
       const tip = getProfessionalTipAmount(appointment);
       let servicePart = 0;
       const baseValue = getAppointmentRevenueBase(appointment);
@@ -25234,7 +25374,10 @@ Estamos te aguardando!`;
     // Calcular o líquido total (% sobre serviço + gorjeta 100% fora da %)
     const totalNet = professionalAppointments.reduce((total, appointment) => {
       if (!isCompletedAppointmentStatus(appointment)) return total;
-      if (shouldExcludeFromFinancialAttendanceBase(appointment)) return total;
+      if (shouldExcludeFromFinancialAttendanceBase(appointment)) {
+        // 👑 assinatura: conta só o SERVIÇO EXTRA pago (repasse fica no trilho de assinatura)
+        return total + getSubscriberAppointmentExtrasNet(professional, appointment);
+      }
       const tip = getProfessionalTipAmount(appointment);
       let servicePart = 0;
       const baseValue = getAppointmentRevenueBase(appointment);
@@ -25407,8 +25550,31 @@ Estamos te aguardando!`;
     return Number.MAX_SAFE_INTEGER;
   };
 
+  /**
+   * 👑 SERVIÇO EXTRA pago dentro de atendimento de ASSINATURA: entra no líquido normal do
+   * profissional (mesma regra do serviço extra em atendimento avulso). O repasse por visita
+   * do plano segue no trilho de assinatura — sem duplicação (a fórmula do repasse nunca
+   * inclui extras). Gorjeta em atendimento de assinatura continua de fora (regra atual).
+   */
+  const getSubscriberAppointmentExtrasNet = (professional: any, apt: Appointment): number => {
+    const extrasBase = (apt.additional_products || []).reduce(
+      (sum: number, p: any) => sum + (Number(p?.price) || 0),
+      0
+    );
+    if (!(extrasBase > 0)) return 0;
+    const cardTaxAmount = getCardTaxAmountFromAppointment(apt, extrasBase);
+    const afterTax = establishment?.tax_deducted_by_establishment
+      ? extrasBase
+      : Math.max(0, extrasBase - cardTaxAmount);
+    return isOwnerProfessional(professional)
+      ? afterTax
+      : (afterTax * getProfessionalPercentageForAppointment(apt, professional)) / 100;
+  };
+
   const calculateProfessionalNetForAppointment = (professional: any, apt: Appointment): number => {
-    if (shouldExcludeFromFinancialAttendanceBase(apt)) return 0;
+    if (shouldExcludeFromFinancialAttendanceBase(apt)) {
+      return getSubscriberAppointmentExtrasNet(professional, apt);
+    }
     const tip = getProfessionalTipAmount(apt);
     const baseValue = getAppointmentRevenueBase(apt);
     const cardTaxAmount = getCardTaxAmountFromAppointment(apt, baseValue);
@@ -28635,6 +28801,8 @@ Estamos te aguardando!`;
                         !baileysDashboardStatus.apiError &&
                         ['connecting', 'reconnecting', 'error'].includes(String(baileysDashboardStatus.status || ''))
                       }
+                      whatsappSilentAlert={whatsappSilentAlert.active}
+                      whatsappSilentAlertCount={whatsappSilentAlert.appointmentsCount}
                       onOpenWhatsAppReminders={() => handleTabChange('whatsapp-reminders')}
                       canViewBarbershopCash={
                         !(
@@ -36958,6 +37126,7 @@ Estamos te aguardando!`;
                                   validatedPendingAmount={paymentValidation.pendingAllowed}
                                   ignoredPaymentIds={paymentValidation.ignoredPaymentIds}
                                   selectedMonth={professionalRevenuePaymentMonth}
+                                  isOwnerProfessional={isOwnerProfessional(professional)}
                                   onPaymentRecorded={() => {
                                     void loadProfessionalPayments(true);
                                   }}
