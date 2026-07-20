@@ -36,17 +36,21 @@ function LinhaRecurso({
 export default function PlanosCards({
   hidePrata = false,
   referralCupom = null,
+  diamanteOnly = false,
 }: {
   whatsappNumber?: string;
   hidePrata?: boolean;
   referralCupom?: string | null;
+  diamanteOnly?: boolean;
 }) {
   const precoPrata = 37.9;
   const precoDiamante = 67.9;
   const normalizedReferralCupom = normalizePartnerReferralCodeInput(String(referralCupom || ''));
   const referralOnlyMode = Boolean(normalizedReferralCupom);
-  const showLegacyPrata = !hidePrata && !referralOnlyMode;
-  const showMainPrata = !referralOnlyMode;
+  // diamanteOnly (funil do quiz /conhecer e /planos): SÓ o Diamante, lista curta e
+  // oferta com âncora real (concorrente cobra por profissional). Landings intocadas.
+  const showLegacyPrata = !hidePrata && !referralOnlyMode && !diamanteOnly;
+  const showMainPrata = !referralOnlyMode && !diamanteOnly;
   const cadastroLink = (plan: 'prata' | 'diamante') =>
     buildCadastroAgLink({ plan, cupom: normalizedReferralCupom || null });
 
@@ -123,10 +127,23 @@ export default function PlanosCards({
     'Lembretes automatico para clientes assinantes 1h antes no WhatsApp\u00A0ILIMITADO'
   ];
 
+  // Modo diamanteOnly: linhas CURTAS de propósito — nenhuma quebra em tela de celular
+  const diamanteCompact = [
+    'Profissionais ILIMITADOS',
+    'Agendamentos ilimitados',
+    'WhatsApp com lembretes ILIMITADOS',
+    'Clube de assinantes completo',
+    'Cobrança recorrente automática',
+    'Financeiro + comissões na régua',
+    'Página sua — agenda sem app',
+    'Estoque, fidelidade e ranking',
+    'Suporte exclusivo todo dia',
+  ];
+
   return (
     <div
       className={`grid gap-8 ${
-        referralOnlyMode
+        referralOnlyMode || diamanteOnly
           ? 'max-w-xl mx-auto'
           : hidePrata
             ? 'md:grid-cols-2 max-w-5xl mx-auto'
@@ -242,8 +259,18 @@ export default function PlanosCards({
           <div className="relative px-5 py-5 sm:px-6 sm:py-6 bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-700">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-4xl font-extrabold tracking-tight text-white drop-shadow">PLANO</div>
-                <div className="text-4xl font-extrabold tracking-tight text-white drop-shadow">DIAMANTE</div>
+                {diamanteOnly ? (
+                  <>
+                    <div className="text-[11px] font-black tracking-[0.25em] text-cyan-100/90 uppercase mb-1">Agendei Fácil</div>
+                    <div className="text-4xl font-extrabold tracking-tight text-white drop-shadow">ACESSO</div>
+                    <div className="text-4xl font-extrabold tracking-tight text-white drop-shadow">COMPLETO</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-4xl font-extrabold tracking-tight text-white drop-shadow">PLANO</div>
+                    <div className="text-4xl font-extrabold tracking-tight text-white drop-shadow">DIAMANTE</div>
+                  </>
+                )}
               </div>
               <div className="bg-white/15 rounded-2xl p-3 border border-cyan-100/70 shadow-lg">
                 <Gem className="h-10 w-10 text-cyan-100" />
@@ -251,55 +278,92 @@ export default function PlanosCards({
             </div>
             <div className="mt-3 flex justify-end">
               <span className="rounded-full bg-amber-300 text-black px-3 py-1 text-[11px] font-black tracking-wide shadow-lg border border-amber-100">
-                MAIS ESCOLHIDO
+                {diamanteOnly ? 'TUDO INCLUSO' : 'MAIS ESCOLHIDO'}
               </span>
             </div>
           </div>
 
           <div className="bg-[#0b0b0c] px-4 py-5 sm:px-6 sm:py-6">
             <ul className="space-y-2">
-              {diamanteOk.map((t) => (
+              {(diamanteOnly ? diamanteCompact : diamanteOk).map((t) => (
                 <LinhaRecurso key={t} texto={t} incluso />
               ))}
-              <div className="my-4 h-px bg-white/15" />
-              {diamanteExtra.map((t) => (
-                <LinhaRecurso key={t} texto={t} incluso />
-              ))}
+              {!diamanteOnly && (
+                <>
+                  <div className="my-4 h-px bg-white/15" />
+                  {diamanteExtra.map((t) => (
+                    <LinhaRecurso key={t} texto={t} incluso />
+                  ))}
+                </>
+              )}
             </ul>
-            <div className="mt-3 rounded-xl border border-cyan-300/40 bg-gradient-to-b from-cyan-500/15 to-blue-500/10 px-4 py-3 text-center shadow-[0_0_18px_rgba(34,211,238,0.2)]">
-              <div className="text-[13px] leading-relaxed text-cyan-50 font-semibold">
-                No plano Diamante, seus clientes recebem lembretes automáticos ilimitados no WhatsApp.
-                <span className="block mt-1">Isso ajuda o cliente a não esquecer o compromisso com você.</span>
+            {diamanteOnly && (
+              <div className="mt-3 text-center">
+                <span className="text-[13px] font-extrabold text-cyan-200/90">...e muito mais.</span>
+                <span className="mt-2 flex justify-center">
+                  <span className="inline-flex rounded-full border border-emerald-300/40 bg-emerald-500/20 px-3 py-1 text-[11px] font-black tracking-wide text-emerald-100">
+                    Lembretes no WhatsApp reduzem até 60% das faltas
+                  </span>
+                </span>
               </div>
-              <span className="block mt-2 text-[13px] font-extrabold text-cyan-100">Você escolhe quando enviar: 2h antes, 1h antes ou 30 min antes.</span>
-              <span className="inline-flex mt-2 rounded-full border border-emerald-300/40 bg-emerald-500/20 px-3 py-1 text-[11px] font-black tracking-wide text-emerald-100">
-                Reduzindo até 60% em faltas
-              </span>
-            </div>
+            )}
+            {!diamanteOnly && (
+              <div className="mt-3 rounded-xl border border-cyan-300/40 bg-gradient-to-b from-cyan-500/15 to-blue-500/10 px-4 py-3 text-center shadow-[0_0_18px_rgba(34,211,238,0.2)]">
+                <div className="text-[13px] leading-relaxed text-cyan-50 font-semibold">
+                  No plano Diamante, seus clientes recebem lembretes automáticos ilimitados no WhatsApp.
+                  <span className="block mt-1">Isso ajuda o cliente a não esquecer o compromisso com você.</span>
+                </div>
+                <span className="block mt-2 text-[13px] font-extrabold text-cyan-100">Você escolhe quando enviar: 2h antes, 1h antes ou 30 min antes.</span>
+                <span className="inline-flex mt-2 rounded-full border border-emerald-300/40 bg-emerald-500/20 px-3 py-1 text-[11px] font-black tracking-wide text-emerald-100">
+                  Reduzindo até 60% em faltas
+                </span>
+              </div>
+            )}
 
             <div className="mt-6 rounded-2xl bg-black/70 border border-white/10 px-5 py-4">
+              {diamanteOnly && (
+                <div className="mb-2 flex justify-center">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300/50 bg-emerald-500/15 px-3 py-1 text-[11px] font-black tracking-wider text-emerald-200 uppercase">
+                    🔓 Oferta desbloqueada
+                  </span>
+                </div>
+              )}
+              {diamanteOnly && (
+                <div className="text-center mb-1">
+                  <span className="text-white/50 text-lg font-bold line-through decoration-red-400/80">de R$ 119,90</span>
+                  <span className="ml-2 text-emerald-300 text-[13px] font-black uppercase tracking-wide">por apenas</span>
+                </div>
+              )}
               <div className="flex items-end justify-center gap-2">
                 <span className="text-white text-2xl font-bold">R$</span>
                 <span className="text-white text-5xl font-extrabold tracking-tight">{formatarPrecoBRL(precoDiamante)}</span>
                 <span className="text-white/80 text-lg font-semibold mb-1">mês</span>
               </div>
-              <div className="mt-2 text-center text-[12px] leading-snug text-white/85 font-semibold">
-                APENAS R$ {diferencaBRL(precoDiamante, precoPrata)} DE DIFERENÇA DO PLANO PRATA PRO DIAMANTE
-              </div>
+              {diamanteOnly ? (
+                <div className="mt-2 text-center text-[12px] leading-snug text-emerald-200/95 font-bold">
+                  🔒 Sem aumento — preço travado enquanto sua assinatura estiver ativa
+                </div>
+              ) : (
+                <div className="mt-2 text-center text-[12px] leading-snug text-white/85 font-semibold">
+                  APENAS R$ {diferencaBRL(precoDiamante, precoPrata)} DE DIFERENÇA DO PLANO PRATA PRO DIAMANTE
+                </div>
+              )}
             </div>
 
             <div className="mt-4 text-center text-[12px] leading-snug text-white/80">
               NÃO É PARCELAMENTO É MENSALIDADE
               <br />
               ESTILO NETFLIX PAGA O MÊS QUE USAR
-              <span className="block mt-2">Pode trocar de plano depois — simples, rápido e sem burocracia.</span>
+              {!diamanteOnly && (
+                <span className="block mt-2">Pode trocar de plano depois — simples, rápido e sem burocracia.</span>
+              )}
             </div>
 
             <Link
               to={cadastroLink('diamante')}
               className="block w-full mt-4 px-4 py-3 rounded-xl font-extrabold text-white bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 transition-colors text-center shadow-lg"
             >
-              Quero esse plano
+              {diamanteOnly ? 'Quero meu acesso agora 🚀' : 'Quero esse plano'}
             </Link>
           </div>
         </div>

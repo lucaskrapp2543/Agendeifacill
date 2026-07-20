@@ -138,8 +138,12 @@
               if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
                 console.log('🔄 Nova versão instalada, aguardando ativação');
 
-                // Notificar o usuário sobre a atualização
-                if (confirm('Nova versão disponível! Deseja atualizar agora?')) {
+                // Popup de atualização SÓ dentro do sistema (dashboard). Em páginas
+                // públicas/anúncio (/conhecer, /planos, /, cadastro etc.) NUNCA mostrar —
+                // visitante de primeira viagem não pode ver "nova versão disponível".
+                // A versão nova entra sozinha na próxima visita (ciclo normal do SW).
+                const isInternalSystemArea = window.location.pathname.indexOf('/dashboard') === 0;
+                if (isInternalSystemArea && confirm('Nova versão disponível! Deseja atualizar agora?')) {
                   newWorker.postMessage({ type: 'SKIP_WAITING' });
                   window.location.reload();
                 }

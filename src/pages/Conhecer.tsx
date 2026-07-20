@@ -9,6 +9,63 @@ interface QuizState {
   selectedReasons: string[];
 }
 
+// Contra-golpe personalizado para cada "vacilo do outro sistema" marcado no step 3.
+// Cada seleção vira um card ❌ (dor riscada) → ✅ (resposta do Agendei Fácil).
+const PAIN_COUNTERS: Record<string, string> = {
+  'Valor alto': 'Aqui a mensalidade é fixa e camarada — tudo incluso e muito mais barato.',
+  'Não entrega o que preciso': 'Agenda, financeiro, assinantes, WhatsApp, fidelidade... aqui não falta peça.',
+  'Paga por profissional': 'Profissionais ILIMITADOS. Cresce a equipe, o valor não muda.',
+  'Não tem uma página completa': 'Página completa com fotos, avaliações e pagamento online — link só seu.',
+  'Não tem club assinantes': 'Clube de assinantes PRONTO, cobrança automática todo mês. Renda fixa caindo.',
+  'Não tem controle total de tudo': 'Financeiro por profissional, comissões, produtos, metas... controle até DEMAIS.',
+  'Quero apenas mudar': 'Melhor motivo que existe. Migrar pra cá leva minutos.',
+};
+const MONEY_PAINS = new Set(['Valor alto', 'Paga por profissional']);
+
+// Emojis de EXIBIÇÃO das opções do step 3 — apenas visual; as strings-chave
+// continuam idênticas (alimentam PAIN_COUNTERS/resolvePainScreen sem mudança).
+const REASON_EMOJIS: Record<string, string> = {
+  'Valor alto': '💸',
+  'Não entrega o que preciso': '🧩',
+  'Paga por profissional': '👥',
+  'Não tem uma página completa': '🔗',
+  'Não tem club assinantes': '👑',
+  'Não tem controle total de tudo': '🎛️',
+  'Nenhum desses': '🤷',
+  'Quero apenas mudar': '🔄',
+};
+
+// Headline e sublinha dinâmicas conforme o que foi marcado ("Nenhum desses" nunca gera card).
+const resolvePainScreen = (selectedReasons: string[]) => {
+  const selectedWithCounter = selectedReasons.filter(
+    (reason) => reason !== 'Nenhum desses' && PAIN_COUNTERS[reason]
+  );
+  // "Quero apenas mudar" fecha a lista quando misturado com dores reais (é o arremate)
+  const cards = [
+    ...selectedWithCounter.filter((reason) => reason !== 'Quero apenas mudar'),
+    ...selectedWithCounter.filter((reason) => reason === 'Quero apenas mudar'),
+  ];
+  const realPains = cards.filter((reason) => reason !== 'Quero apenas mudar');
+  const onlyWantsToSwitch = cards.length > 0 && realPains.length === 0;
+  const hasMoneyPain = cards.some((reason) => MONEY_PAINS.has(reason));
+
+  let headline = 'Isso dói no bolso, né? 😮‍💨';
+  if (cards.length === 0) headline = 'Beleza — deixa eu te mostrar o que você ainda não viu 👀';
+  else if (onlyWantsToSwitch) headline = 'Então veio ao lugar certo 😏';
+  else if (!hasMoneyPain) headline = 'Trabalhar com sistema pela metade cansa, né? 😮‍💨';
+
+  const subline =
+    cards.length === 0
+      ? { prefix: 'O Agendei Fácil é o ', highlight: 'sistema mais completo do Brasil', suffix: ' 👇' }
+      : onlyWantsToSwitch
+        ? { prefix: 'E o Agendei Fácil é o ', highlight: 'upgrade que você procura', suffix: ' 👇' }
+        : cards.length === 1
+          ? { prefix: 'Mas calma — o Agendei Fácil ', highlight: 'resolve exatamente esse', suffix: ' 👇' }
+          : { prefix: 'Mas calma — o Agendei Fácil ', highlight: 'resolve TODOS esses', suffix: ' 👇' };
+
+  return { cards, headline, subline, showSwitchCaption: onlyWantsToSwitch };
+};
+
 const Conhecer = () => {
   const navigate = useNavigate();
   const [quizState, setQuizState] = useState<QuizState>({
@@ -23,6 +80,30 @@ const Conhecer = () => {
   const totalSteps = 8;
   const progress = (quizState.step / totalSteps) * 100;
   const adjustedProgress = quizState.step === 1 ? 12.9 : progress;
+
+  // 🎰 Escada de recompensa: micro-pulso na barra a cada etapa vencida (+ vibração no
+  // celular), mini-confete no marco de 75%, e JACKPOT de tela cheia ao chegar nos planos.
+  // Voltar etapa NÃO premia. Nada bloqueia o toque (jackpot é pointer-events-none).
+  const [stepRewardPulse, setStepRewardPulse] = useState(0);
+  const [showJackpot, setShowJackpot] = useState(false);
+  const prevStepRef = useRef(1);
+
+  useEffect(() => {
+    const prev = prevStepRef.current;
+    prevStepRef.current = quizState.step;
+    if (quizState.step <= prev) return;
+    try {
+      (navigator as any).vibrate?.(quizState.step === 8 ? [30, 40, 60] : 15);
+    } catch {
+      // sem vibração — segue o jogo
+    }
+    setStepRewardPulse((n) => n + 1);
+    if (quizState.step === 8) {
+      setShowJackpot(true);
+      const jackpotId = window.setTimeout(() => setShowJackpot(false), 2600);
+      return () => window.clearTimeout(jackpotId);
+    }
+  }, [quizState.step]);
 
   const handleBusinessTypeSelect = (type: string) => {
     setQuizState(prev => ({
@@ -145,18 +226,96 @@ const Conhecer = () => {
       </style>
       
       {/* Barra de Progresso - Fixa no topo */}
+      <style>{`
+        @keyframes conhecerBarPulse { 0% { opacity: 0.9; } 100% { opacity: 0; } }
+        @keyframes conhecerCheckPop { 0% { transform: scale(0); opacity: 0; } 45% { transform: scale(1.5); opacity: 1; } 75% { transform: scale(1); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
+        @keyframes conhecerBurstFall { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(38vh) rotate(540deg); opacity: 0; } }
+        @keyframes conhecerConfettiFall { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(110vh) rotate(720deg); opacity: 0.85; } }
+        @keyframes conhecerStampIn { 0% { transform: scale(3) rotate(-18deg); opacity: 0; } 55% { transform: scale(0.92) rotate(-7deg); opacity: 1; } 75% { transform: scale(1.07) rotate(-10deg); } 100% { transform: scale(1) rotate(-8deg); } }
+        @keyframes conhecerPopIn { 0% { transform: scale(0.6); opacity: 0; } 60% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); } }
+        @keyframes conhecerJackpotFade { 0%, 84% { opacity: 1; } 100% { opacity: 0; } }
+      `}</style>
       <div className="fixed top-0 left-0 right-0 z-50 w-full bg-gray-800 h-4">
         <div className="relative">
-        <div 
+        <div
             className="bg-blue-600 h-4 transition-all duration-500 ease-out relative"
           style={{ width: `${adjustedProgress}%` }}
           >
-            <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-white text-xs font-bold">
-              {quizState.step === 1 ? '12.9%' : `${Math.round(progress)}%`}
+            {/* pulso verde: reanima a cada etapa vencida (key muda) */}
+            {stepRewardPulse > 0 && (
+              <div
+                key={`pulse-${stepRewardPulse}`}
+                className="absolute inset-0 bg-green-400"
+                style={{ animation: 'conhecerBarPulse 0.7s ease both' }}
+              />
+            )}
+            <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-white text-xs font-bold flex items-center gap-1">
+              <span>{quizState.step === 1 ? '12.9%' : `${Math.round(progress)}%`}</span>
+              {stepRewardPulse > 0 && (
+                <span
+                  key={`chk-${stepRewardPulse}`}
+                  className="text-green-300"
+                  style={{ animation: 'conhecerCheckPop 0.8s ease both' }}
+                >
+                  ✓
+                </span>
+              )}
+            </div>
+          </div>
+          {/* mini estouro de confete no marco de 75% (chegou na grade de chips) */}
+          {quizState.step === 6 && stepRewardPulse > 0 && (
+            <div key={`burst-${stepRewardPulse}`} className="pointer-events-none absolute top-4 left-0 right-0">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <span
+                  key={i}
+                  className="absolute w-2 h-3 rounded-[2px]"
+                  style={{
+                    left: `${8 + ((i * 17) % 84)}%`,
+                    backgroundColor: ['#22c55e', '#eab308', '#ec4899', '#3b82f6', '#f97316'][i % 5],
+                    animation: `conhecerBurstFall ${0.9 + (i % 4) * 0.18}s ease-out ${(i % 5) * 0.05}s both`,
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 💥 JACKPOT final: tela cheia + carimbo "OFERTA DESBLOQUEADA" (some sozinho em
+          ~2,6s e é pointer-events-none — nunca bloqueia o toque de ninguém) */}
+      {showJackpot && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/90 pointer-events-none"
+          style={{ animation: 'conhecerJackpotFade 2.6s ease both' }}
+        >
+          {Array.from({ length: 34 }).map((_, i) => (
+            <span
+              key={i}
+              className="absolute -top-6 w-2.5 h-4 rounded-[2px]"
+              style={{
+                left: `${(i * 37) % 100}%`,
+                backgroundColor: ['#22c55e', '#eab308', '#ec4899', '#3b82f6', '#f97316', '#a855f7'][i % 6],
+                animation: `conhecerConfettiFall ${1.5 + (i % 5) * 0.25}s linear ${(i % 7) * 0.12}s both`,
+              }}
+            />
+          ))}
+          <div className="text-center px-6">
+            <div className="text-5xl mb-3" style={{ animation: 'conhecerPopIn 0.5s ease both' }}>🎉</div>
+            <div className="text-3xl sm:text-4xl font-black text-white mb-6" style={{ animation: 'conhecerPopIn 0.5s ease 0.15s both' }}>
+              PARABÉNS!
+            </div>
+            <div
+              className="inline-block rounded-xl border-4 border-emerald-400 px-6 py-3 text-xl sm:text-2xl font-black uppercase tracking-wider text-emerald-300 shadow-[0_0_35px_rgba(16,185,129,0.5)]"
+              style={{ animation: 'conhecerStampIn 0.55s cubic-bezier(0.22, 1.4, 0.36, 1) 0.55s both' }}
+            >
+              🔓 OFERTA DESBLOQUEADA
+            </div>
+            <div className="mt-4 text-sm text-white/70" style={{ animation: 'conhecerPopIn 0.4s ease 1.1s both' }}>
+              você completou o quiz 👏
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Efeito de Confetes */}
       {showConfetti && (
@@ -174,8 +333,10 @@ const Conhecer = () => {
       )}
 
 
-      {/* Step 8: página /planos completa (mesmo componente — sempre idêntica à original) */}
-      {quizState.step === 8 && <Planos />}
+      {/* Step 8: página /planos completa (mesmo componente — sempre idêntica à original).
+          gateWithVideo = trava MACIA: planos aparecem após ~6s de vídeo, no "pular", ou
+          sozinhos em 12s. Só no quiz — /planos acessado direto continua tudo visível. */}
+      {quizState.step === 8 && <Planos gateWithVideo />}
 
       {quizState.step !== 8 && (
        <div className="flex-1 flex items-center justify-center p-2 pt-4">
@@ -194,15 +355,6 @@ const Conhecer = () => {
                    />
                  </div>
                  
-                 <div className="mb-4 flex justify-center items-center">
-                   <div className="w-[90vw] h-[90vw] max-w-[500px] max-h-[500px] rounded-2xl overflow-hidden">
-                   <img 
-                     src="/pensativo.gif" 
-                     alt="Gif pensativo" 
-                       className="w-full h-full object-cover"
-                   />
-                   </div>
-                 </div>
                 <h1 className="text-xl sm:text-2xl font-bold text-blue-400 mt-2 mb-8">
                   Para qual negócio você deseja? 👇
                 </h1>
@@ -212,21 +364,21 @@ const Conhecer = () => {
                     onClick={() => handleBusinessTypeSelect('barbearia')}
                     className="w-full rounded-2xl overflow-hidden transition-transform hover:scale-[1.02] active:scale-[0.98]"
                   >
-                    <img src="/barbeariabotom.webp" alt="Barbearia" className="w-full h-auto block" />
+                    <img src="/barbeariaim.webp" alt="Barbearia" className="w-full h-auto block" />
                   </button>
                   
                   <button
                     onClick={() => handleBusinessTypeSelect('salao')}
                     className="w-full rounded-2xl overflow-hidden transition-transform hover:scale-[1.02] active:scale-[0.98]"
                   >
-                    <img src="/salaobotom.webp" alt="Salão de Beleza" className="w-full h-auto block" />
+                    <img src="/salaoim.webp" alt="Salão de Beleza" className="w-full h-auto block" />
                   </button>
                   
                   <button
                     onClick={() => handleBusinessTypeSelect('lavacar')}
                     className="w-full rounded-2xl overflow-hidden transition-transform hover:scale-[1.02] active:scale-[0.98]"
                   >
-                    <img src="/lavacarbotom.webp" alt="Lava-car" className="w-full h-auto block" />
+                    <img src="/lavacarim.webp" alt="Lava-car" className="w-full h-auto block" />
                   </button>
                 </div>
               </>
@@ -247,7 +399,13 @@ const Conhecer = () => {
                        </div>
                      )}
                      {quizState.businessType === 'salao' && (
-                       <div className="text-3xl">💄</div>
+                       <div className="w-[85vw] max-w-[500px] rounded-2xl overflow-hidden">
+                         <img
+                           src="/salaodebeleza1.webp"
+                           alt="Gif salão de beleza"
+                           className="w-full h-auto block"
+                         />
+                       </div>
                      )}
                      {quizState.businessType === 'lavacar' && (
                        <div className="text-3xl">🚗</div>
@@ -256,28 +414,25 @@ const Conhecer = () => {
                    <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight">
                      Então você está no lugar certo!
                    </h1>
-                   <p className="text-sm sm:text-base text-gray-200 leading-relaxed">
-                     <span className="block sm:inline">Conheça em poucos cliques o <span className="font-bold text-blue-400 whitespace-nowrap">Agendei&nbsp;Fácil</span>,</span>
-                     <span className="block sm:inline">o sistema de agendamentos <span className="font-bold text-blue-400 whitespace-nowrap">mais&nbsp;completo&nbsp;do&nbsp;Brasil</span>.</span>
-                   </p>
                  </div>
 
-                <div className="bg-blue-500/10 border-l-4 border-blue-500 p-4 rounded-lg mb-4 mt-4">
-                  <h2 className="text-lg sm:text-xl font-bold text-blue-200 mb-3">
+                {/* Card premium — mesma linguagem dos cards de entrada (escuro + brilho sutil) */}
+                <div className="mt-4 mb-4 rounded-2xl border border-white/10 bg-gradient-to-b from-[#101a2c] to-[#0a0d14] p-5 ring-1 ring-blue-500/25 shadow-[0_0_28px_rgba(59,130,246,0.18)]">
+                  <h2 className="text-lg sm:text-xl font-extrabold text-white leading-snug mb-4">
                     Atualmente você tem algum sistema de agendamentos?
                   </h2>
-                  
-                  <div className="flex gap-4 justify-center">
+
+                  <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => handleSystemResponse(true)}
-                      className="px-8 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold flex items-center gap-2"
+                      className="py-3.5 rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white font-extrabold shadow-lg shadow-emerald-500/25 transition-all hover:scale-[1.02] active:scale-[0.97] flex items-center justify-center gap-2"
                     >
                       <span>👍</span>
                       <span>Sim</span>
                     </button>
                     <button
                       onClick={() => handleSystemResponse(false)}
-                      className="px-8 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-semibold flex items-center gap-2"
+                      className="py-3.5 rounded-xl bg-gradient-to-b from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 text-white font-extrabold shadow-lg shadow-red-500/25 transition-all hover:scale-[1.02] active:scale-[0.97] flex items-center justify-center gap-2"
                     >
                       <span>👎</span>
                       <span>Não</span>
@@ -299,18 +454,25 @@ const Conhecer = () => {
                <>
                  <div className="mb-4">
                    <div className="mb-3 flex justify-center items-center">
-                     <div className="w-[80vw] h-[80vw] max-w-[450px] max-h-[450px] rounded-2xl overflow-hidden">
-                     <img 
-                       src="/barbeirosurpreso2.gif"
-                       alt="Barbeiros fofocando"
-                         className="w-full h-full object-cover"
-                     />
-                     </div>
+                     {quizState.businessType === 'salao' ? (
+                       <div className="w-[80vw] max-w-[450px] rounded-2xl overflow-hidden">
+                         <img
+                           src="/contaai.webp"
+                           alt="Conta aí"
+                           className="w-full h-auto block"
+                         />
+                       </div>
+                     ) : (
+                       <div className="w-[80vw] h-[80vw] max-w-[450px] max-h-[450px] rounded-2xl overflow-hidden">
+                       <img
+                         src="/barbeirosurpreso2.gif"
+                         alt="Barbeiros fofocando"
+                           className="w-full h-full object-cover"
+                       />
+                       </div>
+                     )}
                    </div>
-                   <p className="text-sm sm:text-base text-gray-400 mb-3 text-center">
-                     Nos ajude a te entender melhor
-                   </p>
-                   <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-white mb-2 text-center leading-tight px-2 bg-yellow-500/10 p-4 rounded-lg border-l-4 border-yellow-500">
+                   <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-white mb-2 text-center leading-tight px-3 py-4 bg-gradient-to-b from-yellow-500/15 to-yellow-500/5 rounded-2xl border border-yellow-500/30 ring-1 ring-yellow-500/25 shadow-[0_0_24px_rgba(234,179,8,0.15)]">
                      Qual vacilo do outro sistema fez você chegar até aqui? 👀
                    </h1>
                    <p className="text-xs text-gray-400 mb-4 text-center">
@@ -332,22 +494,25 @@ const Conhecer = () => {
                      <button
                        key={reason}
                        onClick={() => handleReasonToggle(reason)}
-                       className={`w-full p-4 sm:p-5 text-left rounded-lg border transition-colors flex items-center gap-4 ${
+                       className={`w-full p-4 sm:p-5 text-left rounded-xl border transition-all flex items-center gap-3.5 active:scale-[0.98] ${
                          quizState.selectedReasons.includes(reason)
-                           ? 'bg-green-500/20 border-green-400 text-green-100'
-                           : 'bg-white/5 border-white/15 text-gray-100 hover:bg-white/10'
+                           ? 'bg-green-500/15 border-green-400/80 text-green-100 ring-1 ring-green-400/40 shadow-[0_0_18px_rgba(34,197,94,0.2)] scale-[1.01]'
+                           : 'bg-gradient-to-b from-white/[0.07] to-white/[0.03] border-white/10 text-gray-100 hover:border-white/25 hover:scale-[1.01]'
                        }`}
                      >
-                       <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                       <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
                          quizState.selectedReasons.includes(reason)
-                           ? 'bg-green-500 border-green-500'
-                           : 'border-gray-400'
+                           ? 'bg-green-500 border-green-500 scale-110'
+                           : 'border-gray-500 bg-black/30'
                        }`}>
                          {quizState.selectedReasons.includes(reason) && (
                            <span className="text-white text-xs font-bold">✓</span>
                          )}
                        </div>
-                       <span className="text-base sm:text-lg font-medium leading-relaxed">{reason}</span>
+                       <span className="text-base sm:text-lg font-medium leading-snug">
+                         <span className="mr-2">{REASON_EMOJIS[reason] || ''}</span>
+                         {reason}
+                       </span>
                      </button>
                    ))}
                  </div>
@@ -355,7 +520,7 @@ const Conhecer = () => {
                  {quizState.selectedReasons.length > 0 && (
                    <button
                      onClick={handleReasonsSubmit}
-                     className="w-full p-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-bold"
+                     className="w-full p-4 rounded-xl bg-gradient-to-b from-green-500 to-green-600 hover:from-green-400 hover:to-green-500 text-white font-extrabold shadow-lg shadow-green-500/25 transition-all hover:scale-[1.01] active:scale-[0.98]"
                    >
                      Esses são os motivos
                    </button>
@@ -370,50 +535,69 @@ const Conhecer = () => {
                </>
              )}
 
-             {/* Step 4: Realmente isso dói */}
-             {quizState.step === 4 && (
+             {/* Step 4: resposta personalizada — cada dor marcada vira card ❌ (riscada) → ✅ (contra-golpe) */}
+             {quizState.step === 4 && (() => {
+               const painScreen = resolvePainScreen(quizState.selectedReasons);
+               return (
                <>
+                 <style>{`@keyframes conhecerCardIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }`}</style>
                  <div className="mb-6">
                    <div className="mb-4 flex justify-center items-center">
                      <div className="w-[70vw] h-[70vw] max-w-[400px] max-h-[400px] rounded-2xl overflow-hidden">
-                     <img 
-                       src="/barbeirochorando.gif"
-                       alt="Barbeiro chorando"
+                     <img
+                       src={quizState.businessType === 'salao' ? '/chorando.webp' : '/barbeirochorando.gif'}
+                       alt={quizState.businessType === 'salao' ? 'Chorando' : 'Barbeiro chorando'}
                          className="w-full h-full object-cover"
                      />
                      </div>
                    </div>
-                   {quizState.selectedReasons.length > 0 && (
-                     <div className="mb-4 bg-white/5 border border-white/10 rounded-xl p-4 text-left">
-                       <p className="text-sm font-semibold text-gray-400 mb-2">Você marcou:</p>
-                       <div className="space-y-1.5">
-                         {quizState.selectedReasons.map((reason) => (
-                           <div key={reason} className="flex items-center gap-2">
-                             <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
-                               <span className="text-white text-xs font-bold">✓</span>
+                   {painScreen.showSwitchCaption && (
+                     <p className="text-xs text-gray-400 italic mb-3">o outro sistema vendo você ir embora 😂</p>
+                   )}
+                   <h1 className="text-xl sm:text-2xl font-bold text-white mb-4">
+                     {painScreen.headline}
+                   </h1>
+                   {painScreen.cards.length > 0 && (
+                     <div className="mb-5 space-y-3 text-left">
+                       {painScreen.cards.map((reason, index) => (
+                         <div
+                           key={reason}
+                           className="rounded-xl border border-white/10 ring-1 ring-white/5 bg-gradient-to-b from-white/[0.07] to-white/[0.02] p-4"
+                           style={{ animation: 'conhecerCardIn 0.45s ease both', animationDelay: `${index * 0.15}s` }}
+                         >
+                           {/* Etiquetas à prova de primeira visita: "VOCÊ MARCOU" (ação que ela
+                               acabou de fazer) → "NO AGENDEI FÁCIL" (a entrega). Só a dor é riscada. */}
+                           <div className="flex items-start gap-2 opacity-80">
+                             <span className="text-xs flex-shrink-0 mt-0.5">❌</span>
+                             <span className="text-xs font-medium">
+                               <span className="font-extrabold tracking-wide text-red-200/90">VOCÊ MARCOU: </span>
+                               <span className="text-red-300/80 line-through decoration-red-400/60">{reason}</span>
                              </span>
-                             <span className="text-sm font-medium text-gray-100">{reason}</span>
                            </div>
-                         ))}
-                       </div>
+                           <div className="flex items-start gap-2.5 mt-2">
+                             <span className="flex-shrink-0 h-6 w-6 rounded-md bg-green-500/15 ring-1 ring-green-400/40 shadow-[0_0_10px_rgba(34,197,94,0.25)] flex items-center justify-center text-sm">✅</span>
+                             <span className="text-[15px] sm:text-base font-semibold text-green-100 leading-snug">
+                               <span className="block text-[10px] font-extrabold tracking-wider text-green-400/90 uppercase mb-0.5">No Agendei Fácil:</span>
+                               {PAIN_COUNTERS[reason]}
+                             </span>
+                           </div>
+                         </div>
+                       ))}
                      </div>
                    )}
-                   <h1 className="text-xl sm:text-2xl font-bold text-white mb-3">
-                     Isso dói no bolso, né? 😮‍💨
-                   </h1>
                    <h2 className="text-lg sm:text-xl font-bold text-white mb-6">
-                     Mas calma — o Agendei Fácil <span className="text-green-400">resolve TODOS esses</span> 👇
+                     {painScreen.subline.prefix}<span className="text-green-400">{painScreen.subline.highlight}</span>{painScreen.subline.suffix}
                    </h2>
                  </div>
 
                  <div className="space-y-4">
                    <button
                      onClick={handleConhecerAgendeiFacil}
-                     className="w-full p-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-bold"
+                     className="w-full p-4 rounded-xl bg-gradient-to-b from-green-500 to-green-600 hover:from-green-400 hover:to-green-500 text-white font-extrabold shadow-lg shadow-green-500/25 transition-all hover:scale-[1.01] active:scale-[0.98]"
                    >
                      Quero ver a solução 👀
                    </button>
-                   
+
                    <button
                      onClick={() => setQuizState(prev => ({ ...prev, step: 2 }))}
                      className="w-full p-4 bg-white/10 text-gray-200 rounded-lg hover:bg-white/20 transition-colors"
@@ -422,16 +606,17 @@ const Conhecer = () => {
                    </button>
                  </div>
                </>
-             )}
+               );
+             })()}
 
              {/* Step 5: Realmente isso dói (sem gif) */}
              {quizState.step === 5 && (
                <>
                  <div className="mb-6">
                    <div className="mb-4 flex justify-center items-center">
-                     <img 
-                       src="/VS.png" 
-                       alt="VS" 
+                     <img
+                       src={quizState.businessType === 'salao' ? '/cabeloehidratacao.webp' : '/VS.png'}
+                       alt={quizState.businessType === 'salao' ? 'Cabelo e hidratação' : 'VS'}
                        className="w-full max-w-lg h-auto rounded-lg"
                      />
                    </div>
@@ -476,57 +661,36 @@ const Conhecer = () => {
                      Somos o sistema de agendamento e gestão mais completo de todos
                    </h1>
                    <p className="text-sm text-gray-300 mb-4">
-                     Olha abaixo o que oferecemos
+                     bate o olho 👇
                    </p>
                  </div>
 
-                 <div className="space-y-5 mb-6">
+                 {/* Grade de chips: completude que se VÊ em 3 segundos (sem muro de texto).
+                     Entram em cascata — a grade "se monta" na frente da pessoa. */}
+                 <style>{`@keyframes conhecerChipIn { from { opacity: 0; transform: translateY(10px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }`}</style>
+                 <div className="grid grid-cols-2 gap-2.5 mb-6">
                    {[
-                     {
-                       title: '💰 Pro seu bolso',
-                       items: [
-                         { text: 'Cliente paga adiantado (opcional) → dinheiro na SUA conta na hora', highlight: true },
-                         { text: 'Lembrete automático no WhatsApp → menos faltas', highlight: true },
-                         { text: 'Você sabe exatamente quanto lucra', highlight: true },
-                         { text: 'Comissão de cada profissional na régua', highlight: false },
-                         { text: 'Controle das taxas da maquininha', highlight: false },
-                         { text: 'Assinaturas = renda todo mês', highlight: false },
-                       ],
-                     },
-                     {
-                       title: '🙌 Pros seus clientes',
-                       items: [
-                         { text: 'Página sua, exclusiva e editável', highlight: false },
-                         { text: 'Agenda em poucos cliques, sem baixar app', highlight: false },
-                         { text: 'Seus clientes não veem a concorrência', highlight: true },
-                       ],
-                     },
-                     {
-                       title: '⚙️ Pro seu dia a dia',
-                       items: [
-                         { text: 'Controle completo da agenda', highlight: true },
-                         { text: 'Notificação quando agendam ou cancelam', highlight: false },
-                         { text: 'Sistema de estoque completo', highlight: false },
-                         { text: 'App próprio (Android e iPhone)', highlight: false },
-                         { text: 'Simples de usar no celular e no PC', highlight: false },
-                       ],
-                     },
-                   ].map((group) => (
-                     <div key={group.title}>
-                       <p className="text-sm font-extrabold text-gray-200 uppercase tracking-wide mb-2 text-center">{group.title}</p>
-                       <div className="space-y-2">
-                         {group.items.map((item) => (
-                           <div
-                             key={item.text}
-                             className="flex items-center gap-3 p-3 rounded-lg border bg-green-500/10 border-green-500/30"
-                           >
-                             <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
-                               <span className="text-white text-xs font-bold">✓</span>
-                             </div>
-                             <span className="text-sm text-green-300 text-left font-medium">{item.text}</span>
-                           </div>
-                         ))}
-                       </div>
+                     '💸 Cliente paga adiantado',
+                     '📲 Lembrete no WhatsApp',
+                     '👑 Clube de assinantes',
+                     '📊 Financeiro na régua',
+                     '🔗 Página só sua',
+                     '⚡ Agenda sem baixar app nem criar conta',
+                     '📦 Estoque completo',
+                     '📱 App próprio iOS, Android e PC',
+                     '🤝 Comissão por profissional',
+                     '➕ e muito mais...',
+                   ].map((chip, index, all) => (
+                     <div
+                       key={chip}
+                       className={`flex items-center justify-center text-center px-2.5 py-3.5 rounded-xl border text-[13px] font-semibold leading-snug ${
+                         index === all.length - 1
+                           ? 'border-dashed border-white/25 bg-white/5 text-gray-300'
+                           : 'border-green-500/30 bg-green-500/10 text-green-100'
+                       }`}
+                       style={{ animation: 'conhecerChipIn 0.4s ease both', animationDelay: `${index * 0.08}s` }}
+                     >
+                       {chip}
                      </div>
                    ))}
                  </div>
@@ -559,7 +723,7 @@ const Conhecer = () => {
                    {/* Imagem de topo */}
                    <div className="mb-4 flex justify-center">
                      <img
-                       src="/umbrind.webp"
+                       src="/umbrind2.webp"
                        alt="Agendei Fácil"
                        className="w-full max-w-lg h-auto rounded-2xl"
                      />
