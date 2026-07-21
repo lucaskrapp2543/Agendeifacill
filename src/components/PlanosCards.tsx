@@ -341,7 +341,7 @@ export default function PlanosCards({
               </div>
               {diamanteOnly ? (
                 <div className="mt-2 text-center text-[12px] leading-snug text-emerald-200/95 font-bold">
-                  🔒 Sem aumento — preço travado enquanto sua assinatura estiver ativa
+                  🔒 Fique tranquilo: entrou por esse valor, é seu pra sempre. Esse mesmo preço por mês, sem aumento nunca.
                 </div>
               ) : (
                 <div className="mt-2 text-center text-[12px] leading-snug text-white/85 font-semibold">

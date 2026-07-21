@@ -10,54 +10,24 @@ export default function Planos({ gateWithVideo = false }: { gateWithVideo?: bool
   const whatsappNumber = '5548991484275';
   const waLink = (mensagem: string) => `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(mensagem)}`;
 
-  // ✅ Play customizado (o iframe pesado do YouTube só carrega ao clicar) + trava MACIA
-  // do quiz (gateWithVideo): planos aparecem após ~6s de vídeo, OU no link "pular",
-  // OU sozinhos após 12s sem interação — nunca prende ninguém (conexão lenta etc.).
-  const [videoStarted, setVideoStarted] = useState(false);
+  // ✅ Vídeo entra RODANDO sozinho (mudo — permitido em qualquer webview); o som a pessoa
+  // ativa nos controles do próprio YouTube. Trava MACIA do quiz (gateWithVideo): planos
+  // aparecem sozinhos após ~7s (ou na hora, pelo link "pular") — nunca prende ninguém.
   const [plansRevealed, setPlansRevealed] = useState(!gateWithVideo);
-  const revealTimerRef = useRef<number | null>(null);
 
   const revealPlans = () => {
-    if (revealTimerRef.current) {
-      window.clearTimeout(revealTimerRef.current);
-      revealTimerRef.current = null;
-    }
     setPlansRevealed(true);
   };
 
-  const handleVideoPlay = () => {
-    setVideoStarted(true);
-    if (gateWithVideo && !plansRevealed && revealTimerRef.current === null) {
-      revealTimerRef.current = window.setTimeout(() => setPlansRevealed(true), 6000);
-    }
-  };
-
-  // Válvula de segurança: 12s sem interação → revela sozinho
   useEffect(() => {
     if (!gateWithVideo || plansRevealed) return;
-    const idleId = window.setTimeout(() => setPlansRevealed(true), 12000);
-    return () => window.clearTimeout(idleId);
+    const revealId = window.setTimeout(() => setPlansRevealed(true), 7000);
+    return () => window.clearTimeout(revealId);
   }, [gateWithVideo, plansRevealed]);
-
-  useEffect(() => () => {
-    if (revealTimerRef.current) window.clearTimeout(revealTimerRef.current);
-  }, []);
 
   const gateHiddenCls = gateWithVideo && !plansRevealed ? 'hidden' : '';
   const gateRevealStyle: React.CSSProperties | undefined =
     gateWithVideo && plansRevealed ? { animation: 'planosRevealIn 0.5s ease both' } : undefined;
-
-  // 🛡️ Escudo sobre o player: bloqueia título/logo do YouTube (que levariam a pessoa
-  // pra FORA do funil). Tocar no vídeo dá pausa/play NOSSO via comando à API do iframe.
-  const [videoPaused, setVideoPaused] = useState(false);
-  const videoIframeRef = useRef<HTMLIFrameElement | null>(null);
-  const toggleVideoPause = () => {
-    const win = videoIframeRef.current?.contentWindow;
-    if (!win) return;
-    const func = videoPaused ? 'playVideo' : 'pauseVideo';
-    win.postMessage(JSON.stringify({ event: 'command', func, args: '' }), '*');
-    setVideoPaused((prev) => !prev);
-  };
 
   // ✅ Popups (somente na página /planos) — sem menção a plano: aqui só existe UM acesso
   const [socialProof, setSocialProof] = useState<{ name: string; business: string } | null>(null);
@@ -186,54 +156,19 @@ export default function Planos({ gateWithVideo = false }: { gateWithVideo?: bool
                   className="relative rounded-2xl overflow-hidden border-2 border-pink-500 shadow-[0_0_25px_rgba(236,72,153,0.35)] bg-black"
                   style={{ aspectRatio: '9/16' }}
                 >
-                  {videoStarted ? (
-                    <>
-                      <iframe
-                        ref={videoIframeRef}
-                        src="https://www.youtube.com/embed/DibbRkvtbgI?rel=0&autoplay=1&playsinline=1&enablejsapi=1&controls=0&iv_load_policy=3"
-                        title="Veja o sistema por dentro"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                        allowFullScreen
-                        className="absolute inset-0 w-full h-full"
-                        style={{ border: 'none' }}
-                      />
-                      {/* Escudo: cobre o player inteiro — título/logo do YouTube inclicáveis.
-                          Tocar = pausa/continua pelo NOSSO controle (postMessage à API). */}
-                      <button
-                        type="button"
-                        onClick={toggleVideoPause}
-                        aria-label={videoPaused ? 'Continuar vídeo' : 'Pausar vídeo'}
-                        className="absolute inset-0 z-10 w-full h-full"
-                      >
-                        {videoPaused && (
-                          <span className="absolute inset-0 flex items-center justify-center bg-black/40">
-                            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-pink-500 shadow-lg shadow-pink-500/40">
-                              <svg viewBox="0 0 24 24" fill="white" className="w-7 h-7 ml-1" aria-hidden="true">
-                                <path d="M8 5v14l11-7z" />
-                              </svg>
-                            </span>
-                          </span>
-                        )}
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleVideoPlay}
-                      className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-4 bg-gradient-to-b from-gray-900 via-black to-gray-900"
-                    >
-                      <span className="relative flex h-20 w-20 items-center justify-center">
-                        <span className="absolute inline-flex h-full w-full rounded-full bg-pink-500 opacity-50 animate-ping" />
-                        <span className="relative flex h-20 w-20 items-center justify-center rounded-full bg-pink-500 shadow-lg shadow-pink-500/40">
-                          <svg viewBox="0 0 24 24" fill="white" className="w-9 h-9 ml-1" aria-hidden="true">
-                            <path d="M8 5v14l11-7z" />
-                          </svg>
-                        </span>
-                      </span>
-                      <span className="text-white font-extrabold text-base">Aperte o play 👀</span>
-                      <span className="text-white/60 text-xs">30 segundos que valem seu dinheiro</span>
-                    </button>
-                  )}
+                  {/* YouTube puro clássico: miniatura + play vermelho do PRÓPRIO YouTube.
+                      Um toque = vídeo COM SOM desde o início (o toque é dentro do player
+                      deles, gesto válido em qualquer webview — Instagram incluso).
+                      Autoplay com som não existe em navegador nenhum; esta é a combinação
+                      que entrega som no primeiro toque. */}
+                  <iframe
+                    src="https://www.youtube.com/embed/DibbRkvtbgI?rel=0&playsinline=1"
+                    title="Veja o sistema por dentro"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    className="absolute inset-0 w-full h-full"
+                    style={{ border: 'none' }}
+                  />
                 </div>
                 {gateWithVideo && !plansRevealed && (
                   <button
