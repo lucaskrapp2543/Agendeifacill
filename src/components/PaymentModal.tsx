@@ -1805,14 +1805,20 @@ export const PaymentModal = ({
                   <input
                     type="email"
                     value={payerEmail}
-                    onChange={(e) => setPayerEmail(e.target.value)}
+                    onChange={(e) => setPayerEmail(e.target.value.replace(/[\s,;]+/g, ''))}
                     placeholder="seu@email.com"
                     className="w-full px-3 py-2.5 rounded-lg bg-[#1a1b1c] border border-gray-600 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#009EE3]/60"
                     inputMode="email"
                   />
-                  <p className="text-xs text-gray-400 mt-2">
-                    O Mercado Pago exige um email válido para processar o pagamento.
-                  </p>
+                  {payerEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payerEmail.trim()) ? (
+                    <p className="text-xs text-red-400 mt-2">
+                      ⚠️ Esse email não parece válido. Confira se está escrito certo (ex: nome@gmail.com).
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-400 mt-2">
+                      O Mercado Pago exige um email válido para processar o pagamento.
+                    </p>
+                  )}
                 </div>
               )}
               </div>

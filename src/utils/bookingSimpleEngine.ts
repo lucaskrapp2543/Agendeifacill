@@ -49,16 +49,29 @@ export interface SimpleService {
 /** Origem: BookingPage.tsx ~989-1167 (fetchEstablishment, sem os fallbacks de coluna legada). */
 export async function loadEstablishmentAndServices(code: string): Promise<{ establishment: any | null; error: string | null }> {
   try {
-    const { data, error } = await supabase
-      .from('establishments')
-      .select(
-        `*, pix_payment_link, review_link, social_media_link, pix_key, whatsapp,
-         pagarme_recipient_id, mercadopago_access_token`
-      )
-      .eq('code', code)
-      .maybeSingle();
+    // Caminho seguro: função que devolve o estabelecimento SEM os campos secretos
+    // (tokens do Mercado Pago, senhas, CPF/CNPJ bancário). Se falhar, cai no método antigo.
+    let data: any = null;
+    try {
+      const { data: rows, error: rpcErr } = await supabase.rpc('get_establishment_public', { p_code: code });
+      if (!rpcErr && Array.isArray(rows)) data = rows[0] || null;
+    } catch {
+      // cai no método antigo abaixo
+    }
 
-    if (error) throw error;
+    if (!data) {
+      const res = await supabase
+        .from('establishments')
+        .select(
+          `*, pix_payment_link, review_link, social_media_link, pix_key, whatsapp,
+           pagarme_recipient_id, has_mercadopago`
+        )
+        .eq('code', code)
+        .maybeSingle();
+      if (res.error) throw res.error;
+      data = res.data;
+    }
+
     if (!data) return { establishment: null, error: 'Estabelecimento não encontrado.' };
     if ((data as any).booking_blocked) {
       return { establishment: { ...data, _blocked: true }, error: null };
