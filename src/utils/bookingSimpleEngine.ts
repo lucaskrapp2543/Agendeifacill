@@ -307,7 +307,6 @@ export interface PaymentRequirement {
   usarPagarMe: boolean;
   usarMercadoPago: boolean;
   pagarmeRecipientId: string;
-  mercadopagoAccessToken: string;
   valorAgendamento: number;
   /** Se true, o estabelecimento repassa a taxa da maquininha ao cliente (+R$1, ver chargeAmount). */
   cobrarTaxaCliente: boolean;
@@ -377,7 +376,6 @@ export async function resolvePaymentRequirement(params: {
     usarPagarMe,
     usarMercadoPago,
     pagarmeRecipientId,
-    mercadopagoAccessToken,
     valorAgendamento,
     cobrarTaxaCliente,
     chargeAmount,
