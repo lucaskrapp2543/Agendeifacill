@@ -134,7 +134,7 @@ export default function Planos({ gateWithVideo = false }: { gateWithVideo?: bool
   }, []);
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className={`min-h-screen text-white ${gateWithVideo ? '' : 'bg-black'}`}>
       {/* Imagem de topo — mesma da landing (novaim), apenas mobile, full-width */}
       <img
         src="/novaim.webp"
@@ -244,7 +244,7 @@ export default function Planos({ gateWithVideo = false }: { gateWithVideo?: bool
       </div>
 
       {/* ── FAQ (mesmo da página inicial) ── */}
-      <section id="faq" className={`py-16 bg-black ${gateHiddenCls}`}>
+      <section id="faq" className={`py-16 ${gateWithVideo ? '' : 'bg-black'} ${gateHiddenCls}`}>
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Imagem acima do FAQ (mesma usada no quiz — repetida de propósito) */}
           <div className="mb-8 flex justify-center">

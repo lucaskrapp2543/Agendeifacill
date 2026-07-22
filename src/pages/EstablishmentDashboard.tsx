@@ -13252,6 +13252,23 @@ Estamos te aguardando!`;
     return nowMs >= endMs;
   };
 
+  // 🔧 Conserto do auto-concluir (Fase 1). ANTES: UM update em lote — se 1 agendamento
+  // caísse no guardião do banco (P0001: horário bloqueado/sobreposto), o lote INTEIRO
+  // falhava, ninguém concluía, e cada carga da agenda re-tentava para sempre (tempestade
+  // de erros no Supabase). AGORA:
+  //   1) conclui UM POR UM — um travado não segura os inocentes;
+  //   2) allow_blocked_override no payload — concluir atendimento do PASSADO não revalida
+  //      bloqueio de horário (chavinha que já existe no banco p/ fluxos internos);
+  //   3) memória de desistência por sessão — id que falhou não é re-tentado a cada recarga
+  //      (no máximo 1 erro por sessão, em vez de centenas por dia).
+  // Fallbacks preservam bases antigas sem as colunas. Assinatura da função inalterada e o
+  // registro de assinatura (autoRegisterSubscriberAttendanceForAppointment) continua igual.
+  const autoCompleteFailedIdsRef = useRef<Set<string>>(new Set());
+  const autoCompleteSchemaRef = useRef<{ manualOverride: boolean; blockedOverride: boolean }>({
+    manualOverride: true,
+    blockedOverride: true,
+  });
+
   const autoCompletePastAppointments = async (rows: Appointment[]): Promise<{
     appointments: Appointment[];
     updatedCount: number;
@@ -13264,41 +13281,56 @@ Estamos te aguardando!`;
     const idsToComplete = rows
       .filter((apt) => shouldAutoCompleteAppointment(apt, nowMs))
       .map((apt) => String((apt as any)?.id || '').trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter((id) => !autoCompleteFailedIdsRef.current.has(id));
 
     if (idsToComplete.length === 0) {
       return { appointments: rows, updatedCount: 0 };
     }
 
-    let { data, error } = await supabase
-      .from('appointments')
-      .update({ status: 'completed', manual_status_override: false } as any)
-      .in('id', idsToComplete)
-      .in('status', ['pending', 'confirmed'])
-      .eq('manual_status_override', false)
-      .select('id');
+    const updatedIds = new Set<string>();
 
-    if (error && isMissingManualStatusOverrideError(error)) {
-      const fallback = await supabase
-        .from('appointments')
-        .update({ status: 'completed' } as any)
-        .in('id', idsToComplete)
-        .in('status', ['pending', 'confirmed'])
-        .select('id');
-      data = fallback.data as any;
-      error = fallback.error as any;
+    for (const id of idsToComplete) {
+      const runUpdate = async () => {
+        const schema = autoCompleteSchemaRef.current;
+        const payload: Record<string, unknown> = { status: 'completed' };
+        if (schema.manualOverride) payload.manual_status_override = false;
+        if (schema.blockedOverride) payload.allow_blocked_override = true;
+        let query = supabase
+          .from('appointments')
+          .update(payload as any)
+          .eq('id', id)
+          .in('status', ['pending', 'confirmed']);
+        if (schema.manualOverride) query = query.eq('manual_status_override', false);
+        return query.select('id');
+      };
+
+      let { data, error } = await runUpdate();
+
+      if (error && isMissingManualStatusOverrideError(error)) {
+        autoCompleteSchemaRef.current.manualOverride = false;
+        ({ data, error } = await runUpdate());
+      }
+      if (error && String((error as any)?.message || '').toLowerCase().includes('allow_blocked_override')) {
+        autoCompleteSchemaRef.current.blockedOverride = false;
+        ({ data, error } = await runUpdate());
+      }
+
+      if (error) {
+        // Ex.: sobreposição de horário no guardião — desiste DESTE id nesta sessão e segue.
+        autoCompleteFailedIdsRef.current.add(id);
+        console.warn('Auto-concluir: agendamento pulado nesta sessão (não trava os demais):', {
+          id,
+          error: String((error as any)?.message || error),
+        });
+        continue;
+      }
+
+      if (Array.isArray(data) && data.length > 0) {
+        updatedIds.add(id);
+      }
     }
 
-    if (error) {
-      console.error('Erro ao auto-concluir agendamentos encerrados:', error);
-      return { appointments: rows, updatedCount: 0 };
-    }
-
-    const updatedIds = new Set(
-      ((data || []) as Array<{ id: string }>)
-        .map((row) => String(row?.id || '').trim())
-        .filter(Boolean)
-    );
     if (updatedIds.size === 0) {
       return { appointments: rows, updatedCount: 0 };
     }

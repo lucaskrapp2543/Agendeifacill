@@ -207,7 +207,18 @@ const Conhecer = () => {
   }, [quizState.step]);
 
   return (
-    <div className="min-h-screen bg-black flex flex-col">
+    <div className="relative isolate min-h-screen bg-[#07080e] flex flex-col overflow-x-hidden">
+      {/* 🌌 Atmosfera de fundo: glows suaves da marca flutuando + vinheta.
+          -z-10 + isolate no pai = SEMPRE atrás de tudo, nunca lava as imagens. */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute -top-40 left-1/2 -translate-x-1/2 h-[560px] w-[560px] rounded-full bg-blue-600/25 blur-[140px]" />
+        <div className="absolute top-1/3 -left-32 h-[440px] w-[440px] rounded-full bg-violet-600/15 blur-[150px]" />
+        <div className="absolute bottom-[-6rem] -right-28 h-[500px] w-[500px] rounded-full bg-cyan-500/12 blur-[150px]" />
+        <div
+          className="absolute inset-0 opacity-[0.5]"
+          style={{ backgroundImage: 'radial-gradient(circle at center, transparent 55%, rgba(0,0,0,0.6) 100%)' }}
+        />
+      </div>
       {/* CSS para animação de pulsação */}
       <style>
         {`
@@ -336,21 +347,25 @@ const Conhecer = () => {
       {/* Step 8: página /planos completa (mesmo componente — sempre idêntica à original).
           gateWithVideo = trava MACIA: planos aparecem após ~6s de vídeo, no "pular", ou
           sozinhos em 12s. Só no quiz — /planos acessado direto continua tudo visível. */}
-      {quizState.step === 8 && <Planos gateWithVideo />}
+      {quizState.step === 8 && (
+        <div className="relative z-10">
+          <Planos gateWithVideo />
+        </div>
+      )}
 
       {quizState.step !== 8 && (
-       <div className="flex-1 flex items-center justify-center p-2 pt-4">
+       <div className="relative z-10 flex-1 flex items-center justify-center p-2 pt-4">
          <div className="max-w-2xl w-full">
-           <div className="bg-black rounded-2xl p-4 text-center">
+           <div className="bg-[#0b0c14]/70 border border-white/[0.06] shadow-2xl shadow-black/40 backdrop-blur-sm rounded-2xl p-4 text-center">
             
             {/* Step 1: Seleção do tipo de negócio */}
             {quizState.step === 1 && (
               <>
-                 {/* Imagem BRASIL no topo */}
+                 {/* Imagem de topo do quiz (logo + sistema por dentro) */}
                  <div className="mb-4 flex justify-center items-center">
                    <img
-                     src="/ca.webp"
-                     alt="Agendei Fácil"
+                     src="/inicioquiz.webp"
+                     alt="Agendei Fácil — sistema de agendamentos"
                      className="w-full max-w-md h-auto rounded-xl"
                    />
                  </div>
@@ -815,6 +830,35 @@ const Conhecer = () => {
                      onClick={() => setFeedbackPreviewUrl('/clientefinanceiro.webp')}
                    />
                    <p className="text-xs text-gray-400 mb-6">🔍 Toque para ampliar</p>
+
+                   {/* 🎥 Depoimento em vídeo — ABAIXO do print, SÓ no caminho da BARBEARIA (formato reels) */}
+                   {quizState.businessType === 'barbearia' && (
+                     <div className="mb-6">
+                       <h2 className="text-base sm:text-lg font-bold text-white mb-1">
+                         🎥 Olha o que um cliente falou 👇
+                       </h2>
+                       <p className="text-xs text-gray-400 mb-3">
+                         Depoimento real de quem é atendido numa barbearia que usa o Agendei Fácil
+                       </p>
+                       <div className="flex justify-center px-2">
+                         <div className="w-full max-w-[300px]">
+                           <div
+                             className="relative rounded-2xl overflow-hidden border-2 border-pink-500 shadow-[0_0_25px_rgba(236,72,153,0.35)] bg-black"
+                             style={{ aspectRatio: '9/16' }}
+                           >
+                             <iframe
+                               src="https://www.youtube.com/embed/1qbZbbkuPEE?rel=0&playsinline=1"
+                               title="Depoimento de cliente da barbearia"
+                               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                               allowFullScreen
+                               className="absolute inset-0 w-full h-full"
+                               style={{ border: 'none' }}
+                             />
+                           </div>
+                         </div>
+                       </div>
+                     </div>
+                   )}
 
                    {/* Feedbacks de clientes */}
                    <h2 className="text-base sm:text-lg font-bold text-white mb-1">
