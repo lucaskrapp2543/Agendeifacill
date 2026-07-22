@@ -2128,7 +2128,7 @@ const AdminDashboard = () => {
             .eq('establishment_id', establishment.id)
             .order('created_at', { ascending: false })
             .limit(1)
-            .single();
+            .maybeSingle();
 
           const processedEstablishment = {
             ...establishment,
@@ -2243,7 +2243,7 @@ const AdminDashboard = () => {
             .eq('establishment_id', establishment.id)
             .order('created_at', { ascending: false })
             .limit(1)
-            .single();
+            .maybeSingle();
           return {
             ...establishment,
             owner_email: profile?.name || 'Email não encontrado',

@@ -1738,14 +1738,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
         const oldDate = String(appointment.appointment_date || '').slice(0, 10);
         const oldTime = String(appointment.appointment_time || '');
 
-        // 1. Cancela o agendamento anterior — o scheduler WhatsApp envia notificação de cancelamento ao cliente.
+        // 1. Cancela o horário antigo com source 'rescheduled_by_staff' (remarcação/transferência).
+        //    O scheduler WhatsApp reconhece esse motivo e NÃO envia "agendamento cancelado".
         const tryCancel = async () => {
           const { error } = await updateAppointmentCancelledWithSource(
             supabase,
             { id: appointmentId },
             {
-              cancellation_source: CANCELLATION_SOURCE.ESTABLISHMENT_STAFF,
-              cancellation_detail: 'Horário alterado pelo painel do estabelecimento.',
+              cancellation_source: CANCELLATION_SOURCE.RESCHEDULED,
+              cancellation_detail: 'Horário remarcado/transferido pelo painel do estabelecimento.',
             }
           );
           if (error) throw error;
@@ -2858,6 +2859,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const source = String(apt.cancellation_source || '').trim().toLowerCase();
       const detail = String(apt.cancellation_detail || '').trim().toLowerCase();
       const appointmentOrigin = getAppointmentOriginLabel(apt).toLowerCase();
+
+      if (source === CANCELLATION_SOURCE.RESCHEDULED) {
+        return { label: 'Remarcado/transferido para outro horário', tone: 'internal' };
+      }
 
       if (source === CANCELLATION_SOURCE.CLIENT || detail.includes('cliente')) {
         return { label: 'Cliente cancelou pelo app/link público', tone: 'client' };

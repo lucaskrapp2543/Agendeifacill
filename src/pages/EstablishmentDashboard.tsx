@@ -20543,15 +20543,17 @@ Estamos te aguardando!`;
       const oldDate = String(appointment.appointment_date || '').slice(0, 10);
       const oldTime = String(appointment.appointment_time || '');
 
-      // 1. Cancela o agendamento anterior com source 'establishment_staff'
-      //    O scheduler WhatsApp detecta o status 'cancelled' e envia notificação ao cliente sobre o horário antigo.
+      // 1. Cancela o horário antigo com source 'rescheduled_by_staff' (remarcação/transferência).
+      //    O scheduler WhatsApp reconhece esse motivo e NÃO envia "agendamento cancelado" (que
+      //    assustava o cliente numa simples troca de horário). O lembrete de 1h do horário antigo
+      //    também não sai, pois o registro fica cancelado.
       const tryCancel = async () => {
         const { error } = await updateAppointmentCancelledWithSource(
           supabase,
           { id: appointmentId },
           {
-            cancellation_source: CANCELLATION_SOURCE.ESTABLISHMENT_STAFF,
-            cancellation_detail: 'Horário alterado pelo painel do estabelecimento.',
+            cancellation_source: CANCELLATION_SOURCE.RESCHEDULED,
+            cancellation_detail: 'Horário remarcado/transferido pelo painel do estabelecimento.',
           }
         );
         if (error) throw error;

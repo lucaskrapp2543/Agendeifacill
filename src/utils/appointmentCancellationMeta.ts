@@ -13,6 +13,12 @@ export const PENDING_PAYMENT_WITH_TX_MINUTES = 12 * 60;
 export const CANCELLATION_SOURCE = {
   CLIENT: 'client',
   ESTABLISHMENT_STAFF: 'establishment_staff',
+  /**
+   * Horário antigo cancelado APENAS porque o agendamento foi remarcado/transferido para
+   * outro horário/dia. O scheduler do WhatsApp reconhece este motivo e NÃO envia a mensagem
+   * de "agendamento cancelado" (que assustava o cliente numa simples troca de horário).
+   */
+  RESCHEDULED: 'rescheduled_by_staff',
   SYSTEM_ABANDONED_CHECKOUT: 'system_abandoned_checkout',
   SYSTEM_PAYMENT_TIMEOUT: 'system_payment_timeout',
   PAYMENT_REJECTED: 'payment_rejected',
@@ -36,6 +42,8 @@ export function describeCancellationSourcePt(src: string | null | undefined): st
       return 'Cliente (app / link público)';
     case CANCELLATION_SOURCE.ESTABLISHMENT_STAFF:
       return 'Estabelecimento (painel interno)';
+    case CANCELLATION_SOURCE.RESCHEDULED:
+      return 'Remarcado/transferido para outro horário';
     case CANCELLATION_SOURCE.SYSTEM_ABANDONED_CHECKOUT:
       return 'Sistema — pagamento não iniciado no prazo';
     case CANCELLATION_SOURCE.SYSTEM_PAYMENT_TIMEOUT:

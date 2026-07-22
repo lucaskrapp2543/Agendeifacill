@@ -1320,6 +1320,14 @@ export class WhatsAppReminderScheduler {
           settings.reminderOffsetMinutes,
           establishmentById
         );
+        // Remarcação/transferência: o horário antigo foi cancelado só para trocar de horário/dia.
+        // Não enviar a mensagem de "agendamento cancelado" (assusta o cliente numa simples troca).
+        // O horário novo é um agendamento próprio e dispara o lembrete dele normalmente.
+        const rescheduleCancelSource = String(appointment.cancellation_source || '').trim().toLowerCase();
+        if (rescheduleCancelSource === 'rescheduled_by_staff') {
+          continue;
+        }
+
         const cancellationPayload = this.buildCancellationPayload(appointment, establishment, vars);
         const cancellationKey = `${appointment.id}::${cancellationPayload.messageType}`;
         const guardedCancellation = this.isGuarded(cancellationKey, now.getTime());

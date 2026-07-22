@@ -1041,7 +1041,18 @@ export default function BookingPage() {
       let data: any = null;
       let error: any = null;
 
-      {
+      // Caminho seguro: função que devolve o estabelecimento SEM os campos secretos.
+      // (Evita o SELECT *, que passa a falhar depois da trava de colunas.) Se falhar, cai no método antigo.
+      try {
+        const { data: rpcRows, error: rpcErr } = await supabase.rpc('get_establishment_public', { p_code: id });
+        if (!rpcErr && Array.isArray(rpcRows) && rpcRows.length > 0) {
+          data = rpcRows[0];
+        }
+      } catch {
+        // cai no método antigo abaixo
+      }
+
+      if (!data) {
         const res = await supabase
           .from('establishments')
           .select(selectWithFullpage)
@@ -1051,7 +1062,7 @@ export default function BookingPage() {
         error = res.error;
       }
 
-      if (error && (error.code === '42703' || String(error.message || '').includes('show_subscriptions_fullpage'))) {
+      if (!data && error && (error.code === '42703' || String(error.message || '').includes('show_subscriptions_fullpage'))) {
         console.warn('⚠️ Coluna show_subscriptions_fullpage não existe ainda. Rebuscando sem ela.');
         const res2 = await supabase
           .from('establishments')
