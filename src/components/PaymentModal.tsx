@@ -109,11 +109,11 @@ export const PaymentModal = ({
     if (isOpen && establishmentId) {
       supabase
         .from('establishments')
-        .select('mercadopago_access_token, pagarme_recipient_id, exigir_pagamento_antecipado_mercadopago, exigir_pagamento_antecipado, client_afcoins_enabled')
+        .select('has_mercadopago, pagarme_recipient_id, exigir_pagamento_antecipado_mercadopago, exigir_pagamento_antecipado, client_afcoins_enabled')
         .eq('id', establishmentId)
         .single()
         .then(({ data }) => {
-          const hasMP = !!data?.mercadopago_access_token;
+          const hasMP = (data as any)?.has_mercadopago === true;
           const hasPM = !!data?.pagarme_recipient_id;
           const exigirMP = Boolean(data?.exigir_pagamento_antecipado_mercadopago === true);
           const exigirPM = Boolean(data?.exigir_pagamento_antecipado === true);

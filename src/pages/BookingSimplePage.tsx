@@ -7,6 +7,7 @@ import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { TimeSlotSelector } from '../components/TimeSlotSelector';
 import { useToast } from '../components/ui/Toaster';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
+import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import {
   isClientAfcoinsEnabledForEstablishment,
   registerAfcoinBookingEvent,
@@ -1524,7 +1525,7 @@ const BookingSimplePage = () => {
           externalPaymentLink={String(renewalPlan.custom_link || '').trim() || undefined}
           paymentProvider={
             Boolean(establishment?.use_mercadopago_subscription_pix === true) &&
-            !!String(establishment?.mercadopago_access_token || '').trim()
+            establishmentHasMercadoPago(establishment)
               ? 'mercadopago'
               : 'pagarme'
           }

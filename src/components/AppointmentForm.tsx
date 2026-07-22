@@ -10,6 +10,7 @@ import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
 import { validatePendingClientBookingLimit } from '../utils/pendingClientBookingValidation';
 import { validateSubscriberBooking } from '../utils/subscriberBookingValidation';
+import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import { DatePicker } from './DatePicker';
 import { MultiServiceSelector } from './MultiServiceSelector';
 import { PaymentMethodSelector } from './PaymentMethodSelector';
@@ -3765,7 +3766,7 @@ export function AppointmentForm({
                 <p className="text-sm text-white/85">
                   💳 <strong>Pagamento antecipado obrigatório.</strong> Após clicar em finalizar, você será direcionado para o pagamento {(() => {
                     // Verificar qual gateway está configurado
-                    const hasMP = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+                    const hasMP = establishmentHasMercadoPago(establishment as any);
                     const hasPM = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
                     const exigirMP = Boolean((establishment as any)?.exigir_pagamento_antecipado_mercadopago === true);
                     const exigirPM = Boolean((establishment as any)?.exigir_pagamento_antecipado === true);
@@ -3808,7 +3809,7 @@ export function AppointmentForm({
                       }
                     }, 200);
                   }}
-                  showPixOptions={!!establishment.pix_key && !(!!String((establishment as any)?.mercadopago_access_token || '').trim())}
+                  showPixOptions={!!establishment.pix_key && !(establishmentHasMercadoPago(establishment as any))}
                   pixPaymentMethod={pixPaymentMethod}
                   onPixMethodSelect={handlePixMethodSelect}
                   enabledMethods={establishment.payment_methods_enabled}
@@ -3820,7 +3821,7 @@ export function AppointmentForm({
             )}
 
             {/* Formulário PIX manual (só sem Mercado Pago; com MP conectado, PIX é via Mercado Pago na finalização) */}
-            {!requireAdvancePayment && selectedPaymentMethod === 'pix' && establishment.pix_key && !(!!String((establishment as any)?.mercadopago_access_token || '').trim()) && (
+            {!requireAdvancePayment && selectedPaymentMethod === 'pix' && establishment.pix_key && !(establishmentHasMercadoPago(establishment as any)) && (
               <div className="mt-4">
                 <PixPaymentForm
                   establishment={establishment}

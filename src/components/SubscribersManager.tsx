@@ -1,5 +1,6 @@
 import { addMonths, endOfMonth, format, isPast, parse, parseISO, startOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import {
   BarChart3,
   CheckCircle2,
@@ -1482,7 +1483,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
 
     // Se não tiver access_token, forçar desativar recorrência Mercado Pago
-    const hasAccessToken = !!String(establishment?.mercadopago_access_token || '').trim();
+    const hasAccessToken = !!establishmentHasMercadoPago(establishment);
     if (!hasAccessToken) {
       setUseMercadoPagoSubscriptionPix(false);
       try {
@@ -1612,7 +1613,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     setIsUpdatingMercadoPagoSubscriptionPix(true);
     try {
       // Só permitir ATIVAR se houver Mercado Pago conectado
-      const accessToken = String(establishment?.mercadopago_access_token || '').trim();
+      const accessToken = establishmentHasMercadoPago(establishment);
       if (newValue && !accessToken) {
         toast.error('Você precisa conectar sua conta do Mercado Pago nas Configurações.');
         return;
@@ -3123,7 +3124,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       toast.error('Estabelecimento inválido para atualizar a lista.');
       return;
     }
-    if (!String(establishment?.mercadopago_access_token || '').trim()) {
+    if (!establishmentHasMercadoPago(establishment)) {
       toast.error('Conecte o Mercado Pago em Meus Assinantes para verificar recorrências.');
       return;
     }
@@ -4889,7 +4890,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Saldo (assinantes): entradas PIX líquidas do mês selecionado - pagamentos do mês.
   // O desconto (taxa + R$1,00) é aplicado por pagamento individual.
   const hasPagarmeConnectedForSubscribers = !!String(establishment?.pagarme_recipient_id || '').trim();
-  const hasMercadoPagoConnectedForSubscribers = !!String(establishment?.mercadopago_access_token || '').trim();
+  const hasMercadoPagoConnectedForSubscribers = !!establishmentHasMercadoPago(establishment);
   const hasAnySubscriptionGatewayConnected = hasPagarmeConnectedForSubscribers || hasMercadoPagoConnectedForSubscribers;
   const pixEntradasLiquidasMesCents = clientSubscriptions.reduce((sum, cs) => {
     if (!hasAnySubscriptionGatewayConnected) return sum;
@@ -6551,7 +6552,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 <button
                   type="button"
                   onClick={() => {
-                    const accessToken = String(establishment?.mercadopago_access_token || '').trim();
+                    const accessToken = establishmentHasMercadoPago(establishment);
                     if (!useMercadoPagoSubscriptionPix && !accessToken) {
                       toast.error('Você precisa conectar sua conta do Mercado Pago nas Configurações para ativar.');
                       return;
@@ -6567,7 +6568,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     } ${isUpdatingMercadoPagoSubscriptionPix ? 'opacity-60 cursor-not-allowed' : 'hover:scale-[1.03] active:scale-[0.98]'
                     }`}
                   title={
-                    !useMercadoPagoSubscriptionPix && !String(establishment?.mercadopago_access_token || '').trim()
+                    !useMercadoPagoSubscriptionPix && !establishmentHasMercadoPago(establishment)
                       ? 'Você precisa conectar sua conta do Mercado Pago nas Configurações'
                       : undefined
                   }
@@ -6581,7 +6582,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 <span className="text-gray-300 font-semibold"> PIX</span>: sempre manual.
                 Quando desativado, mantém o comportamento atual (link da assinatura ou WhatsApp).
               </p>
-              {!useMercadoPagoSubscriptionPix && !String(establishment?.mercadopago_access_token || '').trim() && (
+              {!useMercadoPagoSubscriptionPix && !establishmentHasMercadoPago(establishment) && (
                 <p className="text-xs text-yellow-200/90 mt-2">
                   ⚠️ Para ativar essa opção, você precisa <span className="font-semibold">conectar sua conta do Mercado Pago</span> nas Configurações.
                 </p>
@@ -7071,7 +7072,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
             </p>
           )}
         </div>
-        {!!String(establishment?.mercadopago_access_token || '').trim() && (
+        {!!establishmentHasMercadoPago(establishment) && (
           <div className="mb-4 sm:mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 sm:p-4">
             <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
               <div className="min-w-0 flex-1">

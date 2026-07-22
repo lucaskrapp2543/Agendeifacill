@@ -230,11 +230,11 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
     if (isOpen && establishmentId) {
       supabase
         .from('establishments')
-        .select('mercadopago_access_token, use_mercadopago_subscription_pix')
+        .select('has_mercadopago, use_mercadopago_subscription_pix')
         .eq('id', establishmentId)
         .single()
         .then(({ data }) => {
-          const hasMPToken = !!data?.mercadopago_access_token;
+          const hasMPToken = (data as any)?.has_mercadopago === true;
           const useMPSubscription = Boolean(data?.use_mercadopago_subscription_pix === true);
           // Se paymentProvider é 'mercadopago' E tem token E está habilitado → usar Mercado Pago
           setHasMercadoPago(

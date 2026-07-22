@@ -31,6 +31,7 @@ import { RescheduleAppointmentModal } from '../components/RescheduleAppointmentM
 import ReservarCliente from '../components/ReservarCliente';
 import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
+import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import { PartnerReferralPanel } from '../components/PartnerReferralPanel';
 import { fetchPartnerReferralCodeForEstablishment } from '../lib/partnerReferral';
 import { RecebaNaHoraPageLayout } from '../components/RecebaNaHoraPageLayout';
@@ -1281,7 +1282,7 @@ const EstablishmentDashboard = () => {
 
   // Carrossel promocional — só mostra slides de funções que o barbeiro ainda não tem
   const promoSlides = useMemo(() => {
-    const isMpConn = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+    const isMpConn = establishmentHasMercadoPago(establishment as any);
     const isWppConn = baileysDashboardStatus.connected;
     return [
       ...(!isWppConn ? [{ mobile: '/conectwpp.png', mobileWebp: '/conectwpp.webp', desktop: '/conectwppppp3pc22t.png', desktopWebp: '/conectwppppp3pc22t.webp', key: 'wpp' }] : []),
@@ -1577,7 +1578,7 @@ const EstablishmentDashboard = () => {
     if (!establishment?.id) return;
 
     // Verificar se tem Mercado Pago conectado
-    const hasMercadoPago = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+    const hasMercadoPago = establishmentHasMercadoPago(establishment as any);
     if (!hasMercadoPago) {
       setSaldoMercadoPago(0);
       return;
@@ -1764,7 +1765,7 @@ const EstablishmentDashboard = () => {
   // Carregar saldo Mercado Pago automaticamente
   useEffect(() => {
     if (!establishment?.id) return;
-    const hasMercadoPago = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+    const hasMercadoPago = establishmentHasMercadoPago(establishment as any);
     if (!hasMercadoPago) {
       setSaldoMercadoPago(0);
       return;
@@ -3243,7 +3244,7 @@ const EstablishmentDashboard = () => {
     variant?: 'default' | 'receba-na-hora';
   }) => {
     const isRecebaNaHora = variant === 'receba-na-hora';
-    const isMpConnected = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+    const isMpConnected = establishmentHasMercadoPago(establishment as any);
 
     return (
     <div
@@ -7174,7 +7175,7 @@ const EstablishmentDashboard = () => {
       };
     }
 
-    const hasMercadoPagoConnected = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+    const hasMercadoPagoConnected = establishmentHasMercadoPago(establishment as any);
     const hasPagarmeConnected = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
     const hasAnySubscriptionGatewayConnected = hasMercadoPagoConnected || hasPagarmeConnected;
     const start = startOfMonth(referenceMonth);
@@ -19390,7 +19391,7 @@ Estamos te aguardando!`;
   };
 
   const canUseClientMandatoryCharge =
-    !!String((establishment as any)?.mercadopago_access_token || '').trim() &&
+    establishmentHasMercadoPago(establishment as any) &&
     (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true &&
     (establishment as any)?.pagamento_adiantado_opcional_mercadopago === true;
 
@@ -36081,7 +36082,7 @@ Estamos te aguardando!`;
                         Number(subscribersFinancialSummary.totalArrecadado || 0) - Number(subscribersNetForDiscountCard || 0)
                       );
                       const descontosProdutos = productsGrossRevenue - productsNetProfit;
-                      const hasMercadoPagoConnected = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+                      const hasMercadoPagoConnected = establishmentHasMercadoPago(establishment as any);
                       const hasPagarmeConnected = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
                       const shouldShowSubscribersBalanceCard =
                         hasMercadoPagoConnected || hasPagarmeConnected;

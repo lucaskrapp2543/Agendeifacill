@@ -18,6 +18,7 @@ import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
 import { validatePendingClientBookingLimit } from '../utils/pendingClientBookingValidation';
 import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
 import { validateSubscriberBooking } from '../utils/subscriberBookingValidation';
+import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import {
   buildStalePaymentDetail,
   CANCELLATION_SOURCE,
@@ -261,7 +262,7 @@ export default function BookingPage() {
     [establishment]
   );
   const showAfcoinFeatures = useMemo(() => {
-    const mpConnected = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+    const mpConnected = establishmentHasMercadoPago(establishment as any);
     return clientAfcoinsProgramActive && mpConnected;
   }, [clientAfcoinsProgramActive, establishment]);
 
@@ -1030,7 +1031,7 @@ export default function BookingPage() {
             carousel_position,
             use_pagarme_subscription_pix,
             pagarme_recipient_id,
-            mercadopago_access_token,
+            has_mercadopago,
             use_mercadopago_subscription_pix
           `;
 
@@ -1709,7 +1710,7 @@ export default function BookingPage() {
       // Coluna ainda não existe no banco, usar false
       isMercadoPagoSubscriptionPixEnabled = false;
     }
-    const hasMercadoPagoAccessToken = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+    const hasMercadoPagoAccessToken = establishmentHasMercadoPago(establishment as any);
 
     const pixEnabledForThisSubscription = isSubscriptionPixEnabled(subscription);
 
@@ -2115,7 +2116,7 @@ export default function BookingPage() {
       const pagamentoAdiantadoOpcional = (establishment as any)?.pagamento_adiantado_opcional === true;
       const pagamentoAdiantadoOpcionalMercadoPago = (establishment as any)?.pagamento_adiantado_opcional_mercadopago === true;
       const pagarmeRecipientId = String((establishment as any)?.pagarme_recipient_id || '').trim();
-      const mercadopagoAccessToken = String((establishment as any)?.mercadopago_access_token || '').trim();
+      const mercadopagoAccessToken = establishmentHasMercadoPago(establishment as any);
       const isSubscriber = appointmentData?.is_subscriber === true;
       const valorAgendamentoFull = resolveBookingPaymentAmount(appointmentData);
       const advancePercent = (establishment as any)?.advance_payment_percentage === 50 ? 50 : 100;
@@ -3422,7 +3423,7 @@ export default function BookingPage() {
   const bookingRequireAdvancePayment = (() => {
     const hasPagarMe = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
     const exigirPagarMe = (establishment as any)?.exigir_pagamento_antecipado === true;
-    const hasMercadoPago = !!String((establishment as any)?.mercadopago_access_token || '').trim();
+    const hasMercadoPago = establishmentHasMercadoPago(establishment as any);
     const exigirMercadoPago = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
     const usarMercadoPago = hasMercadoPago && exigirMercadoPago;
     const usarPagarMe = hasPagarMe && exigirPagarMe;
@@ -5811,7 +5812,7 @@ export default function BookingPage() {
                 return false;
               }
             })() &&
-              !!String((establishment as any)?.mercadopago_access_token || '').trim()
+              establishmentHasMercadoPago(establishment as any)
               ? 'mercadopago'
               : 'pagarme'
           }

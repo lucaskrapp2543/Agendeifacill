@@ -1,5 +1,6 @@
 import { addMonths, endOfDay, endOfMonth, format, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import {
   AlertTriangle,
   Building2,
@@ -3978,7 +3979,7 @@ const AdminDashboard = () => {
       establishment.owner_email || '',
       String((establishment as any)?.whatsapp || ''),
       whatsappConnectedOwnerIds.has(String(establishment.owner_id || '').trim()) ? 'wpp conectado whatsapp conectado' : '',
-      String((establishment as any)?.mercadopago_access_token || '').trim()
+      establishmentHasMercadoPago(establishment as any)
         ? 'mp conectado mercado pago conectado'
         : 'mp desconectado mercado pago desconectado',
       establishment.plan_type || '',
@@ -4072,7 +4073,7 @@ const AdminDashboard = () => {
   const isWhatsappConnectedEstablishment = (establishment: Establishment) =>
     whatsappConnectedOwnerIds.has(String(establishment.owner_id || '').trim());
   const isMercadoPagoConnectedEstablishment = (establishment: Establishment) =>
-    Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+    establishmentHasMercadoPago(establishment as any);
   const whatsappConnectedCount = baseFilteredEstablishments.reduce(
     (acc, est) => acc + (isWhatsappConnectedEstablishment(est) ? 1 : 0),
     0
@@ -5880,7 +5881,7 @@ const AdminDashboard = () => {
                                 WPP CONECTADO
                               </span>
                             )}
-                            {Boolean(String((establishment as any)?.mercadopago_access_token || '').trim()) ? (
+                            {establishmentHasMercadoPago(establishment as any) ? (
                               <span
                                 className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-extrabold rounded-full bg-emerald-700 text-white border border-emerald-900 shadow-sm whitespace-nowrap"
                                 title="Este estabelecimento conectou o Mercado Pago"

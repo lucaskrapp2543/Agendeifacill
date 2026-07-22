@@ -3,6 +3,7 @@ import { checkWhatsAppSubscriber as checkLegacySubscriber, createGuestClientAndL
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
 import { resolveBookingPaymentAmount } from './appointmentPayment';
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from './scheduleGrid';
+import { establishmentHasMercadoPago } from './establishmentPaymentFlags';
 
 /**
  * Motor de agendamento da página simples (/booking/:id/af).
@@ -318,14 +319,13 @@ export async function resolvePaymentRequirement(params: {
   const pagamentoAdiantadoOpcional = establishment?.pagamento_adiantado_opcional === true;
   const pagamentoAdiantadoOpcionalMercadoPago = establishment?.pagamento_adiantado_opcional_mercadopago === true;
   const pagarmeRecipientId = String(establishment?.pagarme_recipient_id || '').trim();
-  const mercadopagoAccessToken = String(establishment?.mercadopago_access_token || '').trim();
 
   const advancePercent = establishment?.advance_payment_percentage === 50 ? 50 : 100;
   const valorAgendamentoFull = resolveBookingPaymentAmount({ price: servicePrice });
   const valorAgendamento = advancePercent === 50 ? Math.round(valorAgendamentoFull * 0.5) : valorAgendamentoFull;
 
   const hasPagarMe = !!pagarmeRecipientId;
-  const hasMercadoPago = !!mercadopagoAccessToken;
+  const hasMercadoPago = establishmentHasMercadoPago(establishment);
 
   const usarMercadoPago = hasMercadoPago && exigirPagamentoAntecipadoMercadoPago;
   const usarPagarMe = !usarMercadoPago && hasPagarMe && exigirPagamentoAntecipado;

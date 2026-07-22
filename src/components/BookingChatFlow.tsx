@@ -10,6 +10,7 @@ import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAp
 import { PaymentMethodSelector } from './PaymentMethodSelector';
 import { TimeSlotSelector } from './TimeSlotSelector';
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
+import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import { registerAfcoinBookingEvent, isClientAfcoinsEnabledForEstablishment } from '../utils/afcoin';
 
 type ChatStep =
@@ -258,7 +259,7 @@ export function BookingChatFlow({
   const [afcoinScheduleAwarded, setAfcoinScheduleAwarded] = useState(false);
   const afcoinsEnabled =
     isClientAfcoinsEnabledForEstablishment(establishment) &&
-    Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+    establishmentHasMercadoPago(establishment as any);
 
   const markAfcoinScheduleMilestone = () => {
     if (!afcoinsEnabled || afcoinScheduleAwarded) return;
@@ -319,7 +320,7 @@ export function BookingChatFlow({
   }, [establishment]);
 
   const shouldSkipPaymentMethodQuestion = useMemo(() => {
-    const hasMercadoPagoConnected = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+    const hasMercadoPagoConnected = establishmentHasMercadoPago(establishment as any);
     const hasAdvancePixEnabled = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
     return hasMercadoPagoConnected && hasAdvancePixEnabled;
   }, [establishment]);
@@ -1260,7 +1261,7 @@ export function BookingChatFlow({
         setIsCheckingPendingClientBooking(false);
       }
 
-      const hasMercadoPagoConnected = Boolean(String((establishment as any)?.mercadopago_access_token || '').trim());
+      const hasMercadoPagoConnected = establishmentHasMercadoPago(establishment as any);
       if (afcoinsEnabled && !afcoinPhoneAwarded) {
         toast.success('🎉 Parabéns! Você ganhou +5 AFCoins');
         setAfcoinPhoneAwarded(true);
