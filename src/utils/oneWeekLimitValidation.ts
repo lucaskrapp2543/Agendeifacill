@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { fetchClientAppointmentsSecure } from './secureAppointmentReads';
 
 /**
  * Verifica se um estabelecimento tem limitação de 1 agendamento por semana
@@ -47,18 +48,29 @@ export const hasAppointmentInSameWeek = async (
 
     // Buscar agendamentos confirmados na mesma semana
 
-    const { data: existingAppointments, error } = await supabase
-      .from('appointments')
-      .select('id, client_whatsapp, appointment_date, status, created_at, is_subscriber')
-      .eq('establishment_id', establishmentId)
-      .in('status', ['confirmed', 'pending']) // Buscar agendamentos confirmados E pendentes
-      .gte('appointment_date', startOfWeek.toISOString().split('T')[0])
-      .lte('appointment_date', endOfWeek.toISOString().split('T')[0])
-      .order('created_at', { ascending: false });
+    const weekMin = startOfWeek.toISOString().split('T')[0];
+    const weekMax = endOfWeek.toISOString().split('T')[0];
 
-    if (error) {
-      console.error('❌ Erro ao buscar agendamentos existentes:', error);
-      return false;
+    // Caminho seguro: função por telefone (sem CPF). Se não responder, cai no método antigo.
+    let existingAppointments: any[] = [];
+    const secure = await fetchClientAppointmentsSecure(normalizedWhatsapp, establishmentId, weekMin, weekMax);
+    if (secure) {
+      existingAppointments = secure.filter((a: any) => ['confirmed', 'pending'].includes(String(a?.status)));
+    } else {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('id, client_whatsapp, appointment_date, status, created_at, is_subscriber')
+        .eq('establishment_id', establishmentId)
+        .in('status', ['confirmed', 'pending']) // Buscar agendamentos confirmados E pendentes
+        .gte('appointment_date', weekMin)
+        .lte('appointment_date', weekMax)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('❌ Erro ao buscar agendamentos existentes:', error);
+        return false;
+      }
+      existingAppointments = data || [];
     }
 
     // Filtrar agendamentos cancelados (pois o banco não suporta .not() com enum)

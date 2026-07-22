@@ -1323,6 +1323,26 @@ export default function BookingPage() {
 
       const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
 
+      // Caminho seguro: disponibilidade sem dados pessoais (nome/telefone/CPF).
+      // Se a função não responder, cai no método antigo abaixo (rede de segurança).
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('get_day_availability', {
+          p_establishment_id: establishment.id,
+          p_date: selectedDateStr,
+        });
+        if (!rpcError && Array.isArray(rpcData)) {
+          console.log('📅 Agendamentos existentes carregados (booking/rpc):', {
+            establishmentId: establishment.id,
+            selectedDate: selectedDateStr,
+            total: rpcData.length,
+          });
+          setExistingAppointments(rpcData as any[]);
+          return;
+        }
+      } catch {
+        // segue no método antigo abaixo
+      }
+
       const preferredSelect =
         'id,appointment_date,appointment_time,duration,additional_products,status,is_avulso,professional,payment_status,pix_payment_status';
       const legacySafeSelect =
@@ -2315,15 +2335,34 @@ export default function BookingPage() {
           }
         }
 
-        const { data: sameDayAppointments, error: sameDayAppointmentsError } = await supabase
-          .from('appointments')
-          .select('id, appointment_time, duration, additional_products, status, professional')
-          .eq('establishment_id', establishment.id)
-          .eq('appointment_date', targetDate)
-          .neq('status', 'cancelled');
-
-        if (sameDayAppointmentsError) {
-          throw sameDayAppointmentsError;
+        // Caminho seguro: disponibilidade sem dados pessoais. Se falhar, cai no método antigo.
+        let sameDayAppointments: any[] = [];
+        {
+          let loaded = false;
+          try {
+            const { data: rpcData, error: rpcError } = await supabase.rpc('get_day_availability', {
+              p_establishment_id: establishment.id,
+              p_date: targetDate,
+            });
+            if (!rpcError && Array.isArray(rpcData)) {
+              sameDayAppointments = rpcData as any[];
+              loaded = true;
+            }
+          } catch {
+            // cai no método antigo abaixo
+          }
+          if (!loaded) {
+            const { data, error: sameDayAppointmentsError } = await supabase
+              .from('appointments')
+              .select('id, appointment_time, duration, additional_products, status, professional')
+              .eq('establishment_id', establishment.id)
+              .eq('appointment_date', targetDate)
+              .neq('status', 'cancelled');
+            if (sameDayAppointmentsError) {
+              throw sameDayAppointmentsError;
+            }
+            sameDayAppointments = data || [];
+          }
         }
 
         const hasConflict = (sameDayAppointments || []).some((existing: any) => {

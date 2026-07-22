@@ -238,14 +238,33 @@ export async function checkAppointmentConflict(params: {
     }
   }
 
-  const { data: sameDayAppointments, error } = await supabase
-    .from('appointments')
-    .select('id, appointment_time, duration, additional_products, status, professional')
-    .eq('establishment_id', establishmentId)
-    .eq('appointment_date', targetDate)
-    .neq('status', 'cancelled');
-
-  if (error) return { ok: false, message: 'Não foi possível validar disponibilidade. Tente novamente.' };
+  let sameDayAppointments: any[] = [];
+  {
+    let loaded = false;
+    // Caminho seguro: disponibilidade sem dados pessoais.
+    try {
+      const { data: rpcData, error: rpcError } = await supabase.rpc('get_day_availability', {
+        p_establishment_id: establishmentId,
+        p_date: targetDate,
+      });
+      if (!rpcError && Array.isArray(rpcData)) {
+        sameDayAppointments = rpcData as any[];
+        loaded = true;
+      }
+    } catch {
+      // cai no método antigo abaixo
+    }
+    if (!loaded) {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('id, appointment_time, duration, additional_products, status, professional')
+        .eq('establishment_id', establishmentId)
+        .eq('appointment_date', targetDate)
+        .neq('status', 'cancelled');
+      if (error) return { ok: false, message: 'Não foi possível validar disponibilidade. Tente novamente.' };
+      sameDayAppointments = data || [];
+    }
+  }
 
   const hasConflict = (sameDayAppointments || []).some((existing: any) => {
     const existingProfessionalNorm = normalizeText(existing?.professional);
@@ -434,6 +453,17 @@ export function getMinimumAdvanceMinutes(establishment: any): number {
 
 /** Origem: BookingPage.tsx ~1319-1334 (busca de agendamentos do dia para a grade de horários). */
 export async function loadExistingAppointmentsForDate(establishmentId: string, dateStr: string): Promise<any[]> {
+  // Caminho seguro: função que devolve só a disponibilidade (sem nome/telefone/CPF).
+  try {
+    const { data: rpcData, error: rpcError } = await supabase.rpc('get_day_availability', {
+      p_establishment_id: establishmentId,
+      p_date: dateStr,
+    });
+    if (!rpcError && Array.isArray(rpcData)) return rpcData as any[];
+  } catch {
+    // cai no método antigo abaixo
+  }
+
   const { data, error } = await supabase
     .from('appointments')
     .select('id,appointment_date,appointment_time,duration,additional_products,status,professional')

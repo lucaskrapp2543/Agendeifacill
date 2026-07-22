@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { fetchClientAppointmentsSecure } from './secureAppointmentReads';
 import {
   applyBonusCreditsToLimit,
   buildCarryoverMonthlyLimit,
@@ -125,6 +126,23 @@ const fetchSubscriberAppointmentsForLimit = async (
   periodMax: string,
   whatsappCandidates: string[]
 ): Promise<{ appointments: any[]; error: any }> => {
+  // Caminho seguro: função por telefone (sem CPF). Se não responder, cai no método antigo.
+  const securePhone = (whatsappCandidates || [])
+    .map((c) => String(c || '').replace(/\D/g, ''))
+    .find((c) => c.length >= 9);
+  if (securePhone) {
+    const secure = await fetchClientAppointmentsSecure(securePhone, establishmentId, periodMin, periodMax);
+    if (secure) {
+      const filtered = secure.filter(
+        (a: any) => a?.is_subscriber === true && ['confirmed', 'completed', 'pending'].includes(String(a?.status))
+      );
+      return {
+        appointments: filterAppointmentsByWhatsappCandidates(filtered, whatsappCandidates),
+        error: null,
+      };
+    }
+  }
+
   const { data, error } = await supabase
     .from('appointments')
     .select('id, appointment_date, created_at, client_whatsapp, subscriber_service_id, subscriber_service_name, service')

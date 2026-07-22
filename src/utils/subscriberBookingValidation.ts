@@ -1,4 +1,5 @@
 import { checkWhatsAppSubscriber, supabase } from '../lib/supabase';
+import { fetchClientAppointmentsSecure } from './secureAppointmentReads';
 import { getSubscriptionUsageDateRange } from './subscriptionUsagePeriod';
 
 const toDateOnlyString = (d: Date): string => {
@@ -119,24 +120,34 @@ export const checkSubscriberMonthlyLimit = async (clientWhatsapp: string, establ
 
     const usageRange = getSubscriptionUsageDateRange(clientSubscription as any, new Date());
 
-    const { data: appointments, error: appointmentsError } = await supabase
-      .from('appointments')
-      .select('id, appointment_date')
-      .eq('establishment_id', establishmentId)
-      .eq('client_whatsapp', cleanWhatsapp)
-      .eq('is_subscriber', true)
-      .gte('appointment_date', usageRange.periodMin)
-      .lte('appointment_date', usageRange.periodMax)
-      .in('status', ['confirmed', 'completed', 'pending']);
+    // Caminho seguro: função por telefone (sem CPF). Se não responder, cai no método antigo.
+    let appointments: any[] | null = null;
+    const secure = await fetchClientAppointmentsSecure(cleanWhatsapp, establishmentId, usageRange.periodMin, usageRange.periodMax);
+    if (secure) {
+      appointments = secure.filter(
+        (a: any) => a?.is_subscriber === true && ['confirmed', 'completed', 'pending'].includes(String(a?.status))
+      );
+    } else {
+      const { data, error: appointmentsError } = await supabase
+        .from('appointments')
+        .select('id, appointment_date')
+        .eq('establishment_id', establishmentId)
+        .eq('client_whatsapp', cleanWhatsapp)
+        .eq('is_subscriber', true)
+        .gte('appointment_date', usageRange.periodMin)
+        .lte('appointment_date', usageRange.periodMax)
+        .in('status', ['confirmed', 'completed', 'pending']);
 
-    if (appointmentsError) {
-      console.error('❌ Erro ao verificar agendamentos:', appointmentsError);
-      return { 
-        canBook: true, 
-        currentUsage: 0, 
-        monthlyLimit: 999, 
-        subscriptionName: clientSubscription.subscriptions?.name || '' 
-      };
+      if (appointmentsError) {
+        console.error('❌ Erro ao verificar agendamentos:', appointmentsError);
+        return {
+          canBook: true,
+          currentUsage: 0,
+          monthlyLimit: 999,
+          subscriptionName: clientSubscription.subscriptions?.name || ''
+        };
+      }
+      appointments = data || [];
     }
 
     const currentUsage = appointments?.length || 0;

@@ -1276,6 +1276,44 @@ export const getAppointmentsByPhone = async (phone: string) => {
       return { data: [], error: null };
     }
 
+    // Caminho seguro: função que devolve os agendamentos daquele telefone (SEM CPF).
+    // Se falhar, cai no método antigo (as buscas por ilike) — rede de segurança.
+    try {
+      const { data: rpcData, error: rpcError } = await supabase.rpc('get_appointments_by_phone', {
+        p_phone: cleanPhone,
+      });
+      if (!rpcError && Array.isArray(rpcData)) {
+        const appointments = (rpcData as any[]).filter((a) => a && a.status !== 'cancelled');
+        // Anexar os dados do estabelecimento (mesmo formato do método antigo: appointment.establishments)
+        const estIds = Array.from(new Set(appointments.map((a) => a.establishment_id).filter(Boolean)));
+        if (estIds.length > 0) {
+          const { data: ests } = await supabase
+            .from('establishments')
+            .select('id, name, code, professionals, skip_client_whatsapp_booking_nudge, client_afcoins_enabled')
+            .in('id', estIds as any[]);
+          const estMap = new Map((ests || []).map((e: any) => [e.id, e]));
+          for (const apt of appointments as any[]) {
+            apt.establishments = estMap.get(apt.establishment_id) || null;
+            // Resolver nome do profissional a partir do JSON do estabelecimento (igual método antigo)
+            if (
+              apt.professional &&
+              String(apt.professional).length > 10 &&
+              !apt.professional_name &&
+              apt.establishments &&
+              Array.isArray(apt.establishments.professionals)
+            ) {
+              const p = apt.establishments.professionals.find((x: any) => x.id === apt.professional);
+              if (p && p.name) apt.professional_name = p.name;
+            }
+          }
+        }
+        console.log('✅ getAppointmentsByPhone (rpc segura):', appointments.length);
+        return { data: appointments, error: null };
+      }
+    } catch (e) {
+      console.warn('⚠️ getAppointmentsByPhone: rpc falhou, usando método antigo:', e);
+    }
+
     // Normalizar o número: remover código de país se houver para buscar apenas o número local
     // Isso permite encontrar números salvos com ou sem código de país
     const countryCodes = [

@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { fetchClientAppointmentsSecure } from './secureAppointmentReads';
 
 export interface SameDayRescheduleValidation {
   canBook: boolean;
@@ -103,19 +104,27 @@ export async function validateSameDayReschedule(
       };
     }
 
-    const { data: cancelledAppointments, error: appointmentsError } = await supabase
-      .from('appointments')
-      .select('id, client_whatsapp, appointment_date, status, is_subscriber')
-      .eq('establishment_id', establishmentId)
-      .eq('status', 'cancelled')
-      .eq('appointment_date', appointmentDateIso);
+    // Caminho seguro: função por telefone (sem CPF). Se não responder, cai no método antigo.
+    let cancelledAppointments: any[] = [];
+    const secure = await fetchClientAppointmentsSecure(clientWhatsapp, establishmentId, appointmentDateIso, appointmentDateIso);
+    if (secure) {
+      cancelledAppointments = secure.filter((a: any) => String(a?.status) === 'cancelled');
+    } else {
+      const { data, error: appointmentsError } = await supabase
+        .from('appointments')
+        .select('id, client_whatsapp, appointment_date, status, is_subscriber')
+        .eq('establishment_id', establishmentId)
+        .eq('status', 'cancelled')
+        .eq('appointment_date', appointmentDateIso);
 
-    if (appointmentsError) {
-      console.error('Erro ao buscar agendamentos cancelados:', appointmentsError);
-      return {
-        canBook: true,
-        message: 'Erro ao verificar agendamentos cancelados, permitindo agendamento',
-      };
+      if (appointmentsError) {
+        console.error('Erro ao buscar agendamentos cancelados:', appointmentsError);
+        return {
+          canBook: true,
+          message: 'Erro ao verificar agendamentos cancelados, permitindo agendamento',
+        };
+      }
+      cancelledAppointments = data || [];
     }
 
     const sameDayCancelledForClient = (cancelledAppointments || []).filter((apt) =>

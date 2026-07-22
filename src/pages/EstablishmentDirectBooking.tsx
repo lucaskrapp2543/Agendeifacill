@@ -70,26 +70,43 @@ const EstablishmentDirectBooking: React.FC = () => {
       console.log('🔍 INICIANDO BUSCA DE AGENDAMENTOS - EstablishmentDirectBooking');
       console.log('📍 Parâmetros da busca:', { establishmentId, date, professional });
 
-      // Buscar apenas dados necessários para verificar disponibilidade (sem dados pessoais)
-      const { data, error } = await supabase
-        .from('appointments')
-        .select('appointment_date, appointment_time, duration, status, professional')
-        .eq('establishment_id', establishmentId)
-        .eq('appointment_date', date)
-        .eq('professional', professional)
-        .neq('status', 'cancelled');
-
-      if (error) {
-        console.log('❌ ERRO na consulta de agendamentos:', error);
-        console.log('📝 Detalhes do erro:', {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          hint: error.hint
+      // Caminho seguro: disponibilidade sem dados pessoais. Se não responder, cai no método antigo.
+      let data: any[] = [];
+      let loaded = false;
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('get_day_availability', {
+          p_establishment_id: establishmentId,
+          p_date: date,
         });
-        // Em caso de erro, assumir que não há agendamentos (mais seguro)
-        setExistingAppointments([]);
-        return;
+        if (!rpcError && Array.isArray(rpcData)) {
+          data = (rpcData as any[]).filter((a) => a?.professional === professional);
+          loaded = true;
+        }
+      } catch {
+        // cai no método antigo abaixo
+      }
+      if (!loaded) {
+        const { data: legacyData, error } = await supabase
+          .from('appointments')
+          .select('appointment_date, appointment_time, duration, status, professional')
+          .eq('establishment_id', establishmentId)
+          .eq('appointment_date', date)
+          .eq('professional', professional)
+          .neq('status', 'cancelled');
+
+        if (error) {
+          console.log('❌ ERRO na consulta de agendamentos:', error);
+          console.log('📝 Detalhes do erro:', {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+            hint: error.hint
+          });
+          // Em caso de erro, assumir que não há agendamentos (mais seguro)
+          setExistingAppointments([]);
+          return;
+        }
+        data = legacyData || [];
       }
 
       console.log('✅ CONSULTA REALIZADA COM SUCESSO');

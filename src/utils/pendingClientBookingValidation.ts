@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { fetchClientAppointmentsSecure } from './secureAppointmentReads';
 
 type PendingClientBookingValidationResult = {
   canBook: boolean;
@@ -127,6 +128,22 @@ export const validatePendingClientBookingLimit = async (
 
     const phoneCandidates = getPhoneCandidates(clientWhatsapp);
     if (phoneCandidates.length === 0) return { canBook: true };
+
+    // Caminho seguro: função por telefone (sem CPF). Se responder, decide aqui.
+    const secure = await fetchClientAppointmentsSecure(clientWhatsapp, establishmentId, null, null);
+    if (secure) {
+      const hasPendingServiceSecure = secure.some((appointment: any) =>
+        isPendingAttendanceStatus(appointment?.status)
+      );
+      if (hasPendingServiceSecure) {
+        return {
+          canBook: false,
+          message:
+            'Voce ainda tem servico pendente nesta barbearia. Aguarde o profissional concluir o atendimento para fazer um novo agendamento.'
+        };
+      }
+      return { canBook: true };
+    }
 
     // Primeira tentativa: filtrar no banco pelos candidatos de telefone.
     // Isso evita depender da leitura/comparação local de client_whatsapp.
