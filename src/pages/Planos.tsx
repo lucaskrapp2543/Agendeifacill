@@ -133,14 +133,44 @@ export default function Planos({ gateWithVideo = false }: { gateWithVideo?: bool
     };
   }, []);
 
+  // 👀 Contador "pessoas vendo agora": sobe/desce orgânico — passos pequenos (às vezes
+  // nenhum), intervalos irregulares de 3,5–9s, teto 30 e piso 11. Nunca estaciona
+  // num padrão manjado nem encosta no teto com frequência.
+  const [viewersCount, setViewersCount] = useState(() => 14 + Math.floor(Math.random() * 10));
+  const [viewersPulse, setViewersPulse] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    let viewersTimeoutId: number | undefined;
+    const tick = () => {
+      viewersTimeoutId = window.setTimeout(() => {
+        if (cancelled) return;
+        setViewersCount((current) => {
+          const roll = Math.random();
+          let delta = 0;
+          if (roll < 0.42) delta = 1;
+          else if (roll < 0.72) delta = -1;
+          else if (roll < 0.82) delta = 2;
+          else if (roll < 0.9) delta = -2;
+          let next = current + delta;
+          if (next > 30) next = 30 - (1 + Math.floor(Math.random() * 2));
+          if (next < 11) next = 11 + Math.floor(Math.random() * 3);
+          if (next !== current) setViewersPulse((n) => n + 1);
+          return next;
+        });
+        tick();
+      }, 3500 + Math.random() * 5500);
+    };
+    tick();
+    return () => {
+      cancelled = true;
+      if (viewersTimeoutId) window.clearTimeout(viewersTimeoutId);
+    };
+  }, []);
+
   return (
     <div className={`min-h-screen text-white ${gateWithVideo ? '' : 'bg-black'}`}>
-      {/* Imagem de topo — mesma da landing (novaim), apenas mobile, full-width */}
-      <img
-        src="/novaim.webp"
-        alt="Agendei Fácil"
-        className="sm:hidden w-full h-auto block"
-      />
+      {/* (imagem de topo removida a pedido — o passo final abre direto no vídeo) */}
       <div className="max-w-6xl mx-auto px-4 py-8 sm:py-10">
         <div className="text-center mb-8 sm:mb-10">
           {/* Vídeo (formato reels) — acima do título PLANOS */}
@@ -149,7 +179,7 @@ export default function Planos({ gateWithVideo = false }: { gateWithVideo?: bool
               VEJA O SISTEMA <span className="text-pink-500">POR DENTRO</span> 👀
             </h2>
             <p className="text-white/60 text-sm mt-1 mb-5">Um tour rápido de como tudo funciona 👇</p>
-            <style>{`@keyframes planosRevealIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }`}</style>
+            <style>{`@keyframes planosRevealIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } } @keyframes planosViewerPop { 0% { transform: scale(1.45); opacity: 0.35; } 100% { transform: scale(1); opacity: 1; } }`}</style>
             <div className="flex justify-center px-2">
               <div className="w-full max-w-[300px]">
                 <div
@@ -179,6 +209,28 @@ export default function Planos({ gateWithVideo = false }: { gateWithVideo?: bool
                     pular e ver os planos →
                   </button>
                 )}
+              </div>
+            </div>
+
+            {/* 👀 Contador ao vivo ABAIXO do vídeo — longe dos popups do topo e coladinho
+                no "QUANTO CUSTA?": pressão social exatamente na hora da decisão de preço */}
+            <div className="mt-6 flex justify-center">
+              <div className="inline-flex items-center gap-2.5 rounded-full border border-emerald-400/25 bg-black/60 px-4 py-2 ring-1 ring-emerald-400/15 shadow-[0_0_18px_rgba(16,185,129,0.18)] backdrop-blur">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                </span>
+                <span className="text-sm font-semibold text-white/85">
+                  <span
+                    key={`viewers-${viewersPulse}`}
+                    className="inline-block font-black text-emerald-300 text-base"
+                    style={{ animation: 'planosViewerPop 0.45s ease both' }}
+                  >
+                    {viewersCount}
+                  </span>{' '}
+                  pessoas vendo essa página agora
+                </span>
+                <span className="text-base" aria-hidden>👀</span>
               </div>
             </div>
           </div>

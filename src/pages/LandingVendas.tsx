@@ -205,7 +205,7 @@ const LandingVendas = () => {
             </div>
             {/* Imagem colada logo abaixo da ppp3 — apenas mobile */}
             <img
-              src={img('/novaim.webp')}
+              src={img('/novaim2.webp')}
               alt="Agendei Fácil"
               className="w-full h-auto block"
             />
