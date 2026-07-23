@@ -1,8 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ChevronDown } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import PlanosCards from '../components/PlanosCards';
-import { readPartnerReferralCupomFromSearch } from '../lib/partnerReferralCode';
+import {
+  buildCadastroAgLink,
+  normalizePartnerReferralCodeInput,
+  readPartnerReferralCupomFromSearch,
+} from '../lib/partnerReferralCode';
 
 export default function Planos({
   gateWithVideo = false,
@@ -14,6 +18,11 @@ export default function Planos({
 }) {
   const location = useLocation();
   const referralCupom = readPartnerReferralCupomFromSearch(location.search);
+  // Mesmo destino do botão do card Diamante — usado no CTA repetido do fim da página
+  const cadastroDiamanteLink = buildCadastroAgLink({
+    plan: 'diamante',
+    cupom: normalizePartnerReferralCodeInput(String(referralCupom || '')) || null,
+  });
   const whatsappNumber = '5548991484275';
   const waLink = (mensagem: string) => `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(mensagem)}`;
 
@@ -40,6 +49,21 @@ export default function Planos({
   const [socialProof, setSocialProof] = useState<{ name: string; business: string } | null>(null);
   const [socialProofVisible, setSocialProofVisible] = useState(false);
   const socialProofStartedRef = useRef(false);
+
+  // 🖼️ Carrossel de feedbacks (mesmo do quiz /conhecer) — usado no acesso direto,
+  // no lugar da imagem A233: quem vem do WhatsApp ainda não viu os depoimentos
+  const feedbackImages = ['/feedback.png', '/VS1.png', '/s1.png', '/s2.png', '/feedbacknv11.png', '/feedbacknv22.png'];
+  const [feedbackIndex, setFeedbackIndex] = useState(0);
+  const [feedbackPreviewUrl, setFeedbackPreviewUrl] = useState<string | null>(null);
+  const nextFeedback = () => setFeedbackIndex((prev) => (prev + 1) % feedbackImages.length);
+  const prevFeedback = () => setFeedbackIndex((prev) => (prev - 1 + feedbackImages.length) % feedbackImages.length);
+
+  // 🎧 Player do áudio do barbeiro (mesmo do quiz) — bloco de prova social do acesso direto
+  const planosAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [planosAudioPlaying, setPlanosAudioPlaying] = useState(false);
+  const [planosAudioProgress, setPlanosAudioProgress] = useState(0);
+  const [planosAudioTime, setPlanosAudioTime] = useState('0:00');
+  const [planosAudioRate, setPlanosAudioRate] = useState(1);
 
   // ✅ FAQ (mesmo da página inicial)
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -176,17 +200,34 @@ export default function Planos({
   }, []);
 
   return (
-    <div className={`min-h-screen text-white ${gateWithVideo ? '' : 'bg-black'}`}>
+    <div className={`relative isolate min-h-screen text-white overflow-x-hidden ${gateWithVideo ? '' : 'bg-[#07080e]'}`}>
+      {/* 🌌 Mesmo fundo do /conhecer (glows da marca + vinheta) — só no acesso direto:
+          dentro do quiz o fundo já vem do próprio Conhecer (duplicar dobraria o brilho) */}
+      {!gateWithVideo && (
+        <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+          <div className="absolute -top-40 left-1/2 -translate-x-1/2 h-[560px] w-[560px] rounded-full bg-blue-600/25 blur-[140px]" />
+          <div className="absolute top-1/3 -left-32 h-[440px] w-[440px] rounded-full bg-violet-600/15 blur-[150px]" />
+          <div className="absolute bottom-[-6rem] -right-28 h-[500px] w-[500px] rounded-full bg-cyan-500/12 blur-[150px]" />
+          <div
+            className="absolute inset-0 opacity-[0.5]"
+            style={{ backgroundImage: 'radial-gradient(circle at center, transparent 55%, rgba(0,0,0,0.6) 100%)' }}
+          />
+        </div>
+      )}
       {/* (imagem de topo removida a pedido — o passo final abre direto no vídeo) */}
       <div className="max-w-6xl mx-auto px-4 py-8 sm:py-10">
         <div className="text-center mb-8 sm:mb-10">
-          {/* Vídeo (formato reels) — acima do título PLANOS */}
+          {/* Vídeo (formato reels) — SÓ dentro do quiz (gateWithVideo). No /planos
+              acessado direto NÃO tem vídeo: quem chega ali veio do WhatsApp e a
+              apresentação já foi feita na conversa — a página abre direto no preço. */}
           <div className="mb-10">
+            <style>{`@keyframes planosRevealIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } } @keyframes planosViewerPop { 0% { transform: scale(1.45); opacity: 0.35; } 100% { transform: scale(1); opacity: 1; } }`}</style>
+            {gateWithVideo && (
+              <>
             <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
               VEJA O SISTEMA <span className="text-pink-500">POR DENTRO</span> 👀
             </h2>
             <p className="text-white/60 text-sm mt-1 mb-5">Um tour rápido de como tudo funciona 👇</p>
-            <style>{`@keyframes planosRevealIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } } @keyframes planosViewerPop { 0% { transform: scale(1.45); opacity: 0.35; } 100% { transform: scale(1); opacity: 1; } }`}</style>
             <div className="flex justify-center px-2">
               <div className="w-full max-w-[300px]">
                 <div
@@ -207,7 +248,7 @@ export default function Planos({
                     style={{ border: 'none' }}
                   />
                 </div>
-                {gateWithVideo && !plansRevealed && (
+                {!plansRevealed && (
                   <button
                     type="button"
                     onClick={revealPlans}
@@ -218,6 +259,20 @@ export default function Planos({
                 )}
               </div>
             </div>
+              </>
+            )}
+
+            {/* 🖼️ Acesso direto (sem vídeo): mesma imagem de topo do quiz — logo +
+                sistema por dentro, recortada sem fundo, casa com a atmosfera */}
+            {!gateWithVideo && (
+              <div className="mb-4 flex justify-center items-center">
+                <img
+                  src="/inicioquiz.webp"
+                  alt="Agendei Fácil — sistema de agendamentos"
+                  className="w-full max-w-md h-auto rounded-xl"
+                />
+              </div>
+            )}
 
             {/* 👀 Contador ao vivo ABAIXO do vídeo — longe dos popups do topo e coladinho
                 no "QUANTO CUSTA?": pressão social exatamente na hora da decisão de preço */}
@@ -306,16 +361,185 @@ export default function Planos({
       </div>
 
       {/* ── FAQ (mesmo da página inicial) ── */}
-      <section id="faq" className={`py-16 ${gateWithVideo ? '' : 'bg-black'} ${gateHiddenCls}`}>
+      {/* fundo transparente sempre: deixa a atmosfera (glows) aparecer também no acesso direto */}
+      <section id="faq" className={`py-16 ${gateHiddenCls}`}>
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Imagem acima do FAQ (mesma usada no quiz — repetida de propósito) */}
-          <div className="mb-8 flex justify-center">
-            <img
-              src="/A233.webp"
-              alt="Sistema de agendamentos mais completo do Brasil"
-              className="w-full max-w-lg h-auto rounded-2xl"
-            />
-          </div>
+          {/* Acima do FAQ — quiz: imagem A233 (a pessoa acabou de ver o carrossel no
+              passo anterior); acesso direto: carrossel de depoimentos (mesmo do quiz) */}
+          {gateWithVideo ? (
+            <div className="mb-8 flex justify-center">
+              <img
+                src="/A233.webp"
+                alt="Sistema de agendamentos mais completo do Brasil"
+                className="w-full max-w-lg h-auto rounded-2xl"
+              />
+            </div>
+          ) : (
+            <div className="mb-8 max-w-lg mx-auto">
+              <h2 className="text-base sm:text-lg font-bold text-white mb-1 text-center">
+                E olha o que falam da gente 🚀
+              </h2>
+              <p className="text-xs text-gray-400 mb-3 text-center">🔍 Toque na imagem para ampliar</p>
+              <div className="relative mb-4">
+                <div className="relative overflow-hidden rounded-lg">
+                  <img
+                    src={feedbackImages[feedbackIndex]}
+                    alt={`Feedback ${feedbackIndex + 1}`}
+                    className="w-full h-auto rounded-lg transition-opacity duration-300 cursor-zoom-in"
+                    onClick={() => setFeedbackPreviewUrl(feedbackImages[feedbackIndex])}
+                  />
+                  <button
+                    onClick={prevFeedback}
+                    className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-70 transition-all"
+                  >
+                    ←
+                  </button>
+                  <button
+                    onClick={nextFeedback}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-70 transition-all"
+                  >
+                    →
+                  </button>
+                </div>
+                <div className="flex justify-center mt-3 space-x-2">
+                  {feedbackImages.map((_, index) => (
+                    <button
+                      key={index}
+                      onClick={() => setFeedbackIndex(index)}
+                      className={`w-2 h-2 rounded-full transition-colors ${
+                        index === feedbackIndex ? 'bg-green-500' : 'bg-gray-600'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* 🎧 Prova social do quiz (áudio + print + vídeo) — o /planos é enviado
+                  no WhatsApp: mata as objeções antes mesmo da conversa continuar */}
+              <div className="mt-10 text-center">
+                <h2 className="text-xl sm:text-2xl font-bold text-white mb-2">
+                  Não confie em mim 😅
+                </h2>
+                <h3 className="text-lg sm:text-xl font-bold text-green-400 mb-5">
+                  Confia em quem usa todo dia 👇
+                </h3>
+
+                {/* Áudio de um barbeiro parceiro — player estilo WhatsApp */}
+                <audio
+                  ref={planosAudioRef}
+                  preload="metadata"
+                  onPlay={() => {
+                    setPlanosAudioPlaying(true);
+                    if (planosAudioRef.current) planosAudioRef.current.playbackRate = planosAudioRate;
+                  }}
+                  onPause={() => setPlanosAudioPlaying(false)}
+                  onEnded={() => { setPlanosAudioPlaying(false); setPlanosAudioProgress(0); setPlanosAudioTime('0:00'); }}
+                  onTimeUpdate={(e) => {
+                    const audio = e.currentTarget;
+                    if (audio.duration > 0) {
+                      setPlanosAudioProgress((audio.currentTime / audio.duration) * 100);
+                      const m = Math.floor(audio.currentTime / 60);
+                      const s = Math.floor(audio.currentTime % 60);
+                      setPlanosAudioTime(`${m}:${String(s).padStart(2, '0')}`);
+                    }
+                  }}
+                >
+                  {/* ogg (leve) para Android/Chrome; mp3 como reserva para iPhone */}
+                  <source src="/audioapresentacao.ogg" type="audio/ogg" />
+                  <source src="/audiobarbeiro.mp3" type="audio/mpeg" />
+                </audio>
+                <div className="bg-[#111b12] border border-green-500/30 rounded-2xl p-3 mb-2 flex items-center gap-3">
+                  <img
+                    src="/fotoronaldo.webp"
+                    alt="Ronaldo, barbeiro parceiro"
+                    className="w-12 h-12 rounded-full object-cover border-2 border-green-500/60 flex-shrink-0"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const audio = planosAudioRef.current;
+                      if (!audio) return;
+                      if (audio.paused) { void audio.play(); } else { audio.pause(); }
+                    }}
+                    className="w-11 h-11 rounded-full bg-green-500 hover:bg-green-400 flex items-center justify-center flex-shrink-0 text-black text-base font-black transition-colors"
+                    aria-label={planosAudioPlaying ? 'Pausar áudio' : 'Ouvir áudio'}
+                  >
+                    {planosAudioPlaying ? '❚❚' : '▶'}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="h-2 bg-white/15 rounded-full overflow-hidden">
+                      <div className="h-full bg-green-400 rounded-full" style={{ width: `${planosAudioProgress}%` }} />
+                    </div>
+                    <div className="flex items-center justify-between mt-1.5">
+                      <span className="text-[11px] font-semibold text-green-200/90">Barbeiro parceiro 🎧</span>
+                      <span className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = planosAudioRate === 1 ? 1.5 : planosAudioRate === 1.5 ? 2 : 1;
+                            setPlanosAudioRate(next);
+                            if (planosAudioRef.current) planosAudioRef.current.playbackRate = next;
+                          }}
+                          className="px-2 py-0.5 rounded-full bg-white/15 hover:bg-white/25 text-[10px] font-bold text-white leading-none transition-colors"
+                          aria-label="Mudar velocidade do áudio"
+                        >
+                          {planosAudioRate}x
+                        </button>
+                        <span className="text-[11px] text-green-200/70">{planosAudioTime}</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 mb-3">Áudio real de um cliente do Agendei Fácil</p>
+
+                {/* Financeiro real do cliente do áudio (autorizado por ele) */}
+                <p className="text-sm font-bold text-white mb-2">
+                  📈 Olha o print que ele nos mandou do crescimento 👇
+                </p>
+                <img
+                  src="/clientefinanceiro.webp"
+                  alt="Financeiro do cliente do áudio: crescimento entre os meses"
+                  className="w-full h-auto rounded-xl cursor-zoom-in mb-1"
+                  onClick={() => setFeedbackPreviewUrl('/clientefinanceiro.webp')}
+                />
+                <p className="text-xs text-gray-400 mb-6">🔍 Toque para ampliar</p>
+
+                {/* 🎥 Depoimento em vídeo (formato reels) */}
+                <h2 className="text-base sm:text-lg font-bold text-white mb-1">
+                  🎥 Olha o que um cliente falou 👇
+                </h2>
+                <p className="text-xs text-gray-400 mb-3">
+                  Depoimento real de quem é atendido numa barbearia que usa o Agendei Fácil
+                </p>
+                <div className="flex justify-center px-2">
+                  <div className="w-full max-w-[300px]">
+                    <div
+                      className="relative rounded-2xl overflow-hidden border-2 border-pink-500 shadow-[0_0_25px_rgba(236,72,153,0.35)] bg-black"
+                      style={{ aspectRatio: '9/16' }}
+                    >
+                      <iframe
+                        src="https://www.youtube.com/embed/1qbZbbkuPEE?rel=0&playsinline=1"
+                        title="Depoimento de cliente da barbearia"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowFullScreen
+                        className="absolute inset-0 w-full h-full"
+                        style={{ border: 'none' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* CTA repetido no fim da página: quem rolou até aqui entra sem precisar
+                    voltar lá em cima pro card de planos */}
+                <Link
+                  to={cadastroDiamanteLink}
+                  className="block w-full mt-8 px-4 py-4 rounded-xl font-extrabold text-white bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 transition-colors text-center shadow-lg text-base sm:text-lg"
+                >
+                  Quero meu acesso agora 🚀
+                </Link>
+              </div>
+            </div>
+          )}
           <div className="text-center mb-10">
             <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">
               Perguntas frequentes
@@ -349,6 +573,29 @@ export default function Planos({
           {/* (link para a página inicial removido de propósito — nenhuma saída do funil) */}
         </div>
       </section>
+
+      {/* Lightbox: feedback ampliado (fecha ao tocar em qualquer lugar) — mesmo do quiz */}
+      {feedbackPreviewUrl && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center p-3"
+          onClick={() => setFeedbackPreviewUrl(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setFeedbackPreviewUrl(null)}
+            className="absolute top-4 right-4 h-10 w-10 rounded-full bg-white/15 hover:bg-white/25 text-white text-xl font-bold flex items-center justify-center"
+            aria-label="Fechar imagem"
+          >
+            ✕
+          </button>
+          <img
+            src={feedbackPreviewUrl}
+            alt="Feedback ampliado"
+            className="max-h-[88vh] max-w-[96vw] rounded-xl object-contain"
+          />
+          <p className="absolute bottom-4 left-0 right-0 text-center text-white/70 text-xs">Toque em qualquer lugar para fechar</p>
+        </div>
+      )}
 
       {/* ✅ Popups de prova social (somente nesta página) */}
       <div
