@@ -4,7 +4,14 @@ import { useLocation } from 'react-router-dom';
 import PlanosCards from '../components/PlanosCards';
 import { readPartnerReferralCupomFromSearch } from '../lib/partnerReferralCode';
 
-export default function Planos({ gateWithVideo = false }: { gateWithVideo?: boolean }) {
+export default function Planos({
+  gateWithVideo = false,
+  whatsappFirst = false,
+}: {
+  gateWithVideo?: boolean;
+  /** Quiz /conhecer: CTA principal do card vira WhatsApp; /planos direto continua igual. */
+  whatsappFirst?: boolean;
+}) {
   const location = useLocation();
   const referralCupom = readPartnerReferralCupomFromSearch(location.search);
   const whatsappNumber = '5548991484275';
@@ -265,7 +272,7 @@ export default function Planos({ gateWithVideo = false }: { gateWithVideo?: bool
           <span className="block">Tudo que você viu até aqui,</span>
           <span className="block">num preço único. 👇</span>
         </div>
-        <PlanosCards whatsappNumber="5548991484275" hidePrata diamanteOnly referralCupom={referralCupom || null} />
+        <PlanosCards whatsappNumber="5548991484275" hidePrata diamanteOnly referralCupom={referralCupom || null} whatsappFirst={whatsappFirst} />
 
         {/* Reversão de risco na boca do botão: mata o medo exatamente onde ele mora */}
         <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
@@ -280,7 +287,9 @@ export default function Planos({ gateWithVideo = false }: { gateWithVideo?: bool
           ))}
         </div>
 
-        {/* ✅ Botão abaixo do plano Diamante */}
+        {/* ✅ Botão abaixo do plano Diamante — escondido no quiz (whatsappFirst):
+            lá o CTA principal do card já é o WhatsApp, dois botões iguais confundem */}
+        {!whatsappFirst && (
         <div className="max-w-2xl mx-auto mt-8">
           <a
             href={waLink('Tenho dúvidas sobre os planos')}
@@ -291,6 +300,7 @@ export default function Planos({ gateWithVideo = false }: { gateWithVideo?: bool
             💬 Tenho dúvidas — conversar com a equipe comercial
           </a>
         </div>
+        )}
         </div>
 
       </div>

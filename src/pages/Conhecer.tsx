@@ -349,7 +349,7 @@ const Conhecer = () => {
           sozinhos em 12s. Só no quiz — /planos acessado direto continua tudo visível. */}
       {quizState.step === 8 && (
         <div className="relative z-10">
-          <Planos gateWithVideo />
+          <Planos gateWithVideo whatsappFirst />
         </div>
       )}
 

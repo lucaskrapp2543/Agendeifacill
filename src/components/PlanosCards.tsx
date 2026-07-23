@@ -34,14 +34,19 @@ function LinhaRecurso({
 }
 
 export default function PlanosCards({
+  whatsappNumber = '5548991484275',
   hidePrata = false,
   referralCupom = null,
   diamanteOnly = false,
+  whatsappFirst = false,
 }: {
   whatsappNumber?: string;
   hidePrata?: boolean;
   referralCupom?: string | null;
   diamanteOnly?: boolean;
+  /** Funil do quiz /conhecer: CTA principal vira WhatsApp (canal que converte);
+      criar conta sozinho vira opção secundária. Landings e /planos direto: intocados. */
+  whatsappFirst?: boolean;
 }) {
   const precoPrata = 37.9;
   const precoDiamante = 67.9;
@@ -359,12 +364,33 @@ export default function PlanosCards({
               )}
             </div>
 
-            <Link
-              to={cadastroLink('diamante')}
-              className="block w-full mt-4 px-4 py-3 rounded-xl font-extrabold text-white bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 transition-colors text-center shadow-lg"
-            >
-              {diamanteOnly ? 'Quero meu acesso agora 🚀' : 'Quero esse plano'}
-            </Link>
+            {diamanteOnly && whatsappFirst ? (
+              <>
+                {/* CTA principal: WhatsApp — o único canal que historicamente fecha venda.
+                    Mensagem já qualifica a pessoa como compradora (não "tenho dúvidas"). */}
+                <a
+                  href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent('Vim pelo quiz! Quero colocar meu negócio no Agendei Fácil 💈')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block w-full mt-4 px-4 py-4 rounded-xl font-extrabold text-black bg-emerald-400 hover:bg-emerald-300 transition-colors text-center text-base sm:text-lg shadow-[0_0_25px_rgba(16,185,129,0.45)]"
+                >
+                  💬 QUERO COMEÇAR — falar no WhatsApp agora
+                </a>
+                <Link
+                  to={cadastroLink('diamante')}
+                  className="block w-full mt-3 px-4 py-2.5 rounded-xl font-bold text-white/80 bg-white/10 hover:bg-white/20 border border-white/15 transition-colors text-center text-sm"
+                >
+                  Criar minha conta sozinho →
+                </Link>
+              </>
+            ) : (
+              <Link
+                to={cadastroLink('diamante')}
+                className="block w-full mt-4 px-4 py-3 rounded-xl font-extrabold text-white bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 transition-colors text-center shadow-lg"
+              >
+                {diamanteOnly ? 'Quero meu acesso agora 🚀' : 'Quero esse plano'}
+              </Link>
+            )}
           </div>
         </div>
       </div>
