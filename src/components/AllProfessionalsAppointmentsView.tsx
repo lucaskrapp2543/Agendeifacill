@@ -559,6 +559,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const [selectedAppointmentForServiceChange, setSelectedAppointmentForServiceChange] = useState<Appointment | null>(null);
     const [showAppointmentHistoryModal, setShowAppointmentHistoryModal] = useState(false);
     const [selectedAppointmentForHistory, setSelectedAppointmentForHistory] = useState<Appointment | null>(null);
+    // Quando o agendamento foi CRIADO (dia/hora que o cliente agendou) — a lista da
+    // agenda nem sempre carrega created_at, então o modal busca por id se faltar.
+    const [appointmentHistoryCreatedAt, setAppointmentHistoryCreatedAt] = useState<string | null>(null);
     const [appointmentHistoryRows, setAppointmentHistoryRows] = useState<AppointmentChangeLog[]>([]);
     const [isLoadingAppointmentHistory, setIsLoadingAppointmentHistory] = useState(false);
     const [showSubscriberAttendanceModal, setShowSubscriberAttendanceModal] = useState(false);
@@ -1536,6 +1539,22 @@ export const AllProfessionalsAppointmentsView: React.FC<
       setShowAppointmentHistoryModal(true);
       setIsLoadingAppointmentHistory(true);
 
+      // "Agendado em": usa o created_at se a lista já trouxe; senão busca só esse
+      // campo por id (leve, sem travar o carregamento dos logs abaixo).
+      const aptCreatedAt = String((apt as any)?.created_at || '').trim();
+      setAppointmentHistoryCreatedAt(aptCreatedAt || null);
+      if (!aptCreatedAt) {
+        void supabase
+          .from('appointments')
+          .select('created_at')
+          .eq('id', String(apt.id))
+          .maybeSingle()
+          .then(({ data: createdRow }) => {
+            const value = String((createdRow as any)?.created_at || '').trim();
+            if (value) setAppointmentHistoryCreatedAt(value);
+          });
+      }
+
       try {
         const { data, error } = await (supabase as any)
           .from('appointment_change_logs')
@@ -1573,6 +1592,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
       setSelectedAppointmentForHistory(null);
       setAppointmentHistoryRows([]);
       setIsLoadingAppointmentHistory(false);
+      setAppointmentHistoryCreatedAt(null);
     };
 
     const handleConfirmChangeService = async (services: Array<{ id: string; name: string; price: number; duration: number }>) => {
@@ -7706,7 +7726,17 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                       {/* Breakdown de pagamento online — só mostra quando houve pagamento online com 50% */}
                                       {(() => {
                                         const pm = String(apt.payment_method || '').toLowerCase();
-                                        const isPaidOnline = pm === 'pix' || pm === 'credito' || pm === 'debito';
+                                        const isOnlineMethod = pm === 'pix' || pm === 'credito' || pm === 'debito';
+                                        // Evidência REAL de pagamento online (como o webhook grava ao aprovar):
+                                        // payment_status='paid', transação registrada ou PIX aprovado/confirmado.
+                                        // payment_method sozinho NÃO prova pagamento — ele também guarda como o
+                                        // cliente pretende pagar NO LOCAL (mostrava "Pago online" sem pagamento).
+                                        const pixSt = String((apt as any).pix_payment_status || '').toLowerCase();
+                                        const hasRealOnlinePayment =
+                                          String((apt as any).payment_status || '').toLowerCase() === 'paid' ||
+                                          Boolean(String((apt as any).payment_transaction_id || '').trim()) ||
+                                          pixSt === 'aprovado' || pixSt === 'approved' || pixSt === 'confirmado';
+                                        const isPaidOnline = isOnlineMethod && hasRealOnlinePayment;
                                         const advPercent = (establishment as any)?.advance_payment_percentage;
                                         const is50 = advPercent === 50;
                                         const totalPrice = calculateTotalPrice(apt);
@@ -8948,6 +8978,23 @@ export const AllProfessionalsAppointmentsView: React.FC<
                       <span className="text-gray-500">Origem:</span>{' '}
                       <span className={originClass}>{originLabel}</span>
                     </div>
+                    {(() => {
+                      const raw = String(
+                        appointmentHistoryCreatedAt || (selectedAppointmentForHistory as any)?.created_at || ''
+                      ).trim();
+                      if (!raw) return null;
+                      const created = new Date(raw);
+                      if (Number.isNaN(created.getTime())) return null;
+                      return (
+                        <div className="md:col-span-2">
+                          <span className="text-gray-500">Agendado em:</span>{' '}
+                          <span className="font-semibold text-emerald-300">
+                            {created.toLocaleDateString('pt-BR')} às{' '}
+                            {created.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
                   );

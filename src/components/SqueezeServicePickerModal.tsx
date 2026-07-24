@@ -180,7 +180,11 @@ async function loadSqueezePickerData(
     }))
     .filter((service) => service.name.length > 0);
 
-  const generalServices = [...categoryServices, ...legacyServices];
+  // Mesma regra do booking (BookingPage/bookingSimpleEngine): quem migrou para o
+  // sistema de categorias vê SÓ as categorias — o jsonb legado services_with_prices
+  // guarda serviços antigos/apagados e não pode ser somado (aparecia serviço excluído
+  // no encaixe). O legado segue como fallback para estabelecimentos que nunca migraram.
+  const generalServices = categoryServices.length > 0 ? categoryServices : legacyServices;
   const selectedSource =
     categoryServices.length === 0 && specificServices.length > 0 ? specificServices : generalServices;
 

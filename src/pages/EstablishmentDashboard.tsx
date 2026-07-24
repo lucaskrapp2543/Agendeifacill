@@ -13519,6 +13519,8 @@ Estamos te aguardando!`;
         'duration',
         'price',
         'payment_method',
+        'payment_status',
+        'payment_transaction_id',
         'card_brand',
         'pix_payment_status',
         'pix_proof_url',
