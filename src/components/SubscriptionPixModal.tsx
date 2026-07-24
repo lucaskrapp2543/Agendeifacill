@@ -806,7 +806,9 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ message: 'Erro desconhecido' }));
-          const msg = errorData.error || errorData.message || `Erro ${response.status}`;
+          // userMessage primeiro: é a instrução amigável do backend (ex.: "Reconecte o
+          // Mercado Pago") — antes aparecia o erro técnico cru ("Request failed ... 400")
+          const msg = errorData.userMessage || errorData.error || errorData.message || `Erro ${response.status}`;
           throw new Error(msg);
         }
 

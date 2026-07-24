@@ -206,8 +206,18 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
       response: error?.response?.data,
     });
 
+    // Erro OAuth do MP vem como {error, error_description} (sem .message) — sem isso a
+    // mensagem virava o cru do axios ("Request failed with status code 400"), impossível
+    // de diagnosticar (ex.: invalid_grant = refresh_token revogado, precisa reconectar).
+    const oauthErr = [error?.response?.data?.error, error?.response?.data?.error_description]
+      .map((x: unknown) => String(x || '').trim())
+      .filter(Boolean)
+      .join(' — ');
     throw new Error(
       error?.response?.data?.message ||
+      (oauthErr
+        ? `Mercado Pago recusou a renovação do token (${oauthErr}). Reconecte a conta do Mercado Pago.`
+        : '') ||
       error?.message ||
       'Erro ao atualizar token do Mercado Pago'
     );

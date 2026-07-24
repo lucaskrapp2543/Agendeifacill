@@ -63,14 +63,27 @@ export const handler: Handler = async (event) => {
       });
     }
 
-    // Se já temos token válido e não expirado, redirecionar para sucesso
-    if (existingEstablishment?.mercadopago_access_token) {
-      const expiresAt = existingEstablishment.mercadopago_token_expires_at;
-      const isTokenValid = !expiresAt || new Date(expiresAt) > new Date();
+    // ✅ SEMPRE trocar o código por tokens NOVOS — "Reconectar" precisa reconectar de
+    // verdade (access + refresh novos), mesmo com o token atual ainda válido (casos:
+    // refresh_token podre com access vivo, troca de conta). O atalho antigo pulava a
+    // troca quando o token estava válido e enganava o dono ("reconectei e nada mudou").
+    // A proteção contra callback duplicado (mesmo code processado 2x pelo navegador)
+    // fica no catch: se a troca falhar E já existirem tokens válidos (salvos pela 1ª
+    // chamada segundos antes), é o double-callback — redireciona para sucesso.
+    let tokenData: Awaited<ReturnType<typeof exchangeCodeForToken>>;
+    try {
+      tokenData = await exchangeCodeForToken(code);
+    } catch (exchangeError: any) {
+      const expiresAt = existingEstablishment?.mercadopago_token_expires_at;
+      const hasValidToken =
+        Boolean(existingEstablishment?.mercadopago_access_token) &&
+        (!expiresAt || new Date(expiresAt) > new Date());
 
-      if (isTokenValid) {
-        console.log('✅ [MP OAuth Callback] Estabelecimento já possui tokens válidos, redirecionando para sucesso');
-        
+      if (hasValidToken) {
+        console.log(
+          'ℹ️ [MP OAuth Callback] Code recusado, mas tokens atuais válidos (callback duplicado) — redirecionando para sucesso'
+        );
+
         const host = event.headers.host || event.headers['x-forwarded-host'] || 'agendeifacil.com';
         const protocol = event.headers['x-forwarded-proto'] || 'https';
         const successUrl =
@@ -85,10 +98,9 @@ export const handler: Handler = async (event) => {
           body: '',
         };
       }
-    }
 
-    // Trocar código por token
-    const tokenData = await exchangeCodeForToken(code);
+      throw exchangeError;
+    }
 
     // Salvar tokens no banco de dados (supabaseAdmin já verificado acima)
     // Desativar Pagar.me ao conectar Mercado Pago (exclusão mútua)

@@ -609,6 +609,43 @@ export default function BookingPage() {
 
     setIsRenewLookupLoading(true);
     try {
+      // ✅ RPC segura primeiro (a tabela é protegida contra leitura anônima — a busca
+      // direta abaixo volta sempre vazia no booking). A função compara pelos últimos
+      // 8 dígitos (tolerante a 55/9º dígito/máscara) e NÃO expõe dados do assinante:
+      // devolve apenas found + nome mascarado. Fallback antigo mantido para o caso de
+      // a função ainda não existir no banco.
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('find_renewal_subscriber', {
+          p_establishment_id: String(establishment.id),
+          p_subscription_id: String(renewLookupSubscription.id),
+          p_phone: renewLookupPhone,
+        });
+        if (!rpcError && rpcData && typeof rpcData === 'object') {
+          if ((rpcData as any).found === true) {
+            setSubscriptionPixInitialFlow('default');
+            setSelectedSubscriptionForPix(renewLookupSubscription);
+            // Privacidade: não pré-preenche o nome (a pessoa digita o dela);
+            // o vínculo da renovação é feito pelo telefone no backend.
+            setRenewalPrefill({
+              name: '',
+              whatsapp: String(renewLookupPhone || '').trim(),
+            });
+            setShowRenewLookupModal(false);
+            setRenewLookupSubscription(null);
+            setRenewLookupPhone('');
+            setShowSubscriptionPixModal(true);
+            toast.success(
+              `Assinante ${String((rpcData as any).masked_name || '').trim() || 'encontrado'} localizado! Finalize a renovação.`
+            );
+            return;
+          }
+          toast.error('Não encontramos assinante desse plano com esse número.');
+          return;
+        }
+      } catch {
+        // função ainda não aplicada no banco — segue o fluxo antigo abaixo
+      }
+
       const safeInList = (arr: string[]) => arr.map((p) => `"${p}"`).join(',');
       let rows: any[] = [];
       let queryError: any = null;

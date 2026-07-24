@@ -3235,6 +3235,25 @@ const EstablishmentDashboard = () => {
     setAdvancePaymentPercentage(previewAdvancePercent);
   };
 
+  // ⚠️ Conexão MP suspeita: o token vence a cada ~6h e é renovado a cada pagamento.
+  // Vencido há DIAS = renovação automática provavelmente quebrada (invalid_grant) —
+  // "conectado sem estar conectado": pagamentos falham e o dono só descobre por cliente.
+  const isMpConnectionSuspect = (() => {
+    if (!establishmentHasMercadoPago(establishment as any)) return false;
+    const expMs = Date.parse(String((establishment as any)?.mercadopago_token_expires_at || '')) || 0;
+    return expMs > 0 && Date.now() - expMs > 72 * 60 * 60 * 1000;
+  })();
+
+  const mpDisconnectWarnedRef = useRef(false);
+  useEffect(() => {
+    if (!isMpConnectionSuspect || mpDisconnectWarnedRef.current) return;
+    mpDisconnectWarnedRef.current = true;
+    toast.error(
+      '⚠️ Sua conta Mercado Pago pode ter desconectado — pagamentos online podem estar falhando. Vá em Pagamentos e clique em Reconectar.',
+      { duration: 12000 }
+    );
+  }, [isMpConnectionSuspect]);
+
   // ✅ Card Mercado Pago (reutilizável em dois lugares: configurações + atalho no menu lateral)
   const MercadoPagoCard = ({
     wrapperClassName = 'mt-6',
@@ -3258,6 +3277,16 @@ const EstablishmentDashboard = () => {
       <div className="absolute -bottom-24 -left-24 h-56 w-56 rounded-full bg-[#009EE3]/10 blur-3xl pointer-events-none" />
 
       <div className="bg-[#0f1112] border border-[#009EE3]/30 rounded-xl p-6 relative z-10">
+        {isMpConnectionSuspect && (
+          <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 p-4">
+            <p className="text-sm font-extrabold text-red-300">⚠️ Sua conexão com o Mercado Pago pode ter caído</p>
+            <p className="text-xs text-red-200/80 mt-1 leading-relaxed">
+              A renovação automática do acesso não acontece há dias — PIX e cartão podem estar
+              falhando para seus clientes. Clique em <strong>Reconectar</strong> abaixo para
+              normalizar em 30 segundos (não altera nenhuma configuração).
+            </p>
+          </div>
+        )}
         {!isRecebaNaHora && (
           <>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
