@@ -35,7 +35,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/uuid": "^10.0.0",
-    "@whiskeysockets/baileys": "^7.0.0-rc12",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
     "axios": "^1.6.0",
     "bullmq": "^5.76.8",
     "chart.js": "^4.5.0",
