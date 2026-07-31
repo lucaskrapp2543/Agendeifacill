@@ -12,6 +12,13 @@ import { TimeSlotSelector } from './TimeSlotSelector';
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
 import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import { registerAfcoinBookingEvent, isClientAfcoinsEnabledForEstablishment } from '../utils/afcoin';
+import {
+  buildCouponPayloadFields,
+  computeCouponDiscount,
+  normalizeCouponCode,
+  validateDiscountCoupon,
+  type AppliedCoupon,
+} from '../utils/discountCoupon';
 
 type ChatStep =
   | 'name'
@@ -227,6 +234,10 @@ export function BookingChatFlow({
   const [selectedBookingProductIds, setSelectedBookingProductIds] = useState<string[]>([]);
   const [selectedBookingProductImagePreview, setSelectedBookingProductImagePreview] = useState<{ url: string; name: string } | null>(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('');
+  // Cupom de desconto (mesma regra do formulário clássico): só cliente normal, nunca assinante.
+  const [cupomInput, setCupomInput] = useState('');
+  const [cupomAplicado, setCupomAplicado] = useState<AppliedCoupon | null>(null);
+  const [isApplyingCupom, setIsApplyingCupom] = useState(false);
   const [showSubscriberSelectionHint, setShowSubscriberSelectionHint] = useState(false);
   const [chatClientCpf, setChatClientCpf] = useState('');
   const [invalidSubscriberDateMessage, setInvalidSubscriberDateMessage] = useState('');
@@ -691,6 +702,31 @@ export function BookingChatFlow({
     }),
     [computedSelection.duration, computedSelection.price, computedSelection.serviceName, isSubscriberFlow, selectedPrimarySubscriberService]
   );
+
+  // Assinante não usa cupom (não paga o serviço) — se virar assinante no meio, limpa.
+  useEffect(() => {
+    if (!isSubscriberFlow) return;
+    setCupomAplicado(null);
+    setCupomInput('');
+  }, [isSubscriberFlow]);
+
+  const aplicarCupom = async () => {
+    const establishmentId = String(establishment?.id || '').trim();
+    setIsApplyingCupom(true);
+    try {
+      const result = await validateDiscountCoupon(establishmentId, cupomInput);
+      if (!result.ok) {
+        setCupomAplicado(null);
+        toast.error(result.message);
+        return;
+      }
+      setCupomAplicado(result.coupon);
+      setCupomInput(result.coupon.code);
+      toast.success(`Cupom aplicado: -${result.coupon.percent}%`);
+    } finally {
+      setIsApplyingCupom(false);
+    }
+  };
 
   const businessHoursForDate = useMemo(() => buildBusinessHoursForDate(establishment, selectedDate), [establishment, selectedDate]);
   const selectedDateKey = format(selectedDate, 'yyyy-MM-dd');
@@ -1477,6 +1513,13 @@ export function BookingChatFlow({
         : [];
 
       const combinedAdditionalProducts = [...bookingProductsPayload, ...subscriberExtraPayload];
+
+      // Cupom: desconto só sobre o SERVIÇO. Fidelidade grátis e assinante ignoram cupom.
+      const cupomValido = !isSubscriberFlow && !loyaltyFree ? cupomAplicado : null;
+      const precoServicoBase = Number(computedSelection.price || 0);
+      const { finalPrice: precoServicoComDesconto } = computeCouponDiscount(precoServicoBase, cupomValido);
+      const camposCupom = buildCouponPayloadFields(precoServicoBase, cupomValido);
+
       const payload = {
         client_name: chatClientName,
         client_whatsapp: normalizeWhatsappForStorage(chatClientPhone),
@@ -1486,8 +1529,10 @@ export function BookingChatFlow({
         appointment_time: selectedTime,
         client_cpf: shouldRequireCpf ? onlyDigits(chatClientCpf) : null,
         duration: computedSelection.duration,
-        price: loyaltyFree ? 0 : computedSelection.price,
-        total_price: loyaltyFree ? 0 : Number(computedSelection.price || 0) + Number(bookingProductsTotal || 0),
+        // Preço já com desconto: pagamento online, comissão e financeiro herdam o valor certo.
+        price: loyaltyFree ? 0 : precoServicoComDesconto,
+        total_price: loyaltyFree ? 0 : Math.round((precoServicoComDesconto + Number(bookingProductsTotal || 0)) * 100) / 100,
+        ...camposCupom,
         additional_products:
           loyaltyFree
             ? null
@@ -1728,15 +1773,28 @@ export function BookingChatFlow({
     [isSubscriberFlow, publicLoyaltyRedeemApplied, publicLoyaltyRow]
   );
 
-  const confirmDisplayServicePrice = useMemo(
+  // Cupom só vale para cliente normal pagante (assinante e brinde de fidelidade ficam de fora).
+  const cupomElegivel = !isSubscriberFlow && !loyaltyFreeBooking;
+  const cupomAtivo = cupomElegivel ? cupomAplicado : null;
+
+  const confirmServicePriceOriginal = useMemo(
     () => (loyaltyFreeBooking ? 0 : Number(computedSelection.price || 0)),
     [loyaltyFreeBooking, computedSelection.price]
   );
 
+  const cupomDesconto = useMemo(
+    () => computeCouponDiscount(confirmServicePriceOriginal, cupomAtivo),
+    [confirmServicePriceOriginal, cupomAtivo]
+  );
+
+  const confirmDisplayServicePrice = cupomDesconto.finalPrice;
+
   const confirmDisplayTotalPrice = useMemo(
     () =>
-      loyaltyFreeBooking ? 0 : Number(computedSelection.price || 0) + Number(bookingProductsTotal || 0),
-    [loyaltyFreeBooking, computedSelection.price, bookingProductsTotal]
+      loyaltyFreeBooking
+        ? 0
+        : Math.round((cupomDesconto.finalPrice + Number(bookingProductsTotal || 0)) * 100) / 100,
+    [loyaltyFreeBooking, cupomDesconto.finalPrice, bookingProductsTotal]
   );
 
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -2462,7 +2520,22 @@ export function BookingChatFlow({
                     ) : null}
                   </div>
                 ) : null}
-                <div><strong>Valor:</strong> {toMoney(confirmDisplayServicePrice)}</div>
+                <div>
+                  <strong>Valor:</strong>{' '}
+                  {cupomAtivo ? (
+                    <>
+                      <span className="line-through text-white/40">{toMoney(confirmServicePriceOriginal)}</span>{' '}
+                      <span className="font-bold text-emerald-300">{toMoney(confirmDisplayServicePrice)}</span>
+                    </>
+                  ) : (
+                    toMoney(confirmDisplayServicePrice)
+                  )}
+                </div>
+                {cupomAtivo && (
+                  <div className="text-xs text-emerald-300">
+                    🎟️ Cupom {cupomAtivo.code} aplicado — você economizou {toMoney(cupomDesconto.discountAmount)} ({cupomAtivo.percent}%)
+                  </div>
+                )}
                 {!loyaltyFreeBooking && selectedBookingProducts.length > 0 && (
                   <div>
                     <strong>Produtos adicionais:</strong>{' '}
@@ -2470,6 +2543,44 @@ export function BookingChatFlow({
                   </div>
                 )}
                 <div><strong>Total final:</strong> {toMoney(confirmDisplayTotalPrice)}</div>
+
+                {/* Cupom de desconto — mesma regra do formulário clássico */}
+                {cupomElegivel && confirmServicePriceOriginal > 0 && (
+                  <div className="mt-2 rounded-lg border border-white/10 bg-black/30 p-3">
+                    <div className="text-xs font-bold text-[#E6C78B] mb-2">Tem cupom de desconto?</div>
+                    <div className="flex gap-2">
+                      <input
+                        value={cupomInput}
+                        onChange={(e) => setCupomInput(normalizeCouponCode(e.target.value))}
+                        placeholder="Ex: NEY1"
+                        disabled={isApplyingCupom || Boolean(cupomAtivo)}
+                        className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-black/40 border border-white/10 text-white text-sm placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-[#E6C78B]/30 disabled:opacity-60"
+                      />
+                      {cupomAtivo ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCupomAplicado(null);
+                            setCupomInput('');
+                            toast.success('Cupom removido');
+                          }}
+                          className="px-3 py-2 rounded-lg bg-white/10 text-white text-sm font-bold hover:bg-white/20 transition-colors shrink-0"
+                        >
+                          Remover
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={aplicarCupom}
+                          disabled={isApplyingCupom || !cupomInput.trim()}
+                          className="px-3 py-2 rounded-lg bg-[#E6C78B] text-black text-sm font-extrabold hover:bg-[#f3e7c7] transition-colors disabled:opacity-50 shrink-0"
+                        >
+                          {isApplyingCupom ? '...' : 'Aplicar'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {(establishment as any)?.cobrar_taxa_maquininha_cliente === true && (
                   <div className="text-xs text-white/50">taxa de pagamento: R$ 1,00</div>
                 )}

@@ -912,7 +912,9 @@ export default function ReservarCliente({
           .select('*')
           .eq('category_id', selectedCategory.id)
           .eq('is_active', true)
-          .order('display_order', { ascending: true });
+          .order('display_order', { ascending: true })
+          // Mesmo desempate do painel — garante ordem idêntica nas duas telas.
+          .order('created_at', { ascending: true });
 
         if (subcategoriesError) throw subcategoriesError;
 
@@ -987,7 +989,9 @@ export default function ReservarCliente({
           // Ordenar primeiro por categoria e depois por serviço
           // @ts-expect-error - order em tabela relacionada (PostgREST)
           .order('service_categories(display_order)', { ascending: true })
-          .order('display_order', { ascending: true });
+          .order('display_order', { ascending: true })
+          // Mesmo desempate do painel — garante ordem idêntica nas duas telas.
+          .order('created_at', { ascending: true });
 
         if (!subErr && Array.isArray(subcats) && subcats.length > 0) {
           const selectedProfessionalId = String(selectedProfessional?.id || '').trim();

@@ -1154,7 +1154,9 @@ export default function BookingPage() {
           .eq('service_categories.is_active', true)
           .eq('service_categories.establishment_id', data.id)
           .order('service_categories(display_order)', { ascending: true })
-          .order('display_order', { ascending: true });
+          .order('display_order', { ascending: true })
+          // Mesmo desempate do painel — garante ordem idêntica nas duas telas.
+          .order('created_at', { ascending: true });
 
         if (subErr) {
           console.warn('⚠️ BookingPage - erro ao buscar serviços por categorias (subcategorias):', subErr);

@@ -8509,17 +8509,80 @@ const EstablishmentDashboard = () => {
     }
   };
 
+  /**
+   * Reordena serviços de uma categoria.
+   *
+   * Antes trocava o display_order entre dois serviços — só funcionava quando TODOS
+   * tinham números distintos. Serviços antigos (ou criados em lote) ficaram com
+   * número repetido/nulo, então a seta "não fazia nada" a partir de certo item e a
+   * ordem no booking saía aleatória. Agora renumera a lista inteira (0..n-1), o que
+   * conserta os dados bagunçados no primeiro clique e mantém painel e booking iguais.
+   */
+  const moveSubcategoryOrder = async (
+    list: ServiceSubcategory[],
+    index: number,
+    direction: -1 | 1
+  ) => {
+    const target = index + direction;
+    if (!Array.isArray(list) || index < 0 || index >= list.length) return;
+    if (target < 0 || target >= list.length) return;
+
+    const reordered = [...list];
+    const [moved] = reordered.splice(index, 1);
+    reordered.splice(target, 0, moved);
+
+    const updates = reordered
+      .map((item, position) => ({ id: String(item.id), position }))
+      .filter(({ id, position }) => {
+        const original = list.find((item) => String(item.id) === id);
+        return Number(original?.display_order ?? -1) !== position;
+      });
+
+    try {
+      if (updates.length > 0) {
+        const results = await Promise.all(
+          updates.map(({ id, position }) =>
+            supabase.from('service_subcategories').update({ display_order: position }).eq('id', id)
+          )
+        );
+        const failed = results.find((r: any) => r?.error);
+        if (failed?.error) throw failed.error;
+      }
+      await fetchServiceSubcategories();
+      toast('Ordem atualizada!', 'success');
+    } catch (error) {
+      console.error('Erro ao reordenar:', error);
+      toast('Erro ao reordenar serviço', 'error');
+    }
+  };
+
   const handleOpenSellProductModal = useCallback(
-    (product: EstablishmentProduct) => {
+    (product: EstablishmentProduct, preselectedProfessionalId?: string) => {
       if (!establishment?.id) return;
       setSellingProduct(product);
-      setSellProfessionalId('');
+      // Vindo da agenda o profissional já é conhecido — evita erro de escolher o errado.
+      setSellProfessionalId(String(preselectedProfessionalId || ''));
       setSellQuantity(1);
       setSellUnitPrice(String(product.sale_price ?? '').replace('.', ','));
       setSellDate(format(new Date(), 'yyyy-MM-dd'));
       setShowSellProductModal(true);
     },
     [establishment?.id]
+  );
+
+  // 🛍️ Venda de produto direto da agenda: escolhe o produto e cai na MESMA venda
+  // de "Meus produtos" (mesma gravação, mesmo estoque, mesmo cálculo de comissão).
+  const [showPickProductToSellModal, setShowPickProductToSellModal] = useState(false);
+  const [sellFromAgendaProfessional, setSellFromAgendaProfessional] = useState<{ id: string; name: string } | null>(null);
+
+  const handleOpenSellProductFromAgenda = useCallback(
+    (professionalId: string, professionalName: string) => {
+      if (!establishment?.id) return;
+      setSellFromAgendaProfessional({ id: String(professionalId), name: String(professionalName || '') });
+      setShowPickProductToSellModal(true);
+      void fetchProducts();
+    },
+    [establishment?.id, fetchProducts]
   );
 
   const handleConfirmSellProduct = useCallback(async () => {
@@ -8664,7 +8727,10 @@ const EstablishmentDashboard = () => {
         .eq('service_categories.establishment_id', establishment.id)
         // Ordenação estável: primeiro por categoria, depois por ordem do serviço
         .order('category_id', { ascending: true })
-        .order('display_order', { ascending: true });
+        .order('display_order', { ascending: true })
+        // Desempate estável: sem isso, serviços com display_order repetido voltavam
+        // em ordem aleatória e o painel discordava do booking a cada carregamento.
+        .order('created_at', { ascending: true });
 
       if (error) {
         console.error('Erro ao buscar subcategorias de serviços:', error);
@@ -28823,6 +28889,7 @@ Estamos te aguardando!`;
                         setAddProductSearchQuery('');
                         setShowAddProductToAppointmentModal(true);
                       }}
+                      onOpenSellProduct={handleOpenSellProductFromAgenda}
                       onProfessionalPhotoChange={handleProfessionalPhotoChange}
                       onProfessionalPhotoRemove={handleRemoveProfessionalPhoto}
                       onGenerateNF={handleGenerateNF as any}
@@ -41288,30 +41355,7 @@ Estamos te aguardando!`;
                                   <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-0.5 md:gap-1 md:justify-start border-t border-gray-200 pt-2 md:border-0 md:pt-0">
                                     {/* Botões de reordenação */}
                                     <button
-                                      onClick={async () => {
-                                        if (index === 0) return;
-                                        const currentOrder = subcategory.display_order;
-                                        const prevSubcategory = categorySubcategories[index - 1];
-                                        const prevOrder = prevSubcategory.display_order;
-
-                                        try {
-                                          await Promise.all([
-                                            supabase
-                                              .from('service_subcategories')
-                                              .update({ display_order: prevOrder })
-                                              .eq('id', subcategory.id),
-                                            supabase
-                                              .from('service_subcategories')
-                                              .update({ display_order: currentOrder })
-                                              .eq('id', prevSubcategory.id)
-                                          ]);
-                                          await fetchServiceSubcategories();
-                                          toast('Ordem atualizada!', 'success');
-                                        } catch (error) {
-                                          console.error('Erro ao reordenar:', error);
-                                          toast('Erro ao reordenar serviço', 'error');
-                                        }
-                                      }}
+                                      onClick={() => moveSubcategoryOrder(categorySubcategories, index, -1)}
                                       disabled={index === 0}
                                       className={`p-2 rounded transition-colors ${index === 0
                                         ? 'text-gray-400 cursor-not-allowed'
@@ -41324,30 +41368,7 @@ Estamos te aguardando!`;
                                       </svg>
                                     </button>
                                     <button
-                                      onClick={async () => {
-                                        if (index === categorySubcategories.length - 1) return;
-                                        const currentOrder = subcategory.display_order;
-                                        const nextSubcategory = categorySubcategories[index + 1];
-                                        const nextOrder = nextSubcategory.display_order;
-
-                                        try {
-                                          await Promise.all([
-                                            supabase
-                                              .from('service_subcategories')
-                                              .update({ display_order: nextOrder })
-                                              .eq('id', subcategory.id),
-                                            supabase
-                                              .from('service_subcategories')
-                                              .update({ display_order: currentOrder })
-                                              .eq('id', nextSubcategory.id)
-                                          ]);
-                                          await fetchServiceSubcategories();
-                                          toast('Ordem atualizada!', 'success');
-                                        } catch (error) {
-                                          console.error('Erro ao reordenar:', error);
-                                          toast('Erro ao reordenar serviço', 'error');
-                                        }
-                                      }}
+                                      onClick={() => moveSubcategoryOrder(categorySubcategories, index, 1)}
                                       disabled={index === categorySubcategories.length - 1}
                                       className={`p-2 rounded transition-colors ${index === categorySubcategories.length - 1
                                         ? 'text-gray-400 cursor-not-allowed'
@@ -42044,6 +42065,86 @@ Estamos te aguardando!`;
                   )}
                 </>
               )}
+            </div>
+          )}
+
+          {/* Modal: escolher produto para vender (atalho da agenda) — cai na venda avulsa normal */}
+          {showPickProductToSellModal && sellFromAgendaProfessional && (
+            <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-4">
+              <div className="w-full max-w-md bg-[#1a1b1c] border border-gray-800 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+                <div className="p-4 border-b border-gray-800 flex-shrink-0">
+                  <div className="flex items-center justify-between">
+                    <div className="text-white font-bold">Vender produto</div>
+                    <button
+                      onClick={() => {
+                        setShowPickProductToSellModal(false);
+                        setSellFromAgendaProfessional(null);
+                      }}
+                      className="text-gray-300 hover:text-white"
+                      title="Fechar"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="text-sm text-gray-400 mt-1">
+                    Profissional: <span className="text-white font-semibold">{sellFromAgendaProfessional.name}</span>
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-0.5">Escolha o produto que o cliente está levando.</div>
+                </div>
+
+                <div className="p-4 overflow-y-auto space-y-2">
+                  {(products || []).length === 0 ? (
+                    <div className="text-center py-8 text-sm text-gray-400">
+                      Nenhum produto cadastrado ainda. Cadastre em "Meus produtos".
+                    </div>
+                  ) : (
+                    (products || []).map((product) => {
+                      const stock = Number(product.stock_quantity || 0);
+                      const semEstoque = stock <= 0;
+                      const pct = Number(
+                        (product.commission_percentages || {})[sellFromAgendaProfessional.name] ?? 0
+                      );
+                      const ganho = Number.isFinite(pct) && pct > 0
+                        ? (Number(product.sale_price || 0) * pct) / 100
+                        : 0;
+                      return (
+                        <button
+                          key={product.id}
+                          type="button"
+                          disabled={semEstoque}
+                          onClick={() => {
+                            setShowPickProductToSellModal(false);
+                            handleOpenSellProductModal(product, sellFromAgendaProfessional.id);
+                          }}
+                          className={`w-full text-left rounded-xl border p-3 transition-colors ${
+                            semEstoque
+                              ? 'border-gray-800 bg-[#141516] opacity-50 cursor-not-allowed'
+                              : 'border-gray-700 bg-[#232425] hover:border-emerald-500/60'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="text-white font-semibold truncate">{product.name}</div>
+                              <div className="text-xs text-gray-400 mt-0.5">
+                                {formatCurrency(Number(product.sale_price || 0))} •{' '}
+                                {semEstoque ? 'sem estoque' : `${stock} em estoque`}
+                              </div>
+                              {ganho > 0 && (
+                                <div className="text-[11px] text-emerald-400 font-semibold mt-1">
+                                  {sellFromAgendaProfessional.name} ganha {formatCurrency(ganho)} ({pct}%)
+                                </div>
+                              )}
+                            </div>
+                            <span className="text-xs font-bold text-gray-500 flex-shrink-0">
+                              {semEstoque ? '—' : 'VENDER'}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
             </div>
           )}
 

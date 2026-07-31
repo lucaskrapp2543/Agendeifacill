@@ -322,6 +322,8 @@ interface AllProfessionalsAppointmentsViewProps {
   }) => void;
   onCancelAppointment?: (appointmentId: string) => void;
   onOpenQuickSubscriberModal?: (professionalId?: string) => void;
+  /** Venda avulsa de produto já com este profissional selecionado (mesma venda de "Meus produtos"). */
+  onOpenSellProduct?: (professionalId: string, professionalName: string) => void;
   onClientNoShow?: (appointment: Appointment) => void;
   onAppointmentDetailsOpen?: () => void;
   use15MinuteInterval?: boolean;
@@ -397,6 +399,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onOpenReserveFromSlot,
   onCancelAppointment,
   onOpenQuickSubscriberModal,
+  onOpenSellProduct,
   onClientNoShow,
   onAppointmentDetailsOpen,
   use15MinuteInterval,
@@ -7306,6 +7309,30 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               {financialLocked && <span className="text-[10px] opacity-90">desbloquear</span>}
                             </span>
                           </button>
+
+                          {onOpenSellProduct && (
+                            <button
+                              onClick={() => {
+                                if (appointmentsLocked) {
+                                  onRequestAppointmentsUnlock?.(professional.id);
+                                  return;
+                                }
+                                onOpenSellProduct(String(professional.id), String(professional.name || ''));
+                              }}
+                              className={`${actionCardButtonClass} col-span-2`}
+                              title="Vender produto avulso (sem agendamento) para este profissional"
+                              disabled={appointmentsLocked}
+                            >
+                              <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
+                                {appointmentsLocked ? (
+                                  <Lock className="w-4 h-4 md:w-3 md:h-3 mb-1 md:mb-0 text-white/90" />
+                                ) : (
+                                  <Package className="w-4 h-4 md:w-3 md:h-3 mb-1 md:mb-0 text-white/90" />
+                                )}
+                                <span>{appointmentsLocked ? 'Agenda protegida' : 'Vender produto'}</span>
+                              </span>
+                            </button>
+                          )}
                         </div>
 
                         {isExclusiveBookingLinkEnabledForProfessional(professional) && (

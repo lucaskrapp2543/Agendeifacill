@@ -16,6 +16,13 @@ import {
 import { AFCOIN_POINTS_LOCAL, AFCOIN_POINTS_ONLINE, isLocalAfcoinPaymentMethod } from '../utils/appointmentPayment';
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
 import {
+  buildCouponPayloadFields,
+  computeCouponDiscount,
+  normalizeCouponCode,
+  validateDiscountCoupon,
+  type AppliedCoupon,
+} from '../utils/discountCoupon';
+import {
   buildBusinessHoursForDate,
   buildNormalPayload,
   buildPendingPaymentPayload,
@@ -175,6 +182,11 @@ const BookingSimplePage = () => {
   const [paymentPendingNotice, setPaymentPendingNotice] = useState(false);
   const [pendingRequirement, setPendingRequirement] = useState<PaymentRequirement | null>(null);
 
+  // Cupom de desconto (mesma regra das outras telas): assinante não usa.
+  const [cupomInput, setCupomInput] = useState('');
+  const [cupomAplicado, setCupomAplicado] = useState<AppliedCoupon | null>(null);
+  const [applyingCupom, setApplyingCupom] = useState(false);
+
   // ===== Assinante (detecção pelo telefone + agendamento pelo plano) =====
   const [checkingSubscriber, setCheckingSubscriber] = useState(false);
   const [detectedSubscriber, setDetectedSubscriber] = useState<any>(null);
@@ -298,6 +310,38 @@ const BookingSimplePage = () => {
   const effectiveDuration = subscriberFlow ? subscriberDuration : totalDuration;
   const effectiveServiceName = subscriberFlow ? subscriberServiceName : combinedServiceName;
   const hasServiceSelection = subscriberFlow ? selectedSubscriberOptions.length > 0 : state.services.length > 0;
+
+  // Cupom: só cliente normal pagante. O preço com desconto alimenta resumo, pagamento e gravação.
+  const cupomElegivel = !subscriberFlow && totalPrice > 0;
+  const cupomAtivo = cupomElegivel ? cupomAplicado : null;
+  const cupomDesconto = useMemo(
+    () => computeCouponDiscount(totalPrice, cupomAtivo),
+    [totalPrice, cupomAtivo]
+  );
+  const precoFinalComDesconto = subscriberFlow ? 0 : cupomDesconto.finalPrice;
+
+  useEffect(() => {
+    if (!subscriberFlow) return;
+    setCupomAplicado(null);
+    setCupomInput('');
+  }, [subscriberFlow]);
+
+  const aplicarCupom = async () => {
+    setApplyingCupom(true);
+    try {
+      const result = await validateDiscountCoupon(String(establishment?.id || ''), cupomInput);
+      if (!result.ok) {
+        setCupomAplicado(null);
+        toast.error(result.message);
+        return;
+      }
+      setCupomAplicado(result.coupon);
+      setCupomInput(result.coupon.code);
+      toast.success(`Cupom aplicado: -${result.coupon.percent}%`);
+    } finally {
+      setApplyingCupom(false);
+    }
+  };
 
   const toggleSubscriberOption = (option: SimpleSubscriberOption) => {
     const limitInfo = subscriberLimits[option.id];
@@ -564,13 +608,14 @@ const BookingSimplePage = () => {
 
       const requirement = await resolvePaymentRequirement({
         establishment,
-        servicePrice: totalPrice,
+        // Com desconto: o cliente é cobrado exatamente o que viu no resumo.
+        servicePrice: precoFinalComDesconto,
         clientPhone: state.clientWhatsapp,
       });
 
       // Pagamento obrigatório — cria agendamento e abre PaymentModal
       if (requirement.precisaPagamento) {
-        const payload = buildPendingPaymentPayload(buildPayloadInput(userId));
+        const payload = { ...buildPendingPaymentPayload(buildPayloadInput(userId)), ...couponFieldsForPayload() };
         const { data: inserted, error: insertError } = await withTimeout(
           supabase.from('appointments').insert([payload]).select('id').single(),
           20000, 'insert (pending_payment)'
@@ -607,15 +652,19 @@ const BookingSimplePage = () => {
     professionalId: state.professional!.id,
     professionalName: state.professional!.name,
     serviceName: effectiveServiceName,
-    price: subscriberFlow ? 0 : totalPrice,
+    // Preço já com desconto do cupom: pagamento online, comissão e financeiro herdam o valor certo.
+    price: precoFinalComDesconto,
     duration: effectiveDuration,
     clientName: state.clientName.trim(),
     clientWhatsapp: state.clientWhatsapp,
   });
 
+  /** Campos de auditoria do cupom (nulos quando não há cupom). */
+  const couponFieldsForPayload = () => buildCouponPayloadFields(totalPrice, cupomAtivo);
+
   const doInsertAndSuccess = async (userId: string, paymentMethod: string) => {
     const input = buildPayloadInput(userId);
-    const payload = { ...buildNormalPayload(input), payment_method: paymentMethod };
+    const payload = { ...buildNormalPayload(input), ...couponFieldsForPayload(), payment_method: paymentMethod };
     const { data: inserted, error: insertError } = await withTimeout(
       supabase.from('appointments').insert([payload]).select('id').single(),
       20000, 'insert (normal)'
@@ -663,7 +712,7 @@ const BookingSimplePage = () => {
     try {
       const { userId, error } = await ensureGuestSession(state.clientName.trim(), state.clientWhatsapp);
       if (error || !userId) { toast.error('Sessão expirada. Tente novamente.'); return; }
-      const payload = buildPendingPaymentPayload(buildPayloadInput(userId));
+      const payload = { ...buildPendingPaymentPayload(buildPayloadInput(userId)), ...couponFieldsForPayload() };
       const { data: inserted, error: insertError } = await withTimeout(
         supabase.from('appointments').insert([payload]).select('id').single(),
         20000, 'insert (pending_payment optional)'
@@ -1318,13 +1367,65 @@ const BookingSimplePage = () => {
                         <span>{formatPrice(sv.price)}</span>
                       </div>
                     ))}
+                    {cupomAtivo && (
+                      <div className="flex items-center justify-between text-base text-emerald-400">
+                        <span>Cupom {cupomAtivo.code} (-{cupomAtivo.percent}%)</span>
+                        <span>- {formatPrice(cupomDesconto.discountAmount)}</span>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between pt-1.5 border-t border-gray-700">
                       <span className="text-gray-400">Total ({totalDuration} min)</span>
-                      <strong style={{ color: GOLD }}>{formatPrice(totalPrice)}</strong>
+                      {cupomAtivo ? (
+                        <span>
+                          <span className="line-through text-gray-500 mr-2">{formatPrice(totalPrice)}</span>
+                          <strong className="text-emerald-400">{formatPrice(precoFinalComDesconto)}</strong>
+                        </span>
+                      ) : (
+                        <strong style={{ color: GOLD }}>{formatPrice(totalPrice)}</strong>
+                      )}
                     </div>
                   </>
                 )}
               </div>
+
+              {/* Cupom de desconto — botões grandes, no padrão simples desta página */}
+              {cupomElegivel && (
+                <div className="border-t border-gray-700 pt-3">
+                  <p className="text-base text-gray-400 mb-2">Tem cupom de desconto?</p>
+                  <div className="flex gap-2">
+                    <input
+                      value={cupomInput}
+                      onChange={(e) => setCupomInput(normalizeCouponCode(e.target.value))}
+                      placeholder="Digite o cupom"
+                      disabled={applyingCupom || Boolean(cupomAtivo)}
+                      className="flex-1 min-w-0 px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white text-base placeholder-gray-500 focus:outline-none focus:border-gray-500 disabled:opacity-60"
+                    />
+                    {cupomAtivo ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCupomAplicado(null);
+                          setCupomInput('');
+                          toast.success('Cupom removido');
+                        }}
+                        className="px-4 py-3 rounded-xl bg-gray-700 text-white text-base font-bold shrink-0"
+                      >
+                        Remover
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={aplicarCupom}
+                        disabled={applyingCupom || !cupomInput.trim()}
+                        className="px-4 py-3 rounded-xl text-black text-base font-extrabold shrink-0 disabled:opacity-50"
+                        style={{ backgroundColor: GOLD }}
+                      >
+                        {applyingCupom ? '...' : 'Aplicar'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <p className="border-t border-gray-700 pt-3">
                 <span className="text-gray-400">Data:</span> <strong>{state.selectedDate.split('-').reverse().join('/')}</strong>
@@ -1340,8 +1441,8 @@ const BookingSimplePage = () => {
         )}
 
         {step === 'payment_mode' && pendingRequirement && (() => {
-          const is50 = establishment?.advance_payment_percentage === 50 && pendingRequirement.valorAgendamento < totalPrice;
-          const restante = totalPrice - pendingRequirement.valorAgendamento;
+          const is50 = establishment?.advance_payment_percentage === 50 && pendingRequirement.valorAgendamento < precoFinalComDesconto;
+          const restante = precoFinalComDesconto - pendingRequirement.valorAgendamento;
           const afcoinsOn = isClientAfcoinsEnabledForEstablishment(establishment);
           return (
             <div className="flex-1 flex flex-col gap-5">
