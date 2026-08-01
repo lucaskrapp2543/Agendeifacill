@@ -137,6 +137,87 @@ export const handler: Handler = async (event) => {
     const isCard = Boolean(tokenRaw && pmIdRaw);
     const shouldCreateRecurringSubscription = isCard && body?.create_recurring_subscription === true;
 
+    // -------------------------------------------------------------------------
+    // 🏆 META MENSAL — crédito de desconto. SOMENTE no caminho PIX.
+    //
+    // Por que só PIX: o cartão recorrente grava o valor em `auto_recurring.
+    // transaction_amount`, que vira o valor PERMANENTE da assinatura no Mercado
+    // Pago. Não existe PUT /preapproval neste projeto, então um desconto ali
+    // seria irreversível. O caminho do cartão fica intocado de propósito.
+    //
+    // O percentual vem SEMPRE do banco (consume_monthly_goal_credit é exclusiva
+    // do service_role). O navegador apenas pede "quero usar" — nunca informa
+    // quanto. Assim ninguém forja desconto pelo console.
+    //
+    // Consumimos ANTES de criar a cobrança: se o Mercado Pago falhar, o crédito
+    // fica marcado sem cobrança vinculada e volta a ficar disponível sozinho
+    // (ver a consulta em 20260730130000_..._history.sql). O caminho inverso
+    // seria pior — cobrança com desconto sem o crédito ter sido gasto.
+    // -------------------------------------------------------------------------
+    const wantsGoalCredit = body?.use_monthly_goal_credit === true;
+    const amountCentsBeforeCredit = amountCents;
+    let goalCreditApplied = false;
+    let goalCreditPercent = 0;
+    let goalCreditGoalId = '';
+    let goalCreditDiscountCents = 0;
+
+    const revertGoalCredit = async (reason: string) => {
+      if (!goalCreditGoalId) return;
+      try {
+        await supabaseAdmin
+          .from('establishment_monthly_goals')
+          .update({ status: 'closed', applied_at: null, applied_charge_id: null } as any)
+          .eq('id', goalCreditGoalId);
+      } catch (revertError: any) {
+        console.warn(`⚠️ [MP Establishment Billing] Falha ao devolver crédito (${reason}):`, revertError?.message);
+      }
+    };
+
+    if (wantsGoalCredit && !isCard) {
+      try {
+        const { data: creditData, error: creditError } = await supabaseAdmin.rpc('consume_monthly_goal_credit', {
+          p_establishment_id: establishmentId,
+          p_billing_payment_id: null,
+        });
+
+        if (creditError) {
+          // Migration da Meta Mensal ainda não aplicada: segue com valor cheio.
+          console.warn('⚠️ [MP Establishment Billing] Crédito Meta Mensal indisponível:', creditError?.message);
+        } else if ((creditData as any)?.applied === true) {
+          const pct = Math.min(100, Math.max(0, Math.floor(Number((creditData as any)?.percent) || 0)));
+          if (pct > 0) {
+            goalCreditApplied = true;
+            goalCreditPercent = pct;
+            goalCreditGoalId = String((creditData as any)?.goal_id || '');
+            goalCreditDiscountCents = Math.min(
+              amountCents,
+              Math.max(0, Math.round((amountCents * pct) / 100))
+            );
+            amountCents = amountCents - goalCreditDiscountCents;
+          }
+        }
+      } catch (creditError: any) {
+        // Nunca derruba a cobrança por causa do desconto: sem crédito, valor cheio.
+        console.warn('⚠️ [MP Establishment Billing] Falha ao consumir crédito Meta Mensal:', creditError?.message);
+      }
+    }
+
+    // 100% de desconto: o Mercado Pago rejeita cobrança de R$ 0,00.
+    // Decisão do produto: avisar e o admin marca como pago manualmente.
+    // O crédito é DEVOLVIDO — nada foi cobrado, então nada foi gasto.
+    if (goalCreditApplied && amountCents <= 0) {
+      await revertGoalCredit('mensalidade gratuita');
+      return json(200, {
+        ok: false,
+        monthly_goal_free_month: true,
+        monthly_goal_percent: goalCreditPercent,
+        amount_cents_before_credit: amountCentsBeforeCredit,
+        error: 'Mensalidade gratuita pela Meta Mensal',
+        userMessage:
+          'Parabéns! Você bateu a Meta Mensal e sua mensalidade deste mês é GRATUITA. Não é preciso pagar nada — chame o suporte no WhatsApp para liberar.',
+      });
+    }
+
     if (isCard && shouldCreateRecurringSubscription) {
       const payer = body?.payer || {};
       const idType = String(payer?.identification?.type || 'CPF').toUpperCase();
@@ -327,7 +408,20 @@ export const handler: Handler = async (event) => {
           description,
           qr_code: isCard ? null : String(pixData?.qr_code || '') || null,
           qr_code_base64: isCard ? null : String(pixData?.qr_code_base64 || '') || null,
-          metadata: { ...metadata, ...(isCard ? { payment_method: 'credit_card' } : { payment_method: 'pix' }) },
+          metadata: {
+            ...metadata,
+            ...(isCard ? { payment_method: 'credit_card' } : { payment_method: 'pix' }),
+            // Auditoria do desconto: fica registrado quanto era e quanto virou.
+            ...(goalCreditApplied
+              ? {
+                monthly_goal_credit_applied: true,
+                monthly_goal_percent: goalCreditPercent,
+                monthly_goal_discount_cents: goalCreditDiscountCents,
+                monthly_goal_amount_before_cents: amountCentsBeforeCredit,
+                monthly_goal_id: goalCreditGoalId || null,
+              }
+              : {}),
+          },
           paid_at: normalized === 'paid' ? new Date().toISOString() : null,
           updated_at: new Date().toISOString(),
         } as any,
@@ -337,6 +431,32 @@ export const handler: Handler = async (event) => {
     if (saveError) {
       console.error('❌ [MP Establishment Billing] Erro ao salvar cobranca:', saveError);
       return json(500, { error: 'Erro ao salvar cobranca', details: saveError.message });
+    }
+
+    // Vincula o crédito à cobrança gerada. É o que permite devolver o crédito
+    // caso este PIX nunca seja pago (o barbeiro não perde o desconto por ter
+    // fechado o app antes de pagar).
+    //
+    // Feito em consulta SEPARADA de propósito: a cobrança já foi criada no
+    // Mercado Pago e salva. Se qualquer coisa falhar daqui para baixo, o PIX
+    // continua válido — o vínculo é conveniência, não pré-requisito.
+    if (goalCreditApplied && goalCreditGoalId) {
+      try {
+        const { data: savedPayment } = await supabaseAdmin
+          .from('establishment_billing_payments')
+          .select('id')
+          .eq('payment_id', paymentId)
+          .maybeSingle();
+
+        if ((savedPayment as any)?.id) {
+          await supabaseAdmin
+            .from('establishment_monthly_goals')
+            .update({ applied_charge_id: (savedPayment as any).id } as any)
+            .eq('id', goalCreditGoalId);
+        }
+      } catch (linkError: any) {
+        console.warn('⚠️ [MP Establishment Billing] Crédito consumido mas não vinculado à cobrança:', linkError?.message);
+      }
     }
 
     let recurrenceCreated = false;
@@ -423,6 +543,10 @@ export const handler: Handler = async (event) => {
       amount_brl_used: amountCents / 100,
       recurrence_created: recurrenceCreated,
       preapproval_id: preapprovalId || null,
+      monthly_goal_credit_applied: goalCreditApplied,
+      monthly_goal_percent: goalCreditPercent,
+      monthly_goal_discount_cents: goalCreditDiscountCents,
+      amount_cents_before_credit: amountCentsBeforeCredit,
     });
   } catch (error: any) {
     console.error('❌ [MP Establishment Billing] Erro:', error);

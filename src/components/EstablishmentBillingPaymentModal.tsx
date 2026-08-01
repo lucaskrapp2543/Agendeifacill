@@ -1,7 +1,15 @@
-import { Copy, CreditCard, Loader2, QrCode, X } from 'lucide-react';
+import { Copy, CreditCard, Loader2, QrCode, Trophy, X } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { CardPaymentBrick } from './CardPaymentBrick';
+import { fetchEstablishmentMonthlyGoal, fetchMonthlyGoalCredit, type MonthlyGoalCredit } from '../lib/monthlyGoal';
+import {
+  MONTHLY_GOAL_MILESTONES,
+  computeGoalDiscount,
+  formatCentsBRL,
+  formatReferenceMonthLabel,
+  type MonthlyGoalView,
+} from '../utils/monthlyGoal';
 
 type BillingMethod = 'pix' | 'credit_card' | null;
 
@@ -27,6 +35,14 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
 }) => {
   const [selectedMethod, setSelectedMethod] = useState<BillingMethod>('credit_card');
   const [billingAmount, setBillingAmount] = useState<number>(0);
+  // 🏆 Meta Mensal — painel motivacional (somente leitura, não altera valor nem cobrança)
+  const [goalView, setGoalView] = useState<MonthlyGoalView | null>(null);
+  const [isLoadingGoal, setIsLoadingGoal] = useState(false);
+  const [showGoalPanel, setShowGoalPanel] = useState(false);
+  // 🏆 Crédito de desconto de um mês já fechado. Vale UMA vez e SÓ no PIX —
+  // o cartão recorrente não pode ter o valor alterado (ver a função Netlify).
+  const [goalCredit, setGoalCredit] = useState<MonthlyGoalCredit | null>(null);
+  const [useGoalCredit, setUseGoalCredit] = useState(false);
   const [isLoadingAmount, setIsLoadingAmount] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCreatingSubscription, setIsCreatingSubscription] = useState(false);
@@ -71,6 +87,9 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
     setStatusMessage('');
     setConfigError('');
     setBillingAmount(0);
+    setShowGoalPanel(false);
+    setGoalCredit(null);
+    setUseGoalCredit(false);
   }, [isOpen]);
 
   useEffect(() => {
@@ -107,8 +126,32 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
       }
     };
 
+    // 🏆 Meta Mensal: progresso do mês atual, para mostrar ao barbeiro quanto ele
+    // economizaria se puxasse mais pagamentos online. Somente leitura.
+    const loadMonthlyGoal = async () => {
+      setIsLoadingGoal(true);
+      try {
+        const r = await fetchEstablishmentMonthlyGoal(establishmentId);
+        setGoalView(r.ok ? r.view : null);
+      } finally {
+        setIsLoadingGoal(false);
+      }
+    };
+
+    // 🏆 Crédito de mês fechado. Só habilita o botão — quem aplica o desconto
+    // de fato é o servidor, que busca o percentual direto no banco.
+    const loadGoalCredit = async () => {
+      try {
+        setGoalCredit(await fetchMonthlyGoalCredit(establishmentId));
+      } catch {
+        setGoalCredit(null);
+      }
+    };
+
     void loadAuthEmail();
     void loadAmount();
+    void loadMonthlyGoal();
+    void loadGoalCredit();
   }, [isOpen, establishmentId]);
 
   useEffect(() => {
@@ -184,6 +227,9 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
           payer: {
             email: `billing_${String(establishmentId).slice(0, 8)}@agendeifacil.com`,
           },
+          // Apenas sinaliza a intenção. O percentual é resolvido no servidor,
+          // direto no banco — nada de valor vindo do navegador.
+          ...(useGoalCredit && goalCredit?.available ? { use_monthly_goal_credit: true } : {}),
         }),
       });
 
@@ -192,6 +238,13 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
         const message = String(payload?.userMessage || payload?.error || `Erro ${response.status}`);
         setConfigError(message);
         throw new Error(message);
+      }
+
+      // 🏆 100% de desconto: o Mercado Pago não aceita cobrança de R$ 0,00.
+      // O crédito NÃO foi gasto — o suporte libera manualmente.
+      if ((payload as any)?.monthly_goal_free_month === true) {
+        setStatusMessage(String((payload as any)?.userMessage || 'Sua mensalidade deste mês é gratuita. Chame o suporte.'));
+        return;
       }
 
       const trx = (payload as any)?.point_of_interaction?.transaction_data || {};
@@ -208,7 +261,18 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
       if (Number.isFinite(amountUsed) && amountUsed > 0) {
         setBillingAmount(amountUsed);
       }
-      setStatusMessage('PIX gerado! Após o pagamento, o sistema regulariza automaticamente.');
+      if ((payload as any)?.monthly_goal_credit_applied === true) {
+        const pct = Number((payload as any)?.monthly_goal_percent || 0);
+        const saved = Number((payload as any)?.monthly_goal_discount_cents || 0);
+        // O crédito foi consumido — some o botão para não sugerir usar de novo.
+        setGoalCredit(null);
+        setUseGoalCredit(false);
+        setStatusMessage(
+          `🏆 Desconto de ${pct}% aplicado! Você economizou ${formatCentsBRL(saved)}. Após o pagamento, o sistema regulariza automaticamente.`
+        );
+      } else {
+        setStatusMessage('PIX gerado! Após o pagamento, o sistema regulariza automaticamente.');
+      }
     } catch (error: any) {
       console.error('Erro ao gerar PIX de regularização:', error);
       setStatusMessage(String(error?.message || 'Erro ao gerar PIX.'));
@@ -363,6 +427,17 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
     }
   };
 
+  // 🏆 Prévia do desconto do crédito. É só para EXIBIR — o valor real é
+  // recalculado no servidor a partir do percentual gravado no banco.
+  const billingCents = Math.round(Math.max(0, billingAmount) * 100);
+  const creditPreview =
+    goalCredit?.available && billingCents > 0
+      ? computeGoalDiscount(billingCents, goalCredit.percent)
+      : null;
+  // Só vale no PIX: se o barbeiro voltar para cartão, o desconto some da tela
+  // — assim o valor exibido nunca promete o que a cobrança não vai fazer.
+  const isCreditActive = Boolean(useGoalCredit && creditPreview && selectedMethod === 'pix');
+
   if (!isOpen) return null;
 
   return (
@@ -393,15 +468,138 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
             </p>
             <p className="text-sm text-gray-300 mt-1">
               Valor cobrança MP:{' '}
-              <span className="text-emerald-300 font-bold">
-                {billingAmount > 0 ? formatBRL(billingAmount) : isLoadingAmount ? '…' : 'Definido no Admin'}
-              </span>
+              {isCreditActive && creditPreview ? (
+                <>
+                  <span className="text-gray-500 line-through mr-1.5">{formatBRL(billingAmount)}</span>
+                  <span className="text-emerald-300 font-bold">{formatCentsBRL(creditPreview.finalCents)}</span>
+                </>
+              ) : (
+                <span className="text-emerald-300 font-bold">
+                  {billingAmount > 0 ? formatBRL(billingAmount) : isLoadingAmount ? '…' : 'Definido no Admin'}
+                </span>
+              )}
             </p>
+
+            {/* 🏆 Crédito conquistado num mês já fechado. Vale UMA vez e SÓ no PIX:
+                a assinatura no cartão tem valor fixo no Mercado Pago e não pode
+                ser alterada. Por isso clicar já troca o método para PIX. */}
+            {creditPreview && !pixCode && (
+              isCreditActive ? (
+                <div className="mt-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-2.5">
+                  <p className="text-sm font-bold text-emerald-300">
+                    ✅ Desconto de {goalCredit?.percent}% aplicado — você economiza{' '}
+                    {formatCentsBRL(creditPreview.discountCents)}
+                  </p>
+                  <p className="text-[11px] text-emerald-100/80 mt-0.5">
+                    Conquistado em {formatReferenceMonthLabel(goalCredit?.referenceMonth || '')} · vale uma única vez.
+                    O desconto só é gasto quando o PIX for pago.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setUseGoalCredit(false)}
+                    className="mt-1.5 text-[11px] text-gray-400 underline hover:text-gray-200"
+                  >
+                    Remover desconto
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUseGoalCredit(true);
+                    setSelectedMethod('pix');
+                  }}
+                  className="mt-2 w-full rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 px-3 py-2.5 text-sm font-extrabold text-black hover:from-emerald-400 hover:to-green-400 transition-colors"
+                >
+                  🏆 Usar meu desconto de {goalCredit?.percent}% — pagar{' '}
+                  {formatCentsBRL(creditPreview.finalCents)}
+                </button>
+              )
+            )}
+
             <p className="text-xs text-gray-400 mt-2 leading-relaxed">
               Pagamento da <span className="text-gray-200 font-semibold">mensalidade do Agendei Fácil</span> pelo seu
               estabelecimento.
             </p>
           </div>
+
+          {/* 🏆 META MENSAL — botão sempre visível. Sem desconto disponível, ele
+              mostra quanto o barbeiro DEIXOU de economizar e o que falta. Somente
+              leitura: não altera valor, não cria nem modifica cobrança. */}
+          {!isLoadingGoal && goalView && (
+            <div className="rounded-lg border border-amber-500/40 bg-gradient-to-r from-amber-500/15 to-yellow-500/10 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowGoalPanel((v) => !v)}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-amber-500/10 transition-colors"
+              >
+                <Trophy className="h-5 w-5 text-amber-300 flex-shrink-0" />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-extrabold text-amber-200">
+                    {goalView.percent > 0 ? `Você tem ${goalView.percent}% de desconto` : 'Quer pagar menos no mês que vem?'}
+                  </span>
+                  <span className="block text-[11px] text-amber-100/80">
+                    {goalView.validPayments} pagamento{goalView.validPayments === 1 ? '' : 's'} online neste mês · toque para ver
+                  </span>
+                </span>
+                <span className="text-amber-300 text-lg flex-shrink-0">{showGoalPanel ? '▲' : '▼'}</span>
+              </button>
+
+              {showGoalPanel && (
+                <div className="px-3 pb-3 pt-1 space-y-2 border-t border-amber-500/25">
+                  {goalView.percent > 0 ? (
+                    <p className="text-sm text-amber-100 leading-relaxed">
+                      Você já garantiu <strong className="text-white">{goalView.percent}% de desconto</strong> com{' '}
+                      {goalView.validPayments} pagamentos online neste mês. Ao fechar o mês, esse desconto fica
+                      disponível para você usar numa próxima mensalidade.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-amber-100 leading-relaxed">
+                      Neste mês você teve <strong className="text-white">{goalView.validPayments} pagamento
+                      {goalView.validPayments === 1 ? '' : 's'} online</strong>. Ainda não deu para desbloquear
+                      desconto — mas dá tempo de virar o jogo.
+                    </p>
+                  )}
+
+                  {goalView.nextMilestone && billingAmount > 0 && (
+                    <div className="rounded-lg bg-black/30 border border-amber-500/25 p-2.5">
+                      <p className="text-sm text-white font-bold">
+                        Faltam {goalView.nextMilestone.missing} pagamento
+                        {goalView.nextMilestone.missing === 1 ? '' : 's'} para {goalView.nextMilestone.percent}% de desconto
+                      </p>
+                      <p className="text-[12px] text-amber-100/90 mt-0.5">
+                        Sua mensalidade cairia de {formatBRL(billingAmount)} para{' '}
+                        <strong className="text-emerald-300">
+                          {formatCentsBRL(
+                            computeGoalDiscount(Math.round(billingAmount * 100), goalView.nextMilestone.percent).finalCents
+                          )}
+                        </strong>
+                        {' '}— economia de{' '}
+                        {formatCentsBRL(
+                          computeGoalDiscount(Math.round(billingAmount * 100), goalView.nextMilestone.percent).discountCents
+                        )}.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="text-[11px] text-amber-100/75 leading-relaxed">
+                    <p className="font-bold text-amber-200 mb-0.5">Como funciona:</p>
+                    {MONTHLY_GOAL_MILESTONES.map((m) => (
+                      <span key={m.percent} className="inline-block mr-3">
+                        {goalView.validPayments >= m.payments ? '✅' : '•'} {m.payments} = {m.percent}%
+                        {m.percent === 100 ? ' (grátis)' : ''}
+                      </span>
+                    ))}
+                  </div>
+
+                  <p className="text-[11px] text-amber-100/75 leading-relaxed">
+                    💡 Peça para seus clientes pagarem <strong className="text-white">online</strong> na hora de agendar.
+                    Cada pagamento conta, e a contagem zera todo dia 1º.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <button

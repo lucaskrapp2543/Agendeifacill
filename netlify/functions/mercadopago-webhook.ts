@@ -6,6 +6,7 @@ import { confirmPendingAppointmentFromMpPaymentMetadata } from '../../src/lib/me
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { checkMPPaymentStatus } from '../../src/lib/mercadopago/mp-service';
 import { createPartnerReferralAfterConversion, ensurePartnerReferralLinkForConvertedCheckout } from '../../src/lib/partnerReferralCheckout';
+import { getValidMercadoPagoAccessToken } from './mercadopago-create-payment';
 import { json, parseJsonBody } from './_utils';
 
 // Supabase Admin (bypass RLS)
@@ -520,6 +521,129 @@ export const handler: Handler = async (event) => {
       }
 
       console.log('💳 [MP Webhook] Processando pagamento:', paymentId);
+
+      // -----------------------------------------------------------------------
+      // 💳 COBRANÇA PIX DE BALCÃO (botão "Cobrar cliente")
+      //
+      // Fica ANTES de qualquer busca em `appointments` e RETORNA sempre que
+      // encontra. É esse return que garante que uma cobrança de balcão nunca
+      // alcance o código abaixo, que grava `status: 'confirmed'` no agendamento.
+      // Um atendimento já concluído continuaria concluído — nada de voltar
+      // para "confirmado" por causa de um pagamento.
+      //
+      // Não há como cruzar com o fluxo antigo: o payment_id de uma cobrança de
+      // balcão nunca é gravado em appointments.payment_transaction_id.
+      //
+      // Se a tabela ainda não existir, o bloco inteiro é ignorado em silêncio e
+      // o webhook segue exatamente como era antes.
+      // -----------------------------------------------------------------------
+      try {
+        const { data: localChargeRows, error: localChargeError } = await supabaseAdmin
+          .from('appointment_local_charges')
+          .select('id, establishment_id, appointment_id, amount_cents, payment_id, status, external_reference')
+          .eq('payment_id', String(paymentId))
+          .limit(1);
+
+        if (localChargeError) {
+          const msg = String((localChargeError as any)?.message || '').toLowerCase();
+          const missingTable =
+            msg.includes('appointment_local_charges') ||
+            msg.includes('does not exist') ||
+            msg.includes('schema cache') ||
+            msg.includes('relation');
+          if (!missingTable) {
+            console.error('❌ [MP Webhook] Erro ao buscar cobrança de balcão:', localChargeError);
+          }
+        } else if (Array.isArray(localChargeRows) && localChargeRows.length > 0) {
+          const localCharge = localChargeRows[0] as any;
+          const localEstablishmentId = String(localCharge?.establishment_id || '').trim();
+
+          console.log('🏪 [MP Webhook] Pagamento pertence a uma cobrança de balcão:', {
+            chargeId: localCharge?.id,
+            appointmentId: localCharge?.appointment_id,
+          });
+
+          // Já processada: nada a fazer. Webhook do Mercado Pago repete.
+          if (String(localCharge?.status || '') === 'paid') {
+            return json(200, {
+              message: 'Cobrança de balcão já estava paga',
+              chargeId: localCharge?.id,
+            });
+          }
+
+          let localPayment: any = null;
+          try {
+            const localToken = await getValidMercadoPagoAccessToken(localEstablishmentId);
+            localPayment = await checkMPPaymentStatus(Number(paymentId), String(localToken));
+          } catch (tokenError: any) {
+            console.warn('⚠️ [MP Webhook] Falha ao consultar cobrança de balcão no Mercado Pago:', tokenError?.message);
+            return json(200, { message: 'Cobrança de balcão recebida, mas status não pôde ser consultado' });
+          }
+
+          const rawStatus = String(localPayment?.status || '').toLowerCase().trim();
+          const localStatus =
+            rawStatus === 'approved' || rawStatus === 'authorized'
+              ? 'paid'
+              : rawStatus === 'cancelled'
+                ? 'cancelled'
+                : rawStatus === 'refunded'
+                  ? 'refunded'
+                  : rawStatus === 'rejected'
+                    ? 'failed'
+                    : 'pending';
+
+          const nowIso = new Date().toISOString();
+          const { error: chargeUpdateError } = await supabaseAdmin
+            .from('appointment_local_charges')
+            .update({
+              status: localStatus,
+              paid_at: localStatus === 'paid' ? nowIso : null,
+              updated_at: nowIso,
+            } as any)
+            .eq('id', localCharge.id);
+
+          if (chargeUpdateError) {
+            console.error('❌ [MP Webhook] Erro ao atualizar cobrança de balcão:', chargeUpdateError);
+          }
+
+          // A taxa da plataforma entra no mesmo ledger dos pagamentos do booking,
+          // como source_type='appointment'. Por isso conta na Meta Mensal sem
+          // precisar de nenhuma regra nova. O source_key usa o payment_id, que é
+          // único, então rodar o webhook duas vezes não duplica a comissão.
+          if (localStatus === 'paid') {
+            await recordAdminMpCommission(supabaseAdmin, {
+              establishmentId: localEstablishmentId,
+              sourceType: 'appointment',
+              sourceId: String(localCharge?.appointment_id || ''),
+              paymentId: String(paymentId),
+              externalReference: String(localCharge?.external_reference || '') || null,
+              paymentMethod: 'pix',
+              grossAmountCents: Number(localCharge?.amount_cents) || null,
+              paidAt: String(localPayment?.date_approved || localPayment?.date_created || '') || null,
+              metadata: {
+                origin: 'mercadopago_webhook_appointment_local_charge',
+                appointment_local_charge_id: localCharge?.id || null,
+              },
+            });
+          }
+
+          console.log('✅ [MP Webhook] Cobrança de balcão processada:', {
+            chargeId: localCharge?.id,
+            status: localStatus,
+          });
+
+          // RETURN obrigatório: daqui para baixo mexe em `appointments`.
+          return json(200, {
+            message: 'Cobrança de balcão processada',
+            chargeId: localCharge?.id,
+            status: localStatus,
+          });
+        }
+      } catch (localChargeUnexpected: any) {
+        // Nunca derrubar o webhook por causa deste bloco: se algo der errado
+        // aqui, o fluxo antigo continua rodando normalmente logo abaixo.
+        console.warn('⚠️ [MP Webhook] Falha inesperada no bloco de cobrança de balcão:', localChargeUnexpected?.message);
+      }
 
       // Buscar agendamento pelo payment_transaction_id (fluxo legado de agendamentos)
       const { data: appointments, error: fetchError } = await supabaseAdmin

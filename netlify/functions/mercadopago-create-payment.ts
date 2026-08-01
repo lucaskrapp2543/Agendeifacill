@@ -14,7 +14,10 @@ const supabaseAdmin =
     })
     : null;
 
-async function getValidMercadoPagoAccessToken(establishmentId: string): Promise<string> {
+// Exportada para ser reusada pela cobrança PIX de balcão
+// (mercadopago-create-appointment-local-charge.ts). Duplicar a lógica de
+// refresh do token em dois lugares seria pedir para elas divergirem.
+export async function getValidMercadoPagoAccessToken(establishmentId: string): Promise<string> {
   if (!supabaseAdmin) throw new Error('Supabase admin não configurado');
 
   const { data: establishment, error } = await supabaseAdmin

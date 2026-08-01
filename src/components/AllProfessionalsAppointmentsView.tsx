@@ -301,6 +301,13 @@ interface AllProfessionalsAppointmentsViewProps {
   onGenerateNF?: (appointment: Appointment) => void;
   onOpenReminderModal?: (appointment: Appointment) => void;
   onSendThankYou?: (appointment: Appointment) => void;
+  /**
+   * 💳 Cobrança PIX de balcão. Opcionais de propósito: sem eles o botão
+   * simplesmente não aparece e esta tela continua como sempre foi.
+   */
+  canChargeAppointmentLocally?: (appointment: any) => boolean;
+  localChargesByAppointment?: Record<string, { status?: string }>;
+  onChargeClient?: (appointment: any) => void;
   onOpenFinishEarlyModal?: (appointment: Appointment) => void;
   onGoToProfessionalConfig?: (professionalId: string) => void;
   onOpenBlockHoursModal?: (professionalId: string) => void;
@@ -390,6 +397,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
   onGenerateNF,
   onOpenReminderModal,
   onSendThankYou,
+  canChargeAppointmentLocally,
+  localChargesByAppointment,
+  onChargeClient,
   onOpenFinishEarlyModal,
   onGoToProfessionalConfig,
   onOpenBlockHoursModal,
@@ -7808,6 +7818,29 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         )}
                                       </div>
                                     </div>
+
+                                    {/* 💳 COBRAR CLIENTE — PIX de balcão, só para atendimento
+                                        SEM pagamento online. Não altera o agendamento. */}
+                                    {!isExpanded && apt.status !== 'cancelled' && canChargeAppointmentLocally?.(apt) && (
+                                      <div className="mt-2 pt-2 md:mt-1 md:pt-1 border-t border-white/20">
+                                        {localChargesByAppointment?.[apt.id]?.status === 'paid' ? (
+                                          <div className="w-full px-2 py-1.5 md:py-1 text-[11px] font-bold rounded bg-emerald-600 text-white text-center leading-tight">
+                                            ✅ Pago no local via PIX
+                                          </div>
+                                        ) : (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onChargeClient?.(apt);
+                                            }}
+                                            className="w-full px-2 py-1.5 md:py-1 text-[11px] font-extrabold rounded transition-colors bg-emerald-500 text-black hover:bg-emerald-400 leading-tight"
+                                            title="Gerar um PIX na hora para o cliente pagar"
+                                          >
+                                            💳 COBRAR CLIENTE
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
 
                                     {/* Botão Enviar Lembrete - Aparece quando NÃO expandido */}
                                     {!isExpanded && apt.status !== 'cancelled' && (

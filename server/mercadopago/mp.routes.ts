@@ -2379,4 +2379,40 @@ router.post('/webhook', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * 💳 COBRAR CLIENTE — rota de DESENVOLVIMENTO.
+ *
+ * Em produção quem atende é a função Netlify. Aqui a rota apenas ADAPTA a
+ * requisição do Express e chama a MESMA função — sem reimplementar nada.
+ * Assim dev e produção não têm como divergir (o resto deste arquivo duplica a
+ * lógica das functions, e é justamente por isso que elas costumam divergir).
+ */
+router.post('/create-appointment-local-charge', async (req: Request, res: Response) => {
+  try {
+    const { handler: localChargeHandler } = await import(
+      '../../netlify/functions/mercadopago-create-appointment-local-charge'
+    );
+
+    const result: any = await (localChargeHandler as any)(
+      {
+        httpMethod: 'POST',
+        headers: req.headers || {},
+        body: JSON.stringify(req.body || {}),
+      },
+      {} as any,
+      undefined as any
+    );
+
+    res.status(Number(result?.statusCode || 500));
+    res.type('application/json');
+    return res.send(String(result?.body || '{}'));
+  } catch (error: any) {
+    console.error('❌ [MP Local Charge - dev] Erro:', error);
+    return res.status(500).json({
+      error: String(error?.message || 'Erro ao gerar cobranca PIX'),
+      userMessage: 'Nao foi possivel gerar a cobranca agora. Tente novamente.',
+    });
+  }
+});
+
 export default router;

@@ -22,6 +22,7 @@ import {
   Rocket,
   Settings,
   Trash2,
+  Trophy,
   UserCheck,
   Users,
   X,
@@ -65,6 +66,10 @@ interface SidebarProps {
   onSignOut: () => void;
   unreadNotifications?: number;
   onNotificationsClick?: () => void;
+  /** 🏆 Meta Mensal — abre modal informativo (somente leitura, não altera cobrança). */
+  onMonthlyGoalClick?: () => void;
+  /** Percentual já conquistado no mês. null = ainda carregando ou indisponível. */
+  monthlyGoalPercent?: number | null;
   isNotificationsUnlocked?: boolean;
   isDashboardUnlocked?: boolean;
   isSettingsUnlocked?: boolean;
@@ -93,6 +98,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onSignOut,
   unreadNotifications = 0,
   onNotificationsClick,
+  onMonthlyGoalClick,
+  monthlyGoalPercent = null,
   isNotificationsUnlocked = true,
   isDashboardUnlocked = false,
   isSettingsUnlocked = false,
@@ -392,6 +399,16 @@ const Sidebar: React.FC<SidebarProps> = ({
       isActive: activeTab === 'top10-clientes',
     },
     {
+      // 🏆 Meta Mensal — abre modal informativo (não é aba, igual "notifications")
+      id: 'monthly-goal',
+      label: 'Meta Mensal',
+      icon: Trophy,
+      featured: true,
+      featuredTone: 'emerald',
+      onClick: () => handleItemClick(onMonthlyGoalClick || (() => { })),
+      isActive: false,
+    },
+    {
       id: 'appointments',
       label: 'Meus Agendamentos',
       icon: Calendar,
@@ -681,7 +698,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   const isCollaboratorView = professionalAccessMode === 'collaborator';
   const canAccessAdminMenu = !isCollaboratorView || isSecretaryModeActive;
   const mainSidebarItemOrder = new Map(
-    ['notifications', 'top10-clientes', 'appointments', 'client-page', 'admin-menu', 'support', 'passo-a-passo', 'logout'].map((id, index) => [id, index])
+    // 🏆 Meta Mensal fica no menu PRINCIPAL, logo abaixo do Top 5: precisa estar
+    // visível para o barbeiro se motivar a vender — escondida ele nem descobre.
+    ['notifications', 'top10-clientes', 'monthly-goal', 'appointments', 'client-page', 'admin-menu', 'support', 'passo-a-passo', 'logout'].map((id, index) => [id, index])
   );
   const sidebarMenuItems = menuItems
     .filter((item) => !adminMenuItemIds.has(item.id) && mainSidebarItemOrder.has(item.id))
@@ -1041,6 +1060,20 @@ const Sidebar: React.FC<SidebarProps> = ({
         onClick: () => executeMobileAction('top10-clientes', () => onTabChange('top10-clientes')),
         className: mobileActionCardClass,
       },
+      // 🏆 Meta Mensal — dourado para chamar atenção; mostra o % no próprio card.
+      // Oculto para colaborador (é benefício financeiro do dono), igual ao desktop.
+      ...(isCollaboratorView
+        ? []
+        : [{
+          id: 'monthly-goal',
+          label: monthlyGoalPercent === null ? 'Meta Mensal' : `Meta ${monthlyGoalPercent}%`,
+          labelLines: monthlyGoalPercent === null
+            ? ['Meta', 'Mensal']
+            : ['Meta Mensal', `${monthlyGoalPercent}% conquistado`],
+          icon: Trophy,
+          onClick: () => executeMobileAction('monthly-goal', onMonthlyGoalClick || (() => { })),
+          className: 'bg-gradient-to-br from-amber-400 to-yellow-500 text-black',
+        }]),
       {
         id: 'appointments',
         label: 'Meus Agendamentos',
@@ -1882,6 +1915,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           {sidebarMenuItems.map((item, index) => {
             const Icon = item.icon;
             const isIndicationItem = item.id === 'indication';
+            const isMonthlyGoalItem = item.id === 'monthly-goal';
             const isWhatsappPremiumItem = item.id === 'whatsapp-reminders';
             const isSubscribersItem = item.id === 'subscribers';
             const isAppointmentsItem = item.id === 'appointments';
@@ -1902,7 +1936,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                     // queremos permitir o clique para mostrar a mensagem de "siga o passo a passo".
                     // Só desabilitamos itens realmente "Em breve" (sem ação).
                     disabled={item.id === 'hours'}
-                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${isIndicationItem
+                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${isMonthlyGoalItem
+                      ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-black hover:from-amber-500 hover:to-yellow-500 shadow-lg border border-amber-200 ring-1 ring-amber-300/50'
+                      : isIndicationItem
                       ? item.isActive
                         ? 'bg-white text-black shadow-md'
                         : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-md'
@@ -1953,7 +1989,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <div className="relative">
                       <Icon
-                        className={`h-5 w-5 flex-shrink-0 ${isIndicationItem
+                        className={`h-5 w-5 flex-shrink-0 ${isMonthlyGoalItem
+                          ? 'text-black'
+                          : isIndicationItem
                           ? item.isActive
                             ? 'text-black'
                             : 'text-white'
@@ -1997,7 +2035,31 @@ const Sidebar: React.FC<SidebarProps> = ({
                       )}
                     </div>
 
-                    {isExpanded && (
+                    {isExpanded && isMonthlyGoalItem && (
+                      <>
+                        {/* 🏆 Meta Mensal: mostra o progresso SEM precisar abrir —
+                            é o que motiva o barbeiro a vender mais. */}
+                        <span className="flex flex-col items-start leading-tight min-w-0">
+                          <span className="text-sm font-extrabold text-black whitespace-nowrap">
+                            {item.label}
+                          </span>
+                          <span className="text-[11px] font-bold text-black/70 whitespace-nowrap">
+                            {monthlyGoalPercent === null
+                              ? 'ganhe desconto na mensalidade'
+                              : monthlyGoalPercent >= 100
+                                ? '🎉 mensalidade grátis!'
+                                : `${monthlyGoalPercent}% conquistado · faltam ${100 - monthlyGoalPercent}%`}
+                          </span>
+                        </span>
+                        {monthlyGoalPercent !== null && (
+                          <span className="ml-auto flex-shrink-0 text-sm font-black text-black bg-white/50 rounded-lg px-2 py-1">
+                            {monthlyGoalPercent}%
+                          </span>
+                        )}
+                      </>
+                    )}
+
+                    {isExpanded && !isMonthlyGoalItem && (
                       <>
                         <span
                           className={`text-sm font-medium whitespace-nowrap ${isIndicationItem

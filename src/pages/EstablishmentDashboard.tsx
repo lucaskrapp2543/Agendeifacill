@@ -19,6 +19,14 @@ import { EstablishmentPixSettings } from '../components/EstablishmentPixSettings
 import { ExpensesManager } from '../components/ExpensesManager';
 import { FinancialDashboard } from '../components/FinancialDashboard';
 import { GoalModalSimple } from '../components/GoalModalSimple';
+import { MonthlyGoalModal } from '../components/MonthlyGoalModal';
+import { AppointmentLocalChargeModal } from '../components/AppointmentLocalChargeModal';
+import { fetchEstablishmentMonthlyGoal } from '../lib/monthlyGoal';
+import {
+  appointmentHasOnlinePayment,
+  fetchAppointmentLocalCharges,
+  type AppointmentLocalCharge,
+} from '../lib/appointmentLocalCharge';
 import { GoalProgressBar } from '../components/GoalProgressBar';
 import { NotificationPermission } from '../components/NotificationPermission';
 import { NotificationsPanel } from '../components/NotificationsPanel';
@@ -5865,6 +5873,28 @@ const EstablishmentDashboard = () => {
   const [showDashboardPinModal, setShowDashboardPinModal] = useState(false);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
   const [isNotificationsPanelOpen, setIsNotificationsPanelOpen] = useState(false);
+  // 🏆 Meta Mensal (somente leitura — não cria nem altera cobrança)
+  const [showMonthlyGoalModal, setShowMonthlyGoalModal] = useState(false);
+  // null = ainda carregando ou função indisponível (menu mostra chamada genérica)
+  const [monthlyGoalPercent, setMonthlyGoalPercent] = useState<number | null>(null);
+
+  // 💳 Cobrança PIX de balcão. Não altera agendamento — vive em tabela própria.
+  const [localChargesByAppointment, setLocalChargesByAppointment] = useState<Record<string, AppointmentLocalCharge>>({});
+  const [localChargeAppointment, setLocalChargeAppointment] = useState<any | null>(null);
+
+  /**
+   * Só afirmamos "não tem Mercado Pago" quando o dado realmente veio no objeto.
+   * Se o select não trouxer nem `has_mercadopago` nem o token, o utilitário
+   * devolveria false por ausência — e um barbeiro JÁ CONECTADO levaria um
+   * "conecte seu Mercado Pago" na cara. Na dúvida, assume conectado.
+   */
+  const hasMercadoPagoConnected = useMemo(() => {
+    const est = establishment as any;
+    if (!est) return true;
+    const knows = 'has_mercadopago' in est || 'mercadopago_access_token' in est;
+    if (!knows) return true;
+    return establishmentHasMercadoPago(est);
+  }, [establishment]);
 
   useEffect(() => {
     if (!isCollaboratorRestrictedView) return;
@@ -15399,6 +15429,20 @@ Estamos te aguardando!`;
     fetchProducts(); // Carregar produtos automaticamente
   }, [establishment?.id]);
 
+  // 🏆 Meta Mensal: carrega o percentual para exibir direto no menu (só leitura).
+  // Se a função ainda não existir no banco, fica null e o menu mostra a chamada
+  // genérica — nada quebra.
+  useEffect(() => {
+    const estId = String(establishment?.id || '').trim();
+    if (!estId) return;
+    let cancelled = false;
+    void fetchEstablishmentMonthlyGoal(estId).then((result) => {
+      if (cancelled) return;
+      setMonthlyGoalPercent(result.ok ? result.view.percent : null);
+    });
+    return () => { cancelled = true; };
+  }, [establishment?.id]);
+
   useEffect(() => {
     if (!establishment?.id) return;
     const dateKey = format(selectedDate, 'yyyy-MM-dd');
@@ -16904,6 +16948,37 @@ Estamos te aguardando!`;
     const isPaymentMethodMatch = selectedPaymentMethod === 'todos' || (appointment.payment_method || 'pendente') === selectedPaymentMethod;
     return isProfessionalMatch && isPaymentMethodMatch;
   });
+
+  // 💳 Cobrança PIX de balcão — carrega em LOTE as cobranças dos agendamentos
+  // visíveis (evita uma consulta por card). Sem Mercado Pago conectado nem
+  // consulta, porque o botão nem aparece.
+  const localChargeIdsKey = filteredAppointments.map((a: any) => String(a?.id || '')).join(',');
+
+  useEffect(() => {
+    if (!hasMercadoPagoConnected) { setLocalChargesByAppointment({}); return; }
+    const ids = localChargeIdsKey.split(',').filter(Boolean);
+    if (ids.length === 0) { setLocalChargesByAppointment({}); return; }
+    let cancelled = false;
+    void fetchAppointmentLocalCharges(ids).then((map) => {
+      if (!cancelled) setLocalChargesByAppointment(map);
+    });
+    return () => { cancelled = true; };
+  }, [localChargeIdsKey, hasMercadoPagoConnected]);
+
+  /**
+   * O botão "Cobrar cliente" só existe para atendimento SEM pagamento online.
+   * Onde já houve pagamento (100% ou 50%), ele não nasce — assim não há como
+   * cobrar o mesmo atendimento por dois caminhos.
+   */
+  const canChargeAppointmentLocally = (appointment: any): boolean => {
+    if (!hasMercadoPagoConnected) return false;
+    if (!appointment?.id) return false;
+    if (String(appointment?.status || '').toLowerCase() === 'cancelled') return false;
+    if (isSubscriberAppointment(appointment)) return false;
+    if (appointmentHasOnlinePayment(appointment)) return false;
+    const price = Number(appointment?.total_price ?? appointment?.price ?? 0);
+    return Number.isFinite(price) && price > 0;
+  };
 
   // Gerar slots com lacunas de horário
   const showTimeSlotsWithGaps = selectedProfessional !== '' && selectedProfessional !== 'all';
@@ -28392,6 +28467,8 @@ Estamos te aguardando!`;
           onSignOut={signOut}
           unreadNotifications={unreadNotificationsCount}
           onNotificationsClick={() => setIsNotificationsPanelOpen((v) => !v)}
+          onMonthlyGoalClick={() => setShowMonthlyGoalModal(true)}
+          monthlyGoalPercent={monthlyGoalPercent}
           isDashboardUnlocked={isDashboardUnlocked || isUniqueOwnerAccessSession}
           isSettingsUnlocked={isSettingsUnlocked || isUniqueOwnerAccessSession}
           onDashboardPinModal={() => {
@@ -28895,6 +28972,9 @@ Estamos te aguardando!`;
                       onGenerateNF={handleGenerateNF as any}
                       onOpenReminderModal={handleOpenReminderModal as any}
                       onSendThankYou={handleSendThankYou as any}
+                      canChargeAppointmentLocally={canChargeAppointmentLocally}
+                      localChargesByAppointment={localChargesByAppointment}
+                      onChargeClient={(apt: any) => setLocalChargeAppointment(apt)}
                       onOpenFinishEarlyModal={handleOpenFinishEarlyModal as any}
                       onGoToProfessionalConfig={handleGoToProfessionalConfig}
                       onOpenBlockHoursModal={handleOpenBlockTimeModal}
@@ -29527,6 +29607,27 @@ Estamos te aguardando!`;
                                       </span>
                                     </div>
                                   </div>
+
+                                  {/* 💳 COBRAR CLIENTE — PIX de balcão. Só aparece em atendimento
+                                      SEM pagamento online. Não altera o agendamento: quem conclui
+                                      continua sendo o barbeiro. */}
+                                  {!appointmentDropdowns[appointment.id] && canChargeAppointmentLocally(appointment) && (
+                                    <div className="mb-1.5">
+                                      {localChargesByAppointment[appointment.id]?.status === 'paid' ? (
+                                        <div className="w-full px-2 py-1.5 text-[11px] font-bold rounded bg-emerald-600 text-white text-center leading-tight">
+                                          ✅ Pago no local via PIX
+                                        </div>
+                                      ) : (
+                                        <button
+                                          onClick={() => setLocalChargeAppointment(appointment)}
+                                          className="w-full px-2 py-1.5 text-[11px] font-extrabold rounded transition-colors bg-emerald-500 text-black hover:bg-emerald-400 leading-tight"
+                                          title="Gerar um PIX na hora para o cliente pagar"
+                                        >
+                                          💳 COBRAR CLIENTE
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
 
                                   {/* Botões de lembrete/agradecimento e "clique para ver" */}
                                   {!appointmentDropdowns[appointment.id] && (
@@ -38667,6 +38768,36 @@ Estamos te aguardando!`;
               </div>
             </div>
           )}
+
+          {/* 🏆 Modal da Meta Mensal do ESTABELECIMENTO (não confundir com a meta
+              do profissional logo abaixo). Somente leitura: não altera cobrança. */}
+          <MonthlyGoalModal
+            isOpen={showMonthlyGoalModal}
+            onClose={() => setShowMonthlyGoalModal(false)}
+            establishmentId={String(establishment?.id || '')}
+            hasMercadoPago={hasMercadoPagoConnected}
+            onConnectMercadoPago={() => {
+              setActiveTab('receber-adiantado');
+              setSidebarCloseSignal((value) => value + 1);
+              window.dispatchEvent(new CustomEvent('agendei:close-sidebar'));
+            }}
+          />
+
+          {/* 💳 Modal do PIX de balcão. Não conclui nem altera o agendamento —
+              só registra que o cliente pagou por fora do booking. */}
+          <AppointmentLocalChargeModal
+            isOpen={Boolean(localChargeAppointment)}
+            onClose={() => setLocalChargeAppointment(null)}
+            appointmentId={String(localChargeAppointment?.id || '')}
+            clientName={String(localChargeAppointment?.client_name || '')}
+            onPaid={() => {
+              const paidId = String(localChargeAppointment?.id || '');
+              if (!paidId) return;
+              void fetchAppointmentLocalCharges([paidId]).then((map) => {
+                setLocalChargesByAppointment((prev) => ({ ...prev, ...map }));
+              });
+            }}
+          />
 
           {/* Modal de Meta do Profissional - SISTEMA SIMPLES */}
           {showGoalModal && selectedProfessionalForGoal && (

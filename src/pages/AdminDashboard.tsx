@@ -36,6 +36,20 @@ import { SiteClientsPanel } from '../components/SiteClientsPanel';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { fireMercadoPagoPendingReconcile } from '../utils/fireMercadoPagoPendingReconcile';
+import {
+  MONTHLY_GOAL_TARGET,
+  MONTHLY_GOAL_MILESTONES,
+  buildMonthlyGoalView,
+  formatCentsBRL,
+  formatReferenceMonthLabel,
+  getMonthlyGoalStatusLabel,
+  type MonthlyGoalStatus,
+} from '../utils/monthlyGoal';
+import {
+  fetchMonthlyGoalCredit,
+  fetchMonthlyGoalHistory,
+  type MonthlyGoalHistoryItem,
+} from '../lib/monthlyGoal';
 
 interface Establishment {
   id: string;
@@ -167,6 +181,16 @@ interface AdminMpCommissionTopRow {
   creditCount: number;
   appointmentCount: number;
   subscriptionCount: number;
+}
+
+/** 🏆 Meta Mensal — pagamentos válidos do mês por estabelecimento (origem: admin_mp_commissions). */
+interface MonthlyGoalCounts {
+  totalCount: number;
+  pixCount: number;
+  creditCount: number;
+  appointmentCount: number;
+  subscriptionCount: number;
+  totalCents: number;
 }
 
 interface AdminGeneralAppointmentsSummary {
@@ -717,6 +741,15 @@ const AdminDashboard = () => {
   const [adminMpCommissionTodayCount, setAdminMpCommissionTodayCount] = useState(0);
   const [adminMpDailyBreakdown, setAdminMpDailyBreakdown] = useState<Array<{ date: string; cents: number; count: number }>>([]);
   const [showAdminMpDailyBreakdown, setShowAdminMpDailyBreakdown] = useState(false);
+  // 🏆 Meta Mensal — contagem por estabelecimento, derivada do MESMO ledger que
+  // alimenta o card oficial "Meus R$1" (sem query nova, sem contagem paralela).
+  const [monthlyGoalByEstablishment, setMonthlyGoalByEstablishment] = useState<
+    Record<string, MonthlyGoalCounts>
+  >({});
+  const [monthlyGoalModalEstablishment, setMonthlyGoalModalEstablishment] = useState<any | null>(null);
+  const [globalBillingAmount, setGlobalBillingAmount] = useState<number>(0);
+  const [monthlyGoalHistory, setMonthlyGoalHistory] = useState<MonthlyGoalHistoryItem[]>([]);
+  const [isLoadingMonthlyGoalHistory, setIsLoadingMonthlyGoalHistory] = useState(false);
   const DELETED_CONTAINMENT_STORAGE_KEY = `admin_deleted_containment_ids_v2_${String(user?.id || 'global')}`;
   const DELETED_CONTAINMENT_STORAGE_KEY_LEGACY = 'admin_deleted_containment_ids_v1';
 
@@ -1909,7 +1942,7 @@ const AdminDashboard = () => {
     try {
       const { data, error } = await supabase
         .from('admin_billing_links')
-        .select('id, ouro_link, prata_link, diamante_link')
+        .select('id, ouro_link, prata_link, diamante_link, mercadopago_billing_amount')
         .eq('id', 'global')
         .maybeSingle();
 
@@ -1917,6 +1950,9 @@ const AdminDashboard = () => {
       setOuroLink(String((data as any)?.ouro_link || ''));
       setPrataLink(String((data as any)?.prata_link || ''));
       setDiamanteLink(String((data as any)?.diamante_link || ''));
+      // Fallback global da mensalidade — mesma resolução usada ao criar cobrança
+      // (netlify/functions/mercadopago-create-establishment-billing-subscription.ts)
+      setGlobalBillingAmount(Number((data as any)?.mercadopago_billing_amount || 0) || 0);
     } catch (e) {
       console.error('Erro ao carregar links do admin:', e);
     } finally {
@@ -2761,6 +2797,66 @@ const AdminDashboard = () => {
   const isSameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
+  /**
+   * 🏆 Meta Mensal de um estabelecimento (somente leitura, nada é gravado).
+   *
+   * Valor base = `mercadopago_billing_amount` do estabelecimento, com fallback no
+   * valor global de `admin_billing_links` — exatamente a mesma resolução que o
+   * backend usa ao criar uma cobrança. Nunca hardcoded.
+   *
+   * Receita por pagamento vem do próprio ledger (média real das comissões do mês),
+   * em vez de assumir R$1 fixo no frontend.
+   */
+  const getMonthlyGoalForEstablishment = (establishment: any) => {
+    const estId = String(establishment?.id || '');
+    const counts = monthlyGoalByEstablishment[estId];
+    const validPayments = counts?.totalCount || 0;
+
+    const estAmount = Number(establishment?.mercadopago_billing_amount || 0) || 0;
+    const resolvedAmount = estAmount > 0 ? estAmount : globalBillingAmount;
+    const planAmountCents = Math.round(resolvedAmount * 100);
+
+    const revenuePerPaymentCents =
+      validPayments > 0 && counts ? Math.round(counts.totalCents / validPayments) : 0;
+
+    // A contagem vem do MESMO mês que o card oficial está exibindo (o admin pode
+    // navegar entre meses) — o rótulo precisa acompanhar, senão mente no mês passado.
+    const view = buildMonthlyGoalView({
+      validPayments,
+      planAmountCents,
+      revenuePerPaymentCents,
+      referenceMonth: format(lucroPixMonth, 'yyyy-MM-01'),
+    });
+
+    return {
+      ...view,
+      counts,
+      hasPlanAmount: planAmountCents > 0,
+      usingGlobalFallback: estAmount <= 0 && globalBillingAmount > 0,
+    };
+  };
+
+  /**
+   * Histórico de meses fechados do estabelecimento.
+   * A consulta do crédito vem antes de propósito: além de ler, ela CONGELA o
+   * mês anterior automaticamente no banco (idempotente). Sem isso, abrir este
+   * popup mostraria histórico vazio até o próprio barbeiro entrar no app.
+   */
+  const loadMonthlyGoalHistory = async (establishmentId: string) => {
+    setIsLoadingMonthlyGoalHistory(true);
+    try {
+      try {
+        await fetchMonthlyGoalCredit(establishmentId);
+      } catch {
+        /* congelamento é oportunista — nunca impede ver o histórico */
+      }
+      const r = await fetchMonthlyGoalHistory(establishmentId, 12);
+      setMonthlyGoalHistory(r.items);
+    } finally {
+      setIsLoadingMonthlyGoalHistory(false);
+    }
+  };
+
   const getMonthRange = (date: Date) => {
     const start = new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
     const end = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
@@ -2805,6 +2901,7 @@ const AdminDashboard = () => {
       setAdminMpCommissionUsingFallback(false);
       setAdminMpCommissionTodayCents(0);
       setAdminMpCommissionTodayCount(0);
+      setMonthlyGoalByEstablishment({});
       return;
     }
     setIsLoadingLucroPixMes(true);
@@ -2914,6 +3011,21 @@ const AdminDashboard = () => {
             .sort((a, b) => b.totalCents - a.totalCents || b.totalCount - a.totalCount)
             .slice(0, 8)
         );
+
+        // 🏆 Meta Mensal: reaproveita o MESMO agregado por estabelecimento (topMap),
+        // antes do slice(0,8) — todos os estabelecimentos, sem query extra.
+        const goalCounts: Record<string, MonthlyGoalCounts> = {};
+        topMap.forEach((row, estId) => {
+          goalCounts[estId] = {
+            totalCount: row.totalCount,
+            pixCount: row.pixCount,
+            creditCount: row.creditCount,
+            appointmentCount: row.appointmentCount,
+            subscriptionCount: row.subscriptionCount,
+            totalCents: row.totalCents,
+          };
+        });
+        setMonthlyGoalByEstablishment(goalCounts);
         setAdminMpDailyBreakdown(
           Array.from(dailyMap.entries())
             .map(([date, v]) => ({ date, cents: v.cents, count: v.count }))
@@ -2935,6 +3047,9 @@ const AdminDashboard = () => {
       setAdminMpCommissionTodayCents(0);
       setAdminMpCommissionTodayCount(0);
       setAdminMpDailyBreakdown([]);
+      // Meta Mensal só vale com o ledger oficial. No fallback legado (que usa outra
+      // regra de taxa) a meta fica vazia em vez de mostrar número divergente.
+      setMonthlyGoalByEstablishment({});
 
       let countPixAppts = 0;
       let countCreditoAppts = 0;
@@ -6050,6 +6165,43 @@ const AdminDashboard = () => {
                               Enviar cobrança
                             </button>
                           </div>
+
+                          {/* 🏆 META MENSAL — somente leitura. Não cria nem altera cobrança. */}
+                          {(() => {
+                            const goal = getMonthlyGoalForEstablishment(establishment);
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMonthlyGoalModalEstablishment(establishment);
+                                  setMonthlyGoalHistory([]);
+                                  void loadMonthlyGoalHistory(String(establishment.id));
+                                }}
+                                className="mt-2 w-full max-w-md flex items-center gap-2 px-2 py-1.5 rounded border border-amber-300 bg-amber-50 hover:bg-amber-100 transition-colors text-left"
+                                title="Ver detalhes da Meta Mensal (somente leitura)"
+                              >
+                                <span className="inline-flex items-center px-2 py-1 text-[11px] font-bold rounded bg-amber-500 text-white shrink-0">
+                                  🏆 {goal.percent}%
+                                </span>
+                                <span className="flex-1 min-w-0">
+                                  <span className="block h-1.5 w-full rounded-full bg-amber-200 overflow-hidden">
+                                    <span
+                                      className={`block h-1.5 rounded-full ${goal.barColor}`}
+                                      style={{ width: `${goal.percent}%` }}
+                                    />
+                                  </span>
+                                  <span className="mt-1 flex items-center justify-between gap-2 text-[11px] text-amber-900">
+                                    <span className="font-semibold">{goal.progressLabel} pagamentos</span>
+                                    {goal.hasPlanAmount ? (
+                                      <span>Próx.: <strong>{formatCentsBRL(goal.finalCents)}</strong></span>
+                                    ) : (
+                                      <span className="text-amber-700">valor não configurado</span>
+                                    )}
+                                  </span>
+                                </span>
+                              </button>
+                            );
+                          })()}
                         </td>
 
                         <td className="px-2 py-4">
@@ -6747,6 +6899,174 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               )}
+
+              {/* Modal - 🏆 Meta Mensal (somente leitura — nenhuma cobrança é tocada) */}
+              {monthlyGoalModalEstablishment && (() => {
+                const est = monthlyGoalModalEstablishment;
+                const goal = getMonthlyGoalForEstablishment(est);
+                const counts = goal.counts;
+                return (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                    {/* text-gray-900 na raiz: o painel admin herda texto BRANCO, e sem
+                        isso qualquer elemento sem cor explícita fica invisível no fundo branco. */}
+                    <div className="bg-white text-gray-900 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+                      <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0">
+                        <div>
+                          <div className="text-sm font-bold text-gray-900">🏆 Meta Mensal</div>
+                          <div className="text-xs text-gray-600">
+                            {est.name} • Código {est.code} • {goal.referenceMonthLabel}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setMonthlyGoalModalEstablishment(null)}
+                          className="p-2 rounded hover:bg-gray-100"
+                          title="Fechar"
+                        >
+                          <X className="h-5 w-5 text-gray-600" />
+                        </button>
+                      </div>
+
+                      <div className="p-4 overflow-y-auto space-y-4">
+                        {/* Progresso */}
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                          <div className="flex items-end justify-between mb-2">
+                            <div>
+                              <div className="text-3xl font-black text-amber-900">{goal.percent}%</div>
+                              <div className="text-xs text-amber-800">
+                                {goal.validPayments} de {MONTHLY_GOAL_TARGET} pagamentos válidos
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-[11px] text-amber-800">Status</div>
+                              <div className="text-sm font-bold text-amber-900">{goal.statusLabel}</div>
+                            </div>
+                          </div>
+                          <div className="h-3 w-full rounded-full bg-amber-200 overflow-hidden">
+                            <div className={`h-3 rounded-full ${goal.barColor}`} style={{ width: `${goal.percent}%` }} />
+                          </div>
+                          <div className="mt-2 flex flex-wrap justify-between gap-2 text-[11px] text-amber-800">
+                            {MONTHLY_GOAL_MILESTONES.map((m) => (
+                              <span key={m.percent} className={goal.validPayments >= m.payments ? 'font-bold text-emerald-700' : ''}>
+                                {goal.validPayments >= m.payments ? '✅' : m.emoji} {m.percent}% ({m.payments})
+                              </span>
+                            ))}
+                          </div>
+                          {goal.remaining > 0 && (
+                            <div className="mt-2 text-xs text-amber-900">
+                              Faltam <strong>{goal.remaining}</strong> pagamentos para 100%.
+                              {goal.nextMilestone && (
+                                <> Próximo marco: <strong>{goal.nextMilestone.percent}%</strong> (faltam {goal.nextMilestone.missing}).</>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Valores */}
+                        <div className="rounded-lg border border-gray-200 p-4">
+                          <div className="text-xs font-bold text-gray-500 uppercase mb-2">Mensalidade</div>
+                          {goal.hasPlanAmount ? (
+                            <table className="w-full text-sm">
+                              <tbody>
+                                <tr><td className="py-1 text-gray-600">Valor original</td><td className="py-1 text-right font-semibold text-gray-900">{formatCentsBRL(goal.planCents)}</td></tr>
+                                <tr><td className="py-1 text-gray-600">Desconto estimado</td><td className="py-1 text-right font-semibold text-emerald-700">- {formatCentsBRL(goal.discountCents)}</td></tr>
+                                <tr className="border-t"><td className="py-1 font-bold text-gray-900">Próxima mensalidade estimada</td><td className="py-1 text-right font-black text-emerald-700">{formatCentsBRL(goal.finalCents)}</td></tr>
+                              </tbody>
+                            </table>
+                          ) : (
+                            <div className="text-sm text-amber-700">
+                              Valor da mensalidade não configurado para este estabelecimento (nem no fallback global). Preencha "COBRANÇA MP" para ver a estimativa.
+                            </div>
+                          )}
+                          {goal.usingGlobalFallback && (
+                            <div className="mt-2 text-[11px] text-gray-500">Usando valor global (estabelecimento sem valor próprio).</div>
+                          )}
+                          <div className="mt-3 rounded bg-blue-50 border border-blue-200 p-2 text-[11px] text-blue-800">
+                            ℹ️ Valor <strong>estimado</strong>: o percentual ainda pode subir até o fim do mês. Nenhuma cobrança foi criada ou alterada por esta tela.
+                          </div>
+                        </div>
+
+                        {/* Composição da contagem */}
+                        <div className="rounded-lg border border-gray-200 p-4">
+                          <div className="text-xs font-bold text-gray-500 uppercase mb-2">Composição dos pagamentos</div>
+                          <table className="w-full text-sm">
+                            <tbody>
+                              <tr><td className="py-1 text-gray-600">PIX</td><td className="py-1 text-right font-semibold text-gray-900">{counts?.pixCount || 0}</td></tr>
+                              <tr><td className="py-1 text-gray-600">Cartão</td><td className="py-1 text-right font-semibold text-gray-900">{counts?.creditCount || 0}</td></tr>
+                              <tr><td className="py-1 text-gray-600">De agendamentos</td><td className="py-1 text-right font-semibold text-gray-900">{counts?.appointmentCount || 0}</td></tr>
+                              <tr><td className="py-1 text-gray-600">De assinaturas</td><td className="py-1 text-right font-semibold text-gray-900">{counts?.subscriptionCount || 0}</td></tr>
+                              <tr className="border-t"><td className="py-1 font-bold text-gray-900">Total válido</td><td className="py-1 text-right font-black text-gray-900">{goal.validPayments}</td></tr>
+                            </tbody>
+                          </table>
+                          <div className="mt-2 text-[11px] text-gray-500">
+                            Origem: <code>admin_mp_commissions</code> (mesma fonte do card "Meus R$1") • status pago • {goal.referenceMonthLabel}
+                          </div>
+                          <div className="mt-1 text-[11px] text-gray-500">
+                            Não entram: pagamentos pendentes, cancelados, estornados, Pagar.me, venda de produtos e a mensalidade do próprio estabelecimento.
+                          </div>
+                        </div>
+
+                        {/* Receita gerada */}
+                        <div className="rounded-lg border border-gray-200 p-4">
+                          <div className="text-xs font-bold text-gray-500 uppercase mb-2">Receita gerada no mês</div>
+                          <table className="w-full text-sm">
+                            <tbody>
+                              <tr><td className="py-1 text-gray-600">Pagamentos online ({goal.validPayments})</td><td className="py-1 text-right font-semibold text-gray-900">{formatCentsBRL(goal.revenue.paymentsRevenueCents)}</td></tr>
+                              <tr><td className="py-1 text-gray-600">Mensalidade após desconto</td><td className="py-1 text-right font-semibold text-gray-900">{formatCentsBRL(goal.revenue.monthlyRevenueCents)}</td></tr>
+                              <tr className="border-t"><td className="py-1 font-bold text-gray-900">Receita total estimada</td><td className="py-1 text-right font-black text-gray-900">{formatCentsBRL(goal.revenue.totalRevenueCents)}</td></tr>
+                            </tbody>
+                          </table>
+                          <div className="mt-2 text-[11px] text-gray-500">
+                            É <strong>receita</strong>, não lucro — não desconta impostos, custos de infraestrutura nem estornos.
+                          </div>
+                        </div>
+
+                        {/* Histórico de meses fechados */}
+                        <div className="rounded-lg border border-gray-200 p-4">
+                          <div className="text-xs font-bold text-gray-500 uppercase mb-2">Histórico</div>
+
+                          {isLoadingMonthlyGoalHistory ? (
+                            <div className="text-sm text-gray-500 py-2">Carregando histórico...</div>
+                          ) : monthlyGoalHistory.length === 0 ? (
+                            <div className="text-sm text-gray-500 py-2">
+                              Nenhum mês fechado ainda. O histórico aparece depois do primeiro fechamento.
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              {monthlyGoalHistory.map((h) => (
+                                <div key={h.referenceMonth} className="flex items-center justify-between gap-2 text-sm border-b border-gray-100 py-1.5 last:border-0">
+                                  <div className="min-w-0">
+                                    <div className="font-semibold text-gray-900">{formatReferenceMonthLabel(h.referenceMonth)}</div>
+                                    <div className="text-[11px] text-gray-500">
+                                      {h.validPayments}/{h.goalTarget} • {h.percent}% • {getMonthlyGoalStatusLabel(h.status as MonthlyGoalStatus)}
+                                    </div>
+                                    {h.notes && <div className="text-[11px] text-amber-700 mt-0.5">{h.notes}</div>}
+                                  </div>
+                                  <div className="text-right flex-shrink-0">
+                                    <div className="text-[11px] text-gray-500 line-through">{formatCentsBRL(h.planAmountCents)}</div>
+                                    <div className="font-bold text-emerald-700">{formatCentsBRL(h.finalAmountCents)}</div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div className="mt-2 text-[11px] text-gray-500">
+                            O mês anterior é congelado automaticamente na virada — ninguém precisa fechar nada à mão.
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="px-4 py-3 border-t flex-shrink-0">
+                        <button
+                          onClick={() => setMonthlyGoalModalEstablishment(null)}
+                          className="w-full px-4 py-2 rounded bg-gray-900 text-white text-sm font-bold hover:bg-black"
+                        >
+                          Fechar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Modal - Histórico de Pagamentos */}
               {showPayoutHistoryModal && payoutHistoryEstablishment && (
