@@ -14,6 +14,30 @@ const supabaseAdmin =
     })
     : null;
 
+// Grava a "saúde" da conexão MP do estabelecimento (colunas mercadopago_health*),
+// para o painel parar de mostrar "conectado" quando a conta caiu no Mercado Pago.
+// Best-effort DE VERDADE: nunca lança e nunca toca em token — se as colunas ainda
+// não existirem no banco ou o update falhar, o fluxo de pagamento segue como sempre.
+export async function markMercadoPagoHealthBestEffort(
+  establishmentId: string,
+  health: 'ok' | 'reconnect_required',
+  errorMessage?: string | null,
+): Promise<void> {
+  try {
+    if (!supabaseAdmin) return;
+    await supabaseAdmin
+      .from('establishments')
+      .update({
+        mercadopago_health: health,
+        mercadopago_health_error: errorMessage ? String(errorMessage).slice(0, 500) : null,
+        mercadopago_health_at: new Date().toISOString(),
+      } as any)
+      .eq('id', establishmentId);
+  } catch {
+    // silencioso de propósito: saúde é diagnóstico, jamais pode derrubar pagamento
+  }
+}
+
 // Exportada para ser reusada pela cobrança PIX de balcão
 // (mercadopago-create-appointment-local-charge.ts). Duplicar a lógica de
 // refresh do token em dois lugares seria pedir para elas divergirem.
@@ -49,11 +73,31 @@ export async function getValidMercadoPagoAccessToken(establishmentId: string): P
   }
 
   if (!refreshToken) {
+    // Sem refresh_token não há renovação possível: estado permanente até reconectar.
+    await markMercadoPagoHealthBestEffort(
+      establishmentId,
+      'reconnect_required',
+      'Token expirado e sem refresh_token salvo. Necessário reconectar o Mercado Pago.'
+    );
     throw new Error('Mercado Pago expirado e sem refresh_token. Reconecte o Mercado Pago.');
   }
 
   // Refresh do token
-  const refreshed = await refreshAccessToken(refreshToken);
+  let refreshed;
+  try {
+    refreshed = await refreshAccessToken(refreshToken);
+  } catch (refreshError: any) {
+    // Só marca "precisa reconectar" em erro PERMANENTE do OAuth (invalid_grant).
+    // Erro de rede/instabilidade do MP passa reto — não pode virar alarme falso.
+    if (refreshError?.mpReconnectRequired === true) {
+      await markMercadoPagoHealthBestEffort(
+        establishmentId,
+        'reconnect_required',
+        String(refreshError?.message || 'invalid_grant')
+      );
+    }
+    throw refreshError;
+  }
   const newAccessToken = String(refreshed.access_token || '').trim();
   const newRefreshToken = String(refreshed.refresh_token || refreshToken).trim();
   const expiresIn = Number(refreshed.expires_in || 21600);
@@ -71,6 +115,11 @@ export async function getValidMercadoPagoAccessToken(establishmentId: string): P
       mercadopago_token_expires_at: newExpiresAt,
     } as any)
     .eq('id', establishmentId);
+
+  // Renovou com sucesso = conexão saudável (limpa alerta antigo, se houver).
+  // Update separado de propósito: se as colunas de saúde ainda não existirem,
+  // o salvamento dos tokens acima NÃO pode ser afetado.
+  await markMercadoPagoHealthBestEffort(establishmentId, 'ok', null);
 
   console.log('✅ [MP Create Payment] access_token renovado automaticamente', { establishmentId });
   return newAccessToken;

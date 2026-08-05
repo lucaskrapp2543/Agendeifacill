@@ -39,7 +39,7 @@ import { RescheduleAppointmentModal } from '../components/RescheduleAppointmentM
 import ReservarCliente from '../components/ReservarCliente';
 import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
-import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
+import { establishmentHasMercadoPago, establishmentMercadoPagoNeedsReconnect } from '../utils/establishmentPaymentFlags';
 import { PartnerReferralPanel } from '../components/PartnerReferralPanel';
 import { fetchPartnerReferralCodeForEstablishment } from '../lib/partnerReferral';
 import { RecebaNaHoraPageLayout } from '../components/RecebaNaHoraPageLayout';
@@ -3272,6 +3272,9 @@ const EstablishmentDashboard = () => {
   }) => {
     const isRecebaNaHora = variant === 'receba-na-hora';
     const isMpConnected = establishmentHasMercadoPago(establishment as any);
+    // Conta MP caiu (servidor marcou reconnect_required): tem token salvo, mas o
+    // Mercado Pago recusou a renovação — pagamentos online estão falhando.
+    const mpNeedsReconnect = establishmentMercadoPagoNeedsReconnect(establishment as any);
 
     return (
     <div
@@ -3466,9 +3469,15 @@ const EstablishmentDashboard = () => {
         {isRecebaNaHora && isMpConnected && (
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-1">
-              <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-green-500/15 text-green-200 border border-green-500/30">
-                ✅ Mercado Pago conectado
-              </span>
+              {mpNeedsReconnect ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-red-500/20 text-red-200 border border-red-500/50 animate-pulse">
+                  🚨 Mercado Pago caiu — reconecte
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-green-500/15 text-green-200 border border-green-500/30">
+                  ✅ Mercado Pago conectado
+                </span>
+              )}
             </div>
             <h3 className="text-lg font-extrabold text-white mb-1">Configurações de pagamento</h3>
           </div>
@@ -3626,16 +3635,30 @@ const EstablishmentDashboard = () => {
 
         {isMpConnected && (
           <div className="mt-4 space-y-4">
-            <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-              <p className="text-sm text-green-200 font-semibold flex items-center gap-2">
-                <span>✅</span>
-                <span>
-                  {isRecebaNaHora
-                    ? 'Conta conectada! Seu cliente pode pagar online ou no local — você decide nas opções abaixo.'
-                    : 'Sua conta do Mercado Pago está conectada. Os clientes poderão escolher pagar com Mercado Pago no checkout.'}
-                </span>
-              </p>
-            </div>
+            {mpNeedsReconnect ? (
+              <div className="p-3 bg-red-500/15 border-2 border-red-500/50 rounded-lg">
+                <p className="text-sm text-red-200 font-bold flex items-start gap-2">
+                  <span>🚨</span>
+                  <span>
+                    Sua conta Mercado Pago caiu e os pagamentos online estão FALHANDO — seus
+                    clientes não estão conseguindo pagar. Clique em{' '}
+                    <strong className="text-white">"Reconectar Mercado Pago"</strong> logo acima
+                    para resolver agora (leva menos de 30 segundos).
+                  </span>
+                </p>
+              </div>
+            ) : (
+              <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                <p className="text-sm text-green-200 font-semibold flex items-center gap-2">
+                  <span>✅</span>
+                  <span>
+                    {isRecebaNaHora
+                      ? 'Conta conectada! Seu cliente pode pagar online ou no local — você decide nas opções abaixo.'
+                      : 'Sua conta do Mercado Pago está conectada. Os clientes poderão escolher pagar com Mercado Pago no checkout.'}
+                  </span>
+                </p>
+              </div>
+            )}
 
             {/* Configuração de Pagamento Antecipado Mercado Pago */}
             <div className="space-y-3">

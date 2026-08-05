@@ -3,6 +3,7 @@ import axios from 'axios';
 import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
+import { markMercadoPagoHealthBestEffort } from './mercadopago-create-payment';
 import { json, parseJsonBody } from './_utils';
 
 const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
@@ -123,9 +124,31 @@ async function getValidMercadoPagoAccessToken(establishmentId: string): Promise<
   const now = Date.now();
   const safetyMs = 2 * 60 * 1000;
   if (Number.isFinite(expiresAt) && expiresAt > now + safetyMs) return accessToken;
-  if (!refreshToken) throw new Error('Token Mercado Pago expirado. Reconecte a conta.');
+  if (!refreshToken) {
+    // Sem refresh_token não há renovação possível: estado permanente até reconectar.
+    await markMercadoPagoHealthBestEffort(
+      establishmentId,
+      'reconnect_required',
+      'Token expirado e sem refresh_token salvo. Necessário reconectar o Mercado Pago.'
+    );
+    throw new Error('Token Mercado Pago expirado. Reconecte a conta.');
+  }
 
-  const refreshed = await refreshAccessToken(refreshToken);
+  let refreshed;
+  try {
+    refreshed = await refreshAccessToken(refreshToken);
+  } catch (refreshError: any) {
+    // Só marca "precisa reconectar" em erro PERMANENTE do OAuth (invalid_grant).
+    // Erro de rede/instabilidade do MP passa reto — não pode virar alarme falso.
+    if (refreshError?.mpReconnectRequired === true) {
+      await markMercadoPagoHealthBestEffort(
+        establishmentId,
+        'reconnect_required',
+        String(refreshError?.message || 'invalid_grant')
+      );
+    }
+    throw refreshError;
+  }
   const newAccessToken = String(refreshed.access_token || '').trim();
   const newRefreshToken = String(refreshed.refresh_token || refreshToken).trim();
   const expiresIn = Number(refreshed.expires_in || 21600);
@@ -140,6 +163,10 @@ async function getValidMercadoPagoAccessToken(establishmentId: string): Promise<
       mercadopago_token_expires_at: newExpiresAt,
     } as any)
     .eq('id', establishmentId);
+
+  // Renovou com sucesso = conexão saudável (limpa alerta antigo, se houver).
+  // Update separado de propósito para nunca afetar o salvamento dos tokens.
+  await markMercadoPagoHealthBestEffort(establishmentId, 'ok', null);
 
   return newAccessToken;
 }

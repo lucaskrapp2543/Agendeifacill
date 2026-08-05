@@ -15,3 +15,19 @@ export function establishmentHasMercadoPago(establishment: any): boolean {
   // fallback (transição): selects que ainda trazem o token cru
   return !!String(establishment?.mercadopago_access_token || '').trim();
 }
+
+/**
+ * Diz se a conta Mercado Pago do estabelecimento CAIU e precisa ser reconectada.
+ *
+ * `mercadopago_health = 'reconnect_required'` é gravado pelo servidor quando o
+ * Mercado Pago recusa a renovação do token com erro permanente (invalid_grant),
+ * e limpo quando a conta é reconectada ou o token renova com sucesso.
+ *
+ * Fallback seguro: coluna ausente/NULL (clientes antigos, migration não aplicada,
+ * select sem a coluna) => false, ou seja, comporta exatamente como hoje.
+ * Só faz sentido junto com token salvo — sem token, a tela já mostra "desconectado".
+ */
+export function establishmentMercadoPagoNeedsReconnect(establishment: any): boolean {
+  if (!establishmentHasMercadoPago(establishment)) return false;
+  return String(establishment?.mercadopago_health || '').trim() === 'reconnect_required';
+}

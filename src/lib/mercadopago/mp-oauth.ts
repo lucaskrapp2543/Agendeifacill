@@ -213,7 +213,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
       .map((x: unknown) => String(x || '').trim())
       .filter(Boolean)
       .join(' — ');
-    throw new Error(
+    const err = new Error(
       error?.response?.data?.message ||
       (oauthErr
         ? `Mercado Pago recusou a renovação do token (${oauthErr}). Reconecte a conta do Mercado Pago.`
@@ -221,5 +221,12 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
       error?.message ||
       'Erro ao atualizar token do Mercado Pago'
     );
+    // invalid_grant = refresh_token revogado/expirado/já usado NO MERCADO PAGO.
+    // Não é falha de rede nem instabilidade: só reconectar a conta resolve.
+    // O chamador usa esta marca para acender o alerta "precisa reconectar" no
+    // painel (colunas mercadopago_health*), sem nunca confundir com erro passageiro.
+    const oauthCode = String(error?.response?.data?.error || '').trim().toLowerCase();
+    (err as any).mpReconnectRequired = oauthCode === 'invalid_grant';
+    throw err;
   }
 }

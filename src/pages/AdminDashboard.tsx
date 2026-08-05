@@ -1,6 +1,6 @@
 import { addMonths, endOfDay, endOfMonth, format, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
+import { establishmentHasMercadoPago, establishmentMercadoPagoNeedsReconnect } from '../utils/establishmentPaymentFlags';
 import {
   AlertTriangle,
   Building2,
@@ -46,6 +46,7 @@ import {
   type MonthlyGoalStatus,
 } from '../utils/monthlyGoal';
 import {
+  adminCloseMonthlyGoals,
   fetchMonthlyGoalCredit,
   fetchMonthlyGoalHistory,
   type MonthlyGoalHistoryItem,
@@ -747,6 +748,13 @@ const AdminDashboard = () => {
     Record<string, MonthlyGoalCounts>
   >({});
   const [monthlyGoalModalEstablishment, setMonthlyGoalModalEstablishment] = useState<any | null>(null);
+  const [showNextBonusModal, setShowNextBonusModal] = useState(false);
+  const [nextBonusTab, setNextBonusTab] = useState<'proximos' | 'vencendo'>('proximos');
+  // Crédito já conquistado no mês ANTERIOR (o que ele pode usar agora).
+  const [previousMonthCredits, setPreviousMonthCredits] = useState<
+    Record<string, { percent: number; validPayments: number; referenceMonth: string; status: string }>
+  >({});
+  const [isLoadingPreviousCredits, setIsLoadingPreviousCredits] = useState(false);
   const [globalBillingAmount, setGlobalBillingAmount] = useState<number>(0);
   const [monthlyGoalHistory, setMonthlyGoalHistory] = useState<MonthlyGoalHistoryItem[]>([]);
   const [isLoadingMonthlyGoalHistory, setIsLoadingMonthlyGoalHistory] = useState(false);
@@ -2837,6 +2845,55 @@ const AdminDashboard = () => {
   };
 
   /**
+   * Créditos do mês ANTERIOR de todos os estabelecimentos, para o ranking.
+   *
+   * Antes de ler, congela o mês passado (idempotente e somente admin): se já
+   * estava fechado não faz nada, e mês em andamento é recusado pelo próprio
+   * banco. Assim a lista nunca aparece vazia só porque ninguém abriu o app.
+   *
+   * Somente registro — nenhuma cobrança é criada ou alterada.
+   */
+  const loadPreviousMonthCredits = async () => {
+    setIsLoadingPreviousCredits(true);
+    try {
+      const previousMonth = format(subMonths(lucroPixMonth, 1), 'yyyy-MM-01');
+
+      try {
+        await adminCloseMonthlyGoals(previousMonth);
+      } catch {
+        /* congelamento é oportunista — nunca impede a leitura */
+      }
+
+      const { data, error } = await supabase
+        .from('establishment_monthly_goals')
+        .select('establishment_id, reference_month, percent_final, valid_payments_count, status')
+        .eq('reference_month', previousMonth);
+
+      if (error) {
+        setPreviousMonthCredits({});
+        return;
+      }
+
+      const map: Record<string, { percent: number; validPayments: number; referenceMonth: string; status: string }> = {};
+      for (const raw of Array.isArray(data) ? data : []) {
+        const estId = String((raw as any)?.establishment_id || '');
+        if (!estId) continue;
+        map[estId] = {
+          percent: Number((raw as any)?.percent_final || 0),
+          validPayments: Number((raw as any)?.valid_payments_count || 0),
+          referenceMonth: String((raw as any)?.reference_month || '').slice(0, 10),
+          status: String((raw as any)?.status || 'closed'),
+        };
+      }
+      setPreviousMonthCredits(map);
+    } catch {
+      setPreviousMonthCredits({});
+    } finally {
+      setIsLoadingPreviousCredits(false);
+    }
+  };
+
+  /**
    * Histórico de meses fechados do estabelecimento.
    * A consulta do crédito vem antes de propósito: além de ler, ela CONGELA o
    * mês anterior automaticamente no banco (idempotente). Sem isso, abrir este
@@ -4198,6 +4255,59 @@ const AdminDashboard = () => {
     0
   );
   const mercadoPagoDisconnectedCount = Math.max(0, baseFilteredEstablishments.length - mercadoPagoConnectedCount);
+
+  /**
+   * 🏆 Próximos bônus do mês — quem está mais perto da mensalidade grátis.
+   *
+   * Usa a MESMA contagem que alimenta o card "Meus R$1", então os números não
+   * têm como divergir. Somente leitura: não cria, não altera e não aplica
+   * nenhuma cobrança.
+   */
+  const nextBonusRanking = baseFilteredEstablishments
+    .map((est: any) => {
+      const goal = getMonthlyGoalForEstablishment(est);
+      return {
+        id: String(est?.id || ''),
+        name: String(est?.name || 'Sem nome'),
+        code: String(est?.code || ''),
+        hasMercadoPago: establishmentHasMercadoPago(est),
+        validPayments: goal.validPayments,
+        percent: goal.percent,
+        remainingToFree: goal.remaining,
+        nextMilestone: goal.nextMilestone,
+        planCents: goal.planCents,
+        finalCents: goal.finalCents,
+        discountCents: goal.discountCents,
+        barColor: goal.barColor,
+      };
+    })
+    .sort((a, b) => b.validPayments - a.validPayments);
+
+  const nextBonusWithPayments = nextBonusRanking.filter((r) => r.validPayments > 0);
+
+  /**
+   * Lista de vencimento: quem TEM crédito do mês passado, ordenado por quem
+   * vence primeiro. É o cruzamento que interessa — o barbeiro só usa o desconto
+   * na hora de pagar, então quem vence antes é quem vai usar antes.
+   */
+  const nextBonusExpiringWithCredit = nextBonusRanking
+    .map((item) => {
+      const credit = previousMonthCredits[item.id];
+      const dueRaw = String(
+        (baseFilteredEstablishments.find((e: any) => String(e?.id || '') === item.id) as any)?.payment_due_date || ''
+      );
+      const dueDate = dueRaw ? new Date(dueRaw) : null;
+      const dueTime = dueDate && Number.isFinite(dueDate.getTime()) ? dueDate.getTime() : Number.POSITIVE_INFINITY;
+      const daysToDue = Number.isFinite(dueTime)
+        ? Math.ceil((dueTime - Date.now()) / (24 * 60 * 60 * 1000))
+        : null;
+      return { ...item, creditPercent: credit?.percent || 0, creditMonth: credit?.referenceMonth || '', dueRaw, dueTime, daysToDue };
+    })
+    .filter((item) => item.creditPercent > 0)
+    .sort((a, b) => a.dueTime - b.dueTime);
+  const nextBonusZeroCount = nextBonusRanking.length - nextBonusWithPayments.length;
+  const nextBonusAlreadyFree = nextBonusRanking.filter((r) => r.percent >= 100).length;
+  const nextBonusWithDiscount = nextBonusRanking.filter((r) => r.percent > 0).length;
 
   const sortEstablishmentsForAdminGrid = (a: Establishment, b: Establishment): number => {
     // 1) Estabelecimentos vencidos sempre no topo
@@ -5748,6 +5858,22 @@ const AdminDashboard = () => {
               <strong>MP DESCONECTADO:</strong> {mercadoPagoDisconnectedCount}
               {filterMercadoPago === 'disconnected' ? <span className="text-[10px] font-semibold opacity-80">(filtrando)</span> : null}
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowNextBonusModal(true);
+                setNextBonusTab('proximos');
+                void loadPreviousMonthCredits();
+              }}
+              className="inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100"
+              title="Quem está mais perto de ganhar desconto (ou a mensalidade grátis) neste mês"
+            >
+              <Trophy className="h-3 w-3" />
+              <strong>PRÓXIMOS BÔNUS MÊS</strong>
+              {nextBonusWithDiscount > 0 ? (
+                <span className="text-[10px] font-semibold opacity-80">({nextBonusWithDiscount})</span>
+              ) : null}
+            </button>
             <span title="Meus R$1 por pagamento aprovado via Mercado Pago no mês selecionado">
               <strong>Meus R$1 Mercado Pago:</strong> {isLoadingLucroPixMes ? '...' : fmtBRL(lucroPixMesTotal)}
             </span>
@@ -5996,7 +6122,15 @@ const AdminDashboard = () => {
                                 WPP CONECTADO
                               </span>
                             )}
-                            {establishmentHasMercadoPago(establishment as any) ? (
+                            {establishmentMercadoPagoNeedsReconnect(establishment as any) ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-extrabold rounded-full bg-amber-500 text-black border border-amber-700 shadow-sm whitespace-nowrap animate-pulse"
+                                title="A conta Mercado Pago deste estabelecimento CAIU (o MP recusou a renovação do token). Pagamentos online estão falhando — peça para o dono clicar em Reconectar Mercado Pago no painel dele."
+                              >
+                                <XCircle className="h-3 w-3" />
+                                MP PRECISA RECONECTAR
+                              </span>
+                            ) : establishmentHasMercadoPago(establishment as any) ? (
                               <span
                                 className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-extrabold rounded-full bg-emerald-700 text-white border border-emerald-900 shadow-sm whitespace-nowrap"
                                 title="Este estabelecimento conectou o Mercado Pago"
@@ -6895,6 +7029,262 @@ const AdminDashboard = () => {
                           </div>
                         </>
                       )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal - 🏆 Próximos bônus do mês (ranking, somente leitura) */}
+              {showNextBonusModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                  {/* text-gray-900 na raiz: o painel admin herda texto BRANCO, e sem
+                      isso qualquer célula sem cor explícita fica invisível no fundo branco. */}
+                  <div className="bg-white text-gray-900 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+                    <div className="flex items-start justify-between gap-3 px-4 py-3 border-b flex-shrink-0">
+                      <div className="min-w-0">
+                        <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                          <Trophy className="h-5 w-5 text-amber-500" />
+                          Próximos bônus do mês
+                        </h3>
+                        <p className="text-xs text-gray-600 mt-0.5">
+                          {format(lucroPixMonth, 'MMMM/yyyy', { locale: ptBR })} · quem está mais perto de
+                          zerar a mensalidade
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setShowNextBonusModal(false)}
+                        className="text-gray-500 hover:text-gray-800 text-xl leading-none px-2 flex-shrink-0"
+                        aria-label="Fechar"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    <div className="px-4 py-3 overflow-y-auto">
+                      <div className="grid grid-cols-2 gap-1.5 mb-3">
+                        <button
+                          type="button"
+                          onClick={() => setNextBonusTab('proximos')}
+                          className={`py-2 rounded-lg text-sm font-bold border transition-colors ${nextBonusTab === 'proximos'
+                            ? 'bg-amber-500 border-amber-600 text-black'
+                            : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }`}
+                        >
+                          🏆 Perto do bônus
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNextBonusTab('vencendo')}
+                          className={`py-2 rounded-lg text-sm font-bold border transition-colors ${nextBonusTab === 'vencendo'
+                            ? 'bg-rose-600 border-rose-700 text-white'
+                            : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }`}
+                        >
+                          ⏰ Vencendo com crédito
+                          {nextBonusExpiringWithCredit.length > 0 ? ` (${nextBonusExpiringWithCredit.length})` : ''}
+                        </button>
+                      </div>
+
+                      {nextBonusTab === 'proximos' && (
+                        <div className="grid grid-cols-3 gap-2 mb-3">
+                          <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-2 text-center">
+                            <div className="text-xl font-black text-emerald-700">{nextBonusAlreadyFree}</div>
+                            <div className="text-[11px] text-emerald-800">já grátis (160+)</div>
+                          </div>
+                          <div className="rounded-lg bg-amber-50 border border-amber-200 p-2 text-center">
+                            <div className="text-xl font-black text-amber-700">{nextBonusWithDiscount}</div>
+                            <div className="text-[11px] text-amber-800">com algum desconto</div>
+                          </div>
+                          <div className="rounded-lg bg-gray-50 border border-gray-200 p-2 text-center">
+                            <div className="text-xl font-black text-gray-700">{nextBonusZeroCount}</div>
+                            <div className="text-[11px] text-gray-700">sem nenhum pagamento</div>
+                          </div>
+                        </div>
+                      )}
+
+                      {nextBonusTab === 'vencendo' ? (
+                        <>
+                          <p className="text-[11px] text-gray-600 mb-2 leading-relaxed">
+                            Quem já garantiu desconto em{' '}
+                            {format(subMonths(lucroPixMonth, 1), 'MMMM/yyyy', { locale: ptBR })} e está mais perto
+                            de pagar a mensalidade — ou seja, quem vai usar o crédito primeiro.
+                          </p>
+
+                          {isLoadingPreviousCredits ? (
+                            <div className="text-sm text-gray-700 py-6 text-center">Carregando créditos...</div>
+                          ) : nextBonusExpiringWithCredit.length === 0 ? (
+                            <div className="text-sm text-gray-700 py-6 text-center">
+                              Ninguém tem crédito do mês anterior ainda.
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {nextBonusExpiringWithCredit.map((item, index) => (
+                                <div key={item.id} className="rounded-lg border border-gray-200 p-2.5 hover:bg-gray-50 transition-colors">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-[11px] font-bold text-gray-500">#{index + 1}</span>
+                                        <span className="font-semibold text-gray-900 truncate">{item.name}</span>
+                                        <span className="text-[11px] text-gray-600">({item.code})</span>
+                                      </div>
+                                      <div className="text-[11px] text-gray-700 mt-0.5">
+                                        {item.dueRaw ? (
+                                          <>
+                                            Vence em{' '}
+                                            <strong className="text-gray-900">
+                                              {format(new Date(item.dueRaw), 'dd/MM/yyyy')}
+                                            </strong>
+                                            {item.daysToDue !== null && (
+                                              <span
+                                                className={
+                                                  item.daysToDue < 0
+                                                    ? 'text-rose-700 font-bold'
+                                                    : item.daysToDue <= 7
+                                                      ? 'text-amber-700 font-bold'
+                                                      : 'text-gray-600'
+                                                }
+                                              >
+                                                {' '}
+                                                ({item.daysToDue < 0
+                                                  ? `vencido há ${Math.abs(item.daysToDue)}d`
+                                                  : item.daysToDue === 0
+                                                    ? 'vence hoje'
+                                                    : `em ${item.daysToDue}d`})
+                                              </span>
+                                            )}
+                                          </>
+                                        ) : (
+                                          <span className="text-gray-500">Sem vencimento definido</span>
+                                        )}
+                                        {' · '}
+                                        {item.validPayments} pagamentos neste mês
+                                      </div>
+                                    </div>
+                                    <div className="text-right flex-shrink-0">
+                                      <div className="text-[10px] text-gray-600">crédito guardado</div>
+                                      <div className="text-lg font-black text-emerald-600">{item.creditPercent}%</div>
+                                      {item.planCents > 0 && (
+                                        <div className="text-[11px] text-gray-700">
+                                          pagaria{' '}
+                                          <strong className="text-emerald-700">
+                                            {formatCentsBRL(
+                                              Math.max(
+                                                0,
+                                                item.planCents - Math.round((item.planCents * item.creditPercent) / 100)
+                                              )
+                                            )}
+                                          </strong>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      ) : nextBonusWithPayments.length === 0 ? (
+                        <div className="text-sm text-gray-700 py-6 text-center">
+                          Nenhum estabelecimento gerou pagamento online neste mês ainda.
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {nextBonusWithPayments.map((item, index) => (
+                            <div
+                              key={item.id}
+                              className="rounded-lg border border-gray-200 p-2.5 hover:bg-gray-50 transition-colors"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[11px] font-bold text-gray-500">#{index + 1}</span>
+                                    <span className="font-semibold text-gray-900 truncate">{item.name}</span>
+                                    <span className="text-[11px] text-gray-600">({item.code})</span>
+                                    {!item.hasMercadoPago && (
+                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700">
+                                        MP OFF
+                                      </span>
+                                    )}
+                                    {/* Crédito já conquistado no mês passado — o que ele pode usar AGORA */}
+                                    {previousMonthCredits[item.id]?.percent > 0 && (
+                                      <span
+                                        className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800"
+                                        title={`Conquistou ${previousMonthCredits[item.id].percent}% em ${previousMonthCredits[item.id].referenceMonth} e ainda pode usar`}
+                                      >
+                                        🎁 tem {previousMonthCredits[item.id].percent}% guardado
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-gray-700 mt-0.5">
+                                    <strong className="text-gray-900">{item.validPayments}</strong> de 160 pagamentos
+                                    {item.percent >= 100 ? (
+                                      <span className="text-emerald-700 font-bold"> · mensalidade grátis 🏆</span>
+                                    ) : item.nextMilestone ? (
+                                      <span>
+                                        {' '}· faltam{' '}
+                                        <strong className="text-gray-900">{item.nextMilestone.missing}</strong> para{' '}
+                                        {item.nextMilestone.percent}%
+                                        {' '}· <strong className="text-gray-900">{item.remainingToFree}</strong> para
+                                        grátis
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                                <div className="text-right flex-shrink-0">
+                                  <div
+                                    className={`text-lg font-black ${item.percent >= 100
+                                      ? 'text-emerald-600'
+                                      : item.percent > 0
+                                        ? 'text-amber-600'
+                                        : 'text-gray-500'
+                                      }`}
+                                  >
+                                    {item.percent}%
+                                  </div>
+                                  {item.planCents > 0 && (
+                                    <div className="text-[11px] text-gray-700">
+                                      {item.discountCents > 0 ? (
+                                        <>
+                                          <span className="line-through text-gray-400 mr-1">
+                                            {formatCentsBRL(item.planCents)}
+                                          </span>
+                                          <strong className="text-emerald-700">
+                                            {formatCentsBRL(item.finalCents)}
+                                          </strong>
+                                        </>
+                                      ) : (
+                                        <span className="text-gray-600">{formatCentsBRL(item.planCents)}</span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="mt-1.5 h-1.5 w-full rounded-full bg-gray-200 overflow-hidden">
+                                <div
+                                  className={`h-1.5 rounded-full ${item.barColor}`}
+                                  style={{ width: `${Math.min(100, Math.round((item.validPayments / 160) * 100))}%` }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <p className="text-[11px] text-gray-600 mt-3 leading-relaxed">
+                        A barra mostra o quanto falta para 160. O percentual sobe por faixa fechada
+                        (40 = 25%, 80 = 50%, 120 = 75%, 160 = grátis), então alguém com 119 pagamentos
+                        ainda está em 50%. Esta tela é só leitura — nenhuma cobrança é criada ou alterada.
+                      </p>
+                    </div>
+
+                    <div className="px-4 py-3 border-t flex-shrink-0">
+                      <button
+                        onClick={() => setShowNextBonusModal(false)}
+                        className="w-full py-2 rounded bg-gray-800 text-white font-bold hover:bg-gray-700 transition-colors"
+                      >
+                        Fechar
+                      </button>
                     </div>
                   </div>
                 </div>

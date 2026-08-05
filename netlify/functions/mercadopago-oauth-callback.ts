@@ -131,6 +131,22 @@ export const handler: Handler = async (event) => {
       user_id: tokenData.user_id,
     });
 
+    // Reconectou = conexão saudável de novo. Limpa o alerta "precisa reconectar"
+    // (colunas mercadopago_health*). Update separado e best-effort de propósito:
+    // se as colunas ainda não existirem no banco, a reconexão segue funcionando.
+    try {
+      await supabaseAdmin
+        .from('establishments')
+        .update({
+          mercadopago_health: 'ok',
+          mercadopago_health_error: null,
+          mercadopago_health_at: new Date().toISOString(),
+        } as any)
+        .eq('id', establishmentId);
+    } catch {
+      // silencioso: saúde é diagnóstico, jamais pode bloquear o OAuth
+    }
+
     // Redirecionar para página de sucesso
     const host = event.headers.host || event.headers['x-forwarded-host'] || 'agendeifacil.com';
     const protocol = event.headers['x-forwarded-proto'] || 'https';
