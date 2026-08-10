@@ -144,7 +144,7 @@ const AdditionalProductModal = ({
               value={productName}
               onChange={(e) => setProductName(e.target.value)}
               className="w-full px-4 py-2 bg-[#242628] border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-              placeholder="Ex: Sombrancelhas\Pézinho"
+              placeholder="Ex: Sobrancelhas / Pézinho"
               required
             />
           </div>

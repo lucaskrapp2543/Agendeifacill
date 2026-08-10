@@ -112,8 +112,12 @@ export function ChangeAppointmentServiceModal({
   useEffect(() => {
     const run = async () => {
       if (!isOpen || !establishmentId) return;
-      // Se já carregou para este establishment e já tem lista, não recarregar (evita piscar)
-      if (lastLoadedEstablishmentIdRef.current === establishmentId && services.length > 0) return;
+      // ⚠️ NÃO reintroduzir cache aqui. Havia um "se já carregou este estabelecimento,
+      // não recarrega" para evitar piscar — mas ele congelava a lista pela sessão
+      // inteira: serviço EXCLUÍDO continuava aparecendo aqui (some no booking e no
+      // resto do sistema, só neste modal não) e preço alterado seguia com o valor
+      // velho, aplicando valor errado no atendimento. Recarregar a cada abertura é
+      // barato e é a única forma de refletir exclusão e mudança de preço na hora.
       setIsLoading(true);
       try {
         const all: EstablishmentService[] = [];
@@ -232,8 +236,11 @@ export function ChangeAppointmentServiceModal({
     };
 
     run();
-    // Não colocar "toast" nas dependências (pode variar a cada render e causar loop)
-  }, [isOpen, establishmentId, services.length]);
+    // Não colocar "toast" nas dependências (pode variar a cada render e causar loop).
+    // `services.length` TAMBÉM saiu de propósito: sem o antigo guard de cache, ele
+    // reexecutaria o efeito a cada setServices — buscando serviços em loop infinito.
+    // Agora recarrega exatamente uma vez por abertura do modal, que é o objetivo.
+  }, [isOpen, establishmentId]);
 
   const handleClose = () => {
     if (isSaving) return;

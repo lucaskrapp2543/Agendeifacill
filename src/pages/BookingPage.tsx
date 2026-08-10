@@ -623,7 +623,25 @@ export default function BookingPage() {
         if (!rpcError && rpcData && typeof rpcData === 'object') {
           if ((rpcData as any).found === true) {
             setSubscriptionPixInitialFlow('default');
-            setSelectedSubscriptionForPix(renewLookupSubscription);
+            // Valor extra fixo do assinante (definido pelo barbeiro em Meus Assinantes).
+            // Precisa vir pela RPC: client_subscriptions é protegida contra leitura
+            // anônima, então o booking não tem como descobrir isso sozinho. Sem isso,
+            // a renovação cobrava só o valor do plano e o extra nunca era cobrado.
+            {
+              const extraValue = Number((rpcData as any).extra_charge_value || 0);
+              const extraLabel = String((rpcData as any).extra_charge_label || '').trim();
+              const baseValue = Number(renewLookupSubscription?.value || 0);
+              setSelectedSubscriptionForPix(
+                Number.isFinite(extraValue) && extraValue > 0
+                  ? {
+                    ...renewLookupSubscription,
+                    value: Math.round((baseValue + extraValue) * 100) / 100,
+                    extra_charge_value: extraValue,
+                    extra_charge_label: extraLabel,
+                  } as any
+                  : renewLookupSubscription
+              );
+            }
             // Privacidade: não pré-preenche o nome (a pessoa digita o dela);
             // o vínculo da renovação é feito pelo telefone no backend.
             setRenewalPrefill({

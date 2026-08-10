@@ -1131,6 +1131,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   >({});
   const [subscriptionSaleCommissions, setSubscriptionSaleCommissions] = useState<any[]>([]);
   const [professionals, setProfessionals] = useState<EstablishmentProfessional[]>([]);
+  // Marca que a carga dos profissionais falhou, para a tela AVISAR em vez de fingir
+  // que o estabelecimento não tem profissional (ver comentário em fetchProfessionals).
+  const [professionalsLoadFailed, setProfessionalsLoadFailed] = useState(false);
   const [professionalPayments, setProfessionalPayments] = useState<any[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedProfessionalForHistory, setSelectedProfessionalForHistory] = useState<string>('');
@@ -1365,6 +1368,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Múltiplos profissionais podem atender o assinante (vazio = todos)
   const [editSubscriberProfessionalIds, setEditSubscriberProfessionalIds] = useState<string[]>([]);
   const [editSubscriberObservation, setEditSubscriberObservation] = useState('');
+  // Valor extra fixo deste assinante (soma na assinatura até o barbeiro retirar)
+  const [editSubscriberExtraValue, setEditSubscriberExtraValue] = useState('');
+  const [editSubscriberExtraLabel, setEditSubscriberExtraLabel] = useState('');
   const [isSavingEndDate, setIsSavingEndDate] = useState(false);
 
   // Estados para modal de limite simples
@@ -1876,7 +1882,18 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
 
   // Função para buscar profissionais do estabelecimento
-  const fetchProfessionals = async () => {
+  //
+  // ⚠️ Esta busca já zerou a lista em produção sem ninguém perceber: ela roda uma vez
+  // só (no monte da tela) e, em QUALQUER falha, zerava `professionals` em silêncio.
+  // O resultado é a lista "Quais profissionais vão atender esse cliente?" exibindo
+  // apenas "Todos", como se o estabelecimento não tivesse profissional nenhum —
+  // enquanto o mesmo código no localhost, com sessão fresca, mostrava a lista cheia.
+  //
+  // Agora: (1) em caso de erro a lista ANTERIOR é preservada (não zera o que já
+  // estava certo na tela), (2) o erro fica registrado para diagnóstico, e (3) o
+  // modal chama esta função de novo ao abrir, então uma falha momentânea se resolve
+  // sozinha na próxima abertura em vez de exigir recarregar a página.
+  const fetchProfessionals = async (): Promise<boolean> => {
     try {
       // Buscar o estabelecimento com os profissionais
       const { data: establishmentData, error: establishmentError } = await supabase
@@ -1887,22 +1904,25 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
       if (establishmentError) {
         console.error('Erro ao buscar estabelecimento:', establishmentError);
-        setProfessionals([]);
-        return;
+        setProfessionalsLoadFailed(true);
+        return false; // mantém a lista que já estava carregada
       }
 
       // Os profissionais estão em establishment.professionals como array JSONB
-      const professionals = (establishmentData.professionals || []).map((prof: any) => ({
+      const professionals = ((establishmentData as any)?.professionals || []).map((prof: any) => ({
         id: prof.id || prof.name, // Usar id se existir, senão usar name como id
         full_name: prof.name,
         percentage: normalizeProfessionalPercentage(prof?.percentage),
       }));
 
       setProfessionals(professionals);
+      setProfessionalsLoadFailed(false);
+      return true;
 
     } catch (error) {
       console.error('Erro ao buscar profissionais:', error);
-      setProfessionals([]);
+      setProfessionalsLoadFailed(true);
+      return false; // mantém a lista que já estava carregada
     }
   };
 
@@ -2288,10 +2308,29 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return Number(fromList || 0);
   };
 
+  // Valor extra fixo deste assinante ("+ Extra: serviço x — R$ 10,00").
+  // Vale até o barbeiro retirar; é por cliente, não por plano.
+  const getExtraChargeValueForClient = (clientSub: any): number => {
+    const extra = Number((clientSub as any)?.extra_charge_value ?? NaN);
+    return Number.isFinite(extra) && extra > 0 ? extra : 0;
+  };
+
+  const getExtraChargeLabelForClient = (clientSub: any): string =>
+    String((clientSub as any)?.extra_charge_label || '').trim();
+
+  // Valor efetivo do assinante = (valor personalizado OU valor do plano) + extra.
+  // O extra é somado AQUI de propósito: esta função é a fonte única usada pelo card,
+  // pela cobrança do WhatsApp, pela renovação e pela comissão do profissional — então
+  // somar num ponto só garante que todos enxerguem o mesmo total, sem divergir.
+  // (Comissão sobre o total foi decisão explícita: é como se a assinatura daquele
+  // cliente tivesse subido de valor.)
   const getSubscriptionValueForClient = (clientSub: any): number => {
     const customValue = Number((clientSub as any)?.custom_subscription_value ?? NaN);
-    if (Number.isFinite(customValue) && customValue > 0) return customValue;
-    return getBaseSubscriptionValueForClient(clientSub);
+    const base = Number.isFinite(customValue) && customValue > 0
+      ? customValue
+      : getBaseSubscriptionValueForClient(clientSub);
+    const total = base + getExtraChargeValueForClient(clientSub);
+    return Math.round(total * 100) / 100;
   };
 
   const computeSaleCommissionAmount = (subscriptionValue: number, percent: number): number => {
@@ -4039,6 +4078,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         subscriber_observation: editSubscriberObservation.trim().slice(0, 150) || null,
         updated_at: new Date().toISOString()
       };
+      {
+        // Valor extra fixo do assinante. Campo vazio ou zero = remover o extra
+        // (é assim que o barbeiro "retira" a cobrança adicional).
+        const extraRaw = String(editSubscriberExtraValue || '').replace(',', '.').trim();
+        const extraNum = Number(extraRaw);
+        const hasExtra = extraRaw !== '' && Number.isFinite(extraNum) && extraNum > 0;
+        updatePayload.extra_charge_value = hasExtra ? Math.round(extraNum * 100) / 100 : null;
+        updatePayload.extra_charge_label = hasExtra
+          ? (editSubscriberExtraLabel.trim().slice(0, 60) || 'Valor extra')
+          : null;
+      }
       if (shouldStampPaymentDate) {
         updatePayload.last_payment_date = paymentDateForMonth;
       }
@@ -4060,6 +4110,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           errMsg.includes('subscriber_professional_ids') ||
           errMsg.includes('subscriber_professional_name') ||
           errMsg.includes('subscriber_observation') ||
+          // Colunas do "valor extra": se a migration ainda não foi aplicada, o
+          // salvamento do assinante NÃO pode quebrar por causa delas.
+          errMsg.includes('extra_charge_value') ||
+          errMsg.includes('extra_charge_label') ||
           errMsg.includes('last_payment_date')
         )
       ) {
@@ -4151,7 +4205,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setEditSubscriberProfessionalIds(loadedIds.length > 0 ? loadedIds : (singleId ? [singleId] : []));
     }
     setEditSubscriberObservation(String((clientSubscription as any)?.subscriber_observation || ''));
+    {
+      const extra = Number((clientSubscription as any)?.extra_charge_value ?? NaN);
+      setEditSubscriberExtraValue(Number.isFinite(extra) && extra > 0 ? String(extra) : '');
+      setEditSubscriberExtraLabel(String((clientSubscription as any)?.extra_charge_label || ''));
+    }
     setShowEditEndDateModal(true);
+    // Recarrega a lista de profissionais ao ABRIR o modal. Antes ela era buscada só
+    // uma vez, quando a tela montava: se aquela única tentativa falhasse (sessão
+    // renovando, rede lenta), a lista ficava vazia até recarregar a página inteira —
+    // e o barbeiro via só "Todos", sem conseguir escolher profissional.
+    void fetchProfessionals();
   };
 
   const buildDefaultOfferedServiceFromSubscription = (subscription: any): DividedSubscriptionService => {
@@ -6982,6 +7046,22 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 </label>
               ))}
             </div>
+            {professionals.length === 0 && (
+              <div className="mt-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+                <p className="text-xs text-amber-200">
+                  {professionalsLoadFailed
+                    ? 'Não foi possível carregar os profissionais agora.'
+                    : 'Nenhum profissional cadastrado neste estabelecimento.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => { void fetchProfessionals(); }}
+                  className="mt-1 text-xs font-semibold text-amber-300 underline hover:text-amber-200"
+                >
+                  Tentar carregar novamente
+                </button>
+              </div>
+            )}
             <p className="text-xs text-gray-500 mt-1">Pode marcar mais de um. "Todos" = qualquer profissional atende.</p>
           </div>
           <div>
@@ -7317,6 +7397,18 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                               <span className="ml-1 text-emerald-200">
                                 (desconto {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(discountAmount)})
                               </span>
+                            )}
+                            {/* Valor extra discriminado: o barbeiro precisa ver DE ONDE veio
+                                o valor a mais, senão vira a mesma confusão do financeiro. */}
+                            {getExtraChargeValueForClient(cs) > 0 && (
+                              <>
+                                <br />
+                                <span className="font-medium">+ Extra:</span>{' '}
+                                <span>{getExtraChargeLabelForClient(cs) || 'Valor extra'}</span>
+                                <span className="ml-1">
+                                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(getExtraChargeValueForClient(cs))}
+                                </span>
+                              </>
                             )}
                           </>
                         );
@@ -7980,6 +8072,52 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 </select>
               </div>
 
+              {/* Valor extra fixo deste assinante — soma na assinatura dele até ser
+                  retirado. Não altera o plano nem os outros assinantes. */}
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block text-sm font-semibold text-emerald-200">
+                    Valor extra (opcional)
+                  </label>
+                  {(() => {
+                    const extraNum = Number(String(editSubscriberExtraValue || '').replace(',', '.'));
+                    const base = Number(
+                      subscriptions.find((s) => String(s.id) === String(editSubscriberSubscriptionId))?.value || 0
+                    );
+                    if (!Number.isFinite(extraNum) || extraNum <= 0 || base <= 0) return null;
+                    return (
+                      <span className="text-xs font-bold text-emerald-300">
+                        Passa a cobrar {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(base + extraNum)}
+                      </span>
+                    );
+                  })()}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={editSubscriberExtraValue}
+                    onChange={(e) => setEditSubscriberExtraValue(e.target.value)}
+                    placeholder="0,00"
+                    className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-emerald-500 text-white"
+                  />
+                  <input
+                    type="text"
+                    maxLength={60}
+                    value={editSubscriberExtraLabel}
+                    onChange={(e) => setEditSubscriberExtraLabel(e.target.value)}
+                    placeholder="Do que é essa cobrança?"
+                    className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-emerald-500 text-white"
+                  />
+                </div>
+                <p className="text-xs text-gray-400">
+                  Soma na assinatura só deste cliente e continua valendo nas próximas renovações.
+                  Deixe em branco (ou 0) para retirar.
+                </p>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-400 mb-1">
                   Quais profissionais vão atender esse cliente?
@@ -8011,6 +8149,24 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     </label>
                   ))}
                 </div>
+                {/* Antes, lista vazia = tela mostrando só "Todos", sem explicação nenhuma.
+                    Agora o motivo aparece e dá para tentar de novo sem recarregar a página. */}
+                {professionals.length === 0 && (
+                  <div className="mt-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+                    <p className="text-xs text-amber-200">
+                      {professionalsLoadFailed
+                        ? 'Não foi possível carregar os profissionais agora.'
+                        : 'Nenhum profissional cadastrado neste estabelecimento.'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => { void fetchProfessionals(); }}
+                      className="mt-1 text-xs font-semibold text-amber-300 underline hover:text-amber-200"
+                    >
+                      Tentar carregar novamente
+                    </button>
+                  </div>
+                )}
                 <p className="text-xs text-gray-400 mt-1">Pode marcar mais de um. "Todos" = qualquer profissional atende.</p>
               </div>
 

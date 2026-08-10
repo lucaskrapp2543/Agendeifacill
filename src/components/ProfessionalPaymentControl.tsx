@@ -109,6 +109,14 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       ? Math.max(0, totalPaidEffective + pendingToPay)
       : totalLiquidValue;
 
+  // A caixa mostra a conta aberta ("produziu − pago − retirado = falta") só quando
+  // ela REALMENTE fecha. A trava anti-adiantamento (pendingToPay usa o menor entre
+  // dois critérios) pode deixar sobra em casos de borda — e exibir uma conta que não
+  // bate é pior que não exibir. Nesse caso cai no resumo simples, sem inventar número.
+  const breakdownDiff =
+    (totalLiquidValue - totalPaidEffective - Math.max(0, totalWithdrawn)) - pendingToPay;
+  const breakdownFecha = Math.abs(breakdownDiff) < 0.02;
+
   // ===== Financeiro de ASSINATURA deste profissional no mês =====
   // Usa a MESMA engine de "Meus Assinantes" (loadProfessionalControlSnapshot + buildProfessionalControlGroups),
   // que já mescla subscriber_attendances com agendamentos de assinatura CONCLUÍDOS. Assim o valor bate
@@ -534,30 +542,65 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       <div className="bg-[#0b0e13] border border-gray-700 rounded-lg p-3 space-y-3">
         {/* Informações Financeiras */}
         <div className="space-y-2">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-            <span className="text-sm font-medium text-gray-200">
-              Líquido: {formatCurrency(reconciledLiquidValue)}
-            </span>
-            {totalPaidEffective > 0 && (
-              <span className="text-xs text-gray-400">
-                (Saldo: {formatCurrency(totalPaidEffective)})
+          {/* ── RESUMO EM FORMA DE CONTA ────────────────────────────────────────
+              Antes esta caixa tinha "Líquido", "Líquido do mês (total)", "Saldo" e
+              "Pendente do mês (total)": quatro números com nomes técnicos, dois deles
+              chamados "líquido" com valores diferentes, e a retirada não aparecia em
+              lugar nenhum. Dava reclamação de "financeiro errado" quando estava certo.
+              Agora é uma subtração na ordem em que a pessoa pensa. Nenhum cálculo mudou:
+              todos os valores são os mesmos de antes, só reorganizados e renomeados. */}
+          <div className="rounded-xl border border-gray-700 bg-[#0f141c] p-3">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-gray-300">
+                {pendingToPay > 0.009 ? 'Falta pagar para ele' : 'Nada a pagar'}
               </span>
+              <span className={`text-2xl font-extrabold ${pendingToPay > 0.009 ? 'text-cyan-300' : 'text-emerald-300'}`}>
+                {formatCurrency(pendingToPay)}
+              </span>
+            </div>
+
+            {breakdownFecha && totalLiquidValue > 0.009 && (
+              <div className="mt-2 border-t border-gray-700 pt-2 space-y-1">
+                <div className="text-[10px] uppercase tracking-wider text-gray-500">
+                  De onde vem esse valor
+                </div>
+                <div className="flex items-center justify-between gap-2 text-[12px]">
+                  <span className="text-gray-300">Ele produziu no mês</span>
+                  <span className="font-semibold text-gray-100">{formatCurrency(totalLiquidValue)}</span>
+                </div>
+                {totalPaidEffective > 0.009 && (
+                  <div className="flex items-center justify-between gap-2 text-[12px]">
+                    <span className="text-gray-300">Você já pagou</span>
+                    <span className="font-semibold text-emerald-300">− {formatCurrency(totalPaidEffective)}</span>
+                  </div>
+                )}
+                {totalWithdrawn > 0.009 && (
+                  <div className="flex items-center justify-between gap-2 text-[12px]">
+                    <span className="text-gray-300">Ele já retirou (pegar valor)</span>
+                    <span className="font-semibold text-orange-300">− {formatCurrency(totalWithdrawn)}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-2 border-t border-gray-700 pt-1 text-[12px]">
+                  <span className="font-bold text-gray-200">Falta pagar</span>
+                  <span className="font-extrabold text-cyan-300">{formatCurrency(pendingToPay)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Sem a conta aberta (caso de borda), pelo menos mostra o total do mês
+                para a pessoa não ficar só com um número solto na tela. */}
+            {!breakdownFecha && totalLiquidValue > 0.009 && (
+              <div className="mt-2 border-t border-gray-700 pt-2 text-[11px] text-gray-400">
+                Ele produziu {formatCurrency(totalLiquidValue)} no mês
+                {totalPaidEffective > 0.009 && <> • já pago {formatCurrency(totalPaidEffective)}</>}
+                {totalWithdrawn > 0.009 && <> • já retirou {formatCurrency(totalWithdrawn)}</>}
+              </div>
             )}
           </div>
-          {typeof validatedPendingAmount === 'number' && Math.abs(totalLiquidValue - reconciledLiquidValue) > 0.01 && (
-            <div className="text-[11px] text-gray-500">
-              Líquido do mês (total): {formatCurrency(totalLiquidValue)}
-            </div>
-          )}
 
-          {pendingToPay > 0 && (
-            <div className="text-sm text-cyan-300 font-medium">
-              Pendente do mês (total): {formatCurrency(pendingToPay)}
-            </div>
-          )}
           {subscriptionPending > 0 && (
             <div className="text-sm text-amber-300 font-medium">
-              👑 Assinatura pendente do mês: {formatCurrency(subscriptionPending)}
+              👑 Falta pagar das assinaturas: {formatCurrency(subscriptionPending)}
             </div>
           )}
           {typeof cardTaxLoss === 'number' && cardTaxLoss > 0.009 && pendingToPay > 0 && (
@@ -572,31 +615,50 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
               </div>
             </div>
           )}
-          {operationalNewSales !== null && (
-            <div className="text-[11px] text-purple-300">
-              Novas vendas (após último pagamento): {formatCurrency(operationalNewSales)}
-            </div>
-          )}
-          {pendingFromPriorServices !== null && pendingFromPriorServices > 0.009 && (
-            <div className="text-[11px] text-amber-300">
-              Saldo anterior não quitado: {formatCurrency(pendingFromPriorServices)}
-            </div>
-          )}
-          {typeof validatedPendingAmount === 'number' && (
-            <div className="text-[11px] text-gray-400">
-              Pago = total válido no mês • Total = líquido apurado dos serviços concluídos
+          {/* Detalhes operacionais: úteis em casos específicos, mas secundários —
+              ficam discretos para não competir com a conta principal. A legenda
+              "Pago = total válido no mês • Total = líquido apurado..." saiu: ninguém
+              entendia, e a conta acima já responde a mesma pergunta. */}
+          {(operationalNewSales !== null ||
+            (pendingFromPriorServices !== null && pendingFromPriorServices > 0.009)) && (
+            <div className="space-y-0.5 px-1">
+              {operationalNewSales !== null && (
+                <div className="flex items-center justify-between gap-2 text-[10px]">
+                  <span className="text-gray-500">Entrou depois do último acerto</span>
+                  <span className="text-gray-400">{formatCurrency(operationalNewSales)}</span>
+                </div>
+              )}
+              {pendingFromPriorServices !== null && pendingFromPriorServices > 0.009 && (
+                <div className="flex items-center justify-between gap-2 text-[10px]">
+                  <span className="text-gray-500">Sobrou de acertos anteriores</span>
+                  <span className="text-amber-400">{formatCurrency(pendingFromPriorServices)}</span>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Visual do Profissional — espelho dos valores reais, replicado no modal */}
+          {/* O que o PROFISSIONAL vê no aparelho dele — mesmos números, para o barbeiro
+              conferir junto com ele na hora do acerto e não haver discussão. */}
           {typeof validatedPaidAmount === 'number' && typeof validatedPendingAmount === 'number' && (
             <div className="mt-2 border-t border-gray-700 pt-2 space-y-0.5">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Visual do Profissional</div>
-              <div className="text-[11px] text-gray-400">
-                Saldo: <span className="font-semibold text-gray-200">{formatCurrency(totalPaidEffective)}</span>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+                O que o profissional vê
               </div>
-              <div className="text-[11px] text-gray-400">
-                Pendente V: <span className="font-semibold text-cyan-300">{formatCurrency(pendingToPay)}</span>
+              <div className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="text-gray-400">Já recebeu</span>
+                <span className="font-semibold text-gray-200">{formatCurrency(totalPaidEffective)}</span>
+              </div>
+              {/* Ele também precisa enxergar o que pegou adiantado — sem isso vê só o
+                  pendente menor e acha que está sendo lesado. */}
+              {totalWithdrawn > 0.009 && (
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="text-gray-400">Já retirou</span>
+                  <span className="font-semibold text-orange-300">− {formatCurrency(totalWithdrawn)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="text-gray-400">Ainda vai receber</span>
+                <span className="font-semibold text-cyan-300">{formatCurrency(pendingToPay)}</span>
               </div>
             </div>
           )}

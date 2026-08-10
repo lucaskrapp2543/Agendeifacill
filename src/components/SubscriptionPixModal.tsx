@@ -1633,6 +1633,17 @@ export const SubscriptionPixModal: React.FC<SubscriptionPixModalProps> = ({
             <p className="text-sm text-gray-200">
               Plano: <span className="font-semibold">{subscription.name}</span>
             </p>
+            {/* Quando o barbeiro definiu um valor extra para ESTE assinante, o total já
+                vem somado em subscription.value. Aqui a composição é aberta para o
+                cliente não estranhar o valor maior do que o anunciado no plano. */}
+            {Number((subscription as any)?.extra_charge_value || 0) > 0 && (
+              <p className="text-xs text-gray-400 mt-1">
+                Plano R$ {(Number(subscription.value || 0) - Number((subscription as any).extra_charge_value || 0)).toFixed(2).replace('.', ',')}
+                {' + '}
+                {String((subscription as any)?.extra_charge_label || '').trim() || 'valor extra'}
+                {' '}R$ {Number((subscription as any).extra_charge_value || 0).toFixed(2).replace('.', ',')}
+              </p>
+            )}
             <p className="text-sm text-gray-200 mt-1">
               Valor: <span className="font-semibold">R$ {Number(subscription.value || 0).toFixed(2).replace('.', ',')}</span>
             </p>
