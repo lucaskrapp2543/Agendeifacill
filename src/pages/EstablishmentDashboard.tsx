@@ -20775,6 +20775,12 @@ Estamos te aguardando!`;
         appointment_time: newTime,
         status: 'pending',
         price: appointment.price,
+        // ⚠️ Mesma correção do AllProfessionalsAppointmentsView: sem copiar total_price,
+        // o agendamento remarcado nascia zerado no financeiro (a comanda mostra `price`,
+        // então ninguém percebia) e o atendimento era concluído valendo R$ 0,00.
+        total_price: (appointment as any).total_price ?? appointment.price,
+        additional_products: (appointment as any).additional_products ?? null,
+        professional_tip_amount: (appointment as any).professional_tip_amount ?? null,
         duration: appointment.duration,
         payment_method: appointment.payment_method || 'dinheiro',
         is_subscriber: appointment.is_subscriber ?? false,

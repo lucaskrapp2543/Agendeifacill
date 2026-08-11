@@ -115,6 +115,14 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   // bate é pior que não exibir. Nesse caso cai no resumo simples, sem inventar número.
   const breakdownDiff =
     (totalLiquidValue - totalPaidEffective - Math.max(0, totalWithdrawn)) - pendingToPay;
+
+  // ADIANTAMENTO: quanto do dinheiro que saiu do caixa NÃO tem serviço válido por trás.
+  // Nasce quando um atendimento é pago ao profissional e DEPOIS é desfeito (volta para
+  // pendente, vira "cliente faltou" ou é cancelado): o dinheiro já está com ele, mas o
+  // serviço sumiu da conta. O sistema abatia isso do acerto seguinte em silêncio — foi
+  // o que fez um profissional aparecer com R$ 556,83 a receber quando havia produzido
+  // R$ 1.100 no período, sem nada na tela explicando o porquê.
+  const advancedAmount = Math.max(0, totalPaid - totalPaidEffective);
   const breakdownFecha = Math.abs(breakdownDiff) < 0.02;
 
   // ===== Financeiro de ASSINATURA deste profissional no mês =====
@@ -366,13 +374,34 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     }
 
     if (amount > currentLiquidDisplay) {
-      toast.error(`Valor não pode ser maior que ${formatCurrency(currentLiquidDisplay)}`);
+      toast.error(
+        `Ele produziu ${formatCurrency(totalLiquidValue)} e já saiu ${formatCurrency(totalPaidEffective + Math.max(0, totalWithdrawn))}. ` +
+        `Só é possível retirar até ${formatCurrency(currentLiquidDisplay)}.`
+      );
       return;
     }
 
     if (!takeValueReason.trim()) {
       toast.error('Digite o motivo da retirada');
       return;
+    }
+
+    // Confirmação com a conta na frente: depois desta retirada, quanto do que o
+    // profissional produziu já terá saído do caixa. Sem isso, dá para esvaziar o
+    // saldo dele sem perceber e o acerto seguinte vem "estranhamente baixo" —
+    // exatamente a confusão que gerou toda a investigação do financeiro.
+    {
+      const jaSaiu = totalPaidEffective + Math.max(0, totalWithdrawn);
+      const saiUTotal = jaSaiu + amount;
+      const sobra = Math.max(0, totalLiquidValue - saiUTotal);
+      const okRetirar = window.confirm(
+        `Confirmar retirada de ${formatCurrency(amount)} de ${professionalName}?\n\n` +
+        `Ele produziu no período: ${formatCurrency(totalLiquidValue)}\n` +
+        `Já saiu do caixa: ${formatCurrency(jaSaiu)}\n` +
+        `Com esta retirada sai: ${formatCurrency(saiUTotal)}\n\n` +
+        `Vai sobrar ${formatCurrency(sobra)} para ele receber no acerto.`
+      );
+      if (!okRetirar) return;
     }
 
     if (isProcessingRef.current || isProcessing) {
@@ -584,6 +613,25 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                   <span className="font-bold text-gray-200">Falta pagar</span>
                   <span className="font-extrabold text-cyan-300">{formatCurrency(pendingToPay)}</span>
                 </div>
+
+                {/* Fica FORA da subtração de propósito: este valor já está embutido no
+                    "Você já pagou" (que mostra só a parte com serviço por trás). Se
+                    entrasse como mais uma linha de "−", a conta na tela não fecharia e
+                    voltaria a confundir. Aqui é só o aviso do que saiu a mais do caixa. */}
+                {/* Texto propositalmente NEUTRO quanto à causa: este valor é só a
+                    diferença entre o que saiu do caixa e o que tinha serviço concluído
+                    por trás no momento. Pode vir de pagamento adiantado OU de
+                    atendimento desfeito depois de pago — a tela não tem como saber qual
+                    foi, e afirmar a causa errada confunde mais do que ajuda. */}
+                {advancedAmount > 0.009 && (
+                  <div className="mt-1 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1">
+                    <div className="text-[11px] text-amber-200">
+                      Saiu {formatCurrency(advancedAmount)} a mais do caixa do que havia de serviço
+                      concluído na hora do pagamento. Esse valor já está descontado acima e sai do
+                      próximo acerto. Veja o Histórico para conferir.
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -945,11 +993,31 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                 </p>
               </div>
 
-              {/* Valor disponível */}
-              <div className="bg-gray-50 rounded-lg p-3">
-                <div className="text-sm text-gray-600">Valor disponível:</div>
-                <div className="text-lg font-medium text-gray-900">
-                  {formatCurrency(currentLiquidDisplay)}
+              {/* Conta aberta, não só o "disponível" solto.
+                  Caso real: retiraram R$ 430,00 e, 23 segundos depois, pagaram o acerto
+                  cheio de R$ 637,10 — R$ 1.067,10 saindo do caixa para quem tinha
+                  produzido R$ 517,51 até ali. A tela mostrava só "valor disponível",
+                  sem deixar claro quanto o profissional realmente tinha gerado. */}
+              <div className="bg-gray-50 rounded-lg p-3 space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">Ele produziu no período</span>
+                  <span className="font-semibold text-gray-900">{formatCurrency(totalLiquidValue)}</span>
+                </div>
+                {totalPaidEffective > 0.009 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">Já recebeu</span>
+                    <span className="font-semibold text-emerald-700">− {formatCurrency(totalPaidEffective)}</span>
+                  </div>
+                )}
+                {totalWithdrawn > 0.009 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">Já retirou</span>
+                    <span className="font-semibold text-orange-700">− {formatCurrency(totalWithdrawn)}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between border-t border-gray-200 pt-1 text-sm">
+                  <span className="font-bold text-gray-800">Pode retirar até</span>
+                  <span className="text-lg font-bold text-gray-900">{formatCurrency(currentLiquidDisplay)}</span>
                 </div>
               </div>
 

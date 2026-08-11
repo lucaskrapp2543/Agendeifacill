@@ -1806,6 +1806,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
           appointment_time: newTime,
           status: 'pending',
           price: appointment.price,
+          // ⚠️ total_price PRECISA ser copiado. "Trocar horário" não move o agendamento:
+          // ele cria um NOVO copiando os campos daqui. Como total_price ficava de fora,
+          // o novo nascia zerado no financeiro enquanto a tela mostrava o preço normal
+          // (a comanda lê `price`). Resultado: atendimento concluído valendo R$ 0,00,
+          // profissional sem comissão e dinheiro fora do caixa, sem ninguém perceber.
+          total_price: (appointment as any).total_price ?? appointment.price,
+          // Extras e gorjeta também se perdiam ao remarcar — mesma causa.
+          additional_products: (appointment as any).additional_products ?? null,
+          professional_tip_amount: (appointment as any).professional_tip_amount ?? null,
           duration: appointment.duration,
           payment_method: appointment.payment_method || 'dinheiro',
           is_subscriber: appointment.is_subscriber ?? false,
@@ -3803,6 +3812,50 @@ export const AllProfessionalsAppointmentsView: React.FC<
         };
         const appointment = (appointments || []).find((apt) => String(apt.id) === String(appointmentId));
         const previousStatus = String(appointment?.status || '').trim().toLowerCase();
+
+        // ── AVISO DE ATENDIMENTO JÁ PAGO ────────────────────────────────────────
+        // Desfazer um atendimento CONCLUÍDO (voltar para pendente, cancelar, marcar
+        // "cliente faltou") tira o valor da conta do profissional — mas se o acerto
+        // dele já foi feito, o dinheiro JÁ SAIU do caixa. O sistema então abatia essa
+        // diferença do acerto seguinte em silêncio, e o barbeiro via um valor a pagar
+        // menor do que o profissional tinha produzido, sem nenhuma explicação na tela
+        // (caso real: R$ 556,83 a pagar para quem havia produzido R$ 1.100 no período).
+        // Aqui a pessoa decide sabendo o que vai acontecer.
+        if (previousStatus === 'completed' && newStatus !== 'completed') {
+          const professionalKey = String((appointment as any)?.professional || '').trim();
+          let alreadyPaidAfter = false;
+          try {
+            const { data: paymentRows } = await supabase
+              .from('professional_payments')
+              .select('payment_date, amount')
+              .eq('establishment_id', String((appointment as any)?.establishment_id || ''))
+              .eq('professional_id', professionalKey)
+              .gt('amount', 0)
+              .order('payment_date', { ascending: false })
+              .limit(1);
+            const lastPaymentAt = (paymentRows as any[])?.[0]?.payment_date;
+            const aptDateKey = String((appointment as any)?.appointment_date || '').slice(0, 10);
+            if (lastPaymentAt && aptDateKey) {
+              // O acerto foi feito DEPOIS do dia do atendimento => já pagou por ele.
+              alreadyPaidAfter = String(lastPaymentAt).slice(0, 10) >= aptDateKey;
+            }
+          } catch {
+            // Consulta é só para o aviso: se falhar, segue sem bloquear a ação.
+          }
+
+          if (alreadyPaidAfter) {
+            const valorApt = Number((appointment as any)?.total_price ?? (appointment as any)?.price ?? 0);
+            const ok = window.confirm(
+              `Atenção: este atendimento já foi pago ao profissional.\n\n` +
+              `Cliente: ${String((appointment as any)?.client_name || '—')}\n` +
+              `Valor: ${formatCurrency(valorApt)}\n\n` +
+              `Se você desfizer, o dinheiro continua com ele e a diferença será descontada do próximo acerto.\n\n` +
+              `Deseja continuar mesmo assim?`
+            );
+            if (!ok) return;
+          }
+        }
+
         const todayDateKey = format(new Date(), 'yyyy-MM-dd');
         const isTodayAppointment = String((appointment as any)?.appointment_date || '') === todayDateKey;
         const isBlockedByHourError = (err: any): boolean => {
