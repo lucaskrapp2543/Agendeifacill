@@ -241,6 +241,10 @@ const AdminDashboard = () => {
   const [showPayoutHistoryModal, setShowPayoutHistoryModal] = useState(false);
   const [showLastPaymentsModal, setShowLastPaymentsModal] = useState(false);
   const [lastPaymentsSearch, setLastPaymentsSearch] = useState('');
+  // Projeção de recebimento: quanto entra entre duas datas, contando só ATIVOS.
+  const [showFuturePaymentsModal, setShowFuturePaymentsModal] = useState(false);
+  const [futurePaymentsStart, setFuturePaymentsStart] = useState('');
+  const [futurePaymentsEnd, setFuturePaymentsEnd] = useState('');
   const [showAfBookingModal, setShowAfBookingModal] = useState(false);
   const [afBookingRows, setAfBookingRows] = useState<{ establishment_code: string; establishment_id: string; name: string; count: number }[]>([]);
   const [afBookingTotal, setAfBookingTotal] = useState(0);
@@ -4242,6 +4246,32 @@ const AdminDashboard = () => {
 
   const activeCount = baseFilteredEstablishments.reduce((acc, est) => acc + (isActiveEstablishment(est) ? 1 : 0), 0);
   const inactiveCount = Math.max(0, baseFilteredEstablishments.length - activeCount);
+
+  // ── PAGAMENTOS FUTUROS ──────────────────────────────────────────────────────
+  // Projeção de quanto entra entre duas datas: pega os estabelecimentos que estão
+  // na tela (mesma lista/filtro que você está vendo), mantém só os ATIVOS
+  // (acessaram nos últimos 5 dias) e soma a cobrança de quem vence no período.
+  // Inativo fica de fora de propósito: quem sumiu há mais de 5 dias não é receita
+  // que dá para contar como certa.
+  const futurePaymentsRows = useMemo(() => {
+    const start = String(futurePaymentsStart || '').trim();
+    const end = String(futurePaymentsEnd || '').trim();
+    if (!start || !end) return [] as { est: Establishment; due: string; value: number }[];
+
+    return baseFilteredEstablishments
+      .filter((est) => isActiveEstablishment(est))
+      .map((est) => {
+        const due = String((est as any)?.payment_due_date || '').slice(0, 10);
+        return { est, due, value: getPlanBillingValue(est) };
+      })
+      .filter((row) => row.due && row.due >= start && row.due <= end)
+      .sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : 0));
+  }, [baseFilteredEstablishments, futurePaymentsStart, futurePaymentsEnd]);
+
+  const futurePaymentsTotal = futurePaymentsRows.reduce(
+    (acc, row) => acc + (Number.isFinite(row.value) ? row.value : 0),
+    0
+  );
   const isWhatsappConnectedEstablishment = (establishment: Establishment) =>
     whatsappConnectedOwnerIds.has(String(establishment.owner_id || '').trim());
   const isMercadoPagoConnectedEstablishment = (establishment: Establishment) =>
@@ -5912,6 +5942,14 @@ const AdminDashboard = () => {
             </button>
             <button
               type="button"
+              onClick={() => setShowFuturePaymentsModal(true)}
+              className="inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors bg-white border-violet-200 text-violet-700 hover:bg-violet-50"
+              title="Projeção do que entra no período escolhido, somando só os estabelecimentos ATIVOS"
+            >
+              <strong>Pagamentos futuros</strong>
+            </button>
+            <button
+              type="button"
               onClick={() => setShowAfBookingModal(true)}
               className="inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors bg-white border-purple-200 text-purple-700 hover:bg-purple-50"
               title="Agendamentos feitos pelo link simplificado /af"
@@ -7531,6 +7569,98 @@ const AdminDashboard = () => {
                             </tbody>
                           </table>
                         </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Projeção de recebimento por período — só estabelecimentos ATIVOS */}
+              {showFuturePaymentsModal && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
+                  <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+                    <div className="flex items-center justify-between px-4 py-3 border-b gap-3">
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">Pagamentos futuros</div>
+                        <div className="text-xs text-gray-600">
+                          Quanto entra no período, contando só os ativos que estão nesta tela
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setShowFuturePaymentsModal(false)}
+                        className="p-1 rounded hover:bg-gray-100 text-gray-600 shrink-0"
+                        title="Fechar"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="px-4 py-3 border-b bg-gray-50 flex flex-col sm:flex-row sm:items-end gap-3">
+                      <div>
+                        <label className="block text-[11px] text-gray-600 mb-1">De</label>
+                        <input
+                          type="date"
+                          value={futurePaymentsStart}
+                          onChange={(e) => setFuturePaymentsStart(e.target.value)}
+                          className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-gray-600 mb-1">Até</label>
+                        <input
+                          type="date"
+                          value={futurePaymentsEnd}
+                          onChange={(e) => setFuturePaymentsEnd(e.target.value)}
+                          className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                        />
+                      </div>
+                      <div className="sm:ml-auto text-right">
+                        <div className="text-[11px] text-gray-600">Vou receber</div>
+                        <div className="text-2xl font-extrabold text-emerald-700">
+                          {fmtBRL(futurePaymentsTotal)}
+                        </div>
+                        <div className="text-[11px] text-gray-600">
+                          {futurePaymentsRows.length} estabelecimento(s)
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="overflow-auto">
+                      {!futurePaymentsStart || !futurePaymentsEnd ? (
+                        <div className="px-4 py-6 text-sm text-gray-600">
+                          Escolha as datas De e Até para ver a projeção.
+                        </div>
+                      ) : futurePaymentsRows.length === 0 ? (
+                        <div className="px-4 py-6 text-sm text-gray-600">
+                          Nenhum estabelecimento ativo vence nesse período.
+                        </div>
+                      ) : (
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-100 sticky top-0">
+                            <tr>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Estabelecimento</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Código</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Vencimento</th>
+                              <th className="px-3 py-2 text-right text-xs font-medium text-gray-600 uppercase">Valor</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {futurePaymentsRows.map((row) => (
+                              <tr key={String(row.est.id)} className="hover:bg-gray-50">
+                                <td className="px-3 py-2 text-gray-900">{String(row.est.name || '—')}</td>
+                                <td className="px-3 py-2 text-gray-600">{String((row.est as any)?.code || '—')}</td>
+                                <td className="px-3 py-2 text-gray-700">{formatDateOnlyBR(row.due)}</td>
+                                <td className="px-3 py-2 text-right font-semibold text-gray-900">{fmtBRL(row.value)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-gray-100 sticky bottom-0">
+                            <tr>
+                              <td className="px-3 py-2 font-bold text-gray-900" colSpan={3}>Total</td>
+                              <td className="px-3 py-2 text-right font-extrabold text-emerald-700">{fmtBRL(futurePaymentsTotal)}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
                       )}
                     </div>
                   </div>
