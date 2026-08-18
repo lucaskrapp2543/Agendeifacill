@@ -15371,8 +15371,22 @@ Estamos te aguardando!`;
       fetchServiceSubcategories();
     }
 
-    // Mostrar popup de alerta quando entrar em "Meus Agendamentos" e o alerta estiver ativado
-    if (establishment && activeTab === 'appointments' && establishment.payment_alert_enabled) {
+    // Mostrar popup de alerta quando entrar em "Meus Agendamentos" e o alerta estiver ativado.
+    //
+    // TRAVA FINAL: quem está PAGO nunca vê o popup de cobrança, mesmo que a flag
+    // payment_alert_enabled esteja ligada por engano. Barbeiro que já pagou recebendo
+    // "ATENÇÃO URGENTE! pagamento em ATRASO" é o pior erro possível do sistema — quebra
+    // a confiança dele e gera reclamação direta. Esta checagem é a última linha de
+    // defesa: mesmo que algo religue a flag lá atrás, o popup não aparece.
+    const isPaidEstablishment =
+      String((establishment as any)?.payment_status || '').toLowerCase().trim() === 'paid';
+
+    if (
+      establishment &&
+      activeTab === 'appointments' &&
+      establishment.payment_alert_enabled &&
+      !isPaidEstablishment
+    ) {
       setShowPaymentAlert(true);
     } else {
       setShowPaymentAlert(false);

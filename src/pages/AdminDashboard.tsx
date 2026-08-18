@@ -2249,13 +2249,58 @@ const AdminDashboard = () => {
         });
       }
 
-      // ✅ Regra automática: se venceu hoje OU está vencido, alerta deve ficar ligado (quando não está pago).
+      // ✅ Regra automática do alerta de cobrança.
+      //
+      // REGRA DE NEGÓCIO (inegociável): se o cliente está PAGO, o alerta NÃO fica ligado.
+      // O popup vermelho de "pagamento em atraso" no painel do barbeiro é acionado só por
+      // `payment_alert_enabled` — então enquanto essa flag ficar true, quem já pagou vê
+      // cobrança.
+      //
+      // ⚠️ O "quando não está pago" existia só no comentário: o código olhava apenas a
+      // DATA e religava o alerta mesmo para quem estava PAGO. Como esta rotina roda a
+      // cada carregamento do painel admin, ela desfazia o desligamento manual — o dono
+      // desativava, e voltava na próxima vez que a tela abria. Vários clientes que já
+      // tinham pagado recebiam cobrança de novo por causa disso.
+      //
+      // Se um pago estiver com a data vencida, o certo é mudar o STATUS (vencido/pendente),
+      // não manter "pago" e cobrar mesmo assim.
       const shouldAutoEnableAlert = (est: any) => {
         const paymentStatus = String(est?.payment_status || '').toLowerCase().trim();
         const dueDate = String(est?.payment_due_date || '').trim();
         if (!dueDate) return false;
+        if (paymentStatus === 'paid') return false;
         return paymentStatus === 'expired' || isExpired(dueDate) || isDueToday(dueDate);
       };
+
+      // Correção automática do que já está errado: PAGO com alerta ligado tem o alerta
+      // DESLIGADO aqui. Sem isso, os casos criados antes desta correção continuariam
+      // cobrando quem já pagou até alguém desligar um por um na mão.
+      const shouldDisableAlertIds = establishmentsWithEmails
+        .filter((est) => {
+          const paymentStatus = String((est as any)?.payment_status || '').toLowerCase().trim();
+          return paymentStatus === 'paid' && Boolean((est as any)?.payment_alert_enabled);
+        })
+        .map((est) => est.id);
+
+      if (shouldDisableAlertIds.length > 0) {
+        await Promise.all(
+          shouldDisableAlertIds.map(async (id) => {
+            const { error } = await supabase
+              .from('establishments')
+              .update({ payment_alert_enabled: false })
+              .eq('id', id);
+            if (error) {
+              console.warn('Falha ao desligar alerta de estabelecimento PAGO:', id, error);
+            }
+          })
+        );
+
+        establishmentsWithEmails.forEach((est) => {
+          if (shouldDisableAlertIds.includes(est.id)) {
+            (est as any).payment_alert_enabled = false;
+          }
+        });
+      }
 
       const shouldEnableAlertIds = establishmentsWithEmails
         .filter((est) => shouldAutoEnableAlert(est) && !Boolean(est.payment_alert_enabled))
