@@ -7434,6 +7434,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         {formatIsoDateSafe(cs.end_date)}
                       </div>
                     </div>
+                    {/* Data do último pagamento: sem ela, o barbeiro via "Início 23/07 →
+                        Fim 04/09" (43 dias) e achava que o sistema tinha errado. Na
+                        renovação só o Fim é recalculado (data do pagamento + 30 dias) e o
+                        Início continua o do ciclo anterior — mostrar quando o dinheiro
+                        entrou explica a conta sozinho. */}
+                    {String((cs as any)?.last_payment_date || '').trim() && (
+                      <div className={`text-xs sm:text-sm ${textColor}/90 mt-1`}>
+                        <span className="font-medium">Último pagamento:</span>{' '}
+                        {formatIsoDateSafe(String((cs as any).last_payment_date))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Informações de contato - Layout melhorado para mobile */}

@@ -86,6 +86,89 @@ export class WhatsAppSessionManager {
     return sessionPath;
   }
 
+  /**
+   * Limpeza dos arquivos de sessão antigos (o disco encheu em 27/08/2026 e derrubou o
+   * WhatsApp de todos os estabelecimentos — ver comentário do shouldIgnoreJid).
+   *
+   * O useMultiFileAuthState nunca apaga nada: cada contato/grupo que interage com o
+   * número vira arquivo permanente na pasta. Esta rotina remove os que o Baileys sabe
+   * recriar sozinho, e SÓ depois de ficarem muito tempo sem uso.
+   *
+   * REGRAS DE SEGURANÇA (não afrouxar):
+   *  - `creds.json` JAMAIS é tocado. É ele que mantém o número conectado; apagar
+   *    significa derrubar o barbeiro e obrigar a ler o QR Code de novo.
+   *  - só apaga arquivo sem modificação há `maxAgeDays` (padrão 30 dias). Chave em uso
+   *    é reescrita pelo Baileys, então arquivo velho = contato que sumiu.
+   *  - só apaga os prefixos abaixo, todos recriáveis na próxima interação. No pior caso
+   *    uma mensagem daquele contato falha uma vez e a chave é renegociada.
+   *  - erro em um arquivo não interrompe o resto nem derruba a conexão.
+   */
+  async cleanupOldSessionFiles(options?: { maxAgeDays?: number }): Promise<{
+    removedFiles: number;
+    freedBytes: number;
+    scannedSessions: number;
+  }> {
+    const maxAgeDays = Math.max(7, Number(options?.maxAgeDays ?? 30));
+    const cutoffMs = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+
+    // Prefixos recriáveis pelo Baileys. `creds.json` está fora de propósito.
+    const REMOVABLE_PREFIXES = [
+      'pre-key-',
+      'session-',
+      'sender-key-',
+      'sender-key-memory-',
+      'app-state-sync-version-',
+      'lid-mapping-',
+      'identity-key-',
+    ];
+
+    let removedFiles = 0;
+    let freedBytes = 0;
+    let scannedSessions = 0;
+
+    let entries: Array<{ name: string; isDirectory: () => boolean }> = [];
+    try {
+      entries = (await fs.readdir(this.sessionsRootDir, { withFileTypes: true })) as any[];
+    } catch {
+      return { removedFiles, freedBytes, scannedSessions };
+    }
+
+    for (const entry of entries) {
+      if (!entry?.isDirectory?.()) continue;
+      const folderName = String(entry.name || '').trim();
+      if (!folderName.startsWith('user_')) continue;
+
+      const sessionPath = path.join(this.sessionsRootDir, folderName);
+      scannedSessions += 1;
+
+      let files: string[] = [];
+      try {
+        files = await fs.readdir(sessionPath);
+      } catch {
+        continue;
+      }
+
+      for (const fileName of files) {
+        const name = String(fileName || '');
+        if (name === 'creds.json') continue; // NUNCA
+        if (!REMOVABLE_PREFIXES.some((prefix) => name.startsWith(prefix))) continue;
+
+        const filePath = path.join(sessionPath, name);
+        try {
+          const stat = await fs.stat(filePath);
+          if (stat.mtimeMs >= cutoffMs) continue; // ainda em uso
+          await fs.unlink(filePath);
+          removedFiles += 1;
+          freedBytes += Number(stat.size || 0);
+        } catch {
+          // arquivo sumiu/em uso: ignora e segue
+        }
+      }
+    }
+
+    return { removedFiles, freedBytes, scannedSessions };
+  }
+
   private async emitStatus(
     userId: string,
     status: WhatsAppSessionStatus,
@@ -124,6 +207,24 @@ export class WhatsAppSessionManager {
       connectTimeoutMs: 60_000,
       keepAliveIntervalMs: 20_000,
       defaultQueryTimeoutMs: 60_000,
+      // ⚠️ ENCHEU O DISCO EM PRODUÇÃO (27/08/2026): o useMultiFileAuthState grava UM
+      // ARQUIVO por chave de criptografia, e o Baileys cria chave para cada participante
+      // de cada grupo/lista em que o número do barbeiro está. Como muitos usam o mesmo
+      // número em grupos pessoais, isso gerou milhares de arquivos por sessão até estourar
+      // os 10 GB do disco do Render — derrubando o WhatsApp de TODOS os estabelecimentos
+      // com "ENOSPC: no space left on device" (o barbeiro via "desconectando sozinho").
+      //
+      // O sistema só ENVIA lembrete/confirmação para números individuais: não lê grupo,
+      // não responde grupo, não precisa da chave de ninguém de grupo. Ignorar aqui corta
+      // a origem do acúmulo sem afetar nenhuma função do produto.
+      shouldIgnoreJid: (jid: string) => {
+        const value = String(jid || '').toLowerCase();
+        return (
+          value.endsWith('@g.us') ||          // grupos
+          value.endsWith('@broadcast') ||     // listas de transmissão e status
+          value.endsWith('@newsletter')       // canais
+        );
+      },
     });
 
     this.sockets.set(userId, { socket, reconnecting: false });

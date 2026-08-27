@@ -14,6 +14,7 @@ export class WhatsAppManager {
   private restoreInProgress = false;
   private restoreTimer: NodeJS.Timeout | null = null;
   private sweepTimer: NodeJS.Timeout | null = null;
+  private cleanupTimer: NodeJS.Timeout | null = null;
 
   constructor(options?: WhatsAppManagerOptions) {
     const configuredSessionsDir = String(process.env.WHATSAPP_SESSIONS_DIR || '').trim();
@@ -187,6 +188,50 @@ export class WhatsAppManager {
         (sweepIntervalMs > 0 ? `, sweep a cada ${sweepIntervalMs}ms.` : ', sweep desativado.')
     );
 
+    // Limpeza periódica dos arquivos de sessão antigos. O disco de 10 GB encheu em
+    // 27/08/2026 (ENOSPC) e derrubou o WhatsApp de TODOS os estabelecimentos: o
+    // useMultiFileAuthState grava um arquivo por chave e nunca apaga nada. Sem esta
+    // rotina, o disco volta a encher — só demora mais.
+    // Roda uma vez na subida (com folga para não competir com o restore) e depois no
+    // intervalo configurado. Nunca toca em creds.json (ver cleanupOldSessionFiles).
+    const cleanupIntervalMs = Math.max(
+      Number(process.env.WHATSAPP_SESSION_CLEANUP_INTERVAL_MS || 12 * 60 * 60 * 1000) || 12 * 60 * 60 * 1000,
+      0
+    );
+    const cleanupMaxAgeDays = Math.max(
+      Number(process.env.WHATSAPP_SESSION_CLEANUP_MAX_AGE_DAYS || 30) || 30,
+      7
+    );
+
+    const runCleanup = async () => {
+      try {
+        const result = await this.sessionManager.cleanupOldSessionFiles({ maxAgeDays: cleanupMaxAgeDays });
+        if (result.removedFiles > 0) {
+          const freedMb = (result.freedBytes / (1024 * 1024)).toFixed(1);
+          console.log(
+            `[whatsapp/cleanup] ${result.removedFiles} arquivo(s) antigo(s) removido(s) ` +
+            `(${freedMb} MB liberados) em ${result.scannedSessions} sessão(ões).`
+          );
+        } else {
+          console.log(`[whatsapp/cleanup] Nada a remover (${result.scannedSessions} sessão(ões) verificadas).`);
+        }
+      } catch (error) {
+        // Limpeza é manutenção: falhar aqui NUNCA pode derrubar conexão de ninguém.
+        console.warn('[whatsapp/cleanup] Falha na limpeza de sessões antigas:', error);
+      }
+    };
+
+    if (cleanupIntervalMs > 0) {
+      if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+      // primeira passada 5 min após subir: o restore das sessões tem prioridade
+      setTimeout(() => { void runCleanup(); }, 5 * 60 * 1000);
+      this.cleanupTimer = setInterval(() => { void runCleanup(); }, cleanupIntervalMs);
+      console.log(
+        `[whatsapp/cleanup] Limpeza ativa: a cada ${Math.round(cleanupIntervalMs / 3600000)}h, ` +
+        `removendo arquivos sem uso há ${cleanupMaxAgeDays} dias.`
+      );
+    }
+
     if (sweepIntervalMs <= 0) return;
     if (this.sweepTimer) clearInterval(this.sweepTimer);
     this.sweepTimer = setInterval(() => {
@@ -202,6 +247,10 @@ export class WhatsAppManager {
     if (this.sweepTimer) {
       clearInterval(this.sweepTimer);
       this.sweepTimer = null;
+    }
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
     }
   }
 
