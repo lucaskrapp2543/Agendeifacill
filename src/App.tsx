@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { CacheBuster } from './components/CacheBuster';
@@ -27,7 +27,12 @@ import BookingSimplePage from './pages/BookingSimplePage';
 import CadastroEstabelecimento060622 from './pages/CadastroEstabelecimento060622';
 import CadastroPremium060622 from './pages/CadastroPremium060622';
 import ClientDashboard from './pages/ClientDashboard';
-import EstablishmentDashboard from './pages/EstablishmentDashboard';
+// ETAPA 2: o painel do barbeiro é a MAIOR tela do sistema (~45 mil linhas: agenda,
+// comanda, financeiro, assinantes, profissionais, produtos, metas, WhatsApp...).
+// Só quem faz login como estabelecimento usa. Carregar sob demanda tira esse peso
+// de todo cliente que abre o link de agendamento — que é a maioria dos acessos.
+// A lógica das telas continua idêntica; muda só quando o arquivo é baixado.
+const EstablishmentDashboard = lazy(() => import('./pages/EstablishmentDashboard'));
 import EstablishmentDirectBooking from './pages/EstablishmentDirectBooking';
 import LandingInfo from './pages/LandingInfo';
 import LandingPage from './pages/LandingPage';
@@ -46,7 +51,17 @@ import Suporte060622 from './pages/Suporte060622';
 import TermsOfServicePage from './pages/TermsOfServicePage';
 import ViewAppointmentsPage from './pages/ViewAppointmentsPage';
 
-import AdminDashboard from './pages/AdminDashboard';
+// ── ETAPA 1 do enxugamento do carregamento ──────────────────────────────────
+// O site inteiro vinha num único arquivo de ~4,1 MB: quem abria o link de
+// agendamento de uma barbearia baixava JUNTO o painel admin, o painel do
+// barbeiro e todas as landings — sendo que ia usar só a tela de agendar.
+// Isso inflou o bandwidth do Netlify (57,4 GB só em agendeifacil.com num mês).
+//
+// `lazy` faz o painel admin ser baixado SÓ quando alguém abre /dashboard/admin.
+// O código da tela não muda em nada — a lógica de horários, bloqueios, agenda e
+// financeiro continua idêntica; muda apenas O MOMENTO em que o arquivo é baixado.
+// Começando pelo admin de propósito: é a tela de menor risco (só o dono usa).
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 import AppInstallPage from './pages/AppInstallPage';
 import BlockedPage from './pages/BlockedPage';
 import CadastroAg from './pages/CadastroAg';
@@ -170,7 +185,18 @@ function App() {
                     element={
                       <ProtectedRoute allowedRoles={['establishment']}>
                         <BlockedCheck>
-                          <EstablishmentDashboard />
+                          <Suspense
+                            fallback={
+                              <div className="min-h-screen flex items-center justify-center bg-[#1a1b1c]">
+                                <div className="text-center">
+                                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500 mx-auto mb-3" />
+                                  <p className="text-sm text-gray-300">Carregando seu painel...</p>
+                                </div>
+                              </div>
+                            }
+                          >
+                            <EstablishmentDashboard />
+                          </Suspense>
                         </BlockedCheck>
                       </ProtectedRoute>
                     }
@@ -178,7 +204,22 @@ function App() {
 
                   <Route
                     path="/dashboard/admin"
-                    element={<AdminDashboard />}
+                    element={
+                      // Suspense cobre o instante do download da tela (só na 1ª vez;
+                      // depois fica em cache do navegador). Sem ele a tela pisca em branco.
+                      <Suspense
+                        fallback={
+                          <div className="min-h-screen flex items-center justify-center bg-gray-50">
+                            <div className="text-center">
+                              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-3" />
+                              <p className="text-sm text-gray-600">Carregando painel...</p>
+                            </div>
+                          </div>
+                        }
+                      >
+                        <AdminDashboard />
+                      </Suspense>
+                    }
                   />
 
                   <Route
