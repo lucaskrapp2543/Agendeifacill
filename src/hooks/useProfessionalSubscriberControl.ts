@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildExclusiveSubscribersByGroupKey,
   buildProfessionalControlGroups,
@@ -56,7 +56,23 @@ export function useProfessionalSubscriberControl({
   const [loading, setLoading] = useState(false);
   const [snapshots, setSnapshots] = useState<ProfessionalControlSnapshot[]>([]);
 
-  const reference = referenceDate || new Date();
+  // ⚠️ LOOP INFINITO (corrigido em 27/08/2026): isto era `referenceDate || new Date()`.
+  // Sem referenceDate, cada render criava um Date NOVO. Como `reference` alimenta o
+  // useMemo de periodRanges, que alimenta o useCallback de loadData, que é dependência
+  // do useEffect, a cadeia inteira se invalidava a cada render e recarregava tudo de
+  // novo — sem parar. Cada volta consultava o banco POR ASSINANTE, gerando centenas de
+  // requisições por segundo no painel do barbeiro (medido: ~270/s, 4.627 em 17 segundos).
+  // Era a causa do "sistema travando/pesado", dos milhões de requisições no Netlify e
+  // do 429 do Supabase.
+  //
+  // Agora o Date é criado UMA vez e reaproveitado enquanto referenceDate não mudar.
+  // NÃO trocar por `new Date()` direto aqui de novo.
+  const fallbackReferenceRef = useRef<Date | null>(null);
+  if (!fallbackReferenceRef.current) fallbackReferenceRef.current = new Date();
+  const reference = useMemo(
+    () => referenceDate || fallbackReferenceRef.current!,
+    [referenceDate]
+  );
   const periodRanges = useMemo(
     () => resolveSubscriberPerformancePeriodRanges(reference, period),
     [reference, period]

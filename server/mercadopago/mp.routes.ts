@@ -128,6 +128,9 @@ async function upsertPendingClientSubscription(
     subscriber_payment_method: 'credito',
     subscription_payment_provider: 'mercadopago_card_recurring',
     subscription_payment_order_id: input.preapprovalId,
+    // Vínculo da recorrência em coluna própria — pagamento avulso reescreve a
+    // linha inteira pelo telefone e apagava o preapproval daqui.
+    recurring_preapproval_id: input.preapprovalId,
   };
 
   if (existing?.id) {

@@ -80,6 +80,7 @@ import {
   parseReviewCustomAnswers,
 } from '../lib/reviewQuestions';
 import { resolveAuditActorName } from '../lib/appointmentAuditLog';
+import { PRODUCT_PAYOUT_START_DATE, isProductPaymentSource, isServicePaymentSource } from '../lib/professionalPaymentSources';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
 import {
   buildAfcoinBalanceByPhoneKeyFromAppointments,
@@ -6105,6 +6106,13 @@ const EstablishmentDashboard = () => {
 
   // Saldo por produtos (repasse do mês) por profissional
   const [productSaldoPorProfissional, setProductSaldoPorProfissional] = useState<Record<string, number>>({});
+  // Mesmo valor, só do DIA selecionado — alimenta o card "produtos hoje" no modal do profissional.
+  const [productSaldoDiaPorProfissional, setProductSaldoDiaPorProfissional] = useState<Record<string, number>>({});
+  // Parte PAGÁVEL pelo sistema: só vendas a partir de PRODUCT_PAYOUT_START_DATE.
+  // As barbearias já acertavam produto por fora; contar o histórico inteiro faria o
+  // sistema cobrar de novo o que já foi pago na mão. Os cards acima continuam
+  // mostrando o total real do mês — este mapa serve SÓ para o "falta pagar".
+  const [productSaldoPagavelPorProfissional, setProductSaldoPagavelPorProfissional] = useState<Record<string, number>>({});
   const [isLoadingProductSaldoPorProfissional, setIsLoadingProductSaldoPorProfissional] = useState(false);
 
   const handleShowProductSales = async (productId: string) => {
@@ -6247,6 +6255,27 @@ const EstablishmentDashboard = () => {
         if (name) saldoByProfessionalName[name] = 0;
       });
 
+      // Mesmo cálculo, restrito ao DIA selecionado na agenda. Aproveita as mesmas
+      // consultas do mês (nenhuma query extra) — só separa o que caiu no dia.
+      const saldoDiaByProfessionalName: Record<string, number> = {};
+      (establishment.professionals || []).forEach((p: any) => {
+        const name = String(p?.name || '').trim();
+        if (name) saldoDiaByProfessionalName[name] = 0;
+      });
+      const diaSelecionadoKey = format(selectedDate, 'yyyy-MM-dd');
+
+      // Fatia pagável pelo sistema (venda a partir da data de corte). Mesmas consultas.
+      const saldoPagavelByProfessionalName: Record<string, number> = {};
+      (establishment.professionals || []).forEach((p: any) => {
+        const name = String(p?.name || '').trim();
+        if (name) saldoPagavelByProfessionalName[name] = 0;
+      });
+      const acumularPagavel = (nome: string, dataVenda: string, valor: number) => {
+        if (!dataVenda || dataVenda < PRODUCT_PAYOUT_START_DATE) return;
+        saldoPagavelByProfessionalName[nome] =
+          Math.round(((saldoPagavelByProfessionalName[nome] || 0) + valor) * 100) / 100;
+      };
+
       // Buscar vendas de produtos do mês (filtrando pelo establishment via join com appointments)
       const { data, error } = await supabase
         .from('appointment_products')
@@ -6271,6 +6300,7 @@ const EstablishmentDashboard = () => {
       if (error) {
         console.error('Erro ao carregar saldo por produtos dos profissionais:', error);
         setProductSaldoPorProfissional({});
+        setProductSaldoPagavelPorProfissional({});
         return;
       }
 
@@ -6295,6 +6325,14 @@ const EstablishmentDashboard = () => {
         const payout = Math.max(0, (totalValue * safePct) / 100);
 
         saldoByProfessionalName[professionalName] = Math.round((saldoByProfessionalName[professionalName] + payout) * 100) / 100;
+
+        // Mesma venda, separada por dia (para o card "produtos hoje")
+        const dataVenda = String((row as any)?.appointments?.appointment_date || '').slice(0, 10);
+        if (dataVenda === diaSelecionadoKey) {
+          saldoDiaByProfessionalName[professionalName] =
+            Math.round(((saldoDiaByProfessionalName[professionalName] || 0) + payout) * 100) / 100;
+        }
+        acumularPagavel(professionalName, dataVenda, payout);
       });
 
       // ✅ Somar também vendas avulsas do mês (product_sales)
@@ -6330,17 +6368,29 @@ const EstablishmentDashboard = () => {
           const totalValue = Math.max(0, quantity * unitPrice);
           const payout = Math.max(0, (totalValue * safePct) / 100);
           saldoByProfessionalName[professionalName] = Math.round((saldoByProfessionalName[professionalName] + payout) * 100) / 100;
+
+          // Venda avulsa no dia selecionado (sold_at é timestamp)
+          const dataVendaAvulsa = String(row?.sold_at || '').slice(0, 10);
+          if (dataVendaAvulsa === diaSelecionadoKey) {
+            saldoDiaByProfessionalName[professionalName] =
+              Math.round(((saldoDiaByProfessionalName[professionalName] || 0) + payout) * 100) / 100;
+          }
+          acumularPagavel(professionalName, dataVendaAvulsa, payout);
         });
       }
 
       setProductSaldoPorProfissional(saldoByProfessionalName);
+      setProductSaldoDiaPorProfissional(saldoDiaByProfessionalName);
+      setProductSaldoPagavelPorProfissional(saldoPagavelByProfessionalName);
     } catch (e) {
       console.error('Erro ao carregar saldo por produtos dos profissionais:', e);
       setProductSaldoPorProfissional({});
+      setProductSaldoDiaPorProfissional({});
+      setProductSaldoPagavelPorProfissional({});
     } finally {
       setIsLoadingProductSaldoPorProfissional(false);
     }
-  }, [establishment?.id, selectedMonth, products, establishment?.professionals]);
+  }, [establishment?.id, selectedMonth, selectedDate, products, establishment?.professionals]);
   const [showAddProductToAppointmentModal, setShowAddProductToAppointmentModal] = useState(false);
 
   // Estados para categorias de serviços
@@ -15456,7 +15506,10 @@ Estamos te aguardando!`;
 
   useEffect(() => {
     if (!establishment?.id) return;
-    if (activeTab !== 'professionals') return;
+    // Também carrega em 'appointments': o card "Líquido produtos" do modal
+    // "Informações do Profissional" é aberto a partir de Meus Agendamentos e usa este
+    // mapa. Restrito só a 'professionals', o valor chegava sempre zerado lá.
+    if (activeTab !== 'professionals' && activeTab !== 'appointments') return;
     carregarSaldoProdutosPorProfissional();
   }, [activeTab, establishment?.id, selectedMonth, carregarSaldoProdutosPorProfissional]);
 
@@ -25900,10 +25953,7 @@ Estamos te aguardando!`;
     const monthPayments = (allProfessionalPayments || [])
       .filter((p: any) => p.professional_id === professional.id)
       .filter((p: any) => Number(p.amount || 0) > 0)
-      .filter((p: any) => {
-        const src = String((p as any)?.payment_source || '').toLowerCase();
-        return src !== 'subscription' && src !== 'assinatura';
-      })
+      .filter((p: any) => isServicePaymentSource((p as any)?.payment_source))
       .filter((p: any) => paymentBelongsToSelectedMonth(p, monthReference))
       .sort((a: any, b: any) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
 
@@ -26010,10 +26060,7 @@ Estamos te aguardando!`;
     const monthPayments = (allProfessionalPayments || [])
       .filter((p: any) => p.professional_id === professional.id)
       .filter((p: any) => Number(p.amount || 0) > 0)
-      .filter((p: any) => {
-        const src = String((p as any)?.payment_source || '').toLowerCase();
-        return src !== 'subscription' && src !== 'assinatura';
-      })
+      .filter((p: any) => isServicePaymentSource((p as any)?.payment_source))
       .filter((p: any) => paymentBelongsToSelectedMonth(p))
       .sort((a: any, b: any) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
 
@@ -28986,6 +29033,13 @@ Estamos te aguardando!`;
                       monthlyAppointments={monthlyAppointments}
                       returningClientPhones={returningClientPhones}
                       establishmentProducts={products}
+                      /* Líquido de produtos por profissional (mapa nome -> valor).
+                         Passado JÁ CALCULADO de propósito: é exatamente o mesmo número
+                         exibido em "Meus Produtos". Recalcular no modal criaria duas
+                         fontes para o mesmo valor — origem de todas as divergências de
+                         financeiro que já apareceram neste sistema. */
+                      productPayoutByProfessionalName={productSaldoPorProfissional}
+                      productPayoutTodayByProfessionalName={productSaldoDiaPorProfissional}
                       selectedDate={selectedDate}
                       professionalPins={establishment?.professionals_pins || []}
                       businessHours={establishment?.business_hours || {}}
@@ -37245,6 +37299,30 @@ Estamos te aguardando!`;
                           professionalRevenueAppointments,
                           professionalRevenuePaymentMonth
                         );
+                        // ── Produto a pagar para este profissional ──────────────────────
+                        // O acumulado vem de "Meus Produtos" (já calculado para o mês em
+                        // carregarSaldoProdutosPorProfissional, sem consulta nova aqui) e conta
+                        // SÓ vendas a partir da data de corte — o que é anterior segue sendo
+                        // acertado por fora, como sempre foi.
+                        // Guarda: se a tela de produtos carregou um mês diferente do mês do
+                        // acerto (intervalo personalizado), não arrisca número errado — mostra 0.
+                        const productMonthMatches =
+                          professionalRevenuePaymentMonth.getFullYear() === selectedMonth.getFullYear() &&
+                          professionalRevenuePaymentMonth.getMonth() === selectedMonth.getMonth();
+                        const productAccumulatedPayable = productMonthMatches
+                          ? Number(productSaldoPagavelPorProfissional[professional.name] || 0)
+                          : 0;
+                        const productAlreadyPaid = (allProfessionalPayments || [])
+                          .filter((p: any) => String(p?.professional_id || '') === String(professional.id))
+                          .filter((p: any) => isProductPaymentSource(p?.payment_source))
+                          .filter((p: any) => Number(p?.amount || 0) > 0)
+                          .filter((p: any) => paymentBelongsToSelectedMonth(p, professionalRevenuePaymentMonth))
+                          .reduce((sum: number, p: any) => sum + Number(p?.amount || 0), 0);
+                        const productPendingForProfessional = Math.max(
+                          0,
+                          Math.round((productAccumulatedPayable - productAlreadyPaid) * 100) / 100
+                        );
+
                         const subscriberProfessionalFinancial = subscriberFinancialByProfessional[professional.name] || {
                           totalAccumulated: 0,
                           totalPaid: 0,
@@ -37403,6 +37481,8 @@ Estamos te aguardando!`;
                                   validatedPendingAmount={paymentValidation.pendingAllowed}
                                   ignoredPaymentIds={paymentValidation.ignoredPaymentIds}
                                   selectedMonth={professionalRevenuePaymentMonth}
+                                  productPending={productPendingForProfessional}
+                                  productPaidThisMonth={productAlreadyPaid}
                                   isOwnerProfessional={isOwnerProfessional(professional)}
                                   onPaymentRecorded={() => {
                                     void loadProfessionalPayments(true);

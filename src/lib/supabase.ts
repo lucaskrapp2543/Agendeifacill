@@ -2467,6 +2467,44 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
   const manualClientsData = manualClients || JSON.parse(localStorage.getItem('manualClients') || '{}');
   console.log('📋 Clientes manuais disponíveis:', manualClientsData);
 
+  // ⚠️ PROBLEMA DE PERFORMANCE RESOLVIDO AQUI (27/08/2026) — não reintroduzir.
+  //
+  // Este bloco fazia, PARA CADA ASSINANTE, duas consultas extras ao banco
+  // (getClientNameFromDatabase + getClientWhatsappFromDatabase). Numa barbearia com
+  // ~58 assinantes isso viravam ~116 consultas por carregamento. Medido em produção:
+  // 6.295 chamadas a `appointments` em 15 segundos (≈800/s no pico), derrubando o
+  // painel ("sistema pesado/travando"), gerando 16 MILHÕES de requisições/mês no
+  // Netlify e o 429 do Supabase.
+  //
+  // Correção: o `clientNamesMap` acima já foi montado a partir dos agendamentos
+  // carregados numa ÚNICA consulta. Quando ele não tem o cliente, buscamos os que
+  // faltam DE UMA VEZ SÓ (uma query com IN), em vez de uma consulta por assinante.
+  const idsFaltando = Array.from(new Set(
+    clientSubs
+      .map((cs: any) => String(cs?.client_id || '').trim())
+      .filter((id: string) => id && !clientNamesMap.has(id))
+  ));
+
+  if (idsFaltando.length > 0) {
+    try {
+      const { data: extras } = await supabase
+        .from('appointments')
+        .select('client_id, client_name, client_whatsapp')
+        .eq('establishment_id', establishmentId)
+        .in('client_id', idsFaltando)
+        .order('created_at', { ascending: false });
+
+      (extras || []).forEach((row: any) => {
+        const id = String(row?.client_id || '').trim();
+        if (id && !clientNamesMap.has(id) && row?.client_name) {
+          clientNamesMap.set(id, { name: row.client_name, whatsapp: row.client_whatsapp });
+        }
+      });
+    } catch (error) {
+      console.warn('Falha ao completar nomes de clientes em lote:', error);
+    }
+  }
+
   // Combinar os dados das assinaturas de clientes com os nomes
   const combinedData = await Promise.all(clientSubs.map(async (cs) => {
     const rawClientId = String((cs as any)?.client_id || '').trim();
@@ -2490,47 +2528,21 @@ export const getClientSubscriptions = async (establishmentId: string, manualClie
         clientName = manualClient.name;
         clientWhatsapp = whatsapp;
         clientEmail = manualClient.email;
-        console.log(`✅ Cliente manual encontrado no localStorage: ${clientName} (${whatsapp})`);
       } else {
-        // Se não encontrou no localStorage, buscar no banco de dados
-        console.log(`🔍 Cliente manual não encontrado no localStorage, buscando no banco: ${whatsapp}`);
-        try {
-          const { getClientNameFromDatabase, getClientWhatsappFromDatabase } = await import('../utils/databaseClientRecovery');
-          const dbName = await getClientNameFromDatabase(establishmentId, rawClientId);
-          const dbWhatsapp = await getClientWhatsappFromDatabase(establishmentId, rawClientId);
-
-          if (dbName && dbName !== 'Cliente Desconhecido') {
-            clientName = dbName;
-            clientWhatsapp = dbWhatsapp || whatsapp;
-            console.log(`✅ Cliente manual encontrado no banco: ${clientName} (${clientWhatsapp})`);
-          } else {
-            console.log(`❌ Cliente manual não encontrado no banco: ${whatsapp}`);
-          }
-        } catch (error) {
-          console.error('Erro ao buscar cliente no banco:', error);
+        // Antes: 2 consultas ao banco AQUI, por assinante (ver comentário acima).
+        // Agora: o clientNamesMap já foi completado em lote antes deste loop.
+        const doMapa = clientNamesMap.get(rawClientId);
+        if (doMapa?.name) {
+          clientName = doMapa.name;
+          clientWhatsapp = doMapa.whatsapp || whatsapp;
+        } else {
+          clientWhatsapp = whatsapp;
         }
       }
     } else if (rawClientId) {
-      // É um UUID - usar dados do agendamento
+      // É um UUID - usar dados do agendamento (mapa já completado em lote acima)
       clientName = clientData?.name || 'Cliente Desconhecido';
       clientWhatsapp = clientData?.whatsapp || fallbackWhatsapp;
-
-      // Se não encontrou nome, tentar buscar no banco
-      if (clientName === 'Cliente Desconhecido') {
-        try {
-          const { getClientNameFromDatabase, getClientWhatsappFromDatabase } = await import('../utils/databaseClientRecovery');
-          const dbName = await getClientNameFromDatabase(establishmentId, rawClientId);
-          const dbWhatsapp = await getClientWhatsappFromDatabase(establishmentId, rawClientId);
-
-          if (dbName && dbName !== 'Cliente Desconhecido') {
-            clientName = dbName;
-            clientWhatsapp = dbWhatsapp || clientWhatsapp;
-            console.log(`✅ Cliente UUID encontrado no banco: ${clientName} (${clientWhatsapp})`);
-          }
-        } catch (error) {
-          console.error('Erro ao buscar cliente UUID no banco:', error);
-        }
-      }
     } else {
       // Compatibilidade com base legada: pode haver assinatura sem client_id.
       clientName = String((cs as any)?.client_name || '').trim() || 'Cliente sem client_id';

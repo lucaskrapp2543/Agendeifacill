@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { isServicePaymentSource, isSubscriptionPaymentSource } from '../lib/professionalPaymentSources';
 
 interface ProfessionalPayment {
   id: string;
@@ -71,10 +72,10 @@ export const useProfessionalPayments = (
       // com valores antigos/diferentes em payment_source.
       if (paymentSource !== 'all') {
         list = list.filter((p: ProfessionalPayment & { payment_source?: string | null }) => {
-          const src = String((p as any)?.payment_source || '').trim().toLowerCase();
-          const isSubscription = src === 'subscription' || src === 'assinatura';
-          if (paymentSource === 'subscription') return isSubscription;
-          return !isSubscription;
+          const src = (p as any)?.payment_source;
+          if (paymentSource === 'subscription') return isSubscriptionPaymentSource(src);
+          // 'normal' = SERVIÇO. Produto tem acerto próprio e não pode abater serviço.
+          return isServicePaymentSource(src);
         });
       }
       // Quando há mês selecionado: considerar pagamentos "deste mês" por for_month ou por payment_date (compat)
@@ -224,9 +225,19 @@ export const useProfessionalPayments = (
     return Math.max(0, pendingAmount); // Não pode ser negativo
   };
 
+  // ⚠️ Mesmo problema do ProfessionalPaymentControl (corrigido em 27/08/2026):
+  // `selectedMonth` é um Date recriado a cada render pelo componente pai. Depender do
+  // OBJETO fazia este efeito rodar sem parar (buscar → setState → render → buscar...),
+  // multiplicado pela quantidade de profissionais na tela. Dependemos do VALOR (ano-mês):
+  // recarrega sempre que o mês muda de verdade, e para de repetir à toa.
+  const selectedMonthKey = selectedMonth
+    ? `${selectedMonth.getFullYear()}-${selectedMonth.getMonth()}`
+    : '';
+
   useEffect(() => {
     fetchPayments();
-  }, [establishmentId, selectedMonth]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [establishmentId, selectedMonthKey]);
 
   return {
     payments,

@@ -94,15 +94,44 @@ export const registerServiceWorker = async (): Promise<void> => {
         if (event.data && event.data.type === 'CACHE_UPDATED') return;
       });
       
-      // Verificar atualizações periodicamente (a cada 30 minutos), não imediatamente
-      setInterval(() => {
+      // ── VERIFICAÇÃO DE VERSÃO NOVA ──────────────────────────────────────────
+      // Antes só existia o intervalo de 30 min abaixo, e nada rodava ao abrir o app.
+      // Quem abria, usava 20 minutos e fechava NUNCA recebia versão nova — ficava preso
+      // numa build antiga para sempre. Foi por isso que, após vários deploys, ainda havia
+      // gente rodando versões velhas (inclusive com bugs já corrigidos).
+      //
+      // `registration.update()` apenas PERGUNTA ao servidor se há SW novo. Ele não
+      // recarrega a página nem troca a versão sozinho: se achar algo, dispara
+      // 'updatefound' → evento 'sw-update-available' → o aviso de atualizar aparece
+      // para a pessoa decidir. Por isso é seguro chamar mais vezes.
+      const MIN_INTERVALO_MS = 5 * 60 * 1000; // trava para não checar demais
+      let ultimaChecagem = 0;
+
+      const verificarAtualizacao = (motivo: string) => {
+        const agora = Date.now();
+        if (agora - ultimaChecagem < MIN_INTERVALO_MS) return;
+        ultimaChecagem = agora;
         registration.update().catch((error) => {
-          // Ignorar erros silenciosamente (pode ser que não haja atualização)
-          if (error.message && !error.message.includes('not found')) {
-            console.warn('⚠️ Erro ao verificar atualização do Service Worker:', error);
+          if (error?.message && !String(error.message).includes('not found')) {
+            console.warn(`⚠️ Falha ao verificar atualização (${motivo}):`, error);
           }
         });
-      }, 30 * 60 * 1000); // 30 minutos
+      };
+
+      // 1) Ao ABRIR o app — com folga para não competir com o carregamento inicial.
+      setTimeout(() => verificarAtualizacao('abertura'), 8000);
+
+      // 2) Ao VOLTAR para a aba/app. Cobre o PWA que fica dias aberto em segundo plano:
+      //    a pessoa volta ao app e nesse momento descobre que existe versão nova.
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') verificarAtualizacao('voltou ao app');
+      });
+
+      // 3) Quando a internet volta — quem estava offline não conseguiu verificar.
+      window.addEventListener('online', () => verificarAtualizacao('reconectou'));
+
+      // 4) Periodicamente, para quem deixa a tela aberta o dia todo.
+      setInterval(() => verificarAtualizacao('periódico'), 30 * 60 * 1000);
       
     } catch (error) {
       console.error('❌ Erro ao registrar Service Worker:', error);

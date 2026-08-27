@@ -6,6 +6,7 @@ import {
   useProfessionalSubscriberControl,
 } from '../hooks/useProfessionalSubscriberControl';
 import { supabase } from '../lib/supabase';
+import { isServicePaymentSource } from '../lib/professionalPaymentSources';
 import { ProfessionalAttendedClientsModal } from './ProfessionalAttendedClientsModal';
 import { ProfessionalPaymentControl } from './ProfessionalPaymentControl';
 
@@ -34,6 +35,10 @@ interface ProfessionalInfoModalProps {
   subscriberDailyAccumulated?: number;
   establishmentId?: string;
   selectedMonth?: Date;
+  /** Líquido do profissional em vendas de produtos no mês — vem pronto de "Meus Produtos". */
+  productPayout?: number;
+  /** Mesmo valor, só do dia selecionado. */
+  productPayoutToday?: number;
   getCardTaxAmountForServiceBase?: (apt: any, serviceBase: number) => number;
   taxDeductedByEstablishment?: boolean;
   basePercentage?: number;
@@ -190,6 +195,8 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   subscriberDailyAccumulated = 0,
   establishmentId,
   selectedMonth,
+  productPayout = 0,
+  productPayoutToday = 0,
   getCardTaxAmountForServiceBase,
   taxDeductedByEstablishment = false,
   basePercentage,
@@ -320,8 +327,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
 
       // Mesma lógica de paymentBelongsToSelectedMonth do EstablishmentDashboard
       const monthPayments = ((payRes.data || []) as any[]).filter((p) => {
-        const src = String(p.payment_source || '').toLowerCase();
-        if (src === 'subscription' || src === 'assinatura') return false;
+        if (!isServicePaymentSource(p.payment_source)) return false;
         const forM = String(p.for_month ?? '').trim();
         if (forM !== '') return forM === monthKey;
         const dt = new Date(p.payment_date);
@@ -1710,6 +1716,31 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                     <span className="text-amber-700"> + {subscriberDailyFromControl.count} de assinatura</span>
                   )}
                 </p>
+              </div>
+            </div>
+
+            {/* LÍQUIDO PRODUTOS — a parte que o profissional ganha nas vendas de produto,
+                no mês selecionado. O valor NÃO é recalculado aqui: vem pronto de "Meus
+                Produtos" (productSaldoPorProfissional no EstablishmentDashboard), para não
+                existirem dois cálculos do mesmo número e divergirem com o tempo. */}
+            <div className="mt-4 rounded-xl border-2 border-purple-300 bg-purple-50 p-4">
+              <p className="text-sm font-semibold text-purple-900 mb-1">📦 Líquido produtos</p>
+              <p className="text-[11px] text-purple-700 mb-3">
+                Parte dele nas vendas de produtos
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg bg-white border border-purple-200 p-3">
+                  <p className="text-xs text-purple-700 mb-1">Hoje</p>
+                  <p className="text-xl font-black text-purple-700">
+                    {showValues ? formatCurrency(Number(productPayoutToday || 0)) : '••••••'}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-white border border-purple-200 p-3">
+                  <p className="text-xs text-purple-700 mb-1">No mês</p>
+                  <p className="text-xl font-black text-purple-700">
+                    {showValues ? formatCurrency(Number(productPayout || 0)) : '••••••'}
+                  </p>
+                </div>
               </div>
             </div>
 

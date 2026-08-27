@@ -32,6 +32,7 @@ import {
 } from '../utils/exclusiveProfessionalBookingLink';
 import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
 import { resolveAuditActorName } from '../lib/appointmentAuditLog';
+import { isServicePaymentSource } from '../lib/professionalPaymentSources';
 import { AppointmentAuditTimeline } from './AppointmentAuditTimeline';
 import { ChangeAppointmentServiceModal } from './ChangeAppointmentServiceModal';
 import { ProfessionalInfoModal } from './ProfessionalInfoModal';
@@ -373,6 +374,10 @@ interface AllProfessionalsAppointmentsViewProps {
   auditActorName?: string | null;
   /** Lista de produtos do estoque, usada para exibir comissão por profissional no Caixa/Geral. */
   establishmentProducts?: Array<{ id: string; name: string; commission_percentages?: Record<string, number> }>;
+  /** Líquido de produtos por profissional (nome -> valor), já calculado em "Meus Produtos". */
+  productPayoutByProfessionalName?: Record<string, number>;
+  /** Mesmo valor, restrito ao dia selecionado. */
+  productPayoutTodayByProfessionalName?: Record<string, number>;
 }
 
 export const AllProfessionalsAppointmentsView: React.FC<
@@ -441,6 +446,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
   hiddenProfessionalIds = [],
   auditActorName = null,
   establishmentProducts = [],
+  productPayoutByProfessionalName = {},
+  productPayoutTodayByProfessionalName = {},
 }) => {
     const { toast } = useToast();
     const { user } = useAuth();
@@ -5305,8 +5312,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
           };
 
           const monthPayments = ((payResult.data || []) as any[]).filter((p) => {
-            const src = String(p.payment_source || '').toLowerCase();
-            if (src === 'subscription' || src === 'assinatura') return false;
+            if (!isServicePaymentSource(p.payment_source)) return false;
             const forM = String(p.for_month || '').trim();
             if (forM) return forM.startsWith(monthKey);
             const dt = new Date(p.payment_date);
@@ -9515,6 +9521,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
               getCardTaxAmountForServiceBase={getCardTaxAmountForServiceBase}
               taxDeductedByEstablishment={Boolean((establishment as any)?.tax_deducted_by_establishment)}
               selectedMonth={selectedDate}
+              productPayout={
+                productPayoutByProfessionalName[
+                  String(
+                    professionals.find((p) => p.id === selectedProfessionalForInfo)?.name || ''
+                  ).trim()
+                ] || 0
+              }
+              productPayoutToday={
+                productPayoutTodayByProfessionalName[
+                  String(
+                    professionals.find((p) => p.id === selectedProfessionalForInfo)?.name || ''
+                  ).trim()
+                ] || 0
+              }
               {...calculateProfessionalValues(selectedProfessionalForInfo)}
               onRefreshDormantClientsSource={onRefreshDormantClientsSource}
               dormantClientsSource={(() => {

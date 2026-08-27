@@ -91,6 +91,18 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
 
     window.addEventListener('app-update-available', handleUpdateAvailable as EventListener);
 
+    // ⚠️ CANAL QUE NINGUÉM ESCUTAVA (corrigido em 27/08/2026).
+    // O Service Worker (serviceWorker.ts) e o CacheBuster disparam 'sw-update-available'
+    // quando detectam build nova instalada — mas este componente só escutava
+    // 'app-update-available'. Resultado: metade das detecções de versão nova morria no
+    // caminho, e usuários seguiam presos em builds antigas mesmo depois de vários deploys.
+    // Aqui o evento do Service Worker é traduzido para o mesmo fluxo do aviso.
+    const handleSwUpdate = () => {
+      // Pergunta ao versionManager qual é a versão nova (o evento do SW não traz isso).
+      void checkUpdates();
+    };
+    window.addEventListener('sw-update-available', handleSwUpdate as EventListener);
+
     // Verificar periodicamente (a cada 5 MINUTOS) - reduzido de 10 segundos para evitar reloads constantes
     const interval = setInterval(() => {
       // Só verificar se não está atualizando
@@ -99,8 +111,21 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ classNam
       }
     }, 5 * 60 * 1000); // 5 minutos em vez de 10 segundos
 
+    // Verificar ao VOLTAR para a aba/app. O intervalo acima só roda com a página em
+    // primeiro plano; PWA minimizado ou aba de fundo fica congelado pelo navegador.
+    // Sem isto, quem deixa o app aberto em segundo plano por dias só descobre a versão
+    // nova por acaso — foi assim que sobraram usuários presos em builds antigas.
+    const handleVisibilidade = () => {
+      if (document.visibilityState === 'visible' && !isUpdatingRef.current) {
+        void checkUpdates();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilidade);
+
     return () => {
       window.removeEventListener('app-update-available', handleUpdateAvailable as EventListener);
+      window.removeEventListener('sw-update-available', handleSwUpdate as EventListener);
+      document.removeEventListener('visibilitychange', handleVisibilidade);
       clearInterval(interval);
     };
   }, [isUpdating]); // Apenas isUpdating como dependência (sincroniza ref)

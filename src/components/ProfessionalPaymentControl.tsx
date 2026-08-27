@@ -6,6 +6,7 @@ import { useProfessionalPayments } from '../hooks/useProfessionalPayments';
 import { supabase } from '../lib/supabase';
 import { resolveSubscriberAttendanceProfessionalGroup } from '../lib/subscriberSystem';
 import { buildProfessionalControlGroups, loadProfessionalControlSnapshot } from '../lib/professionalSubscriberControl';
+import { PRODUCT_PAYOUT_START_DATE } from '../lib/professionalPaymentSources';
 
 interface ProfessionalPaymentControlProps {
   establishmentId: string;
@@ -22,6 +23,14 @@ interface ProfessionalPaymentControlProps {
   readOnly?: boolean;
   /** Dono (100%) não acumula repasse de assinatura — pula o cálculo/pagamento de assinatura. */
   isOwnerProfessional?: boolean;
+  /**
+   * Comissão de PRODUTO ainda não paga a este profissional no mês.
+   * Vem pronta do pai (nenhuma consulta a mais aqui) e já considera a data de corte:
+   * vendas antigas continuam sendo acertadas por fora.
+   */
+  productPending?: number;
+  /** Quanto de produto JÁ foi pago a ele neste mês (registros com origem 'product'). */
+  productPaidThisMonth?: number;
 }
 
 export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProps> = ({
@@ -38,7 +47,12 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   onPaymentRecorded,
   readOnly = false,
   isOwnerProfessional = false,
+  productPending: productPendingProp = 0,
+  productPaidThisMonth: productPaidThisMonthProp = 0,
 }) => {
+  // Só entra na conta se realmente sobrou produto a pagar (nunca negativo).
+  const productPending = Math.max(0, Number(productPendingProp) || 0);
+  const productPaidThisMonth = Math.max(0, Number(productPaidThisMonthProp) || 0);
   const {
     loading,
     recordPayment,
@@ -99,6 +113,14 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     typeof validatedPendingAmount === 'number' ? Math.max(0, validatedPendingAmount) : pendingByLiquid;
   // Regra operacional: pagar apenas o que ficou pendente após o último pagamento válido.
   const pendingToPay = Math.max(0, Math.min(pendingByLiquid, pendingByValidatedRule));
+  // Tudo que o botão PAGAR quita de uma vez: serviços + assinatura + produtos.
+  const totalPendingAll = pendingToPay + subscriptionPending + productPending;
+  const payLabelParts = [
+    pendingToPay > 0 ? 'serviços' : null,
+    subscriptionPending > 0 ? 'assinatura' : null,
+    productPending > 0 ? 'produtos' : null,
+  ].filter(Boolean) as string[];
+  const payLabelSuffix = payLabelParts.length > 1 ? ` (${payLabelParts.join(' + ')})` : '';
   const operationalNewSales =
     typeof newSalesValue === 'number' ? Math.max(0, newSalesValue) : null;
   const pendingFromPriorServices = operationalNewSales === null
@@ -186,10 +208,28 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     }
   };
 
+  // ⚠️ LOOP INFINITO — corrigido em 27/08/2026. NÃO voltar a depender de `selectedMonth`.
+  //
+  // `selectedMonth` é um OBJETO Date criado a cada render pelo pai
+  // (resolveProfessionalRevenueReferenceMonth em EstablishmentDashboard). Para o React,
+  // objeto novo = dependência mudou — então este efeito rodava a cada render, buscava,
+  // atualizava estado, renderizava de novo, e recomeçava. Como este card aparece uma vez
+  // POR PROFISSIONAL, o efeito era multiplicado.
+  //
+  // Medido em produção: ~159 requisições/s no painel (picos de 800/s) com a tela parada.
+  // Era a causa do "sistema travando/pesado", dos ~16 MILHÕES de requisições/mês no
+  // Netlify e do 429 do Supabase.
+  //
+  // A correção compara o VALOR (ano-mês) em vez da identidade do objeto: a consulta
+  // continua idêntica e roda sempre que o mês realmente muda — só não repete à toa.
+  const selectedMonthKey = selectedMonth
+    ? `${selectedMonth.getFullYear()}-${selectedMonth.getMonth()}`
+    : '';
+
   useEffect(() => {
     void loadSubscriptionFinancial();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [establishmentId, professionalId, professionalName, selectedMonth, isOwnerProfessional]);
+  }, [establishmentId, professionalId, professionalName, selectedMonthKey, isOwnerProfessional]);
 
   // Registra o pagamento da assinatura (source: subscription) — MESMO registro que "Meus Assinantes" cria,
   // então lá reconhece como pago automaticamente. Isolado do pagamento normal (source: normal).
@@ -224,6 +264,42 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     return true;
   };
 
+  // Registra o pagamento da comissão de PRODUTO (source: 'product').
+  // Fica separado do pagamento de serviço para que nenhuma tela some as duas coisas:
+  // se este registro entrasse como 'normal', o "falta pagar" dos serviços cairia sozinho
+  // e o profissional receberia a menos.
+  const payProductPending = async (paymentDate?: Date): Promise<boolean> => {
+    if (productPending <= 0) return true;
+    const ref = selectedMonth || new Date();
+    const monthKey = `${ref.getFullYear()}-${String(ref.getMonth() + 1).padStart(2, '0')}`;
+    const now = new Date();
+    const isCurrentMonthSel = ref.getFullYear() === now.getFullYear() && ref.getMonth() === now.getMonth();
+    const dateForRecord = paymentDate ?? (isCurrentMonthSel ? now : new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 12, 0, 0, 0));
+    const basePayload: any = {
+      establishment_id: establishmentId,
+      professional_id: professionalId,
+      professional_name: professionalName,
+      amount: productPending,
+      payment_date: dateForRecord.toISOString(),
+      payment_source: 'product',
+      for_month: monthKey,
+    };
+    let { error } = await supabase.from('professional_payments').insert(basePayload);
+    if (error && String(error.message || '').toLowerCase().includes('for_month')) {
+      const legacy = { ...basePayload };
+      delete legacy.for_month;
+      ({ error } = await supabase.from('professional_payments').insert(legacy));
+    }
+    if (error) {
+      // Sem fallback removendo payment_source de propósito: um registro de produto sem
+      // origem seria lido como serviço e bagunçaria o acerto. Melhor não gravar e avisar.
+      console.error('Erro ao registrar pagamento de produto:', error);
+      toast.error('Pagamento dos serviços ok, mas houve erro ao registrar a parte dos produtos.');
+      return false;
+    }
+    return true;
+  };
+
   // Histórico precisa ser transparente: mostra todos os pagamentos registrados,
   // mesmo quando algum lançamento foi desconsiderado pela regra anti-adiantamento.
   const professionalPayments = getProfessionalPayments(professionalId);
@@ -250,7 +326,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   }, [professionalId, forMonthKey, totalPaidEffective, pendingToPay]);
 
   const handlePayFullAmount = async (paymentDate?: Date) => {
-    if (pendingToPay <= 0 && subscriptionPending <= 0) {
+    if (pendingToPay <= 0 && subscriptionPending <= 0 && productPending <= 0) {
       toast.error('Não há valor pendente para pagar');
       return;
     }
@@ -261,7 +337,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
     }
 
     if (!isCurrentMonth && !paymentDate) {
-      setDatePicker({ amount: pendingToPay + subscriptionPending, isCustom: false, date: _pickerMaxDate });
+      setDatePicker({ amount: totalPendingAll, isCustom: false, date: _pickerMaxDate });
       return;
     }
 
@@ -279,10 +355,20 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       if (subscriptionPending > 0) {
         await paySubscriptionPending(paymentDate);
       }
-      const totalPaidNow = pendingToPay + subscriptionPaidNow;
+      // Comissão de produto junto — source 'product', registro separado do serviço.
+      const productPaidNow = productPending;
+      if (productPending > 0) {
+        await payProductPending(paymentDate);
+      }
+      const totalPaidNow = pendingToPay + subscriptionPaidNow + productPaidNow;
+      const partes = [
+        pendingToPay > 0 ? 'serviços' : null,
+        subscriptionPaidNow > 0 ? 'assinatura' : null,
+        productPaidNow > 0 ? 'produtos' : null,
+      ].filter(Boolean);
       toast.success(
-        subscriptionPaidNow > 0 && pendingToPay > 0
-          ? `Pago ${formatCurrency(totalPaidNow)} para ${professionalName} (serviços + assinatura)`
+        partes.length > 1
+          ? `Pago ${formatCurrency(totalPaidNow)} para ${professionalName} (${partes.join(' + ')})`
           : `Pagamento de ${formatCurrency(totalPaidNow)} registrado para ${professionalName}`
       );
       onPaymentRecorded?.();
@@ -350,7 +436,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
   };
 
   const handlePaymentClick = () => {
-    if (pendingToPay <= 0 && subscriptionPending <= 0) {
+    if (pendingToPay <= 0 && subscriptionPending <= 0 && productPending <= 0) {
       toast.error('Não há valor pendente para pagar');
       return;
     }
@@ -651,6 +737,19 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
               👑 Falta pagar das assinaturas: {formatCurrency(subscriptionPending)}
             </div>
           )}
+          {productPending > 0 && (
+            <div className="text-sm text-purple-300 font-medium">
+              📦 Falta pagar dos produtos: {formatCurrency(productPending)}
+            </div>
+          )}
+          {/* Pagamento de produto é gravado com origem própria e por isso NÃO aparece no
+              histórico de serviços. Sem esta linha o dinheiro sairia do caixa sem deixar
+              rastro na tela — foi assim que valores "sumidos" viraram dúvida antes. */}
+          {productPaidThisMonth > 0 && (
+            <div className="text-[11px] text-purple-300/70">
+              📦 Produtos já pagos neste mês: {formatCurrency(productPaidThisMonth)}
+            </div>
+          )}
           {typeof cardTaxLoss === 'number' && cardTaxLoss > 0.009 && pendingToPay > 0 && (
             <div className="mt-1 rounded-lg border border-gray-700 bg-[#0b0e13] px-3 py-2 space-y-1">
               <div className="flex items-center justify-between text-[11px] text-red-300">
@@ -715,13 +814,13 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
         {/* Botões - Layout Mobile */}
         {!readOnly && <div className="flex flex-col sm:flex-row gap-2">
           {/* Botão PAGAR */}
-          {(pendingToPay > 0 || subscriptionPending > 0) && !showPaymentOptions && (
+          {(pendingToPay > 0 || subscriptionPending > 0 || productPending > 0) && !showPaymentOptions && (
             <button
               type="button"
               onClick={handlePaymentClick}
               disabled={isProcessing || loading}
               className="w-full sm:w-auto flex items-center justify-center space-x-1 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-              title={`Pagar ${formatCurrency(pendingToPay + subscriptionPending)} para ${professionalName}${subscriptionPending > 0 ? ' (serviços + assinatura)' : ''}`}
+              title={`Pagar ${formatCurrency(totalPendingAll)} para ${professionalName}${payLabelSuffix}`}
             >
               <Check className="w-4 h-4" />
               <span>PAGAR</span>
@@ -773,7 +872,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       </div>
 
       {/* Opções de Pagamento */}
-      {!readOnly && showPaymentOptions && (pendingToPay > 0 || subscriptionPending > 0) && (
+      {!readOnly && showPaymentOptions && (pendingToPay > 0 || subscriptionPending > 0 || productPending > 0) && (
         <div className="bg-[#121722] border border-blue-500/30 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-sm font-medium text-blue-300">
@@ -788,8 +887,8 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             </button>
           </div>
 
-          {/* Detalhe do que será pago (serviços + assinatura) */}
-          {subscriptionPending > 0 && (
+          {/* Detalhe do que será pago (serviços + assinatura + produtos) */}
+          {(subscriptionPending > 0 || productPending > 0) && (
             <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 space-y-1 text-xs">
               {pendingToPay > 0 && (
                 <div className="flex items-center justify-between">
@@ -797,15 +896,30 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                   <span className="font-semibold text-emerald-300">{formatCurrency(pendingToPay)}</span>
                 </div>
               )}
-              <div className="flex items-center justify-between">
-                <span className="text-amber-200">👑 Assinatura do mês</span>
-                <span className="font-semibold text-amber-300">{formatCurrency(subscriptionPending)}</span>
-              </div>
+              {subscriptionPending > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-amber-200">👑 Assinatura do mês</span>
+                  <span className="font-semibold text-amber-300">{formatCurrency(subscriptionPending)}</span>
+                </div>
+              )}
+              {productPending > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-purple-200">📦 Produtos vendidos</span>
+                  <span className="font-semibold text-purple-300">{formatCurrency(productPending)}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between border-t border-amber-500/20 pt-1">
                 <span className="text-gray-200 font-semibold">Total</span>
-                <span className="font-bold text-white">{formatCurrency(pendingToPay + subscriptionPending)}</span>
+                <span className="font-bold text-white">{formatCurrency(totalPendingAll)}</span>
               </div>
-              <p className="text-[10px] text-amber-200/70 pt-0.5">Pagar aqui também quita a assinatura em "Meus Assinantes".</p>
+              {subscriptionPending > 0 && (
+                <p className="text-[10px] text-amber-200/70 pt-0.5">Pagar aqui também quita a assinatura em "Meus Assinantes".</p>
+              )}
+              {productPending > 0 && (
+                <p className="text-[10px] text-purple-200/70 pt-0.5">
+                  Só entram vendas a partir de {new Date(PRODUCT_PAYOUT_START_DATE + 'T12:00:00').toLocaleDateString('pt-BR')} — o que é anterior continua sendo acertado por fora.
+                </p>
+              )}
             </div>
           )}
 
@@ -819,8 +933,8 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
             >
               <Check className="w-4 h-4" />
               <span>
-                {subscriptionPending > 0
-                  ? `Pagar Tudo (${formatCurrency(pendingToPay + subscriptionPending)})`
+                {subscriptionPending > 0 || productPending > 0
+                  ? `Pagar Tudo (${formatCurrency(totalPendingAll)})`
                   : `Pagar Pendente (${formatCurrency(pendingToPay)})`}
               </span>
             </button>

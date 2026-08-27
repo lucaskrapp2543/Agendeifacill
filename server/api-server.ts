@@ -117,6 +117,28 @@ const getSubscriberPaymentMethodFromProvider = (providerRaw: unknown): string | 
   return null;
 };
 
+
+/**
+ * Pagamento avulso NÃO pode rebaixar quem já tem recorrência.
+ *
+ * O assinante é localizado pelo TELEFONE e a linha é reescrita por inteiro. Quando
+ * alguém com renovação automática ativa pagava avulso, o provider caía para
+ * 'mercadopago_card' e o sistema perdia o rastro da recorrência: parava de renovar
+ * sozinho, o cliente voltava para a lista de "ativação pendente" e o barbeiro
+ * tendia a mandar OUTRO link — criando uma segunda recorrência e cobrando o
+ * cliente duas vezes por mês.
+ *
+ * O pagamento continua sendo registrado normalmente (status, datas, método);
+ * só o vínculo da recorrência é preservado.
+ */
+const preserveRecurringProvider = (existingRow: any, payload: any): void => {
+  const current = String(existingRow?.subscription_payment_provider || '').toLowerCase().trim();
+  const isRecurring = current === 'mercadopago_card_recurring' || current === 'mercadopago_card_recurring_pending';
+  if (!isRecurring) return;
+  const incoming = String(payload?.subscription_payment_provider || '').toLowerCase();
+  if (incoming.includes('recurring')) return;
+  delete payload.subscription_payment_provider;
+};
 const findExistingSubscriberByPhone = async (
   supabaseClient: any,
   establishmentId: string,
@@ -140,7 +162,7 @@ const findExistingSubscriberByPhone = async (
   for (const attempt of attempts) {
     let query = supabaseClient
       .from('client_subscriptions')
-      .select('id, subscription_id, created_at')
+      .select('id, subscription_id, created_at, subscription_payment_provider')
       .eq('establishment_id', estId)
       // @ts-expect-error colunas legadas podem não existir no tipo
       .eq(attempt.column, phone)
@@ -360,6 +382,8 @@ app.post('/api/subscribers/create-pending-subscription', async (req, res) => {
       subscription_payment_order_id: String(orderId),
     };
 
+    preserveRecurringProvider(existing, payload);
+
     let resultRow: any = null;
     if (existing?.id) {
       const { data: upd, error: updErr } = await supabaseAdmin
@@ -547,6 +571,8 @@ app.post('/api/subscribers/confirm-subscription-pix', async (req, res) => {
       subscription_payment_order_id: String(orderId),
     };
 
+    preserveRecurringProvider(existing, payload);
+
     let resultRow: any = null;
     if (existing?.id) {
       const { data: upd, error: updErr } = await supabaseAdmin
@@ -690,6 +716,8 @@ app.post('/api/subscribers/claim-subscription-credit', async (req, res) => {
       subscription_payment_provider: providerFinal,
       subscription_payment_order_id: orderId,
     };
+
+    preserveRecurringProvider(existing, payload);
 
     let resultRow: any = null;
     if (existing?.id) {

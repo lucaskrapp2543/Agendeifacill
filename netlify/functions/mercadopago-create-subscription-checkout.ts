@@ -29,6 +29,19 @@ const addMonths = (date: Date, months: number) => {
   return d;
 };
 
+/**
+ * A coluna `recurring_preapproval_id` é criada pela migration
+ * 20260827_client_subscriptions_recurring_preapproval_id.sql. Se o código subir
+ * antes do SQL rodar, a gravação falharia e o cliente não conseguiria ativar a
+ * recorrência — então aqui a falta da coluna é detectada e o fluxo continua sem
+ * ela, do jeito que funcionava antes.
+ */
+const isMissingRecurringColumnError = (error: any): boolean => {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return msg.includes('recurring_preapproval_id') &&
+    (msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('column'));
+};
+
 async function upsertPendingClientSubscription(input: {
   establishmentId: string;
   subscriptionId: string;
@@ -78,6 +91,10 @@ async function upsertPendingClientSubscription(input: {
     subscriber_payment_method: 'credito',
     subscription_payment_provider: input.recurringProvider,
     subscription_payment_order_id: input.preapprovalId,
+    // Vínculo da recorrência em coluna própria: pagamento avulso encontra o
+    // assinante pelo telefone e reescreve a linha inteira, o que apagava o
+    // preapproval de subscription_payment_order_id e deixava a recorrência órfã.
+    recurring_preapproval_id: input.preapprovalId,
   };
 
   if (existing?.id) {
@@ -87,7 +104,19 @@ async function upsertPendingClientSubscription(input: {
       .eq('id', String(existing.id))
       .select()
       .single();
-    if (error) throw error;
+    if (error) {
+      if (!isMissingRecurringColumnError(error)) throw error;
+      const legacy = { ...payload };
+      delete legacy.recurring_preapproval_id;
+      const retry = await supabaseAdmin
+        .from('client_subscriptions')
+        .update(legacy)
+        .eq('id', String(existing.id))
+        .select()
+        .single();
+      if (retry.error) throw retry.error;
+      return retry.data;
+    }
     return data;
   }
 
@@ -96,7 +125,18 @@ async function upsertPendingClientSubscription(input: {
     .insert([{ client_id: randomUUID(), ...payload }])
     .select()
     .single();
-  if (error) throw error;
+  if (error) {
+    if (!isMissingRecurringColumnError(error)) throw error;
+    const legacy = { ...payload };
+    delete legacy.recurring_preapproval_id;
+    const retry = await supabaseAdmin
+      .from('client_subscriptions')
+      .insert([{ client_id: randomUUID(), ...legacy }])
+      .select()
+      .single();
+    if (retry.error) throw retry.error;
+    return retry.data;
+  }
   return data;
 }
 
@@ -327,6 +367,8 @@ export const handler: Handler = async (event) => {
       const updatePayload: any = {
         subscription_payment_provider: recurringProvider,
         subscription_payment_order_id: preapprovalId,
+        // Cópia protegida do vínculo — ver comentário em upsertPendingClientSubscription.
+        recurring_preapproval_id: preapprovalId,
         subscriber_payment_method: 'credito',
       };
       if (customerName) updatePayload.subscriber_name = customerName;
@@ -336,13 +378,25 @@ export const handler: Handler = async (event) => {
         updatePayload.payment_status = 'unpaid';
       }
 
-      const { data: updatedBound, error: updateBoundError } = await supabaseAdmin
+      let { data: updatedBound, error: updateBoundError } = await supabaseAdmin
         .from('client_subscriptions')
         .update(updatePayload)
         .eq('id', existingClientSubscriptionId)
         .eq('establishment_id', establishmentId)
         .select('id, payment_status, subscription_payment_provider, subscription_payment_order_id')
         .maybeSingle();
+
+      if (updateBoundError && isMissingRecurringColumnError(updateBoundError)) {
+        const legacyPayload = { ...updatePayload };
+        delete legacyPayload.recurring_preapproval_id;
+        ({ data: updatedBound, error: updateBoundError } = await supabaseAdmin
+          .from('client_subscriptions')
+          .update(legacyPayload)
+          .eq('id', existingClientSubscriptionId)
+          .eq('establishment_id', establishmentId)
+          .select('id, payment_status, subscription_payment_provider, subscription_payment_order_id')
+          .maybeSingle());
+      }
 
       if (updateBoundError) {
         return json(500, {

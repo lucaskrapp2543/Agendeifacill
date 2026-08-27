@@ -5261,6 +5261,34 @@ const AdminDashboard = () => {
                 )}
               </div>
 
+              {/* Sair limpando o login rápido salvo neste aparelho.
+                  O botão "Limpar Tudo (neste aparelho)" só existia na tela /login — e
+                  quem tem acesso salvo entra direto no admin, sem nunca passar por lá.
+                  Resultado: não havia como trocar de conta sem limpar pelo console. */}
+              <button
+                onClick={() => {
+                  const ok = window.confirm(
+                    'Sair e limpar o acesso salvo neste aparelho?\n\n' +
+                    'Você vai precisar fazer login de novo na próxima vez.\n' +
+                    'Isso afeta só este aparelho — nenhum dado do sistema é alterado.'
+                  );
+                  if (!ok) return;
+                  try {
+                    localStorage.clear();
+                    sessionStorage.clear();
+                  } catch {
+                    // se o navegador bloquear o storage, ainda assim faz o logout normal
+                  }
+                  void handleSignOut();
+                  window.location.href = '/login';
+                }}
+                className="flex items-center space-x-2 px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition-colors"
+                title="Sair e apagar o login rápido salvo neste aparelho"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="text-sm">Sair e limpar</span>
+              </button>
+
               <button
                 onClick={handleSignOut}
                 className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
