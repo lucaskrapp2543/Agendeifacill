@@ -512,6 +512,180 @@ export const handler: Handler = async (event) => {
         providerApplied: preapprovalProviderStatus,
         linkedSubscribers: rows.length,
       });
+    } else if (webhookData.type === 'subscription_authorized_payment') {
+      // =====================================================================
+      // COBRANÇA MENSAL DA RECORRÊNCIA — é ISTO que deixa o assinante em dia sozinho.
+      //
+      // Quando o Mercado Pago cobra o cartão de uma assinatura recorrente, ele
+      // avisa com este tipo de evento. Antes ele caía no "tipo não processado"
+      // lá embaixo e era jogado fora: o barbeiro recebia o dinheiro e o
+      // assinante continuava aparecendo como devendo, tendo que ser marcado
+      // como pago na mão todo mês.
+      // =====================================================================
+      const authorizedPaymentId = String(webhookData.data?.id || webhookData.id || '').trim();
+      if (!authorizedPaymentId) {
+        return json(400, { error: 'ID da cobrança de assinatura não encontrado' });
+      }
+
+      // De qual barbearia é esta notificação? O Mercado Pago manda o id da conta
+      // do vendedor em `user_id`, e ele é salvo no OAuth como mercadopago_user_id.
+      const sellerUserId = String(webhookData.user_id || '').trim();
+      if (!sellerUserId) {
+        return json(200, { message: 'Cobrança de assinatura sem user_id do vendedor' });
+      }
+
+      const { data: sellerEst } = await supabaseAdmin
+        .from('establishments')
+        .select('id')
+        .eq('mercadopago_user_id', sellerUserId)
+        .limit(1)
+        .maybeSingle();
+
+      const sellerEstablishmentId = String((sellerEst as any)?.id || '').trim();
+      if (!sellerEstablishmentId) {
+        return json(200, {
+          message: 'Cobrança de assinatura recebida, mas nenhum estabelecimento tem esse Mercado Pago',
+          sellerUserId,
+        });
+      }
+
+      let authorized: any = null;
+      try {
+        const token = await getValidMercadoPagoAccessToken(sellerEstablishmentId);
+        const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+        const resp = await axios.get(
+          `${MP_API_BASE_URL}/authorized_payments/${encodeURIComponent(authorizedPaymentId)}`,
+          { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, validateStatus: () => true }
+        );
+        if (resp.status !== 200) {
+          console.warn('⚠️ [MP Webhook] Mercado Pago recusou a consulta da cobrança de assinatura:', resp.status, resp.data);
+          return json(200, { message: 'Cobrança de assinatura recebida, mas não foi possível consultar', httpStatus: resp.status });
+        }
+        authorized = resp.data || {};
+      } catch (authorizedError: any) {
+        console.error('❌ [MP Webhook] Erro ao consultar cobrança de assinatura:', authorizedError?.message || authorizedError);
+        return json(200, { message: 'Cobrança de assinatura recebida, mas houve erro ao consultar' });
+      }
+
+      const preapprovalId = String(authorized?.preapproval_id || '').trim();
+      // Quem diz se o dinheiro entrou é `payment.status`, não o `status` da
+      // cobrança: verificado na conta real, uma cobrança paga vem como
+      // status "processed" com payment.status "approved". "processed" sozinho
+      // não garante pagamento — por isso a aprovação exige o payment.
+      const cobrancaStatus = String(authorized?.payment?.status || '').toLowerCase().trim();
+      const foiAprovada = cobrancaStatus === 'approved' || cobrancaStatus === 'accredited';
+
+      if (!preapprovalId) {
+        return json(200, { message: 'Cobrança de assinatura sem preapproval vinculado', authorizedPaymentId });
+      }
+
+      // Acha o assinante pelo vínculo da recorrência. Tenta primeiro a coluna
+      // dedicada (que nenhum pagamento avulso sobrescreve) e cai para a antiga,
+      // para funcionar também com quem foi cadastrado antes da correção.
+      let assinantes: any[] = [];
+      try {
+        const { data } = await supabaseAdmin
+          .from('client_subscriptions')
+          .select('id, subscription_id, payment_status, last_payment_date, establishment_id')
+          .eq('establishment_id', sellerEstablishmentId)
+          .eq('recurring_preapproval_id', preapprovalId)
+          .limit(20);
+        assinantes = Array.isArray(data) ? data : [];
+      } catch {
+        // Coluna nova ainda não existe neste banco: segue pela antiga.
+      }
+      if (assinantes.length === 0) {
+        const { data } = await supabaseAdmin
+          .from('client_subscriptions')
+          .select('id, subscription_id, payment_status, last_payment_date, establishment_id')
+          .eq('establishment_id', sellerEstablishmentId)
+          .eq('subscription_payment_order_id', preapprovalId)
+          .limit(20);
+        assinantes = Array.isArray(data) ? data : [];
+      }
+
+      if (assinantes.length === 0) {
+        return json(200, {
+          message: 'Cobrança de assinatura recebida, mas nenhum assinante está vinculado a essa recorrência',
+          preapprovalId,
+          establishmentId: sellerEstablishmentId,
+        });
+      }
+
+      if (!foiAprovada) {
+        return json(200, {
+          message: 'Cobrança de assinatura ainda não aprovada; assinatura permanece como está',
+          preapprovalId,
+          cobrancaStatus: cobrancaStatus || String(authorized?.status || ''),
+          assinantes: assinantes.length,
+        });
+      }
+
+      const hoje = toISODate(new Date());
+      // O Mercado Pago reenvia o mesmo webhook várias vezes. Sem esta trava, a
+      // validade do assinante seria empurrada um mês a cada reenvio.
+      const pendentes = assinantes.filter(
+        (a: any) => !(String(a?.payment_status || '') === 'paid' && String(a?.last_payment_date || '') === hoje)
+      );
+      if (pendentes.length === 0) {
+        return json(200, { message: 'Cobrança de assinatura já processada hoje', preapprovalId });
+      }
+
+      let renovados = 0;
+      for (const assinante of pendentes) {
+        const subscriptionId = String(assinante?.subscription_id || '').trim();
+        let durationMonths = 1;
+        if (subscriptionId) {
+          const { data: subRow } = await supabaseAdmin
+            .from('subscriptions')
+            .select('duration_months')
+            .eq('id', subscriptionId)
+            .maybeSingle();
+          const d = Number((subRow as any)?.duration_months || 1);
+          durationMonths = Number.isFinite(d) && d > 0 ? d : 1;
+        }
+
+        const inicio = new Date();
+        const payload: any = {
+          payment_status: 'paid',
+          last_payment_date: toISODate(inicio),
+          start_date: toISODate(inicio),
+          end_date: toISODate(addMonths(inicio, durationMonths)),
+          subscriber_payment_method: 'credito',
+          // Reafirma a origem: se um pagamento avulso tinha rebaixado a linha,
+          // ela volta a ser reconhecida como recorrência ativa.
+          subscription_payment_provider: 'mercadopago_card_recurring',
+          recurring_preapproval_id: preapprovalId,
+        };
+
+        let { error: updErr } = await supabaseAdmin
+          .from('client_subscriptions')
+          .update(payload)
+          .eq('id', String(assinante.id));
+
+        if (updErr && String(updErr.message || '').toLowerCase().includes('recurring_preapproval_id')) {
+          const legado = { ...payload };
+          delete legado.recurring_preapproval_id;
+          ({ error: updErr } = await supabaseAdmin
+            .from('client_subscriptions')
+            .update(legado)
+            .eq('id', String(assinante.id)));
+        }
+
+        if (updErr) {
+          console.error('❌ [MP Webhook] Erro ao renovar assinatura pela cobrança recorrente:', updErr);
+        } else {
+          renovados += 1;
+        }
+      }
+
+      console.log('✅ [MP Webhook] Assinatura(s) renovada(s) pela cobrança recorrente:', renovados);
+      return json(200, {
+        message: 'Cobrança recorrente processada e assinatura renovada',
+        preapprovalId,
+        establishmentId: sellerEstablishmentId,
+        renovados,
+      });
     } else if (webhookData.type === 'payment') {
       const paymentId = webhookData.data?.id || webhookData.id;
 
@@ -720,17 +894,33 @@ export const handler: Handler = async (event) => {
               const payerEmail = String((payment as any)?.payer?.email || '').trim().toLowerCase();
 
               if (establishmentId && subscriptionId) {
+                // ⚠️ OVO E GALINHA (corrigido em 27/08/2026).
+                //
+                // Esta busca exigia `subscription_payment_provider = 'mercadopago_card_recurring'`.
+                // Só que a linha só recebe essa marca quando o webhook de ATIVAÇÃO chega —
+                // e se ele se perde, ou se um pagamento avulso rebaixa a linha, o cliente
+                // fica travado: a cobrança mensal chega, não encontra ninguém, não renova
+                // e TAMBÉM não corrige a marca. Um estado que nunca se cura sozinho.
+                //
+                // Agora a origem não é mais exigida: quem manda é o vínculo da recorrência
+                // (external_reference/preapproval), que identifica o cliente com segurança.
                 let subscriberQuery = supabaseAdmin
                   .from('client_subscriptions')
                   .select('id, payment_status, subscription_payment_order_id')
                   .eq('establishment_id', establishmentId)
                   .eq('subscription_id', subscriptionId)
-                  .eq('subscription_payment_provider', 'mercadopago_card_recurring')
                   .order('created_at', { ascending: false })
                   .limit(20);
 
                 if (payerEmail) {
                   subscriberQuery = subscriberQuery.eq('subscriber_email', payerEmail);
+                } else {
+                  // Sem e-mail para desempatar, só age em quem já é reconhecido como
+                  // recorrência — para não marcar como pago o assinante errado.
+                  subscriberQuery = subscriberQuery.in('subscription_payment_provider', [
+                    'mercadopago_card_recurring',
+                    'mercadopago_card_recurring_pending',
+                  ]);
                 }
 
                 const { data: subscriberRows, error: subscriberFetchError } = await subscriberQuery;

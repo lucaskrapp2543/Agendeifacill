@@ -1773,6 +1773,177 @@ router.post('/get-preapproval-status', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/mercadopago/list-preapprovals
+ * Espelho local de netlify/functions/mercadopago-list-preapprovals.ts.
+ * SOMENTE LEITURA: lista as recorrências da conta da barbearia. Não escreve
+ * nada no banco nem no Mercado Pago.
+ */
+router.post('/list-preapprovals', async (req: Request, res: Response) => {
+  try {
+    const { establishmentId } = req.body || {};
+    if (!establishmentId) {
+      return res.status(400).json({ error: 'Dados incompletos', required: ['establishmentId'] });
+    }
+
+    const supabaseAdmin = getSupabaseAdmin();
+    if (!supabaseAdmin) return res.status(500).json({ error: 'Supabase admin não configurado' });
+
+    const { data: establishment, error: estError } = await supabaseAdmin
+      .from('establishments')
+      .select('id, mercadopago_access_token')
+      .eq('id', String(establishmentId))
+      .single();
+    if (estError || !establishment) {
+      return res.status(404).json({ error: 'Estabelecimento não encontrado' });
+    }
+
+    const accessToken = String((establishment as any)?.mercadopago_access_token || '').trim();
+    if (!accessToken) {
+      return res.status(400).json({ error: 'Estabelecimento sem Mercado Pago conectado' });
+    }
+
+    const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
+    // ⚠️ Paginação instável do Mercado Pago: sem ordenação aceita, ela ora repete
+    // registros (148 recebidos / 140 distintos) ora perde registros que existem.
+    // Junta por id e repete a varredura até cobrir o total informado por ele.
+    const PAGE_SIZE = 100;
+    const MAX_PAGES = 10;
+    const MAX_VARREDURAS = 4;
+    const porId = new Map<string, any>();
+    let total = 0;
+    let varreduras = 0;
+
+    for (varreduras = 1; varreduras <= MAX_VARREDURAS; varreduras += 1) {
+      for (let page = 0; page < MAX_PAGES; page += 1) {
+        const mpResponse = await axios.get(`${MP_API_BASE_URL}/preapproval/search`, {
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          // Sem sort: o Mercado Pago recusa ('Invalid sorting value format').
+          params: { limit: PAGE_SIZE, offset: page * PAGE_SIZE },
+          validateStatus: () => true,
+        });
+
+        if (mpResponse.status !== 200) {
+          return res.status(200).json({
+            ok: false,
+            httpStatus: mpResponse.status,
+            mercadoPagoError: mpResponse.data ?? null,
+            hint: 'O Mercado Pago recusou a consulta de recorrências.',
+          });
+        }
+
+        const data = mpResponse.data || {};
+        const results: any[] = Array.isArray(data?.results) ? data.results : [];
+        total = Number(data?.paging?.total ?? total) || total;
+        results.forEach((raw: any) => {
+          const id = String(raw?.id || '').trim();
+          if (id && !porId.has(id)) porId.set(id, raw);
+        });
+        if (results.length < PAGE_SIZE) break;
+      }
+      if (total > 0 && porId.size >= total) break;
+    }
+
+    const all = Array.from(porId.values());
+    const coberturaCompleta = total === 0 || porId.size >= total;
+    const preapprovals = all
+      .map((raw: any) => ({
+        id: String(raw?.id || ''),
+        status: String(raw?.status || '').toLowerCase(),
+        payer_email: String(raw?.payer_email || raw?.payer?.email || '').toLowerCase().trim(),
+        payer_id: String(raw?.payer_id || raw?.payer?.id || ''),
+        // O Mercado Pago NÃO devolve o e-mail do pagador em conta conectada por
+        // OAuth (vem vazio até no detalhe individual). O NOME vem — é por ele que
+        // dá para descobrir de quem é cada recorrência.
+        payer_first_name: String(raw?.payer_first_name || '').trim(),
+        payer_last_name: String(raw?.payer_last_name || '').trim(),
+        next_payment_date: String(raw?.next_payment_date || ''),
+        external_reference: String(raw?.external_reference || ''),
+        reason: String(raw?.reason || ''),
+        date_created: String(raw?.date_created || ''),
+        last_charged_date: String(raw?.summarized?.last_charged_date || ''),
+        charged_quantity: Number(raw?.summarized?.charged_quantity ?? 0) || 0,
+        transaction_amount: Number(raw?.auto_recurring?.transaction_amount ?? 0) || 0,
+      }))
+      .filter((p: any) => Boolean(p.id));
+
+    const porStatus: Record<string, number> = {};
+    preapprovals.forEach((p: any) => {
+      const key = p.status || 'sem_status';
+      porStatus[key] = (porStatus[key] || 0) + 1;
+    });
+
+    // A listagem em lote não traz o e-mail do pagador; ele só vem no detalhe
+    // individual. Busca só das ativas, em lotes de 5. Continua só leitura.
+    const ACTIVE = new Set(['authorized', 'approved', 'active', 'paid']);
+    const ativas = preapprovals.filter((p: any) => ACTIVE.has(p.status));
+    let falhasAoBuscarDetalhe = 0;
+    let amostraDetalhe: any = null;
+    for (let i = 0; i < ativas.length; i += 5) {
+      const lote = ativas.slice(i, i + 5);
+      await Promise.all(
+        lote.map(async (p: any) => {
+          if (p.payer_email) return;
+          try {
+            const det = await axios.get(`${MP_API_BASE_URL}/preapproval/${encodeURIComponent(p.id)}`, {
+              headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+              validateStatus: () => true,
+            });
+            if (det.status !== 200) {
+              falhasAoBuscarDetalhe += 1;
+              if (!amostraDetalhe) amostraDetalhe = { httpStatus: det.status, erro: det.data ?? null };
+              return;
+            }
+            const d = det.data || {};
+            if (!amostraDetalhe) {
+              amostraDetalhe = {
+                httpStatus: det.status,
+                campos: Object.keys(d || {}).sort(),
+                payer_email: d?.payer_email ?? null,
+                payer_id: d?.payer_id ?? null,
+                payer: d?.payer ?? null,
+              };
+            }
+            p.payer_email = String(d?.payer_email || d?.payer?.email || '').toLowerCase().trim();
+            if (!p.payer_id) p.payer_id = String(d?.payer_id || d?.payer?.id || '');
+            if (!p.next_payment_date) p.next_payment_date = String(d?.next_payment_date || '');
+            if (!p.last_charged_date) p.last_charged_date = String(d?.summarized?.last_charged_date || '');
+            if (!p.charged_quantity) p.charged_quantity = Number(d?.summarized?.charged_quantity ?? 0) || 0;
+            if (!p.transaction_amount) p.transaction_amount = Number(d?.auto_recurring?.transaction_amount ?? 0) || 0;
+          } catch {
+            falhasAoBuscarDetalhe += 1;
+          }
+        })
+      );
+    }
+
+    return res.status(200).json({
+      ok: true,
+      establishmentId: String(establishmentId),
+      totalInformadoPeloMercadoPago: total,
+      totalRecebido: preapprovals.length,
+      coberturaCompleta,
+      varreduras,
+      porStatus,
+      ativasEnriquecidas: ativas.length,
+      falhasAoBuscarDetalhe,
+      semEmailMesmoAposDetalhe: ativas.filter((p: any) => !p.payer_email).length,
+      camposDisponiveis: all[0] ? Object.keys(all[0]).sort() : [],
+      amostraDetalhe,
+      preapprovals,
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      error:
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message ||
+        'Erro ao listar recorrências no Mercado Pago',
+      httpStatus: error?.response?.status ?? null,
+    });
+  }
+});
+
+/**
  * GET /api/mercadopago/recent-establishment-billing-payments
  * Lista pagamentos automáticos (regularização) recentes por estabelecimento.
  */

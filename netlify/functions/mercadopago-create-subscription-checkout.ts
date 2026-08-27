@@ -11,6 +11,28 @@ const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY |
 const MP_API_BASE_URL = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').trim();
 const SUBSCRIPTION_BACK_URL = String(process.env.MERCADOPAGO_SUBSCRIPTION_BACK_URL || '').trim();
 
+/**
+ * Para onde o Mercado Pago avisa sobre esta recorrência (ativação e cobrança mensal).
+ *
+ * Sem isto, o aviso só chega se a conta/aplicação tiver o tópico de assinaturas
+ * marcado no painel do Mercado Pago — algo que nenhuma barbearia configura. Era
+ * uma das razões de a renovação não dar baixa sozinha.
+ *
+ * Derivado do back_url para não precisar de variável nova em produção: os dois
+ * apontam para o mesmo site. Só é enviado se resultar numa URL https válida.
+ */
+const resolveNotificationUrl = (backUrl?: string): string | null => {
+  const explicito = String(process.env.MERCADOPAGO_WEBHOOK_URL || '').trim();
+  if (/^https:\/\//i.test(explicito)) return explicito;
+  const base = String(backUrl || SUBSCRIPTION_BACK_URL || '').trim();
+  if (!/^https:\/\//i.test(base)) return null;
+  try {
+    return `${new URL(base).origin}/.netlify/functions/mercadopago-webhook`;
+  } catch {
+    return null;
+  }
+};
+
 const supabaseAdmin =
   SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
     ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -314,6 +336,12 @@ export const handler: Handler = async (event) => {
       });
     }
     if (backUrl) payload.back_url = backUrl;
+
+    // Avisa o Mercado Pago para onde mandar os eventos desta recorrência —
+    // ativação e cobrança mensal. É o que faz o assinante ficar em dia sozinho
+    // sem depender de configuração no painel de cada barbearia.
+    const notificationUrl = resolveNotificationUrl(backUrl);
+    if (notificationUrl) payload.notification_url = notificationUrl;
 
     const mpHeaders: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,

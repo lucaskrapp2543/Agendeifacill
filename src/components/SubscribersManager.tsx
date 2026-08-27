@@ -437,6 +437,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [isCreatingRecurringLinkByClientId, setIsCreatingRecurringLinkByClientId] = useState<Record<string, boolean>>({});
   const [recurringActivationLinkByClientId, setRecurringActivationLinkByClientId] = useState<Record<string, string>>({});
   const [isRefreshingRecurringList, setIsRefreshingRecurringList] = useState(false);
+  // Conferência SOMENTE LEITURA das recorrências no Mercado Pago (não altera nada).
+  const [isAuditingRecurring, setIsAuditingRecurring] = useState(false);
+  const [recurringAuditReport, setRecurringAuditReport] = useState<any | null>(null);
 
   const normalizeNameKey = (value: string): string =>
     String(value || '')
@@ -3156,6 +3159,215 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
     const status = String((payload as any)?.preapproval?.status || '').trim();
     return { status, active: isMercadoPagoPreapprovalActiveStatus(status) };
+  };
+
+  /**
+   * Pergunta ao Mercado Pago QUAIS recorrências existem nesta conta e cruza com a
+   * base local. NÃO ESCREVE NADA — nem no banco, nem no Mercado Pago.
+   *
+   * Serve para conferir, antes de qualquer reconexão automática, se a informação
+   * vem correta. O botão "Atualizar lista" só consegue verificar quem ainda tem o
+   * número da recorrência salvo; quem perdeu esse número (por sobrescrita de
+   * pagamento avulso) é invisível para ele — e é justamente esse pessoal que fica
+   * preso na lista de pendente mesmo tendo o cartão cobrado todo mês.
+   */
+  const conferirRecorrenciasNoMercadoPago = async () => {
+    if (!establishmentId) {
+      toast.error('Estabelecimento inválido para conferir.');
+      return;
+    }
+    if (!establishmentHasMercadoPago(establishment)) {
+      toast.error('Conecte o Mercado Pago para conferir recorrências.');
+      return;
+    }
+
+    setIsAuditingRecurring(true);
+    setRecurringAuditReport(null);
+    try {
+      const endpoint = import.meta.env.PROD
+        ? '/.netlify/functions/mercadopago-list-preapprovals'
+        : '/api/mercadopago/list-preapprovals';
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ establishmentId: String(establishmentId) }),
+      });
+      const payload = await response.json().catch(() => ({} as any));
+
+      if (!response.ok || (payload as any)?.ok === false) {
+        setRecurringAuditReport({
+          erro:
+            String((payload as any)?.error || (payload as any)?.hint || `Erro ${response.status}`),
+          httpStatus: (payload as any)?.httpStatus ?? response.status,
+          detalhe: (payload as any)?.mercadoPagoError ?? null,
+        });
+        return;
+      }
+
+      // Cruzamento por NOME.
+      // O e-mail seria a chave ideal, mas o Mercado Pago não devolve o e-mail do
+      // pagador em conta conectada por OAuth — vem vazio até no detalhe individual.
+      // O que ele devolve é payer_first_name + payer_last_name. Por isso o nome é
+      // a chave possível aqui (e-mail continua sendo tentado primeiro, caso venha).
+      const emailParaAssinante = new Map<string, ClientSubscription>();
+      const nomeParaAssinante = new Map<string, ClientSubscription>();
+      const apelidoParaAssinante = new Map<string, ClientSubscription>();
+      const nomesDuplicados = new Set<string>();
+      const apelidosDuplicados = new Set<string>();
+
+      // O "nome" que o Mercado Pago devolve costuma ser o APELIDO da conta dele —
+      // que na prática é o e-mail sem o @dominio (ex.: "tiagospaulo tiagospaulo"
+      // para tiagospaulo@gmail.com). Por isso guardo também a parte do e-mail
+      // antes do @: é o que mais casa na prática.
+      const parteAntesDoArroba = (email: string) =>
+        String(email || '').toLowerCase().split('@')[0].replace(/[^a-z0-9]/g, '');
+
+      clientSubscriptions.forEach((cs) => {
+        if (isArchivedSubscriber(cs)) return;
+        const email = getSubscriberEmailForRecurring(cs);
+        if (email && !emailParaAssinante.has(email)) emailParaAssinante.set(email, cs);
+
+        const apelido = parteAntesDoArroba(email);
+        if (apelido) {
+          if (apelidoParaAssinante.has(apelido)) apelidosDuplicados.add(apelido);
+          else apelidoParaAssinante.set(apelido, cs);
+        }
+
+        const nome = normalizeNameKey(getSubscriberDisplayName(cs));
+        if (!nome) return;
+        // Nome repetido não serve para identificar ninguém — marca e descarta.
+        if (nomeParaAssinante.has(nome)) nomesDuplicados.add(nome);
+        else nomeParaAssinante.set(nome, cs);
+      });
+
+      const idsNaListaPendente = new Set(
+        recurringActivationCandidates.map((cs) => String(cs.id || ''))
+      );
+
+      const ativos = ((payload as any)?.preapprovals || []).filter((p: any) =>
+        isMercadoPagoPreapprovalActiveStatus(p?.status)
+      );
+
+      const linhas = ativos.map((p: any) => {
+        const nomeNoMP = [String(p?.payer_first_name || ''), String(p?.payer_last_name || '')]
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        const chaveNome = normalizeNameKey(nomeNoMP);
+
+        let assinante: ClientSubscription | undefined;
+        let comoCasou: 'email' | 'apelido' | 'nome' | null = null;
+        let nomeAmbiguo = false;
+
+        if (p?.payer_email) {
+          assinante = emailParaAssinante.get(String(p.payer_email));
+          if (assinante) comoCasou = 'email';
+        }
+        // Apelido = e-mail sem o @dominio. É o que o Mercado Pago devolve na
+        // maioria dos casos, e é bem mais confiável que o nome.
+        if (!assinante) {
+          const apelidoMP = String(p?.payer_first_name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (apelidoMP && !apelidosDuplicados.has(apelidoMP)) {
+            assinante = apelidoParaAssinante.get(apelidoMP);
+            if (assinante) comoCasou = 'apelido';
+          }
+        }
+        if (!assinante && chaveNome) {
+          if (nomesDuplicados.has(chaveNome)) {
+            nomeAmbiguo = true; // mais de um assinante com esse nome: não dá para afirmar
+          } else {
+            assinante = nomeParaAssinante.get(chaveNome);
+            if (assinante) comoCasou = 'nome';
+          }
+        }
+
+        return {
+          id: String(p?.id || ''),
+          status: String(p?.status || ''),
+          email: String(p?.payer_email || ''),
+          nomeNoMP,
+          valor: Number(p?.transaction_amount || 0),
+          cobrancas: Number(p?.charged_quantity || 0),
+          ultimaCobranca: String(p?.last_charged_date || ''),
+          proximaCobranca: String(p?.next_payment_date || ''),
+          payerId: String(p?.payer_id || ''),
+          assinante: assinante ? getSubscriberDisplayName(assinante) : null,
+          comoCasou,
+          nomeAmbiguo,
+          naListaPendente: assinante ? idsNaListaPendente.has(String(assinante.id || '')) : false,
+        };
+      });
+
+      // ── COBRANÇA DUPLICADA ─────────────────────────────────────────────────
+      // Cada "Gerar link" cria uma recorrência NOVA no Mercado Pago, e nada
+      // cancela a anterior. Se o cliente autorizar duas, ele passa a ser cobrado
+      // duas vezes por mês — e ninguém percebe, porque o painel não mostrava isso.
+      // Agrupa por payer_id (a conta do Mercado Pago do cliente): mais de uma
+      // recorrência ativa no mesmo pagador é cobrança em duplicidade.
+      const porPagador = new Map<string, any[]>();
+      linhas.forEach((l: any) => {
+        const chave = String(l.payerId || '').trim();
+        if (!chave) return;
+        if (!porPagador.has(chave)) porPagador.set(chave, []);
+        porPagador.get(chave)!.push(l);
+      });
+      // CUIDADO — família usa a MESMA conta do Mercado Pago.
+      // Achei na produção dois irmãos assinando planos diferentes (R$109,99 e
+      // R$69,99) pela mesma conta: mesmo payer_id, e NÃO é duplicidade. Se eu
+      // apontasse como duplicado, o barbeiro cancelaria uma assinatura legítima.
+      //
+      // Critério: só é cobrança duplicada quando os VALORES são iguais (mesmo
+      // plano cobrado duas vezes). Valores diferentes = planos diferentes na
+      // mesma conta — fica separado, como "conferir", sem acusar nada.
+      const agrupados = Array.from(porPagador.entries())
+        .filter(([, itens]) => itens.length > 1)
+        .map(([payerId, itens]) => {
+          const valores = itens.map((i: any) => Number(i.valor || 0));
+          const mesmoValor = new Set(valores.map((v) => v.toFixed(2))).size === 1;
+          const soma = valores.reduce((s, v) => s + v, 0);
+          const maior = valores.reduce((m, v) => Math.max(m, v), 0);
+          return {
+            payerId,
+            nome: itens[0]?.assinante || itens[0]?.nomeNoMP || `pagador ${payerId}`,
+            quantidade: itens.length,
+            pagaPorMes: soma,
+            deveriaPagar: maior,
+            aMaisPorMes: Math.max(0, soma - maior),
+            mesmoValor,
+            itens,
+          };
+        });
+
+      const duplicados = agrupados
+        .filter((d) => d.mesmoValor)
+        .sort((a, b) => b.aMaisPorMes - a.aMaisPorMes);
+      const contasCompartilhadas = agrupados.filter((d) => !d.mesmoValor);
+
+      setRecurringAuditReport({
+        totalMP: Number((payload as any)?.totalInformadoPeloMercadoPago || 0),
+        porStatus: (payload as any)?.porStatus || {},
+        ativos: linhas.length,
+        sairiamDaLista: linhas.filter((l: any) => l.naListaPendente).length,
+        semAssinante: linhas.filter((l: any) => !l.assinante).length,
+        naoIdentificados: linhas.filter((l: any) => !l.assinante).length,
+        casadosPorNome: linhas.filter((l: any) => l.comoCasou === 'nome').length,
+        duplicados,
+        contasCompartilhadas,
+        totalCobradoAMaisPorMes: duplicados.reduce((s, d) => s + d.aMaisPorMes, 0),
+        falhasDetalhe: Number((payload as any)?.falhasAoBuscarDetalhe || 0),
+        // Diagnóstico cru: o que o Mercado Pago realmente devolveu.
+        camposDisponiveis: (payload as any)?.camposDisponiveis || null,
+        amostraDetalhe: (payload as any)?.amostraDetalhe ?? null,
+        linhas,
+      });
+    } catch (error: any) {
+      setRecurringAuditReport({
+        erro: String(error?.message || 'Falha ao consultar o Mercado Pago.'),
+      });
+    } finally {
+      setIsAuditingRecurring(false);
+    }
   };
 
   const refreshRecurringActivationList = async () => {
@@ -7180,11 +7392,220 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingRecurringList ? 'animate-spin' : ''}`} />
                   {isRefreshingRecurringList ? 'Verificando...' : 'Atualizar lista'}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => { void conferirRecorrenciasNoMercadoPago(); }}
+                  disabled={isAuditingRecurring}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${isAuditingRecurring
+                      ? 'bg-white/5 text-gray-400 border-gray-600 cursor-not-allowed'
+                      : 'bg-sky-500/15 text-sky-100 border-sky-400/40 hover:bg-sky-500/25'
+                    }`}
+                  title="Só consulta o Mercado Pago e mostra o que ele responde. Não altera nada."
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isAuditingRecurring ? 'animate-spin' : ''}`} />
+                  {isAuditingRecurring ? 'Conferindo...' : 'Conferir no Mercado Pago'}
+                </button>
                 <span className="px-2 py-1 rounded-full bg-amber-400/20 border border-amber-300/40 text-amber-100 text-xs font-bold">
                   {recurringActivationCandidates.length}
                 </span>
               </div>
             </div>
+
+            {/* Relatório da conferência (somente leitura). Some ao fechar. */}
+            {recurringAuditReport && (
+              <div className="mb-4 rounded-lg border border-sky-400/40 bg-sky-500/10 p-3 text-white">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <h4 className="text-sm font-bold text-sky-100">
+                    Conferência no Mercado Pago (não alterou nada)
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => setRecurringAuditReport(null)}
+                    className="text-sky-200 hover:text-white text-xs font-bold shrink-0"
+                  >
+                    Fechar
+                  </button>
+                </div>
+
+                {recurringAuditReport.erro ? (
+                  <div className="text-xs text-red-200 space-y-1">
+                    <p className="font-semibold">O Mercado Pago não respondeu a consulta.</p>
+                    <p>{String(recurringAuditReport.erro)}</p>
+                    {recurringAuditReport.httpStatus ? (
+                      <p className="text-red-300/80">Código: {String(recurringAuditReport.httpStatus)}</p>
+                    ) : null}
+                    {recurringAuditReport.detalhe ? (
+                      <pre className="mt-1 max-h-40 overflow-auto rounded bg-black/40 p-2 text-[10px] text-red-100">
+                        {JSON.stringify(recurringAuditReport.detalhe, null, 2)}
+                      </pre>
+                    ) : null}
+                    <p className="text-sky-100/80 pt-1">Mande esse texto para o suporte do sistema.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 text-xs">
+                    {/* Cobrança em duplicidade: dinheiro sendo tirado do cliente
+                        final agora. Fica no topo, em vermelho, porque é o único
+                        item aqui que exige ação imediata. */}
+                    {recurringAuditReport.duplicados?.length > 0 && (
+                      <div className="rounded-lg border-2 border-red-500/60 bg-red-500/15 p-3">
+                        <p className="text-sm font-black text-red-200">
+                          ⚠️ {recurringAuditReport.duplicados.length} cliente(s) com cobrança DUPLICADA
+                        </p>
+                        <p className="text-red-100/90 mt-0.5">
+                          Estão pagando{' '}
+                          <span className="font-bold">
+                            {Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
+                              .format(Number(recurringAuditReport.totalCobradoAMaisPorMes || 0))}
+                          </span>{' '}
+                          a mais por mês. Cancele a recorrência extra no painel do Mercado Pago.
+                        </p>
+                        <div className="mt-2 space-y-1.5">
+                          {recurringAuditReport.duplicados.map((d: any) => (
+                            <div key={`dup-${d.payerId}`} className="rounded bg-black/30 px-2 py-1.5">
+                              <p className="text-white font-bold">{d.nome}</p>
+                              <p className="text-red-100/80">
+                                {d.quantidade} recorrências ativas • paga{' '}
+                                {Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(d.pagaPorMes)}
+                                /mês • deveria pagar{' '}
+                                {Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(d.deveriaPagar)}
+                              </p>
+                              {d.itens.map((i: any) => (
+                                <p key={`dup-item-${i.id}`} className="text-red-200/60 text-[10px]">
+                                  · {Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(i.valor)}
+                                  {i.cobrancas > 0 ? ` — ${i.cobrancas} cobrança(s)` : ''}
+                                  {i.proximaCobranca ? ` — próxima ${formatIsoDateSafe(i.proximaCobranca)}` : ''}
+                                  {' — id '}{String(i.id).slice(0, 8)}
+                                </p>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Mesma conta do Mercado Pago com planos de valores diferentes:
+                        normalmente é família (dois assinantes, um cartão). NÃO é
+                        duplicidade — só vale conferir. */}
+                    {recurringAuditReport.contasCompartilhadas?.length > 0 && (
+                      <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-2.5">
+                        <p className="font-bold text-amber-100">
+                          {recurringAuditReport.contasCompartilhadas.length} conta(s) do Mercado Pago com mais de
+                          um plano — provavelmente família
+                        </p>
+                        {recurringAuditReport.contasCompartilhadas.map((d: any) => (
+                          <p key={`share-${d.payerId}`} className="text-amber-100/80">
+                            {d.nome}: {d.itens.map((i: any) =>
+                              Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(i.valor)
+                            ).join(' + ')} — valores diferentes, então são planos diferentes. Confira antes de mexer.
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="rounded bg-black/30 px-2 py-1.5">
+                        <p className="text-sky-200/80">Recorrências no MP</p>
+                        <p className="text-base font-black text-white">{recurringAuditReport.totalMP}</p>
+                      </div>
+                      <div className="rounded bg-black/30 px-2 py-1.5">
+                        <p className="text-sky-200/80">Ativas</p>
+                        <p className="text-base font-black text-emerald-300">{recurringAuditReport.ativos}</p>
+                      </div>
+                      <div className="rounded bg-black/30 px-2 py-1.5">
+                        <p className="text-sky-200/80">Sairiam da lista</p>
+                        <p className="text-base font-black text-amber-300">{recurringAuditReport.sairiamDaLista}</p>
+                      </div>
+                      <div className="rounded bg-black/30 px-2 py-1.5">
+                        <p className="text-sky-200/80">Sem assinante aqui</p>
+                        <p className="text-base font-black text-gray-300">{recurringAuditReport.semAssinante}</p>
+                      </div>
+                    </div>
+
+                    {/* Detalhamento do total: mostra que a maioria das recorrências
+                        criadas nunca foi autorizada pelo cliente (link gerado à toa). */}
+                    {recurringAuditReport.porStatus && Object.keys(recurringAuditReport.porStatus).length > 0 && (
+                      <p className="text-sky-100/80">
+                        Das {recurringAuditReport.totalMP} no Mercado Pago:{' '}
+                        {Object.entries(recurringAuditReport.porStatus)
+                          .sort((a: any, b: any) => Number(b[1]) - Number(a[1]))
+                          .map(([st, qtd]) => `${qtd} ${st}`)
+                          .join(' • ')}
+                      </p>
+                    )}
+
+                    {recurringAuditReport.naoIdentificados > 0 && (
+                      <p className="text-amber-200/90">
+                        {recurringAuditReport.naoIdentificados} recorrência(s) ativa(s) não bateram com nenhum
+                        assinante daqui (nome diferente, repetido, ou assinante excluído).
+                      </p>
+                    )}
+
+                    {/* Só aparece quando falta e-mail: mostra o que o Mercado Pago
+                        respondeu de verdade, para o suporte não ficar no chute. */}
+                    {recurringAuditReport.naoIdentificados > 0 &&
+                      (recurringAuditReport.camposDisponiveis || recurringAuditReport.amostraDetalhe) && (
+                        <details className="rounded border border-white/10 bg-black/30 px-2 py-1.5">
+                          <summary className="cursor-pointer text-sky-200 font-semibold">
+                            Ver o que o Mercado Pago respondeu (para o suporte)
+                          </summary>
+                          <pre className="mt-2 max-h-56 overflow-auto text-[10px] text-sky-100">
+                            {JSON.stringify(
+                              {
+                                camposNaListagem: recurringAuditReport.camposDisponiveis,
+                                amostraDoDetalhe: recurringAuditReport.amostraDetalhe,
+                              },
+                              null,
+                              2
+                            )}
+                          </pre>
+                        </details>
+                      )}
+
+                    {recurringAuditReport.linhas?.length > 0 && (
+                      <div className="max-h-64 overflow-auto rounded border border-sky-400/20 bg-black/20">
+                        {recurringAuditReport.linhas.map((l: any, i: number) => (
+                          <div
+                            key={`audit-${l.id || i}`}
+                            className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-2 py-1.5 last:border-b-0"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-white font-semibold truncate">
+                                {l.assinante || l.nomeNoMP || '(sem identificação no Mercado Pago)'}
+                                {l.comoCasou === 'nome' && (
+                                  <span className="ml-1 text-[10px] font-normal text-sky-300/80">(pelo nome)</span>
+                                )}
+                              </p>
+                              <p className="text-sky-200/70 truncate">
+                                {l.assinante && l.nomeNoMP && l.nomeNoMP !== l.assinante
+                                  ? `No MP: ${l.nomeNoMP} • `
+                                  : ''}
+                                {l.cobrancas > 0 ? `${l.cobrancas} cobrança(s)` : 'sem cobrança ainda'}
+                                {l.ultimaCobranca ? ` • última: ${formatIsoDateSafe(l.ultimaCobranca)}` : ''}
+                                {l.proximaCobranca ? ` • próxima: ${formatIsoDateSafe(l.proximaCobranca)}` : ''}
+                                {l.nomeAmbiguo ? ' • nome repetido, não dá para identificar' : ''}
+                              </p>
+                            </div>
+                            <span
+                              className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-bold ${l.naListaPendente
+                                  ? 'bg-amber-400/20 text-amber-100'
+                                  : 'bg-white/10 text-gray-300'
+                                }`}
+                            >
+                              {l.naListaPendente ? 'está na lista pendente' : 'ok'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <p className="text-sky-100/70 pt-1">
+                      "Sairiam da lista" são os que têm recorrência ativa no Mercado Pago mas aparecem
+                      como pendente aqui. Nada foi alterado — isso é só a conferência.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {recurringActivationCandidates.length === 0 ? (
               <p className="text-xs sm:text-sm text-gray-300">
