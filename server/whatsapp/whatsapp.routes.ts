@@ -183,11 +183,39 @@ const ensureNoConnectedWhatsAppSession = async (userId: string) => {
     });
     return;
   }
-  if (String(data?.status || '').toLowerCase() === 'connected') {
+  if (String(data?.status || '').toLowerCase() !== 'connected') return;
+
+  // ⚠️ REGISTRO FANTASMA — corrigido em 28/08/2026.
+  //
+  // Até aqui, o banco dizendo "connected" barrava a reconexão. Só que o banco é
+  // um espelho: ele só é atualizado quando o status MUDA. Se a sessão morre de
+  // forma anormal (o processo reinicia, trava, ou o disco enche como aconteceu
+  // em 27/08), a memória some junto e o registro fica congelado em "connected"
+  // para sempre.
+  //
+  // Resultado medido em produção: 21 barbearias marcadas como conectadas sem
+  // dar sinal há horas. O barbeiro via "WhatsApp conectado" numa tela onde nada
+  // funcionava e, ao tentar reconectar, levava "Já existe um WhatsApp conectado.
+  // Desconecte antes" — sem ter o que desconectar. Ficava preso, e só destravava
+  // quando alguém clicava em "Desconectar" (que corrige o registro).
+  //
+  // A memória deste processo é a fonte de verdade das sessões que ele mantém, e
+  // acima já foi confirmado que ela NÃO tem esta sessão. Então o registro está
+  // errado: corrige e deixa seguir.
+  //
+  // A exceção é escala com vários workers: aí a sessão pode estar viva em OUTRO
+  // processo, e "não tenho na memória" não prova nada. Nesse caso a trava fica.
+  if (!manager.ownsSession(userId)) {
     throw new Error(
       `Já existe um WhatsApp conectado${data?.phone ? ` (${data.phone})` : ''}. Desconecte antes de conectar outro número.`
     );
   }
+
+  console.warn('[whatsapp/session-check] registro fantasma corrigido', { userId });
+  await supabaseAdmin
+    .from('whatsapp_sessions')
+    .update({ status: 'disconnected', last_seen: new Date().toISOString() })
+    .eq('user_id', userId);
 };
 
 router.post('/connect', async (req, res) => {

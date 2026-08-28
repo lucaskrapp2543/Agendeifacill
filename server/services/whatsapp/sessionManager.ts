@@ -192,7 +192,36 @@ export class WhatsAppSessionManager {
 
     const existing = this.sockets.get(userId);
     if (existing?.socket) {
-      return { qr: this.getQr(userId), sessionPath: this.getSessionPath(userId) };
+      // Conexão de pé e autenticada: devolve como está. NUNCA derrubar — é o
+      // WhatsApp do barbeiro funcionando.
+      if (existing.socket.user) {
+        return { qr: this.getQr(userId), sessionPath: this.getSessionPath(userId) };
+      }
+
+      // Sem usuário autenticado, mas COM QR na tela: é uma tentativa em
+      // andamento, esperando alguém escanear. Devolve o mesmo QR.
+      const qrEmAndamento = this.getQr(userId);
+      if (qrEmAndamento) {
+        return { qr: qrEmAndamento, sessionPath: this.getSessionPath(userId) };
+      }
+
+      // ⚠️ CONEXÃO PRESA — corrigido em 28/08/2026.
+      // Sem usuário e sem QR: o socket morreu no meio do caminho e ficou preso
+      // na memória. Antes, o código devolvia daqui com `qr: null` — o front
+      // dizia "Conexão iniciada, escaneie o QR" e ficava esperando um código
+      // que ninguém tinha pedido. É o "não gera a parada" relatado pelos
+      // barbeiros. Derruba o socket morto e começa limpo, que é exatamente o
+      // que o fluxo de código por dígitos já faz e funciona.
+      try {
+        this.manualDisconnect.add(userId);
+        existing.socket.end?.(new Error('restart_socket_preso'));
+      } catch {
+        // ignore
+      }
+      this.sockets.delete(userId);
+      this.qrCache.set(userId, null);
+      this.clearReconnectTimer(userId);
+      await new Promise((resolve) => setTimeout(resolve, 300));
     }
 
     const sessionPath = await this.ensureSessionDir(userId);
@@ -294,7 +323,10 @@ export class WhatsAppSessionManager {
     return digits;
   }
 
-  private waitForQrSignal(userId: string, timeoutMs = 15_000): Promise<void> {
+  // 15s era curto demais em internet lenta: o barbeiro recebia "demorou para
+  // liberar o código" e nem sabia que era só tentar de novo. 30s dá margem sem
+  // deixar ninguém preso na tela.
+  private waitForQrSignal(userId: string, timeoutMs = 30_000): Promise<void> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.qrResolvers.delete(userId);

@@ -53,6 +53,18 @@ export class WhatsAppManager {
     return this.sessionManager.isConnected(userId);
   }
 
+  /**
+   * Esta instância é a dona da sessão deste usuário?
+   *
+   * Com um worker só (padrão), é sempre verdade: a memória deste processo é a
+   * fonte de verdade completa. Com vários workers, cada sessão pertence a um
+   * único worker — então "não tenho na memória" só significa "não está
+   * conectado" quando a sessão é minha.
+   */
+  ownsSession(userId: string): boolean {
+    return this.belongsToThisWorker(String(userId || '').trim());
+  }
+
   private hashStable(value: string): number {
     let hash = 0;
     const text = String(value || '');

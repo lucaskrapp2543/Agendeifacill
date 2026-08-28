@@ -164,6 +164,13 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
   const statusLabel = useMemo(() => {
     const current = String(status?.status || '').toLowerCase();
     if (!status) return 'Não conectado';
+    // ⚠️ A TELA MENTIA — corrigido em 28/08/2026.
+    // O texto abaixo vinha do REGISTRO no banco, que só é atualizado quando o
+    // status muda. Se a sessão caiu de forma anormal, o registro fica congelado
+    // em "connected" e o barbeiro via "✅ Conectado" numa tela onde nada
+    // funcionava. Quem sabe a verdade é `status.connected`, que vem da conexão
+    // viva no servidor. Sem essa confirmação, nunca dizer que está conectado.
+    if (current === 'connected' && !status.connected) return '⚠️ Sem conexão ativa';
     if (current === 'connected') return '✅ Conectado';
     if (current === 'needs_qr') return '📷 Aguardando QR';
     if (current === 'reconnecting') return '🔄 Reconectando';
@@ -411,6 +418,54 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
     }
   };
 
+  /**
+   * "Limpar conexão e começar do zero".
+   *
+   * Usa a MESMA rota do botão Desconectar (clear_session já apaga a sessão em
+   * disco) — nada de rota nova. O que muda é o nome e o aviso: o barbeiro cujo
+   * WhatsApp caiu não tem motivo para clicar em "Desconectar", e ficava preso
+   * sem saber que era esse o caminho.
+   *
+   * Age SÓ neste estabelecimento. Não toca em ninguém mais.
+   */
+  const handleResetConnection = async () => {
+    if (!ensureApiConfigured()) return;
+    if (!userId) return;
+
+    const confirmado = window.confirm(
+      'Isso apaga a conexão atual do WhatsApp desta barbearia e começa do zero.\n\n' +
+      'Você vai precisar ler o QR Code ou gerar um novo código para conectar de novo.\n\n' +
+      'Nenhuma outra barbearia é afetada. Continuar?'
+    );
+    if (!confirmado) return;
+
+    setLoading(true);
+    try {
+      const headers = await buildAuthHeaders();
+      if (!headers) throw new Error('Sessão expirada. Faça login novamente.');
+      const response = await fetch(buildWhatsAppApiUrl('disconnect'), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ user_id: userId, clear_session: true }),
+      });
+      const data = await parseApiResponse<any>(response);
+      if (!response.ok || !data?.ok) {
+        throw new Error(String(data?.error || 'Falha ao limpar a conexão.'));
+      }
+      setApiUnavailable(false);
+      setApiUnavailableMessage('');
+      setQrDataUrl(null);
+      setPairingCode('');
+      toast.success('Conexão limpa. Agora clique em "Conectar por QR" ou gere um novo código.');
+      await loadStatus();
+    } catch (error: any) {
+      markApiUnavailable(error);
+      toast.error(String(error?.message || 'Erro ao limpar a conexão.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSendTest = async () => {
     if (!ensureApiConfigured()) return;
     if (!userId) return;
@@ -631,6 +686,27 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
           </button>
         </div>
       </div>
+
+      {/* Saída para quem está preso: WhatsApp fora do ar e o sistema não deixa
+          reconectar. Só aparece quando NÃO há conexão ativa, para ninguém
+          derrubar sem querer um WhatsApp que está funcionando. */}
+      {!status?.connected ? (
+        <div className="mt-3 rounded-lg border border-orange-500/30 bg-orange-500/10 p-3">
+          <p className="text-sm font-semibold text-orange-200">WhatsApp não conecta de jeito nenhum?</p>
+          <p className="mt-1 text-xs text-orange-100/80">
+            Se o QR não aparece ou o código não gera, a conexão anterior pode ter travado.
+            Limpe e comece do zero — só esta barbearia é afetada.
+          </p>
+          <button
+            type="button"
+            onClick={handleResetConnection}
+            disabled={loading}
+            className="mt-2 px-3 py-2 rounded-md bg-orange-600 text-white text-sm font-semibold hover:bg-orange-500 disabled:opacity-60"
+          >
+            Limpar conexão e começar do zero
+          </button>
+        </div>
+      ) : null}
 
       {qrDataUrl ? (
         <div className="mt-4 rounded-lg border border-amber-500/30 bg-black/30 p-3">
