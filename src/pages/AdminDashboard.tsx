@@ -1254,7 +1254,31 @@ const AdminDashboard = () => {
     }
   };
 
+  // ⚠️ LOOP QUE DERRUBOU O SITE (429 em 03/09/2026) — não remover este guard.
+  //
+  // Esta função GRAVA em admin_mp_commissions. E o painel escuta essa MESMA tabela
+  // pelo Realtime para se atualizar. O resultado era um ciclo que se auto-alimenta:
+  //
+  //   grava → Realtime avisa → recarrega → grava → Realtime avisa → ...
+  //
+  // Medido no Netlify: GET e POST alternando a cada ~50ms, 15.300 requisições numa
+  // hora. Como TODO o Supabase passa pelo Netlify (proxy no netlify.toml), cada
+  // consulta é uma requisição faturada — e o Netlify cortou o site inteiro com 429.
+  //
+  // A reconciliação é só para preencher comissão que ficou faltando: não precisa
+  // rodar a cada 30s nem a cada evento. Uma vez a cada 5 minutos basta. A LEITURA
+  // (que alimenta os números da tela) continua acontecendo sempre, sem trava — o
+  // que o usuário vê não muda em nada.
+  const lastCommissionReconcileRef = useRef<{ key: string; atMs: number }>({ key: '', atMs: 0 });
+
   const ensureAdminMpCommissionsFromKnownPayments = async (ids: string[], monthStart: Date, monthEnd: Date) => {
+    const reconcileKey = `${format(monthStart, 'yyyy-MM')}__${ids.length}`;
+    const nowMs = Date.now();
+    const last = lastCommissionReconcileRef.current;
+    // Mês diferente (ou lista de estabelecimentos diferente) sempre reconcilia.
+    if (last.key === reconcileKey && nowMs - last.atMs < 5 * 60 * 1000) return;
+    lastCommissionReconcileRef.current = { key: reconcileKey, atMs: nowMs };
+
     try {
       const rowsToUpsert: any[] = [];
 
@@ -1749,7 +1773,7 @@ const AdminDashboard = () => {
       toast.error('Erro ao desconectar.');
       return;
     }
-    toast.success(`${sessionName} será deslogado em até 10 segundos.`);
+    toast.success(`${sessionName} será deslogado em até 1 minuto.`);
     setSupportSessions(prev => prev.filter(s => s.name !== sessionName));
   };
 
@@ -1836,7 +1860,15 @@ const AdminDashboard = () => {
     setShowSupportNamePicker(true);
   }, [isSupportAccount, user]);
 
-  // Heartbeat a cada 8s; ao voltar na aba verifica na hora
+  // Heartbeat da sessão de suporte.
+  //
+  // Era a cada 8s, e cada volta faz DUAS consultas (conferir se ainda vale +
+  // registrar o sinal): ~900 por hora, por aba aberta. Como todo o Supabase
+  // passa pelo Netlify, cada uma é uma requisição faturada.
+  //
+  // O banco só descarta a sessão depois de 3 MINUTOS sem sinal
+  // (COLE_SUPABASE_support_por_nome.sql). Com 45s ainda sobram 4 batidas de
+  // margem antes de expirar — folga de sobra, e 5x menos consultas.
   useEffect(() => {
     if (!isSupportAccount || !supportSessionAvailableRef.current) return;
     const name = getSupportSessionName();
@@ -1848,7 +1880,7 @@ const AdminDashboard = () => {
       const stillValid = await checkSupportSessionStillValid();
       if (!stillValid) return;
       await supabase.rpc('register_support_session_by_name', { p_name: n });
-    }, 8000);
+    }, 45000);
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') checkSupportSessionStillValid();
     };
@@ -1863,7 +1895,7 @@ const AdminDashboard = () => {
   useEffect(() => {
     if (!isSupportAccount) return;
     fetchSupportSessions();
-    const interval = setInterval(fetchSupportSessions, 15000);
+    const interval = setInterval(fetchSupportSessions, 60000);
     return () => clearInterval(interval);
   }, [isSupportAccount]);
 
@@ -1908,15 +1940,33 @@ const AdminDashboard = () => {
     return () => clearInterval(interval);
   }, [user]);
 
-  // Auto-refresh das inscrições a cada 5 segundos
+  // Contagem de inscrições pendentes.
+  //
+  // Era a cada 5 SEGUNDOS: 720 consultas por hora, por aba aberta, só para
+  // atualizar um contador. Como todo o Supabase passa pelo Netlify, cada uma
+  // era uma requisição faturada — e ajudou a estourar o limite que derrubou o
+  // site em 03/09/2026.
+  //
+  // 60s é mais que suficiente para um contador de inscrições. E agora pausa
+  // quando a aba está em segundo plano: não faz sentido consultar o banco para
+  // atualizar um número que ninguém está olhando.
   useEffect(() => {
-    const interval = setInterval(async () => {
+    const atualizar = async () => {
+      if (document.visibilityState !== 'visible') return;
       setIsAutoRefreshing(true);
       await fetchPendingRegistrationsCount();
       setIsAutoRefreshing(false);
-    }, 5000); // 5 segundos
+    };
 
-    return () => clearInterval(interval);
+    const interval = setInterval(() => { void atualizar(); }, 60000);
+    // Ao voltar para a aba, atualiza na hora para o número não ficar velho.
+    const onVisible = () => { if (document.visibilityState === 'visible') void atualizar(); };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   const fetchPendingRegistrationsCount = async () => {
@@ -3273,11 +3323,19 @@ const AdminDashboard = () => {
   useEffect(() => {
     if (establishments.length === 0) return;
 
+    // Agrupa rajadas: quando várias comissões entram de uma vez, o Realtime
+    // dispara vários eventos seguidos. Sem isto, cada um recarregava a tela
+    // inteira. Espera 3s de silêncio e recarrega UMA vez.
+    let debounceId: number | null = null;
     const refreshCommissions = () => {
-      void carregarLucroPixPorMes(lucroPixMonth);
+      if (debounceId !== null) window.clearTimeout(debounceId);
+      debounceId = window.setTimeout(() => {
+        debounceId = null;
+        void carregarLucroPixPorMes(lucroPixMonth);
+      }, 3000);
     };
 
-    const intervalId = window.setInterval(refreshCommissions, 30000);
+    const intervalId = window.setInterval(refreshCommissions, 60000);
     const channel = supabase
       .channel('admin-mp-commissions-dashboard')
       .on(
@@ -3288,6 +3346,7 @@ const AdminDashboard = () => {
       .subscribe();
 
     return () => {
+      if (debounceId !== null) window.clearTimeout(debounceId);
       window.clearInterval(intervalId);
       void supabase.removeChannel(channel);
     };
