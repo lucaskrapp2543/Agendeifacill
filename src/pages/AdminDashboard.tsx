@@ -25,6 +25,7 @@ import {
   XCircle
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { getEstablishmentPaymentState, isEstablishmentPaymentEmDia } from '../utils/establishmentPaymentState';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { AdminEstablishmentWhatsappReminders } from '../../modules/whatsapp-reminders/ui/AdminEstablishmentWhatsappReminders';
@@ -98,62 +99,21 @@ type AfcoinRewardRow = {
   wallet_id?: string | null;
 };
 
-/** Mesma regra da coluna STATUS: "Pago" com vencimento futuro pode ocorrer mesmo com payment_status !== 'paid'. */
-function getAdminGridDisplayPaymentState(
+/**
+ * Mesma regra da coluna STATUS: "Pago" com vencimento futuro pode ocorrer mesmo com
+ * payment_status !== 'paid'.
+ *
+ * A implementação mudou de lugar (src/utils/establishmentPaymentState.ts) sem
+ * mudar o comportamento: agora o painel do BARBEIRO usa exatamente esta mesma
+ * regra para decidir se mostra o popup de cobrança. Enquanto eram duas cópias,
+ * elas divergiram — e barbeiro em dia levava "pagamento em ATRASO".
+ */
+const getAdminGridDisplayPaymentState = (
   establishment: Pick<Establishment, 'payment_status' | 'payment_due_date'>
-): 'expired' | 'due_today' | 'paid' | 'pending' {
-  const parseDateOnlySafe = (value?: string | null): number => {
-    const raw = String(value || '').trim();
-    if (!raw) return NaN;
-    const onlyDate = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
-    if (onlyDate) {
-      const y = Number(onlyDate[1]);
-      const m = Number(onlyDate[2]) - 1;
-      const d = Number(onlyDate[3]);
-      return new Date(y, m, d, 12, 0, 0, 0).getTime();
-    }
-    const t = new Date(raw).getTime();
-    return Number.isFinite(t) ? t : NaN;
-  };
-  const isExpiredDue = (dueDate: string) => {
-    const dueAt = parseDateOnlySafe(dueDate);
-    if (!Number.isFinite(dueAt)) return false;
-    const dueEndOfDay = endOfDay(new Date(dueAt)).getTime();
-    return dueEndOfDay < Date.now();
-  };
-  const isDueTodayDue = (dueDate: string) => {
-    const dueAt = parseDateOnlySafe(dueDate);
-    if (!Number.isFinite(dueAt)) return false;
-    const dueDateLocal = new Date(dueAt);
-    const now = new Date();
-    return (
-      dueDateLocal.getFullYear() === now.getFullYear() &&
-      dueDateLocal.getMonth() === now.getMonth() &&
-      dueDateLocal.getDate() === now.getDate()
-    );
-  };
-  if (establishment.payment_status === 'expired' || isExpiredDue(establishment.payment_due_date)) {
-    return 'expired';
-  }
-  if (isDueTodayDue(establishment.payment_due_date)) {
-    return 'due_today';
-  }
-  const dueAt = parseDateOnlySafe(establishment.payment_due_date);
-  if (Number.isFinite(dueAt)) {
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
-    if (dueAt >= todayStart) {
-      return 'paid';
-    }
-  }
-  if (establishment.payment_status === 'paid') {
-    return 'paid';
-  }
-  return 'pending';
-}
+): 'expired' | 'due_today' | 'paid' | 'pending' => getEstablishmentPaymentState(establishment as any);
 
 const isAdminGridPaymentEmDia = (establishment: Pick<Establishment, 'payment_status' | 'payment_due_date'>) =>
-  getAdminGridDisplayPaymentState(establishment) === 'paid';
+  isEstablishmentPaymentEmDia(establishment as any);
 
 interface AdminTopRankingRow {
   establishmentId: string;
@@ -2315,21 +2275,33 @@ const AdminDashboard = () => {
       // Se um pago estiver com a data vencida, o certo é mudar o STATUS (vencido/pendente),
       // não manter "pago" e cobrar mesmo assim.
       const shouldAutoEnableAlert = (est: any) => {
-        const paymentStatus = String(est?.payment_status || '').toLowerCase().trim();
         const dueDate = String(est?.payment_due_date || '').trim();
         if (!dueDate) return false;
-        if (paymentStatus === 'paid') return false;
+        // Em dia pela regra oficial (data OU status) nunca liga alerta.
+        if (isEstablishmentPaymentEmDia(est)) return false;
+        const paymentStatus = String(est?.payment_status || '').toLowerCase().trim();
         return paymentStatus === 'expired' || isExpired(dueDate) || isDueToday(dueDate);
       };
 
       // Correção automática do que já está errado: PAGO com alerta ligado tem o alerta
       // DESLIGADO aqui. Sem isso, os casos criados antes desta correção continuariam
       // cobrando quem já pagou até alguém desligar um por um na mão.
+      //
+      // ⚠️ CORRIGIDO EM 09/09/2026 — 4 clientes EM DIA recebendo cobrança.
+      //
+      // Esta lista usava `payment_status === 'paid'`. Só que a coluna STATUS do
+      // admin considera "Pago" pela DATA DE VENCIMENTO, mesmo com payment_status
+      // desatualizado. Quando o dono lançava o vencimento para frente sem que o
+      // status acompanhasse, dava isto:
+      //
+      //   · admin mostrava "Pago"                        (olha a data)
+      //   · esta rotina NÃO desligava o alerta           (olhava o status)
+      //   · o barbeiro seguia vendo "pagamento em ATRASO"
+      //
+      // O alerta ficava preso, e só saía desligando na mão, um por um.
+      // Agora usa a MESMA regra da coluna STATUS (isEstablishmentPaymentEmDia).
       const shouldDisableAlertIds = establishmentsWithEmails
-        .filter((est) => {
-          const paymentStatus = String((est as any)?.payment_status || '').toLowerCase().trim();
-          return paymentStatus === 'paid' && Boolean((est as any)?.payment_alert_enabled);
-        })
+        .filter((est) => isEstablishmentPaymentEmDia(est as any) && Boolean((est as any)?.payment_alert_enabled))
         .map((est) => est.id);
 
       if (shouldDisableAlertIds.length > 0) {

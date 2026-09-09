@@ -81,6 +81,7 @@ import {
 } from '../lib/reviewQuestions';
 import { resolveAuditActorName } from '../lib/appointmentAuditLog';
 import { PRODUCT_PAYOUT_START_DATE, isProductPaymentSource, isServicePaymentSource } from '../lib/professionalPaymentSources';
+import { isEstablishmentPaymentEmDia } from '../utils/establishmentPaymentState';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
 import {
   buildAfcoinBalanceByPhoneKeyFromAppointments,
@@ -4663,6 +4664,12 @@ const EstablishmentDashboard = () => {
 
   // Estado para popup de alerta de pagamento
   const [showPaymentAlert, setShowPaymentAlert] = useState(false);
+  // Data de vencimento, usada SÓ para decidir se o popup de cobrança pode aparecer.
+  // O objeto `establishment` desta tela não carrega esse campo, e sem ele a trava
+  // olhava apenas `payment_status` — que fica desatualizado quando o vencimento é
+  // lançado para frente. Era por isso que barbeiro em dia via "pagamento em ATRASO".
+  // `undefined` = ainda não sabemos; nesse caso o popup NÃO aparece (ver abaixo).
+  const [paymentDueDateForAlert, setPaymentDueDateForAlert] = useState<string | null | undefined>(undefined);
   const [showBillingPaymentModal, setShowBillingPaymentModal] = useState(false);
   const [showScheduleHistoryModal, setShowScheduleHistoryModal] = useState(false);
 
@@ -15428,14 +15435,26 @@ Estamos te aguardando!`;
     // "ATENÇÃO URGENTE! pagamento em ATRASO" é o pior erro possível do sistema — quebra
     // a confiança dele e gera reclamação direta. Esta checagem é a última linha de
     // defesa: mesmo que algo religue a flag lá atrás, o popup não aparece.
-    const isPaidEstablishment =
-      String((establishment as any)?.payment_status || '').toLowerCase().trim() === 'paid';
+    // A regra de "está em dia" é a MESMA do painel admin (utils/establishmentPaymentState).
+    // Antes esta tela olhava só `payment_status`, enquanto o admin olhava a DATA de
+    // vencimento — e as duas discordavam. Resultado: o dono via "Pago" no admin e o
+    // barbeiro levava "ATENÇÃO URGENTE, pagamento em ATRASO" no mesmo instante.
+    // Aconteceu com 4 clientes rigorosamente em dia (09/09/2026).
+    const emDia = isEstablishmentPaymentEmDia({
+      payment_status: (establishment as any)?.payment_status,
+      payment_due_date: paymentDueDateForAlert ?? null,
+    });
+
+    // Enquanto a data não chegou (undefined), NÃO mostra o popup. Na dúvida, o
+    // sistema fica calado: cobrar quem já pagou é pior do que demorar a cobrar.
+    const dataConhecida = paymentDueDateForAlert !== undefined;
 
     if (
       establishment &&
       activeTab === 'appointments' &&
       establishment.payment_alert_enabled &&
-      !isPaidEstablishment
+      dataConhecida &&
+      !emDia
     ) {
       setShowPaymentAlert(true);
     } else {
@@ -15449,7 +15468,36 @@ Estamos te aguardando!`;
     } else {
       setShowPromotionPopup(false);
     }
-  }, [establishment, activeTab]);
+  }, [establishment, activeTab, paymentDueDateForAlert]);
+
+  // Busca a data de vencimento só para a trava do popup de cobrança.
+  // Consulta minúscula (uma coluna, uma linha), roda uma vez por estabelecimento.
+  // Fica separada do carregamento principal de propósito: mexer naquele select
+  // grande, que tem vários fallbacks, seria risco desnecessário.
+  useEffect(() => {
+    const estId = String(establishment?.id || '').trim();
+    if (!estId) {
+      setPaymentDueDateForAlert(undefined);
+      return;
+    }
+    let cancelado = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('establishments')
+          .select('payment_due_date')
+          .eq('id', estId)
+          .maybeSingle();
+        if (cancelado) return;
+        // Erro de leitura: deixa como null (sem data). A trava então cai no
+        // payment_status, que é o comportamento antigo — nunca pior que antes.
+        setPaymentDueDateForAlert(error ? null : (String((data as any)?.payment_due_date || '') || null));
+      } catch {
+        if (!cancelado) setPaymentDueDateForAlert(null);
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [establishment?.id]);
 
   useEffect(() => {
     if (!establishment || activeTab !== 'professionals' || professionals.length === 0) return;
