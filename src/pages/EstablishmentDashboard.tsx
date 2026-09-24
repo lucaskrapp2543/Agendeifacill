@@ -10,6 +10,13 @@ import AdditionalProductModal from '../components/AdditionalProductModal';
 import { ClientAfcoinBadge } from '../components/AfcoinClientModals';
 import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
 import { ChangeAppointmentServiceModal } from '../components/ChangeAppointmentServiceModal';
+import {
+  buildEntryEventsComHistorico,
+  mesFechado,
+  reconstruirAtivosDoMes,
+  usaEntradasComHistorico,
+} from '../lib/subscriberMonthHistory';
+import { fetchAgendaAssinantesDoMes, fetchHistoricoEstadosDoMes } from '../lib/subscriberMonthHistoryFetch';
 import DailyMorningMessageModal from '../components/DailyMorningMessageModal';
 import { ConfigPasswordModal } from '../components/ConfigPasswordModal';
 import { DiscountCouponsModal } from '../components/DiscountCouponsModal';
@@ -7718,6 +7725,135 @@ const EstablishmentDashboard = () => {
         const liquido = getSubscriptionNetValue(bruto, provider);
         return sum + liquido;
       }, 0);
+
+    // Regra "com histórico" (só estabelecimentos da lista): espelha a aba Meus
+    // Assinantes com o MESMO cálculo (src/lib/subscriberMonthHistory.ts).
+    // Qualquer falha aqui cai na regra antiga acima, sem quebrar o Financeiro.
+    if (usaEntradasComHistorico(establishment.id)) {
+      try {
+        const year = referenceMonth.getFullYear();
+        const month0 = referenceMonth.getMonth();
+
+        // Campos que o select antigo acima não traz, mas que Meus Assinantes usa:
+        // arquivado/desativado (ficam fora de "ativos" e "não pagos") e a forma de
+        // pagamento (define a taxa do Líquido).
+        const [estadosPorAssinante, extrasRes] = await Promise.all([
+          fetchHistoricoEstadosDoMes(establishment.id, year, month0),
+          supabase
+            .from('client_subscriptions')
+            .select('id, archived_at, deactivated_at, subscriber_payment_method')
+            .eq('establishment_id', establishment.id),
+        ]);
+        const extrasPorId = new Map<string, any>();
+        for (const r of (extrasRes.data || []) as any[]) extrasPorId.set(String(r?.id || ''), r);
+        const foraDaConta = (cs: any): boolean => {
+          const extra = extrasPorId.get(String(cs?.id || ''));
+          return Boolean(extra?.archived_at || extra?.deactivated_at);
+        };
+
+        // Líquido igual ao de Meus Assinantes (getNetFromSubscription): olha a FORMA
+        // de pagamento; sem forma definida não desconta taxa.
+        const netComoMeusAssinantes = (gross: number, providerRaw: unknown, methodRaw: unknown): number => {
+          if (!Number.isFinite(gross) || gross <= 0) return 0;
+          const arredondar = (v: number) => Math.max(0, Math.round(v * 100) / 100);
+          const provider = String(providerRaw || '').toLowerCase().trim();
+          const method = String(methodRaw || '').toLowerCase().trim();
+          if (!method) return arredondar(gross);
+          const taxaPlataforma = 1;
+          const creditTax = Number(establishment?.credit_card_tax_percentage);
+          const debitTax = Number(establishment?.debit_card_tax_percentage);
+          let pct: number | null = null;
+          if (method === 'credito' || method === 'credit_card') {
+            pct = Number.isFinite(creditTax) && creditTax >= 0 ? creditTax / 100 : 4.99 / 100;
+          } else if (method === 'debito' || method === 'debit_card') {
+            pct = Number.isFinite(debitTax) && debitTax >= 0 ? debitTax / 100 : 1.99 / 100;
+          } else if (method === 'pix') {
+            const isMercadoPago = provider.includes('mercadopago');
+            const isPagarme = provider.includes('pagarme');
+            const usaMpPix = Boolean((establishment as any)?.use_mercadopago_subscription_pix);
+            const usaPagarmePix = Boolean((establishment as any)?.use_pagarme_subscription_pix);
+            const pixMercadoPago = isMercadoPago || (!isPagarme && usaMpPix && !usaPagarmePix);
+            pct = pixMercadoPago ? 0.99 / 100 : 1.19 / 100;
+          }
+          if (pct === null) return arredondar(gross);
+          return arredondar(gross - taxaPlataforma - gross * pct);
+        };
+        const liquidoDaFicha = (cs: any, value: number): number =>
+          netComoMeusAssinantes(
+            value,
+            cs?.subscription_payment_provider,
+            extrasPorId.get(String(cs?.id || ''))?.subscriber_payment_method
+          );
+
+        // Entradas do mês: ficha de hoje + histórico (pagamento conta mesmo vencido/arquivado).
+        const totalArrecadadoHist = (subscriptionsRows as any[]).reduce((sum, cs: any) => {
+          const eventos = buildEntryEventsComHistorico(
+            cs,
+            estadosPorAssinante.get(String(cs?.id || '')),
+            year,
+            month0,
+            getSubscriptionValue
+          );
+          return sum + eventos.reduce((s, ev) => s + ev.value, 0);
+        }, 0);
+
+        let brutoHist: number;
+        let liquidoHist: number;
+        let totalHist: number;
+        if (mesFechado(year, month0)) {
+          // Mês fechado: ativos = quem foi assinante no mês (agenda + pagamentos).
+          const [agenda, planosRes] = await Promise.all([
+            fetchAgendaAssinantesDoMes(establishment.id, year, month0),
+            supabase.from('subscriptions').select('id,name,value').eq('establishment_id', establishment.id),
+          ]);
+          const ativos = reconstruirAtivosDoMes({
+            clientSubscriptions: subscriptionsRows as any[],
+            agenda,
+            estadosPorAssinante,
+            planos: (planosRes.data || []) as any[],
+            year,
+            month0,
+            valueOf: getSubscriptionValue,
+            netOf: liquidoDaFicha,
+            nameOf: (cs) => String(cs?.subscriber_name || 'Cliente'),
+            planNameOf: () => 'Plano',
+          });
+          brutoHist = ativos.reduce((s, a) => s + a.value, 0);
+          liquidoHist = ativos.reduce((s, a) => s + a.liquido, 0);
+          totalHist = ativos.length;
+        } else {
+          // Mês atual: mesma regra de Meus Assinantes (pago, não arquivado, janela no mês).
+          const ativosPagos = (subscriptionsRows as any[]).filter(
+            (cs: any) => !foraDaConta(cs) && isSubscriberActiveAndPaidInReferenceMonth(cs)
+          );
+          brutoHist = ativosPagos.reduce((s, cs: any) => s + getSubscriptionValue(cs), 0);
+          liquidoHist = ativosPagos.reduce((s, cs: any) => s + liquidoDaFicha(cs, getSubscriptionValue(cs)), 0);
+          totalHist = (subscriptionsRows as any[]).filter(
+            (cs: any) => !foraDaConta(cs) && isSubscriptionActiveInReferenceMonth(cs)
+          ).length;
+        }
+
+        // "Não pagos" como em Meus Assinantes: arquivados e desativados ficam fora.
+        const naoPagosHist = (subscriptionsRows as any[]).filter(
+          (cs: any) => String(cs?.payment_status || '').toLowerCase() === 'unpaid' && !foraDaConta(cs)
+        ).length;
+
+        return {
+          totalArrecadado: totalArrecadadoHist,
+          totalRepasses,
+          totalRepassesPagosMes,
+          lucroLiquido: totalArrecadadoHist - totalRepasses,
+          brutoAtivo: brutoHist,
+          liquidoAtivo: liquidoHist,
+          emContaMes: Math.max(0, totalArrecadadoHist - totalRepassesPagosMes),
+          totalAssinantes: totalHist,
+          assinantesNaoPagos: naoPagosHist,
+          saldoAssinantes,
+        };
+      } catch (historyError) {
+        console.warn('⚠️ Financeiro de assinantes: histórico indisponível, usando a regra antiga.', historyError);
+      }
+    }
 
     return {
       totalArrecadado,
