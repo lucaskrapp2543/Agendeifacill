@@ -70,6 +70,31 @@ type ClientSubscription = Database['public']['Tables']['client_subscriptions']['
 };
 type Profile = Database['public']['Tables']['profiles']['Row'];
 
+// ---------------------------------------------------------------------------
+// "Entradas do mês" COM HISTÓRICO — ligado por estabelecimento.
+//
+// Regra antiga (todo mundo): só conta quem está PAGO HOJE e não arquivado. Por
+// isso o pagamento de agosto de um assinante some quando ele vence em setembro,
+// é removido, ou renova (a ficha é sobrescrita).
+//
+// Regra nova (só para quem está na lista):
+//   1. a data de pagamento gravada na ficha conta no mês dela, mesmo que hoje o
+//      assinante esteja vencido/não pago ou arquivado (o dinheiro entrou);
+//   2. os estados gravados em client_subscription_history (desde 24/09/2026)
+//      preservam o mês mesmo depois de a ficha ser sobrescrita pela renovação;
+//   3. "desfazer" (marcar não pago no MESMO mês do pagamento) cancela o clique.
+//
+// Pedido: Costa Barbearia (9223), 24/09/2026. Para ligar para todos, basta
+// trocar `entradasComHistorico` por `true` — mas isso muda meses passados de
+// outras barbearias (simulação de ago/2026: 44 de 60 mudariam), então só com
+// decisão explícita.
+// ---------------------------------------------------------------------------
+const ESTABELECIMENTOS_ENTRADAS_COM_HISTORICO = new Set<string>([
+  'f90f3509-3ddf-487a-aac6-206b09982bc7', // Costa Barbearia & Tatuagem (9223)
+]);
+
+type HistoricoEstadoAssinante = { createdAt: string; row: Record<string, any> };
+
 interface Client {
   id: string;
   whatsapp: string;
@@ -1309,6 +1334,54 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   // Estado para controlar o mês/ano selecionado (padrão: mês atual)
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+
+  // "Entradas do mês" com histórico — ver ESTABELECIMENTOS_ENTRADAS_COM_HISTORICO no topo.
+  const entradasComHistorico = ESTABELECIMENTOS_ENTRADAS_COM_HISTORICO.has(String(establishmentId || ''));
+  // Estados da ficha gravados em client_subscription_history com data de início
+  // ou de pagamento no mês selecionado, por assinante, em ordem cronológica.
+  const [historicoEstadosPorAssinante, setHistoricoEstadosPorAssinante] = useState<Map<string, HistoricoEstadoAssinante[]>>(
+    () => new Map()
+  );
+
+  useEffect(() => {
+    if (!entradasComHistorico || !establishmentId) return;
+    let cancelado = false;
+    const prefixoMes = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`;
+
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('client_subscription_history')
+          .select('client_subscription_id, created_at, operation, new_row')
+          .eq('establishment_id', establishmentId)
+          .in('operation', ['SNAPSHOT', 'INSERT', 'UPDATE'])
+          .or(`new_row->>last_payment_date.like.${prefixoMes}%,new_row->>start_date.like.${prefixoMes}%`)
+          .order('created_at', { ascending: true })
+          .limit(1000);
+        if (error) throw error;
+        if (cancelado) return;
+
+        const mapa = new Map<string, HistoricoEstadoAssinante[]>();
+        for (const h of (data || []) as any[]) {
+          const subId = String(h?.client_subscription_id || '');
+          if (!subId || !h?.new_row) continue;
+          const lista = mapa.get(subId) || [];
+          lista.push({ createdAt: String(h.created_at || ''), row: h.new_row });
+          mapa.set(subId, lista);
+        }
+        setHistoricoEstadosPorAssinante(mapa);
+      } catch (e) {
+        // Sem histórico (tabela ausente, sem permissão): a tela segue só com a ficha de hoje.
+        console.warn('⚠️ Histórico de assinantes indisponível; usando só a ficha atual.', e);
+        if (!cancelado) setHistoricoEstadosPorAssinante(new Map());
+      }
+    })();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [entradasComHistorico, establishmentId, selectedMonth, selectedYear, clientSubscriptions]);
+
   const getPaymentDateForSelectedMonth = () => {
     const now = new Date();
     const isCurrentSelectedMonth =
@@ -4881,8 +4954,80 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return a.year === b.year && a.month === b.month && a.day === b.day;
   };
 
+  type MonthEntryEvent = { dateRaw: string; typeLabel: string; value: number };
+
+  /**
+   * Regra NOVA (só estabelecimentos em ESTABELECIMENTOS_ENTRADAS_COM_HISTORICO):
+   * eventos de UM estado da ficha — a ficha de hoje ou um estado gravado no
+   * histórico. Uma data de pagamento gravada conta mesmo se o estado está
+   * 'unpaid' (venceu depois) ou arquivado. O início do plano conta se estava
+   * pago ou se existe alguma data de pagamento.
+   */
+  const eventosDoEstadoComHistorico = (estado: any): MonthEntryEvent[] => {
+    const eventos: MonthEntryEvent[] = [];
+    const value = getSubscriptionValue(estado);
+    if (value <= 0) return eventos;
+
+    const pago = String(estado?.payment_status || '').toLowerCase() === 'paid';
+    const startRaw = String(estado?.start_date || '').trim();
+    const paymentRaw = String(estado?.last_payment_date || '').trim();
+
+    const contaInicio = (pago || Boolean(paymentRaw)) && isCalendarDateInSelectedMonth(startRaw);
+    if (contaInicio) {
+      eventos.push({ dateRaw: startRaw.slice(0, 10), typeLabel: 'Novo assinante', value });
+    }
+
+    if (isCalendarDateInSelectedMonth(paymentRaw)) {
+      const duplicateStart = contaInicio && isSameCalendarDay(startRaw, paymentRaw);
+      if (!duplicateStart) {
+        eventos.push({ dateRaw: paymentRaw.slice(0, 10), typeLabel: 'Renovação', value });
+      }
+    }
+
+    return eventos;
+  };
+
+  const buildEntryEventsComHistorico = (cs: ClientSubscription): MonthEntryEvent[] => {
+    const porData = new Map<string, MonthEntryEvent>();
+    const canceladas = new Set<string>();
+
+    // 1) Estados gravados no histórico, em ordem cronológica (desde 24/09/2026).
+    //    Mesclar com a ficha de hoje garante o plano (valor) e os campos que o
+    //    estado antigo não tem.
+    const estados = historicoEstadosPorAssinante.get(String(cs.id || '')) || [];
+    for (const h of estados) {
+      const estado = { ...(cs as any), ...(h.row || {}) };
+      const pagoNaEpoca = String(h.row?.payment_status || '').toLowerCase() === 'paid';
+      if (pagoNaEpoca) {
+        for (const ev of eventosDoEstadoComHistorico(estado)) {
+          canceladas.delete(ev.dateRaw);
+          if (!porData.has(ev.dateRaw)) porData.set(ev.dateRaw, ev);
+        }
+        continue;
+      }
+      // "Desfazer": marcou NÃO PAGO no mesmo mês do pagamento → o clique de pago
+      // foi engano. Vencer meses depois não cancela: o pagamento foi real.
+      const dataPagamento = String(h.row?.last_payment_date || '').slice(0, 10);
+      if (dataPagamento && String(h.createdAt || '').slice(0, 7) === dataPagamento.slice(0, 7)) {
+        porData.delete(dataPagamento);
+        canceladas.add(dataPagamento);
+      }
+    }
+
+    // 2) Ficha de hoje (cobre o passado anterior ao histórico).
+    for (const ev of eventosDoEstadoComHistorico(cs)) {
+      if (canceladas.has(ev.dateRaw)) continue;
+      if (!porData.has(ev.dateRaw)) porData.set(ev.dateRaw, ev);
+    }
+
+    return Array.from(porData.values());
+  };
+
   /** Entrada no mês = início do plano e/ou renovação (last_payment), sem duplicar no mesmo dia. */
   const buildSubscriptionMonthEntryEvents = (cs: ClientSubscription): Array<{ dateRaw: string; typeLabel: string; value: number }> => {
+    if (entradasComHistorico) return buildEntryEventsComHistorico(cs);
+
+    // Regra antiga — inalterada para todos os outros estabelecimentos.
     if (isArchivedSubscriber(cs)) return [];
     if (String(cs.payment_status || '').toLowerCase() !== 'paid') return [];
 
@@ -5065,7 +5210,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         typeLabel: string;
       } => Boolean(row.paymentDate))
       .sort((a, b) => b.paymentDate.getTime() - a.paymentDate.getTime());
-  }, [clientSubscriptions, selectedMonth, selectedYear]);
+  }, [clientSubscriptions, selectedMonth, selectedYear, historicoEstadosPorAssinante]);
 
   const liquidoAtivoBreakdown = useMemo(() => {
     return clientSubscriptions

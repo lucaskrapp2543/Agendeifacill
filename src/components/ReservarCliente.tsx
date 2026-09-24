@@ -857,11 +857,19 @@ export default function ReservarCliente({
           throw subsError;
         }
 
-        // Filtrar assinaturas NÃO OCULTAS (is_hidden = false ou null)
-        const visible = (allSubs || []).filter((s: any) => !s?.is_hidden);
-
-
-        setSubscriptions(visible);
+        // ⚠️ NÃO filtrar por is_hidden aqui — corrigido em 24/09/2026.
+        //
+        // "Ocultar assinatura" em Meus Assinantes significa "não aparece no
+        // BOOKING para novos clientes" (é o que o botão diz). Este componente é
+        // o painel do DONO: ele precisa continuar reservando com os planos que
+        // escolheu esconder do público.
+        //
+        // Com o filtro, uma dona que ocultou todos os planos do booking abria
+        // "Reservar cliente → Assinatura" e via "Nenhuma assinatura cadastrada
+        // ainda" — com 4 planos e 6 assinantes no banco. Achou que o sistema
+        // tinha apagado tudo (Costa Barbearia, 9223). Os ocultos ficam
+        // marcados no card para ela saber que estão fora do booking.
+        setSubscriptions(allSubs || []);
       } catch (error) {
         console.error('❌ Erro ao carregar assinaturas:', error);
       }
@@ -2892,7 +2900,7 @@ export default function ReservarCliente({
                         return (
                           <ReservarPlanCard
                             key={subscription.id}
-                            name={subscription.name}
+                            name={subscription.is_hidden ? `${subscription.name} · oculto no booking` : subscription.name}
                             priceLabel={`${formatPrice(planValue)}/mês`}
                             activeCount={activeCount}
                             onClick={() => void handleSubscriberPlanSelect(subscription)}

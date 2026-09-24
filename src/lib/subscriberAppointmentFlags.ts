@@ -4,6 +4,9 @@ export type ClientSubscriptionRowLite = {
   payment_status?: string | null;
   start_date?: string | null;
   end_date?: string | null;
+  /** Data de cadastro do assinante. Usada como início "de verdade" quando a
+   *  renovação reescreveu start_date (ver findMatchingSubscriptionRelaxed). */
+  created_at?: string | null;
   subscriber_name?: string | null;
   subscriber_whatsapp?: string | null;
   client_name_override?: string | null;
@@ -289,7 +292,14 @@ export function findMatchingSubscriptionRelaxed(
   const isInDateRange = (sub: ClientSubscriptionRowLite): boolean => {
     const startDate = String(sub?.start_date || '').slice(0, 10);
     const endDate = String(sub?.end_date || '').slice(0, 10);
-    if (aptDate && startDate && startDate > aptDate) return false;
+    // A renovação (ex.: Mercado Pago) reescreve start_date para a data do
+    // pagamento. Um atendimento marcado como assinante ANTES desse novo início
+    // continua sendo do mesmo assinante, desde que seja depois do cadastro dele.
+    // Caso real: Costa Barbearia, agosto/2026 — 3 visitas sumiram do controle
+    // porque o plano renovou em 21/08. Sem created_at, vale só o start_date.
+    const createdDate = String(sub?.created_at || '').slice(0, 10);
+    const lowerBound = createdDate && startDate && createdDate < startDate ? createdDate : startDate;
+    if (aptDate && lowerBound && lowerBound > aptDate) return false;
     if (aptDate && endDate && endDate < aptDate) return false;
     return true;
   };

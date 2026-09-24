@@ -9,6 +9,9 @@ type EstablishmentService = {
   price: number;
   duration: number;
   source?: 'service' | 'subscription';
+  // Só para exibir na lista. NUNCA entra no nome: o nome é gravado em
+  // appointments.service pelos painéis (agenda, financeiro, WhatsApp).
+  hint?: string;
 };
 
 type AppointmentForServiceChange = {
@@ -174,12 +177,15 @@ export function ChangeAppointmentServiceModal({
         const { data: subscriptionsData, error: subsErr } = await getSubscriptions(establishmentId);
 
         if (!subsErr && Array.isArray(subscriptionsData)) {
+          // Sem filtro de is_hidden: "oculto" vale para o BOOKING público, não
+          // para o dono trocando o serviço de um atendimento no próprio painel.
+          // (Mesma correção de ReservarCliente, 24/09/2026.)
           subscriptionsData
-            .filter((sub: any) => !Boolean(sub?.is_hidden))
             .forEach((sub: any) => {
               const subId = String(sub?.id || '').trim();
               const subName = String(sub?.name || '').trim();
               if (!subId || !subName) return;
+              const hint = sub?.is_hidden ? 'oculto no booking' : undefined;
 
               const dividedServices = Array.isArray(sub?.divided_services) ? sub.divided_services : [];
               const divideServicesEnabled = Boolean(sub?.divide_services_enabled);
@@ -199,6 +205,7 @@ export function ChangeAppointmentServiceModal({
                     price: 0,
                     duration,
                     source: 'subscription',
+                    hint,
                   });
                 });
                 return;
@@ -210,6 +217,7 @@ export function ChangeAppointmentServiceModal({
                 price: 0, // Atendimento por assinatura não cobra serviço avulso
                 duration: toPositiveNumber(sub?.service_duration, 30),
                 source: 'subscription',
+                hint,
               });
             });
         }
@@ -331,7 +339,10 @@ export function ChangeAppointmentServiceModal({
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-sm font-semibold text-gray-900 truncate">{s.name}</div>
+                          <div className="text-sm font-semibold text-gray-900 truncate">
+                            {s.name}
+                            {s.hint ? <span className="ml-1 text-[11px] font-normal text-amber-700">· {s.hint}</span> : null}
+                          </div>
                           <div className="text-xs text-gray-600 mt-0.5">
                             {s.duration}min • {fmtBRL(s.price)}
                           </div>

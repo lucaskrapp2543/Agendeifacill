@@ -798,6 +798,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
               payment_status,
               start_date,
               end_date,
+              created_at,
               subscriber_name,
               subscriber_whatsapp,
               client_name_override,

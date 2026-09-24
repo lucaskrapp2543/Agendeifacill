@@ -82,6 +82,7 @@ import {
 import { resolveAuditActorName } from '../lib/appointmentAuditLog';
 import { PRODUCT_PAYOUT_START_DATE, isProductPaymentSource, isServicePaymentSource } from '../lib/professionalPaymentSources';
 import { isEstablishmentPaymentEmDia } from '../utils/establishmentPaymentState';
+import { PlacaQrGenerator } from '../components/PlacaQrGenerator';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
 import {
   buildAfcoinBalanceByPhoneKeyFromAppointments,
@@ -1907,11 +1908,14 @@ const EstablishmentDashboard = () => {
         if (error) throw error;
 
         if (!mounted) return;
+        // Plano "oculto" só some do BOOKING (novos clientes). Aqui é o painel do
+        // dono cadastrando assinante — ele precisa ver todos os planos. Filtrar
+        // por is_hidden deixava a lista vazia para quem ocultou tudo do público
+        // (caso Costa Barbearia, 24/09/2026). O oculto fica marcado no nome.
         const visiblePlans = ((data as any[]) || [])
-          .filter((row) => !Boolean(row?.is_hidden))
           .map((row) => ({
             id: String(row?.id || ''),
-            name: String(row?.name || ''),
+            name: row?.is_hidden ? `${String(row?.name || '')} · oculto no booking` : String(row?.name || ''),
             value: Number(row?.value || 0),
           }))
           .filter((row) => row.id && row.name);
@@ -31526,20 +31530,16 @@ Estamos te aguardando!`;
                         />
                       </div>
 
-                      <div className="flex justify-center sm:justify-start">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const whatsappNumber = '5548991265320';
-                            const establishmentCode = String(establishment?.code || '').trim();
-                            const message = `quero placa e qrcod pro meu estabelecimento codigo (${establishmentCode})`;
-                            openWhatsAppWithBusinessPriority(whatsappNumber, message);
-                          }}
-                          className="px-8 py-4 rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-700 text-white font-extrabold text-lg hover:from-cyan-600 hover:via-blue-700 hover:to-indigo-800 transition-all shadow-lg"
-                        >
-                          Pedir Placa
-                        </button>
+                      {/* A placa é gerada AQUI, no navegador do dono, com o QR da
+                          página dele. Antes cada pedido virava um WhatsApp para o
+                          suporte gerar o QR na mão e devolver a imagem. */}
+                      <div className="bg-white/90 rounded-2xl border border-blue-200 p-3 sm:p-4 shadow-inner">
+                        <PlacaQrGenerator
+                          establishmentCode={String(establishment?.code || '')}
+                          establishmentName={String(establishment?.name || '')}
+                        />
                       </div>
+
                     </div>
                   </div>
                 </div>
