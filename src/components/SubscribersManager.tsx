@@ -27,7 +27,13 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { syncSubscribersToManualClients } from '../lib/manualClientsSync';
-import { clientNameHasSubscriberLabel } from '../lib/subscriberAppointmentFlags';
+import {
+  clientNameHasSubscriberLabel,
+  getWhatsappLookupKeys as agendaWhatsappKeys,
+  normalizeSubscriberNameKey as agendaNameKey,
+  normalizeSubscriberPhoneDigits as agendaPhoneDigits,
+  parseSubscriberBoolean as agendaBool,
+} from '../lib/subscriberAppointmentFlags';
 import {
   buildSubscriberAttendanceSnapshotFields,
   computeSubscriberRepassValue,
@@ -94,6 +100,24 @@ const ESTABELECIMENTOS_ENTRADAS_COM_HISTORICO = new Set<string>([
 ]);
 
 type HistoricoEstadoAssinante = { createdAt: string; row: Record<string, any> };
+
+// Atendimento de assinante concluído na agenda do mês (mês passado, só com histórico ligado).
+type AgendaAssinanteMesRow = {
+  client_name: string;
+  client_whatsapp: string;
+  subscription_id: string | null;
+  appointment_date: string;
+};
+
+// Assinante "ativo" de um mês FECHADO, reconstruído pela agenda + pagamentos.
+type AtivoReconstruido = {
+  id: string;
+  clientName: string;
+  planName: string;
+  value: number;
+  liquido: number;
+  fonte: 'agenda' | 'pagamento' | 'agenda+pagamento';
+};
 
 interface Client {
   id: string;
@@ -1381,6 +1405,66 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       cancelado = true;
     };
   }, [entradasComHistorico, establishmentId, selectedMonth, selectedYear, clientSubscriptions]);
+
+  // Mês FECHADO (anterior ao atual) com histórico ligado: os cards "Total de
+  // assinantes ativos", "Bruto (ativos pagos)" e "Líquido (ativos pagos)" deixam
+  // de olhar a ficha de hoje e passam a mostrar quem FOI assinante naquele mês:
+  // quem apareceu como assinante na agenda + quem pagou no mês. Isso inclui
+  // quem já teve a ficha apagada — a agenda ainda lembra. O mês atual não muda.
+  const mesSelecionadoEhPassado = (() => {
+    const agora = new Date();
+    return (
+      selectedYear < agora.getFullYear() ||
+      (selectedYear === agora.getFullYear() && selectedMonth < agora.getMonth())
+    );
+  })();
+  const reconstruirAtivosPeloHistorico = entradasComHistorico && mesSelecionadoEhPassado;
+  const [agendaAssinantesDoMes, setAgendaAssinantesDoMes] = useState<AgendaAssinanteMesRow[]>([]);
+
+  useEffect(() => {
+    if (!reconstruirAtivosPeloHistorico || !establishmentId) {
+      setAgendaAssinantesDoMes([]);
+      return;
+    }
+    let cancelado = false;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const inicio = `${selectedYear}-${pad(selectedMonth + 1)}-01`;
+    const fim = `${selectedYear}-${pad(selectedMonth + 1)}-${pad(new Date(selectedYear, selectedMonth + 1, 0).getDate())}`;
+
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('appointments')
+          .select('client_name, client_whatsapp, subscription_id, appointment_date, is_loyalty_reward')
+          .eq('establishment_id', establishmentId)
+          .eq('status', 'completed')
+          .gte('appointment_date', inicio)
+          .lte('appointment_date', fim)
+          .or('is_subscriber.eq.true,payment_method.eq.assinante,subscription_id.not.is.null,subscriber_service_name.not.is.null')
+          .limit(1000);
+        if (error) throw error;
+        if (cancelado) return;
+        setAgendaAssinantesDoMes(
+          ((data || []) as any[])
+            .filter((a) => !agendaBool(a?.is_loyalty_reward))
+            .map((a) => ({
+              client_name: String(a?.client_name || '').trim(),
+              client_whatsapp: String(a?.client_whatsapp || '').trim(),
+              subscription_id: a?.subscription_id ? String(a.subscription_id) : null,
+              appointment_date: String(a?.appointment_date || '').slice(0, 10),
+            }))
+        );
+      } catch (e) {
+        // Sem agenda: a tela segue só com as fichas + pagamentos do mês.
+        console.warn('⚠️ Agenda do mês indisponível para reconstruir assinantes ativos.', e);
+        if (!cancelado) setAgendaAssinantesDoMes([]);
+      }
+    })();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [reconstruirAtivosPeloHistorico, establishmentId, selectedMonth, selectedYear]);
 
   const getPaymentDateForSelectedMonth = () => {
     const now = new Date();
@@ -5135,11 +5219,124 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return isSubscriptionActiveInSelectedMonth(cs);
   };
 
+  // Mês fechado com histórico ligado: quem FOI assinante no mês (agenda + pagamentos).
+  const ativosReconstruidosDoMes = useMemo((): AtivoReconstruido[] => {
+    if (!reconstruirAtivosPeloHistorico) return [];
+
+    const nomeGenerico = (nome: string): boolean => {
+      const k = agendaNameKey(nome);
+      return !k || k === 'cliente' || k === 'assinante' || k === 'encaixe' || k === 'nao informado' || k.includes('avulso');
+    };
+    const nomeDaFicha = (cs: ClientSubscription): string =>
+      String((cs as any)?.client_name_override || cs.profiles?.full_name || (cs as any)?.subscriber_name || 'Cliente').trim() || 'Cliente';
+    const planoDaFicha = (cs: ClientSubscription): string => String(cs.subscriptions?.name || 'Plano').trim() || 'Plano';
+    const liquidoDaFicha = (cs: ClientSubscription, value: number): number =>
+      getNetFromSubscription(
+        value,
+        (cs as any)?.subscription_payment_provider,
+        (cs as any)?.subscriber_payment_method,
+        (cs as any)?.subscription_payment_order_id
+      );
+
+    // Índice das fichas por telefone e por nome. Qualquer ficha vale (arquivada
+    // inclusive): o mês é passado, o que importa é quem era o cliente.
+    const fichasPorTelefone = new Map<string, ClientSubscription>();
+    const fichasPorNome = new Map<string, ClientSubscription>();
+    for (const cs of clientSubscriptions) {
+      for (const raw of [(cs as any)?.subscriber_whatsapp, (cs as any)?.client_whatsapp]) {
+        for (const k of agendaWhatsappKeys(String(raw || ''))) {
+          const key = agendaPhoneDigits(k);
+          if (key && !fichasPorTelefone.has(key)) fichasPorTelefone.set(key, cs);
+        }
+      }
+      for (const n of [(cs as any)?.subscriber_name, (cs as any)?.client_name_override]) {
+        const key = agendaNameKey(n);
+        if (key && !fichasPorNome.has(key)) fichasPorNome.set(key, cs);
+      }
+    }
+
+    const porChave = new Map<string, AtivoReconstruido>();
+    const registrar = (chave: string, item: Omit<AtivoReconstruido, 'fonte'>, fonte: 'agenda' | 'pagamento') => {
+      const atual = porChave.get(chave);
+      if (!atual) {
+        porChave.set(chave, { ...item, fonte });
+        return;
+      }
+      if (atual.fonte !== fonte) atual.fonte = 'agenda+pagamento';
+      if (item.value > atual.value) {
+        atual.value = item.value;
+        atual.liquido = item.liquido;
+        atual.planName = item.planName;
+      }
+    };
+
+    // 1) Quem PAGOU no mês (ficha de hoje + histórico) — mesma regra de "Entradas do mês".
+    for (const cs of clientSubscriptions) {
+      if (buildSubscriptionMonthEntryEvents(cs).length === 0) continue;
+      const value = getSubscriptionValue(cs);
+      registrar(String(cs.id), {
+        id: String(cs.id),
+        clientName: nomeDaFicha(cs),
+        planName: planoDaFicha(cs),
+        value,
+        liquido: liquidoDaFicha(cs, value),
+      }, 'pagamento');
+    }
+
+    // 2) Quem apareceu como assinante na AGENDA do mês.
+    for (const apt of agendaAssinantesDoMes) {
+      if (nomeGenerico(apt.client_name)) continue;
+
+      let ficha: ClientSubscription | undefined;
+      for (const k of agendaWhatsappKeys(apt.client_whatsapp)) {
+        ficha = fichasPorTelefone.get(agendaPhoneDigits(k));
+        if (ficha) break;
+      }
+      if (!ficha) ficha = fichasPorNome.get(agendaNameKey(apt.client_name));
+
+      if (ficha) {
+        const value = getSubscriptionValue(ficha);
+        registrar(String(ficha.id), {
+          id: String(ficha.id),
+          clientName: nomeDaFicha(ficha),
+          planName: planoDaFicha(ficha),
+          value,
+          liquido: liquidoDaFicha(ficha, value),
+        }, 'agenda');
+        continue;
+      }
+
+      // Ficha apagada: só a agenda lembra. Valor = valor do plano do agendamento.
+      const plano = subscriptions.find((s: any) => String(s?.id) === String(apt.subscription_id || ''));
+      const value = Number((plano as any)?.value || 0);
+      const chave = `agenda:${agendaPhoneDigits(apt.client_whatsapp) || agendaNameKey(apt.client_name)}`;
+      registrar(chave, {
+        id: chave,
+        clientName: `${apt.client_name || 'Cliente'} (ficha apagada)`,
+        planName: String((plano as any)?.name || 'Plano não identificado'),
+        value: Number.isFinite(value) ? value : 0,
+        liquido: Number.isFinite(value) ? value : 0,
+      }, 'agenda');
+    }
+
+    return Array.from(porChave.values()).sort((a, b) => a.clientName.localeCompare(b.clientName, 'pt-BR'));
+  }, [
+    reconstruirAtivosPeloHistorico,
+    clientSubscriptions,
+    agendaAssinantesDoMes,
+    subscriptions,
+    historicoEstadosPorAssinante,
+    selectedMonth,
+    selectedYear,
+  ]);
+
   // Bruto = MRR atual (somente assinaturas ativas e pagas)
-  const brutoAtivo = clientSubscriptions.reduce((sum, cs) => {
-    if (!isActivePaidSubscriber(cs)) return sum;
-    return sum + getSubscriptionValue(cs);
-  }, 0);
+  const brutoAtivo = reconstruirAtivosPeloHistorico
+    ? ativosReconstruidosDoMes.reduce((sum, a) => sum + a.value, 0)
+    : clientSubscriptions.reduce((sum, cs) => {
+      if (!isActivePaidSubscriber(cs)) return sum;
+      return sum + getSubscriptionValue(cs);
+    }, 0);
 
   // Calcular total de repasses (Lucro Líquido = Lucro Bruto - Repasses)
   // Inclui atendimentos + comissão de venda de assinatura (não é atendimento)
@@ -5156,16 +5353,18 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   }, [verifiedSubscriberAttendances, verifiedSubscriptionSaleCommissions, divideEnabledByClientSubscriptionId, clientSubscriptions, subscriptions]);
 
   // Líquido = Bruto - taxas de gateway/plataforma (assinaturas ativas)
-  const liquidoAtivo = clientSubscriptions.reduce((sum, cs) => {
-    if (!isActivePaidSubscriber(cs)) return sum;
-    const grossValue = getSubscriptionValue(cs);
-    return sum + getNetFromSubscription(
-      grossValue,
-      (cs as any)?.subscription_payment_provider,
-      (cs as any)?.subscriber_payment_method,
-      (cs as any)?.subscription_payment_order_id
-    );
-  }, 0);
+  const liquidoAtivo = reconstruirAtivosPeloHistorico
+    ? ativosReconstruidosDoMes.reduce((sum, a) => sum + a.liquido, 0)
+    : clientSubscriptions.reduce((sum, cs) => {
+      if (!isActivePaidSubscriber(cs)) return sum;
+      const grossValue = getSubscriptionValue(cs);
+      return sum + getNetFromSubscription(
+        grossValue,
+        (cs as any)?.subscription_payment_provider,
+        (cs as any)?.subscriber_payment_method,
+        (cs as any)?.subscription_payment_order_id
+      );
+    }, 0);
 
   // Entradas do mês: pagamentos no período (novo assinante pelo start_date + renovação pelo last_payment_date).
   const emContaEntradasCents = clientSubscriptions.reduce((sum, cs) => sum + sumSubscriptionMonthEntryCents(cs), 0);
@@ -5213,6 +5412,18 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   }, [clientSubscriptions, selectedMonth, selectedYear, historicoEstadosPorAssinante]);
 
   const liquidoAtivoBreakdown = useMemo(() => {
+    if (reconstruirAtivosPeloHistorico) {
+      return ativosReconstruidosDoMes
+        .map((a) => ({
+          id: a.id,
+          clientName: a.clientName,
+          planName: a.planName,
+          endDate: null as Date | null,
+          bruto: a.value,
+          liquido: a.liquido,
+        }))
+        .sort((a, b) => b.liquido - a.liquido);
+    }
     return clientSubscriptions
       .filter((cs) => isActivePaidSubscriber(cs))
       .map((cs) => {
@@ -5235,9 +5446,18 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         };
       })
       .sort((a, b) => b.liquido - a.liquido);
-  }, [clientSubscriptions]);
+  }, [clientSubscriptions, reconstruirAtivosPeloHistorico, ativosReconstruidosDoMes]);
 
   const totalAtivosBreakdown = useMemo(() => {
+    if (reconstruirAtivosPeloHistorico) {
+      return ativosReconstruidosDoMes.map((a) => ({
+        id: a.id,
+        clientName: a.clientName,
+        planName: a.planName,
+        paymentStatus: 'paid',
+        value: a.value,
+      }));
+    }
     return clientSubscriptions
       .filter((cs) => isSubscriptionActiveByEndDate(cs))
       .map((cs) => ({
@@ -5248,7 +5468,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         value: getSubscriptionValue(cs),
       }))
       .sort((a, b) => a.clientName.localeCompare(b.clientName, 'pt-BR'));
-  }, [clientSubscriptions]);
+  }, [clientSubscriptions, reconstruirAtivosPeloHistorico, ativosReconstruidosDoMes]);
 
   const paidSubscriberPhoneKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -5368,7 +5588,9 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
   };
 
-  const totalAssinantes = clientSubscriptions.filter(cs => isSubscriptionActiveByEndDate(cs)).length;
+  const totalAssinantes = reconstruirAtivosPeloHistorico
+    ? ativosReconstruidosDoMes.length
+    : clientSubscriptions.filter(cs => isSubscriptionActiveByEndDate(cs)).length;
 
   // Contar assinantes não pagos (ativos e vencidos), com fallback por telefone pago em dia
   const assinantesNaoPagos = useMemo(
