@@ -1883,8 +1883,14 @@ const BookingChatPage = () => {
   };
 
   return (
-    <div className="flex flex-col" style={{ height: '100dvh', backgroundColor: WA.bg, color: WA.text }}>
+    // wa-root: `position: fixed; inset: 0` = exatamente a área visível do navegador, sempre.
+    // Com `height: 100dvh` o Chrome do Android deixava uma sobra do tamanho da barra de
+    // endereço: ao abrir o teclado ele "puxava" a tela para cima e não voltava — o cabeçalho
+    // sumia e ficava uma faixa preta embaixo. Só a lista de mensagens rola; a página nunca.
+    <div className="wa-root flex flex-col overflow-hidden" style={{ backgroundColor: WA.bg, color: WA.text }}>
       <style>{`
+        .wa-root { position: fixed; top: 0; right: 0; bottom: 0; left: 0; width: 100%; }
+        html, body { overscroll-behavior-y: none; }
         @keyframes wa-bounce { 0%, 80%, 100% { transform: translateY(0); opacity: .5 } 40% { transform: translateY(-4px); opacity: 1 } }
         .wa-slots .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .wa-slots button:disabled { opacity: .35; filter: grayscale(1); }
@@ -1913,10 +1919,12 @@ const BookingChatPage = () => {
       </header>
 
       {/* Conversa */}
-      {/* `relative` de propósito: o offsetTop das mensagens fica relativo a este container, que é quem rola. */}
+      {/* `relative` de propósito: o offsetTop das mensagens fica relativo a este container, que é quem rola.
+          `min-h-0` é obrigatório: sem ele o flex não deixa a lista encolher, ela cresce com as mensagens
+          e empurra o rodapé para fora da tela (a página passa a rolar em vez da lista). */}
       <div
         ref={listRef}
-        className="relative flex-1 overflow-y-auto px-3 py-3"
+        className="relative flex-1 min-h-0 overflow-y-auto px-3 py-3"
         style={{ backgroundColor: WA.bg, backgroundImage: WALLPAPER }}
         onTouchStart={() => { userScrollAtRef.current = Date.now(); }}
         onWheel={() => { userScrollAtRef.current = Date.now(); }}
