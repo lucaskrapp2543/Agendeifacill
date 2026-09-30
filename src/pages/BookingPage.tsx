@@ -9,6 +9,7 @@ import { PaymentModal } from '../components/PaymentModal';
 import { ReviewCustomQuestionFields } from '../components/ReviewCustomQuestionFields';
 import { QuickBookingModal } from '../components/QuickBookingModal';
 import { AfcoinBookingExplainModal } from '../components/AfcoinClientModals';
+import { BookingPaymentChoice, type BookingPayMethod } from '../components/BookingPaymentChoice';
 import ReadMore from '../components/ReadMore';
 import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { useAuth } from '../context/AuthContext';
@@ -256,6 +257,10 @@ export default function BookingPage() {
   const [paymentIsOptional, setPaymentIsOptional] = useState(false);
   const [showOptionalPayPrompt, setShowOptionalPayPrompt] = useState(false);
   const [showAfcoinExplainModal, setShowAfcoinExplainModal] = useState(false);
+  // Escolha feita na tela padrão de pagamento (PIX / cartão) antes de abrir o PaymentModal
+  const [preferredPayMethod, setPreferredPayMethod] = useState<BookingPayMethod | null>(null);
+  // 50%: quanto fica para pagar no local (só para mostrar na escolha)
+  const [pendingRemainingLocal, setPendingRemainingLocal] = useState<number>(0);
 
   const clientAfcoinsProgramActive = useMemo(
     () => isClientAfcoinsEnabledForEstablishment(establishment),
@@ -2202,7 +2207,10 @@ export default function BookingPage() {
       // Se Mercado Pago está configurado para exigir → usar Mercado Pago
       // Se Pagar.me está configurado para exigir → usar Pagar.me
       // Prioridade: Mercado Pago se ambos estiverem marcados
-      const usarMercadoPago = hasMercadoPago && exigirPagamentoAntecipadoMercadoPago;
+      // Sem Mercado Pago e sem Pagar.me: cobrança pela conta da PLATAFORMA (vira
+      // saldo do estabelecimento — carteira/saque). Mesma regra da página simples.
+      const cobrancaPelaPlataforma = !hasMercadoPago && !hasPagarMe;
+      const usarMercadoPago = (hasMercadoPago || cobrancaPelaPlataforma) && exigirPagamentoAntecipadoMercadoPago;
       const usarPagarMe = !usarMercadoPago && hasPagarMe && exigirPagamentoAntecipado;
 
       // ✅ CORRIGIDO: Remover dependência de pagamento_adiantado_liberado_admin
@@ -2567,6 +2575,7 @@ export default function BookingPage() {
         console.log('✅ DEBUG - Agendamento pending_payment criado:', inserted?.id);
         setPendingAppointmentId(inserted.id);
         setPendingPaymentAmount(cobrarTaxaCliente && valorAgendamento > 0 ? valorAgendamento + 1 : valorAgendamento);
+        setPendingRemainingLocal(Math.max(0, Number(valorAgendamentoFull || 0) - Number(valorAgendamento || 0)));
         setPendingCustomerData({
           name: appointmentData?.client_name || guestClientData?.name || 'Cliente',
           phone: appointmentData?.client_whatsapp || guestClientData?.phone,
@@ -2764,13 +2773,15 @@ export default function BookingPage() {
 
       // Se pagamento é opcional, perguntar se deseja pagar agora (mas já salvamos telefone/reminder acima)
       if (permitePagamentoOpcional) {
-        const hasPaymentGateway = (usarPagarMe && pagarmeRecipientId) || (usarMercadoPago && mercadopagoAccessToken);
+        // usarMercadoPago já cobre MP conectado OU cobrança pela plataforma (sem MP)
+        const hasPaymentGateway = (usarPagarMe && pagarmeRecipientId) || usarMercadoPago;
         if (!hasPaymentGateway) {
           // Sem gateway configurado: só seguir como normal
           console.warn('⚠️ Pagamento opcional ativo, mas sem gateway configurado. Seguindo sem pagamento.');
         } else {
           setPendingAppointmentId(insertedAppointment?.id || null);
           setPendingPaymentAmount(cobrarTaxaCliente && valorAgendamento > 0 ? valorAgendamento + 1 : valorAgendamento);
+        setPendingRemainingLocal(Math.max(0, Number(valorAgendamentoFull || 0) - Number(valorAgendamento || 0)));
           setPendingCustomerData({
             name: appointmentData?.client_name || guestClientData?.name || 'Cliente',
             phone: appointmentData?.client_whatsapp || guestClientData?.phone,
@@ -3493,7 +3504,9 @@ export default function BookingPage() {
     const exigirPagarMe = (establishment as any)?.exigir_pagamento_antecipado === true;
     const hasMercadoPago = establishmentHasMercadoPago(establishment as any);
     const exigirMercadoPago = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
-    const usarMercadoPago = hasMercadoPago && exigirMercadoPago;
+    // Sem Mercado Pago e sem Pagar.me: cobrança pela conta da plataforma (mesma regra do fluxo).
+    const cobrancaPelaPlataforma = !hasMercadoPago && !hasPagarMe;
+    const usarMercadoPago = (hasMercadoPago || cobrancaPelaPlataforma) && exigirMercadoPago;
     const usarPagarMe = hasPagarMe && exigirPagarMe;
     const algumGatewayExigePagamento = usarMercadoPago || usarPagarMe;
     if (!algumGatewayExigePagamento) return false;
@@ -5714,6 +5727,7 @@ export default function BookingPage() {
           }}
           appointmentId={pendingAppointmentId}
           amount={pendingPaymentAmount}
+          initialMethod={preferredPayMethod || undefined}
           establishmentId={String(establishment?.id || '')}
           recipientId={(window as any).__paymentGateway === 'pagarme'
             ? String((establishment as any)?.pagarme_recipient_id || '')
@@ -5887,307 +5901,29 @@ export default function BookingPage() {
         />
       )}
 
-      {/* Prompt: Pagamento opcional após agendar */}
+      {/* Pagamento opcional após agendar — padrão de todas as páginas: PIX, cartão e (discreto) pagar no local */}
       {showOptionalPayPrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-[3px] p-3 sm:p-4 animate-[afcoFadeIn_0.24s_ease-out]">
-          <style>{`
-            @keyframes afcoFadeIn {
-              from { opacity: 0; }
-              to { opacity: 1; }
-            }
-            @keyframes afcoScaleIn {
-              from { opacity: 0; transform: translateY(8px) scale(0.97); }
-              to { opacity: 1; transform: translateY(0) scale(1); }
-            }
-            @keyframes afcoButtonGlow {
-              0%, 100% { box-shadow: 0 6px 18px rgba(22,163,74,0.22); }
-              50% { box-shadow: 0 8px 22px rgba(34,197,94,0.28); }
-            }
-            .afco-pay-btn-primary {
-              background: linear-gradient(180deg, #18a34a 0%, #157a3a 100%);
-              box-shadow: 0 4px 12px rgba(22,163,74,0.14);
-              border: 1px solid rgba(134, 239, 172, 0.22);
-            }
-            @media (min-width: 640px) {
-              .afco-pay-btn-primary {
-                animation: afcoButtonGlow 2.8s ease-in-out infinite;
-                box-shadow: 0 6px 18px rgba(22,163,74,0.22);
-                border: none;
-              }
-            }
-          `}</style>
-
-          <div
-            className="relative overflow-hidden rounded-[20px] sm:rounded-[26px] border w-full max-w-[390px] sm:max-w-[860px] max-h-[88vh] overflow-y-auto px-4 py-4 sm:px-6 sm:py-6 text-white"
-            style={{
-              background: 'radial-gradient(120% 180% at 0% 0%, rgba(230,199,139,0.14) 0%, rgba(9,9,11,0.98) 42%, rgba(5,5,6,0.99) 100%)',
-              borderColor: 'rgba(230,199,139,0.32)',
-              boxShadow: '0 28px 80px rgba(0,0,0,0.72), 0 0 0 1px rgba(16,185,129,0.08), 0 0 16px rgba(16,185,129,0.08)',
-              animation: 'afcoScaleIn 0.28s cubic-bezier(.2,.8,.2,1)',
-            }}
-          >
-            <div className="pointer-events-none absolute -right-14 -top-16 h-40 w-40 rounded-full bg-emerald-400/10 blur-3xl sm:bg-emerald-400/16" />
-            <div className="pointer-events-none absolute -left-16 bottom-[-72px] h-44 w-44 rounded-full bg-[#E6C78B]/14 blur-3xl sm:bg-[#E6C78B]/20" />
-
-            {showAfcoinFeatures ? (
-              <>
-                <div className="flex items-start justify-between gap-3 sm:gap-2">
-                  <div>
-                    <h2 className="leading-tight">
-                      <span className="block text-[1.22rem] sm:text-[2rem] font-extrabold tracking-tight">
-                        🎉 Agendamento realizado
-                      </span>
-                      <span className="block text-[1.72rem] sm:text-[3.1rem] font-black uppercase leading-[0.95] tracking-tight text-[#F4D35E] drop-shadow-[0_0_12px_rgba(244,211,94,0.22)] sm:drop-shadow-[0_0_18px_rgba(244,211,94,0.34)]">
-                        com sucesso!
-                      </span>
-                    </h2>
-                    <p className="mt-2 sm:mt-1.5 text-[0.84rem] sm:text-[1.05rem] font-medium text-zinc-400 sm:text-zinc-300 leading-relaxed">
-                      Seu horário está confirmado. Obrigado!
-                    </p>
-                  </div>
-
-                  <div
-                    className="shrink-0 mt-1 mr-0.5 h-14 w-14 sm:h-[88px] sm:w-[88px] rounded-full grid place-items-center overflow-hidden"
-                    style={{
-                      boxShadow: '0 0 0 1px rgba(250,204,21,0.28), 0 0 16px rgba(250,204,21,0.24), 0 10px 24px rgba(0,0,0,0.45)',
-                    }}
-                  >
-                    <img
-                      src="/afcoin.png"
-                      alt="Moeda AFCoin"
-                      className="w-full h-full object-contain"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  </div>
-                </div>
-
-                <div
-                  className="mt-4 sm:mt-2.5 rounded-xl sm:rounded-2xl border px-3.5 py-3.5 sm:px-5 sm:py-4 space-y-3.5 sm:space-y-3"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(13,148,66,0.16) 0%, rgba(6,78,59,0.24) 100%)',
-                    borderColor: 'rgba(74,222,128,0.28)',
-                    boxShadow: '0 0 0 1px rgba(74,222,128,0.12), 0 6px 20px rgba(22,163,74,0.14)',
-                  }}
-                >
-                  {/* Mobile: mesma frase, quebra em linhas confortáveis */}
-                  <div className="sm:hidden space-y-2 text-center">
-                    <p className="text-[0.88rem] font-bold text-zinc-50 leading-[1.4]">
-                      💈 Pague seu <span className="text-[#F4D35E]">atendimento adiantado</span>
-                    </p>
-                    <p className="text-[0.88rem] font-bold text-zinc-50 leading-[1.4]">
-                      via Pix ou cartão e ganhe:
-                    </p>
-                    <div className="flex items-center justify-center gap-2.5 text-green-200 pt-0.5">
-                      <span className="text-[1.72rem] font-black leading-none text-[#5EEAD4] drop-shadow-[0_0_8px_rgba(74,222,128,0.18)]">
-                        +{AFCOIN_ONLINE_PAY_BONUS}
-                      </span>
-                      <span className="text-[1.02rem] leading-none font-extrabold text-white">
-                        AFCoins bônus
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Desktop: microcopy completa */}
-                  <p className="hidden sm:block text-[1.35rem] font-bold text-zinc-50 leading-snug">
-                    💈 Pague seu <span className="text-[#F4D35E]">atendimento adiantado</span> via Pix ou cartão e ganhe:
-                  </p>
-
-                  <div className="hidden sm:flex items-center gap-3 text-green-200">
-                    <span className="text-[3.4rem] font-black leading-none text-[#4ADE80] drop-shadow-[0_0_14px_rgba(74,222,128,0.45)]">
-                      +{AFCOIN_ONLINE_PAY_BONUS}
-                    </span>
-                    <span className="text-[2.15rem] leading-none font-extrabold text-white">
-                      AFCoins bônus
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-2">
-                    <div
-                      className="rounded-lg sm:rounded-xl border px-3 py-3 sm:py-2.5"
-                      style={{
-                        background: 'rgba(0,0,0,0.22)',
-                        borderColor: 'rgba(230,199,139,0.24)',
-                      }}
-                    >
-                      <p className="text-[0.68rem] sm:text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                        💰 Valor do atendimento
-                      </p>
-                      <p className="mt-1 sm:mt-0.5 text-[1.35rem] sm:text-[2rem] font-black text-white leading-none">
-                        {formatBookingCurrency(pendingPaymentAmount)}
-                      </p>
-                      <p className="mt-1.5 sm:mt-1 text-[0.62rem] sm:text-[0.72rem] text-zinc-500 font-medium leading-snug">
-                        Valor normal do seu serviço
-                      </p>
-                    </div>
-
-                    <div
-                      className="rounded-lg sm:rounded-xl border px-3 py-3 sm:py-2.5 flex items-center"
-                      style={{
-                        background: 'rgba(0,0,0,0.16)',
-                        borderColor: 'rgba(74,222,128,0.16)',
-                      }}
-                    >
-                      <p className="text-[0.74rem] sm:text-[0.95rem] font-medium text-zinc-300 sm:text-zinc-200 leading-relaxed sm:leading-snug">
-                        ✅ Pagamento 100% seguro via{' '}
-                        <span className="text-emerald-300 sm:text-emerald-400 font-bold sm:font-extrabold">Mercado Pago</span>
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowOptionalPayPrompt(false);
-                      setShowPaymentModal(true);
-                    }}
-                    className="afco-pay-btn-primary w-full min-h-[52px] sm:min-h-0 flex items-center justify-center rounded-[14px] sm:rounded-2xl px-3.5 sm:px-5 py-0 sm:py-4 text-white transition-all duration-200 hover:brightness-105 active:scale-[0.99] sm:hover:-translate-y-[1px] sm:active:translate-y-0"
-                  >
-                    <span className="sm:hidden text-[0.84rem] font-bold leading-none tracking-tight text-center whitespace-nowrap">
-                      Pagar agora e ganhar +{AFCOIN_ONLINE_PAY_BONUS} AFCoins
-                    </span>
-                    <span className="hidden sm:flex sm:flex-col sm:items-center sm:w-full">
-                      <span className="text-[1.75rem] leading-tight font-black tracking-tight">
-                        🔒 Pagar agora e ganhar +{AFCOIN_ONLINE_PAY_BONUS} AFCoins
-                      </span>
-                      <span className="mt-1 text-[0.95rem] font-medium text-emerald-100/90">
-                        ✓ Pagamento rápido, seguro e aprovado na hora
-                      </span>
-                    </span>
-                  </button>
-                  <p className="sm:hidden mt-2 text-center text-[0.64rem] font-medium text-emerald-100/65 leading-snug">
-                    ✓ Pagamento rápido, seguro e aprovado na hora
-                  </p>
-                </div>
-
-                <div className="mt-4 sm:mt-2.5 grid grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-2.5">
-                  {[
-                    { id: 'accumulate', icon: '⭐', title: 'Acumule AFCoins', text: 'a cada pagamento adiantado' },
-                    {
-                      id: 'redeem',
-                      icon: '🎁',
-                      title: 'Troque',
-                      subLines: ['Serviços', 'descontos', 'produtos'],
-                    },
-                    { id: 'benefits', icon: '❤️', title: 'Ganhe benefícios', text: 'e vantagens exclusivas', footerLine: 'Só por pagar online' },
-                  ].map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-lg sm:rounded-xl border px-1 py-2 sm:px-3 sm:py-2 transition-transform duration-200 hover:-translate-y-[1px] min-h-[68px] sm:min-h-[96px] flex flex-col items-center justify-center text-center gap-0.5 sm:gap-0"
-                      style={{
-                        background: 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)',
-                        borderColor: 'rgba(230,199,139,0.18)',
-                      }}
-                    >
-                      <div className="text-[0.78rem] sm:text-base leading-none">{item.icon}</div>
-                      <div className="text-[0.62rem] sm:text-sm font-bold sm:font-extrabold text-zinc-200 sm:text-zinc-100 leading-[1.15] sm:leading-[1.2] px-0.5">
-                        {item.title}
-                      </div>
-                      {item.subLines ? (
-                        <div className="text-[0.46rem] sm:text-[0.68rem] text-zinc-500 sm:text-zinc-400 leading-[1.18] sm:leading-[1.22] px-0.5">
-                          <span className="sm:hidden flex flex-col items-center gap-px">
-                            {item.subLines.map((line, index) => (
-                              <span key={line}>
-                                {line}
-                                {index < item.subLines!.length - 1 ? ',' : ''}
-                              </span>
-                            ))}
-                          </span>
-                          <span className="hidden sm:inline">{item.subLines.join(', ')}</span>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="text-[0.48rem] sm:text-[0.74rem] text-zinc-500 sm:text-zinc-400 leading-[1.15] sm:leading-[1.22] px-0.5">
-                            {item.text}
-                          </div>
-                          {item.footerLine ? (
-                            <div className="text-[0.42rem] sm:text-[0.62rem] text-emerald-400/85 sm:text-emerald-400/90 font-semibold leading-[1.12] px-0.5 mt-0.5">
-                              <span className="sm:hidden flex flex-col items-center gap-px">
-                                <span>Só por</span>
-                                <span>pagar online</span>
-                              </span>
-                              <span className="hidden sm:inline">{item.footerLine}</span>
-                            </div>
-                          ) : null}
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-5 sm:mt-2 flex justify-center px-1">
-                  <button
-                    onClick={finishLocalPayWithAfcoins}
-                    className="text-zinc-400 sm:text-zinc-300 text-[0.78rem] sm:text-[1.15rem] font-medium sm:font-semibold underline underline-offset-4 decoration-zinc-600 sm:decoration-zinc-500 hover:text-white hover:decoration-zinc-200 transition-colors whitespace-nowrap tracking-tight"
-                  >
-                    📍 Prefiro pagar no local (+{AFCOIN_LOCAL_PAY_BONUS} AFCoins)
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setShowAfcoinExplainModal(true)}
-                  className="mt-4 sm:mt-2 w-full rounded-xl border px-3 py-2.5 sm:py-3 flex items-center gap-3 text-left transition-all duration-200 hover:bg-white/[0.04] active:scale-[0.99]"
-                  style={{
-                    background: 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)',
-                    borderColor: 'rgba(230,199,139,0.22)',
-                  }}
-                >
-                  <img
-                    src="/afcoin.png"
-                    alt=""
-                    className="w-9 h-9 sm:w-10 sm:h-10 object-contain shrink-0"
-                    style={{ filter: 'drop-shadow(0 0 6px rgba(230,199,139,0.35))' }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[0.84rem] sm:text-[1rem] font-bold text-zinc-100 leading-tight">
-                      🪙 O que é AFCoins?
-                    </p>
-                    <p className="mt-0.5 text-[0.68rem] sm:text-[0.78rem] text-zinc-500 font-medium">
-                      Ganhe recompensas ao agendar
-                    </p>
-                  </div>
-                  <span className="text-zinc-500 text-lg shrink-0" aria-hidden>
-                    ›
-                  </span>
-                </button>
-
-                <AfcoinBookingExplainModal
-                  isOpen={showAfcoinExplainModal}
-                  onClose={() => setShowAfcoinExplainModal(false)}
-                />
-              </>
-            ) : (
-              <>
-                <h2 className="text-xl font-extrabold text-white mb-2">🎉 Agendamento realizado com sucesso!</h2>
-                <p className="text-gray-300 mb-6 leading-relaxed">
-                  Quer <span className="font-semibold text-white">pagar agora</span> e já confirmar seu agendamento?
-                  <span className="block mt-2 text-xs text-gray-400">
-                    Se preferir, você pode confirmar sem pagar agora.
-                  </span>
-                </p>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <button
-                    onClick={() => {
-                      setShowOptionalPayPrompt(false);
-                      setShowPaymentModal(true);
-                    }}
-                    className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
-                  >
-                    Pagar agora
-                  </button>
-                  <button
-                    onClick={finishLocalPayWithAfcoins}
-                    className="flex-1 bg-transparent hover:bg-white/5 text-gray-300 font-semibold py-2 px-2 rounded-lg transition-colors text-sm underline underline-offset-4"
-                  >
-                    Prefiro pagar no estabelecimento
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        <BookingPaymentChoice
+          variant="modal"
+          chargeAmount={pendingPaymentAmount}
+          remainingLocalAmount={pendingRemainingLocal}
+          establishmentName={String(establishment?.name || '')}
+          afcoinsEnabled={showAfcoinFeatures}
+          afcoinsOnline={AFCOIN_ONLINE_PAY_BONUS}
+          afcoinsLocal={AFCOIN_LOCAL_PAY_BONUS}
+          onPay={(method) => {
+            setPreferredPayMethod(method);
+            setShowOptionalPayPrompt(false);
+            setShowPaymentModal(true);
+          }}
+          onPayLocal={() => void finishLocalPayWithAfcoins()}
+          onExplainAfcoins={showAfcoinFeatures ? () => setShowAfcoinExplainModal(true) : undefined}
+        />
       )}
+      <AfcoinBookingExplainModal
+        isOpen={showAfcoinExplainModal}
+        onClose={() => setShowAfcoinExplainModal(false)}
+      />
 
     </div>
   );

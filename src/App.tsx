@@ -24,6 +24,7 @@ const RootRoute = () => {
 // Pages
 import BookingPage from './pages/BookingPage';
 import BookingSimplePage from './pages/BookingSimplePage';
+import BookingChatPage from './pages/BookingChatPage';
 import CadastroEstabelecimento060622 from './pages/CadastroEstabelecimento060622';
 import CadastroPremium060622 from './pages/CadastroPremium060622';
 import ClientDashboard from './pages/ClientDashboard';
@@ -235,6 +236,11 @@ function App() {
                   <Route
                     path="/booking/:id/af"
                     element={<BookingSimplePage />}
+                  />
+
+                  <Route
+                    path="/booking/:id/chat"
+                    element={<BookingChatPage />}
                   />
 
                   <Route path="/success" element={<Success />} />

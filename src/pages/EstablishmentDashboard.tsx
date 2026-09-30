@@ -47,6 +47,7 @@ import ReservarCliente from '../components/ReservarCliente';
 import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
 import { establishmentHasMercadoPago, establishmentMercadoPagoNeedsReconnect } from '../utils/establishmentPaymentFlags';
+import { PlatformWalletCard } from '../components/PlatformWalletCard';
 import { PartnerReferralPanel } from '../components/PartnerReferralPanel';
 import { fetchPartnerReferralCodeForEstablishment } from '../lib/partnerReferral';
 import { RecebaNaHoraPageLayout } from '../components/RecebaNaHoraPageLayout';
@@ -91,6 +92,7 @@ import { PRODUCT_PAYOUT_START_DATE, isProductPaymentSource, isServicePaymentSour
 import { isEstablishmentPaymentEmDia } from '../utils/establishmentPaymentState';
 import { PlacaQrGenerator } from '../components/PlacaQrGenerator';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
+import { BookingChatDemo } from '../components/BookingChatDemo';
 import {
   buildAfcoinBalanceByPhoneKeyFromAppointments,
   isClientAfcoinsEnabledForEstablishment,
@@ -1222,7 +1224,8 @@ const EstablishmentDashboard = () => {
   const [clientAfcoinsEnabled, setClientAfcoinsEnabled] = useState(true);
   const [showAfcoinsDisableConfirmModal, setShowAfcoinsDisableConfirmModal] = useState(false);
   // Preview states — configs que o barbeiro escolhe ANTES de conectar o MP (não salvam no banco)
-  const [previewPaymentMode, setPreviewPaymentMode] = useState<'both' | 'online_only' | 'local_only'>('both');
+  // "Apenas no local" foi removido (29/09/2026): com Mercado Pago conectado, o cliente sempre pode pagar online.
+  const [previewPaymentMode, setPreviewPaymentMode] = useState<'both' | 'online_only'>('both');
   const [previewAdvancePercent, setPreviewAdvancePercent] = useState<100 | 50>(100);
   const [previewPaymentRequired, setPreviewPaymentRequired] = useState<'optional' | 'mandatory'>('optional');
   const [previewTaxaCliente, setPreviewTaxaCliente] = useState(false);
@@ -3242,7 +3245,8 @@ const EstablishmentDashboard = () => {
   // Helper: salva preview states no banco (chamado antes do OAuth redirect)
   const savePreviewConfigsToDb = async () => {
     if (!establishment?.id) return;
-    const isOnline = previewPaymentMode !== 'local_only';
+    // Pagamento online sempre disponível quando o Mercado Pago está conectado ("Apenas no local" não existe mais).
+    const isOnline = true;
     const isOptional = previewPaymentMode === 'both' || previewPaymentRequired === 'optional';
     await autoSaveAmenities({
       exigirPagamentoAntecipadoMercadoPago: isOnline,
@@ -3254,6 +3258,38 @@ const EstablishmentDashboard = () => {
     setPagamentoAdiantadoOpcionalMercadoPago(isOnline && isOptional);
     setCobrarTaxaMaquininhaCliente(previewTaxaCliente);
     setAdvancePaymentPercentage(previewAdvancePercent);
+  };
+
+  // Sem Mercado Pago conectado, a cobrança online é feita pela conta da plataforma
+  // (carteira/saque) — então as escolhas da tela "Saques / Pagamentos online" valem
+  // NA HORA e são salvas no banco a cada clique (mesma conta que savePreviewConfigsToDb).
+  const persistPreviewConfigsNow = async (next: {
+    mode?: 'both' | 'online_only';
+    required?: 'optional' | 'mandatory';
+    percent?: 100 | 50;
+    taxa?: boolean;
+  }) => {
+    if (!establishment?.id) return;
+    if (establishmentHasMercadoPago(establishment as any)) return; // conectado: salva no fluxo normal
+    const mode = next.mode ?? previewPaymentMode;
+    const required = next.required ?? previewPaymentRequired;
+    const percent = next.percent ?? previewAdvancePercent;
+    const taxa = next.taxa ?? previewTaxaCliente;
+    const isOptional = mode === 'both' || required === 'optional';
+    try {
+      await autoSaveAmenities({
+        exigirPagamentoAntecipadoMercadoPago: true,
+        pagamentoAdiantadoOpcionalMercadoPago: isOptional,
+        cobrarTaxaMaquininhaCliente: taxa,
+        advance_payment_percentage: percent,
+      });
+      setExigirPagamentoAntecipadoMercadoPago(true);
+      setPagamentoAdiantadoOpcionalMercadoPago(isOptional);
+      setCobrarTaxaMaquininhaCliente(taxa);
+      setAdvancePaymentPercentage(percent);
+    } catch (e) {
+      console.warn('Falha ao salvar configuração de pagamento online:', e);
+    }
   };
 
   // ⚠️ Conexão MP suspeita: o token vence a cada ~6h e é renovado a cada pagamento.
@@ -3345,9 +3381,9 @@ const EstablishmentDashboard = () => {
             <div className="relative overflow-hidden rounded-2xl border border-sky-400/30 bg-gradient-to-br from-sky-500/20 via-blue-600/10 to-[#0f172a] p-5 sm:p-7">
               <div className="absolute -top-16 -right-16 h-40 w-40 rounded-full bg-sky-400/20 blur-3xl pointer-events-none" />
               <div className="relative z-10">
-                <h1 className="text-2xl sm:text-3xl font-black text-white leading-tight">💰 Receba Antes</h1>
+                <h1 className="text-2xl sm:text-3xl font-black text-white leading-tight">💳 Pagamentos online</h1>
                 <p className="mt-2 text-base font-bold text-sky-100">Seu cliente escolhe como deseja pagar.</p>
-                <p className="text-sm text-white/70">Você decide como quer receber.</p>
+                <p className="text-sm text-white/70">O que ele pagar online vira saldo aqui em cima, pronto para sacar. Suas escolhas abaixo já valem na hora.</p>
               </div>
             </div>
 
@@ -3359,9 +3395,8 @@ const EstablishmentDashboard = () => {
                 {([
                   { id: 'both' as const, label: 'Online ou no local', desc: 'Cliente escolhe como quer pagar', recommended: true },
                   { id: 'online_only' as const, label: 'Apenas online', desc: 'Cliente só agenda se pagar antes' },
-                  { id: 'local_only' as const, label: 'Apenas no local', desc: 'Pagamento online desativado' },
                 ] as const).map((opt) => (
-                  <button key={opt.id} type="button" onClick={() => setPreviewPaymentMode(opt.id)}
+                  <button key={opt.id} type="button" onClick={() => { setPreviewPaymentMode(opt.id); void persistPreviewConfigsNow({ mode: opt.id }); }}
                     className={`w-full text-left p-3 rounded-xl border-2 transition-all ${previewPaymentMode === opt.id ? 'border-blue-500 bg-blue-500/15' : 'border-gray-700 bg-[#242628] hover:border-gray-500'}`}>
                     <span className={`text-sm font-bold ${previewPaymentMode === opt.id ? 'text-blue-300' : 'text-white'}`}>
                       {previewPaymentMode === opt.id ? '● ' : '○ '}{opt.label}
@@ -3373,14 +3408,14 @@ const EstablishmentDashboard = () => {
               </div>
             </div>
 
-            {/* Config 2: Valor antecipado — só se pagamento online */}
-            {previewPaymentMode !== 'local_only' && (
+            {/* Config 2: Valor antecipado */}
+            {(
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
                 <h4 className="text-sm font-extrabold text-white mb-1">Quanto cobrar antecipadamente?</h4>
                 <p className="text-xs text-gray-400 mb-3">O restante o cliente paga no local.</p>
                 <div className="grid grid-cols-2 gap-2">
                   {([{ value: 100 as const, label: '100%', desc: 'Valor integral' }, { value: 50 as const, label: '50%', desc: 'Metade agora, metade no local' }]).map((opt) => (
-                    <button key={opt.value} type="button" onClick={() => setPreviewAdvancePercent(opt.value)}
+                    <button key={opt.value} type="button" onClick={() => { setPreviewAdvancePercent(opt.value); void persistPreviewConfigsNow({ percent: opt.value }); }}
                       className={`p-3 rounded-xl border-2 text-center transition-all ${previewAdvancePercent === opt.value ? 'border-blue-500 bg-blue-500/15' : 'border-gray-700 bg-[#242628] hover:border-gray-500'}`}>
                       <span className={`block text-lg font-black ${previewAdvancePercent === opt.value ? 'text-blue-300' : 'text-white'}`}>{opt.label}</span>
                       <span className="block text-[10px] text-gray-400 mt-0.5">{opt.desc}</span>
@@ -3405,7 +3440,7 @@ const EstablishmentDashboard = () => {
                     { id: 'optional' as const, label: 'Opcional', desc: 'Cliente escolhe pagar online ou presencialmente' },
                     { id: 'mandatory' as const, label: 'Obrigatório', desc: 'Cliente só conclui o agendamento após pagar' },
                   ] as const).map((opt) => (
-                    <button key={opt.id} type="button" onClick={() => setPreviewPaymentRequired(opt.id)}
+                    <button key={opt.id} type="button" onClick={() => { setPreviewPaymentRequired(opt.id); void persistPreviewConfigsNow({ required: opt.id }); }}
                       className={`w-full text-left p-3 rounded-xl border-2 transition-all ${previewPaymentRequired === opt.id ? 'border-blue-500 bg-blue-500/15' : 'border-gray-700 bg-[#242628] hover:border-gray-500'}`}>
                       <span className={`text-sm font-bold ${previewPaymentRequired === opt.id ? 'text-blue-300' : 'text-white'}`}>
                         {previewPaymentRequired === opt.id ? '● ' : '○ '}{opt.label}
@@ -3418,14 +3453,14 @@ const EstablishmentDashboard = () => {
             )}
 
             {/* Config 4: Taxa */}
-            {previewPaymentMode !== 'local_only' && (
+            {(
               <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                 <div className="flex-1">
                   <span className="text-sm font-bold text-white">Taxa da operação cobrada do cliente</span>
                   <p className="text-xs text-gray-400 mt-0.5">Quando ativado, o cliente paga a taxa — você recebe o valor integral.</p>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input type="checkbox" checked={previewTaxaCliente} onChange={(e) => setPreviewTaxaCliente(e.target.checked)} className="sr-only peer" />
+                  <input type="checkbox" checked={previewTaxaCliente} onChange={(e) => { setPreviewTaxaCliente(e.target.checked); void persistPreviewConfigsNow({ taxa: e.target.checked }); }} className="sr-only peer" />
                   <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                 </label>
               </div>
@@ -3452,7 +3487,7 @@ const EstablishmentDashboard = () => {
                 {[
                   { emoji: '✂️', label: 'Cliente agenda pelo link', color: 'from-sky-400 to-blue-500' },
                   { emoji: '💳', label: 'Escolhe pagar online ou no local', color: 'from-violet-400 to-purple-600' },
-                  { emoji: '⚡', label: 'Se pagar online, o dinheiro cai na hora', color: 'from-amber-400 to-orange-500' },
+                  { emoji: '⚡', label: 'Se pagar online, vira saldo para você sacar', color: 'from-amber-400 to-orange-500' },
                   { emoji: '📈', label: 'Menos faltas, mais compromisso', color: 'from-emerald-400 to-green-600' },
                 ].map((step, i) => (
                   <React.Fragment key={i}>
@@ -3471,9 +3506,9 @@ const EstablishmentDashboard = () => {
 
             {/* CTA final */}
             <div className="rounded-2xl border-2 border-sky-400/30 bg-gradient-to-br from-sky-500/15 to-blue-600/10 p-5 sm:p-7 text-center">
-              <h3 className="text-xl font-black text-white mb-2">🚀 Falta só um passo!</h3>
-              <p className="text-sm text-sky-100 mb-1">Suas configurações já estão prontas.</p>
-              <p className="text-sm text-white/70 mb-1">Agora basta conectar sua conta Mercado Pago.</p>
+              <h3 className="text-xl font-black text-white mb-2">⚡ Quer receber na hora?</h3>
+              <p className="text-sm text-sky-100 mb-1">Suas configurações já estão valendo: seu cliente já pode pagar online.</p>
+              <p className="text-sm text-white/70 mb-1">Conecte sua conta Mercado Pago e o dinheiro cai direto na sua conta no momento do pagamento, sem esperar o saque.</p>
               <p className="text-xs text-white/50 mb-4">Leva menos de 30 segundos. Se não tem conta, pode criar gratuitamente.</p>
             </div>
           </div>
@@ -3560,6 +3595,7 @@ const EstablishmentDashboard = () => {
 
         <button
           type="button"
+          id="mp-connect-button"
           onClick={async () => {
             if (!establishment?.id) {
               toast.error('ID do estabelecimento não encontrado');
@@ -3680,10 +3716,12 @@ const EstablishmentDashboard = () => {
                 <div className="bg-[#1e1f20] border border-white/10 rounded-2xl p-4 space-y-3">
                   <h4 className="text-sm font-extrabold text-white">Como seus clientes irão pagar?</h4>
                   <div className="space-y-2">
+                    {/* "Apenas no local" não existe mais (29/09/2026): com Mercado Pago conectado, o cliente
+                        sempre pode pagar online. Quem ainda estiver com a cobrança desligada no banco aparece
+                        como "Online e no local", que é o comportamento que passa a valer. */}
                     {[
-                      { id: 'both', label: 'Online e no local', desc: 'Cliente escolhe como quer pagar', checked: exigirPagamentoAntecipadoMercadoPago && pagamentoAdiantadoOpcionalMercadoPago },
+                      { id: 'both', label: 'Online e no local', desc: 'Cliente escolhe como quer pagar', checked: !exigirPagamentoAntecipadoMercadoPago || pagamentoAdiantadoOpcionalMercadoPago },
                       { id: 'online_only', label: 'Apenas online (obrigatório)', desc: 'Cliente só agenda se pagar antes', checked: exigirPagamentoAntecipadoMercadoPago && !pagamentoAdiantadoOpcionalMercadoPago },
-                      { id: 'local_only', label: 'Apenas no local', desc: 'Pagamento online desativado', checked: !exigirPagamentoAntecipadoMercadoPago },
                     ].map((opt) => (
                       <button
                         key={opt.id}
@@ -3693,14 +3731,10 @@ const EstablishmentDashboard = () => {
                             setExigirPagamentoAntecipadoMercadoPago(true);
                             setPagamentoAdiantadoOpcionalMercadoPago(true);
                             void autoSaveAmenities({ exigirPagamentoAntecipadoMercadoPago: true, pagamentoAdiantadoOpcionalMercadoPago: true });
-                          } else if (opt.id === 'online_only') {
+                          } else {
                             setExigirPagamentoAntecipadoMercadoPago(true);
                             setPagamentoAdiantadoOpcionalMercadoPago(false);
                             void autoSaveAmenities({ exigirPagamentoAntecipadoMercadoPago: true, pagamentoAdiantadoOpcionalMercadoPago: false });
-                          } else {
-                            setExigirPagamentoAntecipadoMercadoPago(false);
-                            setPagamentoAdiantadoOpcionalMercadoPago(false);
-                            void autoSaveAmenities({ exigirPagamentoAntecipadoMercadoPago: false, pagamentoAdiantadoOpcionalMercadoPago: false });
                           }
                         }}
                         className={`w-full text-left p-3 rounded-xl border-2 transition-all ${opt.checked
@@ -14740,6 +14774,17 @@ Estamos te aguardando!`;
         setPagamentoAdiantadoOpcionalMercadoPago((establishmentData as any).pagamento_adiantado_opcional_mercadopago ?? false);
         setCobrarTaxaMaquininhaCliente((establishmentData as any).cobrar_taxa_maquininha_cliente ?? false);
         setAdvancePaymentPercentage((establishmentData as any).advance_payment_percentage === 50 ? 50 : 100);
+        // Espelha as escolhas de pagamento online na tela "Saques / Pagamentos online"
+        // (sem Mercado Pago a cobrança é pela conta da plataforma e as escolhas valem na hora).
+        {
+          const exigirMp = (establishmentData as any).exigir_pagamento_antecipado_mercadopago === true;
+          const opcionalMp = (establishmentData as any).pagamento_adiantado_opcional_mercadopago === true;
+          const somenteOnline = exigirMp && !opcionalMp;
+          setPreviewPaymentMode(somenteOnline ? 'online_only' : 'both');
+          setPreviewPaymentRequired(somenteOnline ? 'mandatory' : 'optional');
+          setPreviewAdvancePercent((establishmentData as any).advance_payment_percentage === 50 ? 50 : 100);
+          setPreviewTaxaCliente((establishmentData as any).cobrar_taxa_maquininha_cliente === true);
+        }
         setClientAfcoinsEnabled((establishmentData as any).client_afcoins_enabled !== false);
         setFilaEsperaAtiva((establishmentData as any).fila_espera_ativa ?? false);
         // Sanitiza IDs de fila para ignorar profissionais removidos/inválidos.
@@ -31783,13 +31828,13 @@ Estamos te aguardando!`;
                       <h3 className="text-lg font-bold text-white">🌐 Suas Páginas de Agendamentos</h3>
                     </div>
                     <p className="text-gray-400 text-sm leading-relaxed">
-                      Você tem <span className="text-white font-semibold">2 páginas de agendamento</span> disponíveis para compartilhar com seus clientes.
+                      Você tem <span className="text-white font-semibold">3 páginas de agendamento</span> disponíveis para compartilhar com seus clientes.
                       Elas são <span className="text-emerald-400 font-semibold">100% conectadas</span> — um agendamento feito em qualquer uma aparece no mesmo painel.
                     </p>
                   </div>
 
-                  {/* Dois cards lado a lado */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Três cards lado a lado */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4">
 
                     {/* Card Página Completa */}
                     <div className="bg-[#0d1117] rounded-2xl border border-gray-700 overflow-hidden flex flex-col">
@@ -31915,6 +31960,85 @@ Estamos te aguardando!`;
                         </div>
                       </div>
                     </div>
+
+                    {/* Card Página Chat (estilo WhatsApp) */}
+                    <div className="bg-[#0d1117] rounded-2xl border border-gray-700 overflow-hidden flex flex-col">
+                      <div className="px-5 py-4" style={{ background: 'linear-gradient(90deg, #128c7e 0%, #075e54 100%)' }}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xl">💬</span>
+                          <h4 className="text-white font-bold text-base">Página Chat</h4>
+                          <span className="bg-white/20 text-white text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wide">NOVO</span>
+                        </div>
+                        <p className="text-emerald-50 text-xs leading-relaxed">
+                          Conversa igual ao WhatsApp: seu cliente agenda respondendo mensagens, sem estranhar nada
+                        </p>
+                      </div>
+
+                      <div className="p-4 flex flex-col gap-3 flex-1">
+                        <div className="bg-gray-900 rounded-xl p-3 border border-gray-700">
+                          <code className="text-gray-300 font-mono text-xs break-all">
+                            agendeifacil.com/booking/{establishment?.code}/chat
+                          </code>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            onClick={async () => {
+                              const link = `${window.location.origin}/booking/${establishment?.code}/chat`;
+                              try {
+                                if (navigator.clipboard && window.isSecureContext) {
+                                  await navigator.clipboard.writeText(link);
+                                } else {
+                                  const ta = document.createElement('textarea');
+                                  ta.value = link;
+                                  ta.style.position = 'fixed';
+                                  ta.style.left = '-999999px';
+                                  document.body.appendChild(ta);
+                                  ta.focus();
+                                  ta.select();
+                                  document.execCommand('copy');
+                                  document.body.removeChild(ta);
+                                }
+                                toast('Link copiado para a área de transferência', 'success');
+                              } catch { toast('Erro ao copiar link', 'error'); }
+                            }}
+                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-gray-800 hover:bg-gray-700 rounded-xl transition-colors border border-gray-600"
+                          >
+                            <Copy className="h-4 w-4 text-white" />
+                            <span className="text-white text-sm font-medium">Copiar</span>
+                          </button>
+                          <a
+                            href={`${window.location.origin}/booking/${establishment?.code}/chat`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-colors"
+                            style={{ backgroundColor: '#128c7e' }}
+                          >
+                            <LinkIcon className="h-4 w-4 text-white" />
+                            <span className="text-white text-sm font-medium">Abrir</span>
+                          </a>
+                        </div>
+
+                        <p className="text-gray-500 text-xs text-center">📱 Veja como seus clientes irão agendar com você na prática</p>
+                        <div className="flex justify-center">
+                          <div className="w-full max-w-[260px]">
+                            <BookingChatDemo
+                              establishmentName={establishment?.name}
+                              logoUrl={establishment?.logo_url ? storagePublicUrlForBrowser(establishment.logo_url) : ''}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-emerald-700/40 bg-emerald-950/40 p-3 text-xs leading-relaxed">
+                          <p className="font-bold text-emerald-300 text-sm mb-1">Bot de WhatsApp automatizado 2.0</p>
+                          <p className="text-emerald-100">
+                            É como se seu cliente agendasse pelo seu WhatsApp, só que com um atendente automático:
+                            dá boas-vindas em nome do seu estabelecimento, responde na hora, mostra os horários livres
+                            e recebe o pagamento por PIX ou cartão. Quem já usa WhatsApp não estranha nada.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Nota de conexão */}
@@ -31923,8 +32047,8 @@ Estamos te aguardando!`;
                     <div>
                       <p className="text-emerald-300 font-semibold text-sm">Páginas 100% conectadas entre si</p>
                       <p className="text-emerald-200/60 text-xs mt-1 leading-relaxed">
-                        Agendamentos feitos pela página completa ou pela página simples aparecem no mesmo painel e na agenda do profissional.
-                        Você pode compartilhar as duas — cada cliente usa a que achar mais fácil.
+                        Agendamentos feitos pela página completa, pela página simples ou pela página chat aparecem no mesmo painel e na agenda do profissional.
+                        Você pode compartilhar as três — cada cliente usa a que achar mais fácil.
                       </p>
                     </div>
                   </div>
@@ -31991,7 +32115,18 @@ Estamos te aguardando!`;
 
               {/* Tab Receba Antes — Mercado Pago */}
               {activeTab === 'receber-adiantado' && (
-                <RecebaNaHoraPageLayout>
+                <RecebaNaHoraPageLayout isMpConnected={establishmentHasMercadoPago(establishment as any)}>
+                  {/* Sem Mercado Pago: saldo dos pagamentos online (conta da plataforma) + saque.
+                      Fica FORA do MercadoPagoCard (que é recriado a cada render) para não perder estado. */}
+                  {!establishmentHasMercadoPago(establishment as any) && establishment?.id && (
+                    <PlatformWalletCard
+                      establishmentId={String(establishment.id)}
+                      pixKey={String((establishment as any)?.pix_key || pixKey || '').trim()}
+                      onConnectMercadoPago={() =>
+                        document.getElementById('mp-connect-button')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                      }
+                    />
+                  )}
                   <MercadoPagoCard wrapperClassName="" variant="receba-na-hora" />
                 </RecebaNaHoraPageLayout>
               )}

@@ -2,6 +2,12 @@ import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { createMPPayment, CreateMPPaymentRequest } from '../../src/lib/mercadopago/mp-service';
+import {
+  PLATFORM_COLLECTOR_METADATA_KEY,
+  PLATFORM_COLLECTOR_VALUE,
+  getPlatformMercadoPagoAccessToken,
+  recordPlatformCollectedPayment,
+} from '../../src/lib/mercadopago/platformWallet';
 import { json, parseJsonBody } from './_utils';
 
 // Supabase Admin (bypass RLS)
@@ -59,7 +65,9 @@ export async function getValidMercadoPagoAccessToken(establishmentId: string): P
   const expiresAtRaw = (establishment as any)?.mercadopago_token_expires_at as string | null | undefined;
 
   if (!accessToken) {
-    throw new Error('Estabelecimento não possui conta do Mercado Pago conectada');
+    const noAccountErr: any = new Error('Estabelecimento não possui conta do Mercado Pago conectada');
+    noAccountErr.code = 'NO_MP_ACCOUNT';
+    throw noAccountErr;
   }
 
   // Se não temos expires_at, assume token válido (fallback)
@@ -176,21 +184,38 @@ export const handler: Handler = async (event) => {
       });
     }
 
+    // Quem recebe este pagamento?
+    // - Estabelecimento com Mercado Pago conectado: token dele + application_fee (split).
+    // - Estabelecimento SEM Mercado Pago: token da PLATAFORMA (conta do Agendei Fácil).
+    //   O valor cai na nossa conta e vira saldo do estabelecimento (carteira/saque),
+    //   já descontando a taxa do MP e R$ 1,00 de serviço — ver platformWallet.ts.
     let accessToken: string;
+    let collectedByPlatform = false;
     try {
       accessToken = await getValidMercadoPagoAccessToken(String(establishmentId));
     } catch (e: any) {
       const msg = String(e?.message || 'Falha ao obter token do Mercado Pago');
-      return json(400, {
-        error: msg,
-        userMessage: 'Reconecte a conta do Mercado Pago do estabelecimento e tente novamente.',
-      });
+      const semConta = e?.code === 'NO_MP_ACCOUNT' || msg.toLowerCase().includes('não possui conta');
+      const platformToken = semConta ? getPlatformMercadoPagoAccessToken() : '';
+      if (!platformToken) {
+        return json(400, {
+          error: msg,
+          userMessage: semConta
+            ? 'Pagamento online indisponível para este estabelecimento no momento.'
+            : 'Reconecte a conta do Mercado Pago do estabelecimento e tente novamente.',
+        });
+      }
+      accessToken = platformToken;
+      collectedByPlatform = true;
+      console.log('🏦 [MP Create Payment] Estabelecimento sem MP: cobrando pela conta da plataforma', { establishmentId });
     }
 
     // Taxa da plataforma (centavos) para Mercado Pago.
     // Regras:
     // - Cartão: prioriza MERCADOPAGO_CREDIT_PLATFORM_FEE_CENTS (fallback 100 = R$1,00)
     // - PIX: mantém MERCADOPAGO_PLATFORM_FEE_CENTS / PLATFORM_FEE_CENTS (fallback 50 = R$0,50)
+    // - Pela conta da plataforma: SEM application_fee (100% cai na nossa conta; o R$ 1,00
+    //   é descontado na carteira, não no Mercado Pago).
     const normalizedMethod = String(payment_method_id || '').toLowerCase().trim();
     const isCardPayment = Boolean(token) || (normalizedMethod !== '' && normalizedMethod !== 'pix');
     const applicationFeeRaw = isCardPayment
@@ -204,7 +229,12 @@ export const handler: Handler = async (event) => {
         process.env.PLATFORM_FEE_CENTS ||
         '50'
       );
-    const applicationFee = Number(String(applicationFeeRaw).trim());
+    const applicationFee = collectedByPlatform ? undefined : Number(String(applicationFeeRaw).trim());
+    const metadataFinal = {
+      ...(metadata && typeof metadata === 'object' ? metadata : {}),
+      establishment_id: String(establishmentId),
+      ...(collectedByPlatform ? { [PLATFORM_COLLECTOR_METADATA_KEY]: PLATFORM_COLLECTOR_VALUE } : {}),
+    };
 
     // ✅ VALIDAÇÃO CRÍTICA: Se for pagamento com cartão, payment_method_id e issuer_id são OBRIGATÓRIOS
     // ✅ REMOVIDO: Nunca usar 'credit_card' ou inferir valores
@@ -246,7 +276,7 @@ export const handler: Handler = async (event) => {
           : {}),
         ...(payer.address ? { address: payer.address } : {}),
       },
-      application_fee: applicationFee,
+      ...(applicationFee !== undefined ? { application_fee: applicationFee } : {}),
       access_token: String(accessToken),
       // ✅ REPASSAR payment_method_id exatamente como veio (NUNCA inferir ou alterar)
       // ✅ REMOVIDO: Não usar fallback 'pix' se vier token (seria cartão)
@@ -257,7 +287,7 @@ export const handler: Handler = async (event) => {
       ...(token ? { token: String(token) } : {}),
       // ✅ REPASSAR issuer_id exatamente como veio (não alterar)
       ...(issuer_id ? { issuer_id: String(issuer_id) } : {}),
-      ...(metadata ? { metadata } : {}),
+      metadata: metadataFinal,
     };
 
     // ✅ VALIDAÇÃO FINAL: Se payment_method_id não foi fornecido e há token, erro
@@ -285,7 +315,7 @@ export const handler: Handler = async (event) => {
 
     const returnedFee = Number((payment as any)?.application_fee ?? 0);
     const expectedFee = Number((paymentData.application_fee || 0) / 100);
-    const feeIsValid = Number.isFinite(returnedFee) && Math.abs(returnedFee - expectedFee) < 0.0001;
+    const feeIsValid = collectedByPlatform || (Number.isFinite(returnedFee) && Math.abs(returnedFee - expectedFee) < 0.0001);
     if (!feeIsValid) {
       console.warn('⚠️ [MP Create Payment] Taxa divergente detectada (sem bloquear pagamento):', {
         establishmentId,
@@ -299,16 +329,32 @@ export const handler: Handler = async (event) => {
       paymentId: payment.id,
       status: payment.status,
       establishmentId,
+      collector: collectedByPlatform ? 'platform' : 'establishment',
     });
+
+    // Cartão aprovado NA HORA pela conta da plataforma: já credita a carteira do
+    // estabelecimento (o front confirma o agendamento sem passar pelo check-status).
+    // Idempotente por mp_payment_id — o webhook pode gravar de novo sem duplicar.
+    if (collectedByPlatform && supabaseAdmin) {
+      const st = String((payment as any)?.status || '').toLowerCase();
+      if (st === 'approved' || st === 'authorized') {
+        await recordPlatformCollectedPayment(supabaseAdmin, {
+          establishmentId: String(establishmentId),
+          appointmentId: String((metadataFinal as any)?.appointment_id || '').trim() || null,
+          payment,
+        });
+      }
+    }
 
     return json(200, {
       ...payment,
       fee_expected: expectedFee,
       fee_returned: returnedFee,
       fee_validation: feeIsValid ? 'ok' : 'divergent',
-      fee_version: `R$${(applicationFee / 100).toFixed(2).replace('.', ',')}`,
-      application_fee_cents_expected: applicationFee,
+      fee_version: `R$${((applicationFee ?? 0) / 100).toFixed(2).replace('.', ',')}`,
+      application_fee_cents_expected: applicationFee ?? 0,
       fee_mode: isCardPayment ? 'credit_card' : 'pix',
+      collector: collectedByPlatform ? 'platform' : 'establishment',
     });
   } catch (error: any) {
     console.error('❌ [MP Create Payment] Erro:', error);
@@ -323,7 +369,7 @@ export const handler: Handler = async (event) => {
     return json(500, {
       error: rawMsg || 'Erro ao criar pagamento',
       userMessage: isPixNotEnabled
-        ? 'PIX indisponível no Mercado Pago deste barbeiro. Ele precisa ativar/cadastrar uma chave PIX no app do Mercado Pago para gerar QR Code.'
+        ? 'PIX indisponível no Mercado Pago deste estabelecimento no momento. Tente cartão ou pague no local.'
         : undefined,
     });
   }

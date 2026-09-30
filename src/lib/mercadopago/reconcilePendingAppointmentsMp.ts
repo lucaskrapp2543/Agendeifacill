@@ -2,6 +2,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { refreshAccessToken } from './mp-oauth';
 import { checkMPPaymentStatus } from './mp-service';
 import { recordAdminMpCommission } from './adminMpCommission';
+import {
+  getPlatformMercadoPagoAccessToken,
+  isPlatformCollectedPayment,
+  recordPlatformCollectedPayment,
+} from './platformWallet';
 
 export type ReconcileMpPendingResult = {
   checked: number;
@@ -76,7 +81,12 @@ export async function reconcilePendingMercadoPagoAppointments(
   const lookbackDays = Math.min(30, Math.max(1, options?.lookbackDays ?? 14));
   const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
 
-  const accessToken = await getValidMercadoPagoAccessTokenForEstablishment(supabaseAdmin, establishmentId);
+  // Sem Mercado Pago conectado, os pagamentos foram criados pela conta da PLATAFORMA
+  // (carteira/saque) — consulta com o token da plataforma.
+  const accessToken =
+    (await getValidMercadoPagoAccessTokenForEstablishment(supabaseAdmin, establishmentId)) ||
+    getPlatformMercadoPagoAccessToken() ||
+    null;
   if (!accessToken) {
     return { checked: 0, updated: 0, skippedNoToken: true, errors: [] };
   }
@@ -157,8 +167,13 @@ export async function reconcilePendingMercadoPagoAppointments(
             origin: 'reconcile_pending_appointments',
             payment_status: (payment as any)?.status || null,
             payment_method_id: (payment as any)?.payment_method_id || null,
+            collector: isPlatformCollectedPayment(payment) ? 'platform' : 'establishment',
           },
         });
+        // Pagamento pela conta da plataforma: vira saldo do estabelecimento (carteira/saque).
+        if (isPlatformCollectedPayment(payment)) {
+          await recordPlatformCollectedPayment(supabaseAdmin, { establishmentId, appointmentId: id, payment });
+        }
       }
     } catch (e: any) {
       errors.push(`${id}: ${String(e?.message || e)}`);

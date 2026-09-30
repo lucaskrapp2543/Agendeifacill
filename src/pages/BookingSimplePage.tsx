@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Loader2, MapPin, ScissorsLineDashed, Sparkles, User, X } from 'lucide-react';
 import { PaymentModal } from '../components/PaymentModal';
+import { BookingPaymentChoice, type BookingPayMethod } from '../components/BookingPaymentChoice';
 import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { TimeSlotSelector } from '../components/TimeSlotSelector';
 import { useToast } from '../components/ui/Toaster';
@@ -181,6 +182,8 @@ const BookingSimplePage = () => {
   const [paymentInfo, setPaymentInfo] = useState<{ appointmentId: string; requirement: PaymentRequirement } | null>(null);
   const [paymentPendingNotice, setPaymentPendingNotice] = useState(false);
   const [pendingRequirement, setPendingRequirement] = useState<PaymentRequirement | null>(null);
+  // Escolha feita na tela padrão de pagamento (PIX / cartão) antes de abrir o PaymentModal
+  const [preferredPayMethod, setPreferredPayMethod] = useState<BookingPayMethod | null>(null);
 
   // Cupom de desconto (mesma regra das outras telas): assinante não usa.
   const [cupomInput, setCupomInput] = useState('');
@@ -1440,93 +1443,30 @@ const BookingSimplePage = () => {
           </div>
         )}
 
-        {step === 'payment_mode' && pendingRequirement && (() => {
-          const is50 = establishment?.advance_payment_percentage === 50 && pendingRequirement.valorAgendamento < precoFinalComDesconto;
-          const restante = precoFinalComDesconto - pendingRequirement.valorAgendamento;
-          const afcoinsOn = isClientAfcoinsEnabledForEstablishment(establishment);
-          return (
-            <div className="flex-1 flex flex-col gap-5">
-              <div>
-                <h2 className="text-2xl font-extrabold text-white mb-1">Como prefere pagar?</h2>
-                <p className="text-gray-400">Escolha a melhor opção para você.</p>
-              </div>
-
-              {/* ⭐ Pagar agora — opção destaque */}
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={handlePayOnline}
-                className="flex flex-col gap-3 p-5 rounded-2xl border-2 text-left transition-colors w-full"
-                style={{ borderColor: GOLD, backgroundColor: 'rgba(230,199,139,0.07)' }}
-              >
-                <div className="flex items-center justify-between w-full">
-                  <span className="text-xs font-extrabold tracking-widest uppercase" style={{ color: GOLD }}>
-                    ⭐ Recomendado
-                  </span>
-                  {is50 && (
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-full border text-amber-300 border-amber-400/40 bg-amber-500/15">
-                      50% agora
-                    </span>
-                  )}
-                </div>
-
-                <div>
-                  <p className="text-xl font-extrabold text-white">
-                    {is50
-                      ? `Pagar ${formatPrice(pendingRequirement.valorAgendamento)} agora`
-                      : `Pagar ${formatPrice(pendingRequirement.chargeAmount)} online`}
-                  </p>
-                  <p className="text-gray-400">PIX ou cartão — rápido e seguro</p>
-                </div>
-
-                {is50 && (
-                  <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 w-full space-y-1.5">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-amber-200">💳 Pagar agora (50%):</span>
-                      <span className="font-bold text-amber-200">{formatPrice(pendingRequirement.valorAgendamento)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-300">🏪 Restante no salão:</span>
-                      <span className="font-bold text-white">{formatPrice(restante)}</span>
-                    </div>
-                  </div>
-                )}
-
-                {afcoinsOn && (
-                  <p className="text-sm font-semibold text-emerald-400">
-                    ✨ Ganhe +{AFCOIN_POINTS_ONLINE} AFCoins pagando online
-                  </p>
-                )}
-              </button>
-
-              {/* Pagar no local — opção secundária */}
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={handlePayLocal}
-                className={`${CARD_BASE} ${CARD_UNSELECTED}`}
-              >
-                <div className="w-12 h-12 rounded-xl bg-[#242628] flex items-center justify-center shrink-0">
-                  <MapPin className="h-6 w-6 text-gray-400" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-lg font-semibold text-white">Pagar no local</p>
-                  <p className="text-gray-400">
-                    {afcoinsOn
-                      ? `+${AFCOIN_POINTS_LOCAL} AFCoins · pague ao chegar`
-                      : 'Pague ao chegar na barbearia'}
-                  </p>
-                </div>
-              </button>
-
-              {submitting && (
-                <div className="flex justify-center py-4">
-                  <Loader2 className="h-7 w-7 animate-spin" style={{ color: GOLD }} />
-                </div>
-              )}
-            </div>
-          );
-        })()}
+        {step === 'payment_mode' && pendingRequirement && (
+          <div className="flex-1 flex flex-col">
+            {/* Padrão de todas as páginas: PIX, cartão e (discreto) pagar no local */}
+            <BookingPaymentChoice
+              variant="inline"
+              chargeAmount={pendingRequirement.chargeAmount}
+              remainingLocalAmount={
+                establishment?.advance_payment_percentage === 50 && pendingRequirement.valorAgendamento < precoFinalComDesconto
+                  ? precoFinalComDesconto - pendingRequirement.valorAgendamento
+                  : 0
+              }
+              establishmentName={String(establishment?.name || '')}
+              afcoinsEnabled={isClientAfcoinsEnabledForEstablishment(establishment)}
+              afcoinsOnline={AFCOIN_POINTS_ONLINE}
+              afcoinsLocal={AFCOIN_POINTS_LOCAL}
+              busy={submitting}
+              onPay={(method) => {
+                setPreferredPayMethod(method);
+                void handlePayOnline();
+              }}
+              onPayLocal={() => void handlePayLocal()}
+            />
+          </div>
+        )}
 
         {step === 'payment' && paymentInfo && establishment && (
           <div className="flex-1">
@@ -1558,6 +1498,7 @@ const BookingSimplePage = () => {
                 onClose={() => setPaymentPendingNotice(true)}
                 appointmentId={paymentInfo.appointmentId}
                 amount={paymentInfo.requirement.chargeAmount}
+                initialMethod={preferredPayMethod || undefined}
                 establishmentId={establishment.id}
                 recipientId={paymentInfo.requirement.pagarmeRecipientId || undefined}
                 customerData={{ name: state.clientName, phone: state.clientWhatsapp }}

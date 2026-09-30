@@ -2,6 +2,11 @@ import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { checkMPPaymentStatus } from '../../src/lib/mercadopago/mp-service';
+import {
+  getPlatformMercadoPagoAccessToken,
+  isPlatformCollectedPayment,
+  recordPlatformCollectedPayment,
+} from '../../src/lib/mercadopago/platformWallet';
 import { getQueryParam, json } from './_utils';
 
 // Supabase Admin (bypass RLS)
@@ -29,7 +34,11 @@ async function getValidMercadoPagoAccessToken(establishmentId: string): Promise<
   const refreshToken = String((establishment as any)?.mercadopago_refresh_token || '').trim();
   const expiresAtRaw = (establishment as any)?.mercadopago_token_expires_at as string | null | undefined;
 
-  if (!accessToken) throw new Error('Estabelecimento não possui conta do Mercado Pago conectada');
+  if (!accessToken) {
+    const noAccountErr: any = new Error('Estabelecimento não possui conta do Mercado Pago conectada');
+    noAccountErr.code = 'NO_MP_ACCOUNT';
+    throw noAccountErr;
+  }
   if (!expiresAtRaw) return accessToken;
 
   const expiresAt = new Date(expiresAtRaw);
@@ -84,17 +93,45 @@ export const handler: Handler = async (event) => {
       });
     }
 
+    // Estabelecimento sem Mercado Pago: o pagamento foi criado pela conta da
+    // plataforma, então a consulta também é feita com o token da plataforma.
     let accessToken: string;
+    let collectedByPlatform = false;
     try {
       accessToken = await getValidMercadoPagoAccessToken(String(establishmentId));
     } catch (e: any) {
-      return json(400, {
-        error: String(e?.message || 'Falha ao obter token do Mercado Pago'),
-      });
+      const msg = String(e?.message || 'Falha ao obter token do Mercado Pago');
+      const semConta = e?.code === 'NO_MP_ACCOUNT' || msg.toLowerCase().includes('não possui conta');
+      const platformToken = semConta ? getPlatformMercadoPagoAccessToken() : '';
+      if (!platformToken) {
+        return json(400, { error: msg });
+      }
+      accessToken = platformToken;
+      collectedByPlatform = true;
     }
 
     // Verificar status
-    const payment = await checkMPPaymentStatus(Number(paymentId), String(accessToken));
+    let payment: Awaited<ReturnType<typeof checkMPPaymentStatus>>;
+    try {
+      payment = await checkMPPaymentStatus(Number(paymentId), String(accessToken));
+    } catch (fetchErr) {
+      // Estabelecimento conectou o MP depois de um pagamento criado pela conta da
+      // plataforma: o token dele não enxerga esse pagamento — tenta com o da plataforma.
+      const platformToken = collectedByPlatform ? '' : getPlatformMercadoPagoAccessToken();
+      if (!platformToken) throw fetchErr;
+      payment = await checkMPPaymentStatus(Number(paymentId), platformToken);
+    }
+
+    // Pagamento pela plataforma aprovado (metadata.collector = 'platform'): credita a
+    // carteira do estabelecimento (idempotente; o webhook faz o mesmo — quem chegar primeiro grava).
+    if (isPlatformCollectedPayment(payment) && supabaseAdmin) {
+      const appointmentId = String((payment as any)?.metadata?.appointment_id || '').trim() || null;
+      await recordPlatformCollectedPayment(supabaseAdmin, {
+        establishmentId: String(establishmentId),
+        appointmentId,
+        payment,
+      });
+    }
 
     return json(200, payment);
   } catch (error: any) {

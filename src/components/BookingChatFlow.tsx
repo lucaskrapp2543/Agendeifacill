@@ -332,8 +332,12 @@ export function BookingChatFlow({
 
   const shouldSkipPaymentMethodQuestion = useMemo(() => {
     const hasMercadoPagoConnected = establishmentHasMercadoPago(establishment as any);
+    const hasPagarMe = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
     const hasAdvancePixEnabled = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
-    return hasMercadoPagoConnected && hasAdvancePixEnabled;
+    // Sem Mercado Pago e sem Pagar.me: cobrança pela conta da plataforma — a escolha
+    // online/local acontece na tela de pagamento, igual ao Mercado Pago conectado.
+    const cobrancaPelaPlataforma = !hasMercadoPagoConnected && !hasPagarMe;
+    return (hasMercadoPagoConnected || cobrancaPelaPlataforma) && hasAdvancePixEnabled;
   }, [establishment]);
 
   const shouldAskPaymentMethod = !isSubscriberFlow && !requireAdvancePayment && !shouldSkipPaymentMethodQuestion;

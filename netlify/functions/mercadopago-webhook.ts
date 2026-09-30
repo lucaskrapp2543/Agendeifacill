@@ -5,6 +5,12 @@ import { recordAdminMpCommission } from '../../src/lib/mercadopago/adminMpCommis
 import { confirmPendingAppointmentFromMpPaymentMetadata } from '../../src/lib/mercadopago/confirmAppointmentFromMpPayment';
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { checkMPPaymentStatus } from '../../src/lib/mercadopago/mp-service';
+import {
+  getPlatformMercadoPagoAccessToken,
+  isPlatformCollectedPayment,
+  markPlatformCollectedPaymentRefunded,
+  recordPlatformCollectedPayment,
+} from '../../src/lib/mercadopago/platformWallet';
 import { createPartnerReferralAfterConversion, ensurePartnerReferralLinkForConvertedCheckout } from '../../src/lib/partnerReferralCheckout';
 import { getValidMercadoPagoAccessToken } from './mercadopago-create-payment';
 import { json, parseJsonBody } from './_utils';
@@ -18,7 +24,7 @@ const supabaseAdmin =
       auth: { persistSession: false, autoRefreshToken: false },
     })
     : null;
-const PLATFORM_MP_ACCESS_TOKEN = String(process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim();
+const PLATFORM_MP_ACCESS_TOKEN = getPlatformMercadoPagoAccessToken();
 
 const normalizeBillingStatus = (raw: unknown): 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded' => {
   const status = String(raw || '').toLowerCase().trim();
@@ -1140,6 +1146,21 @@ export const handler: Handler = async (event) => {
               }
             }
 
+            // Pagamento pela conta da plataforma (carteira): credita o saldo do estabelecimento
+            // mesmo que o agendamento já esteja confirmado (cartão é confirmado na hora pelo
+            // front, antes do webhook chegar). Idempotente por mp_payment_id.
+            if (isPlatformCollectedPayment(payment)) {
+              const metaEstablishmentId = String((payment as any)?.metadata?.establishment_id || '').trim();
+              const metaAppointmentId = String((payment as any)?.metadata?.appointment_id || '').trim() || null;
+              if (metaEstablishmentId) {
+                await recordPlatformCollectedPayment(supabaseAdmin, {
+                  establishmentId: metaEstablishmentId,
+                  appointmentId: metaAppointmentId,
+                  payment,
+                });
+              }
+            }
+
             const appointmentFallback = await confirmPendingAppointmentFromMpPaymentMetadata(
               supabaseAdmin,
               String(paymentId),
@@ -1252,14 +1273,20 @@ export const handler: Handler = async (event) => {
       const refreshTokenRaw = String((establishment as any)?.mercadopago_refresh_token || '').trim();
       const expiresAtRaw = (establishment as any)?.mercadopago_token_expires_at as string | null | undefined;
 
+      // Estabelecimento SEM Mercado Pago: o pagamento foi criado pela conta da
+      // plataforma (carteira). Consulta com o token da plataforma.
+      let collectedByPlatform = false;
       if (!accessTokenRaw) {
-        console.warn('⚠️ [MP Webhook] Estabelecimento não possui access_token do Mercado Pago');
-        return json(200, { message: 'Webhook recebido, mas estabelecimento não configurado' });
+        if (!PLATFORM_MP_ACCESS_TOKEN) {
+          console.warn('⚠️ [MP Webhook] Estabelecimento não possui access_token do Mercado Pago');
+          return json(200, { message: 'Webhook recebido, mas estabelecimento não configurado' });
+        }
+        collectedByPlatform = true;
       }
 
       // ✅ Auto-refresh do token (evita falhar webhook após ~6h)
-      let accessToken = accessTokenRaw;
-      if (expiresAtRaw) {
+      let accessToken = collectedByPlatform ? PLATFORM_MP_ACCESS_TOKEN : accessTokenRaw;
+      if (!collectedByPlatform && expiresAtRaw) {
         const expiresAt = new Date(expiresAtRaw);
         const now = Date.now();
         const safetyMs = 2 * 60 * 1000;
@@ -1292,7 +1319,15 @@ export const handler: Handler = async (event) => {
 
       // Verificar status completo do pagamento na API do Mercado Pago
       try {
-        const payment = await checkMPPaymentStatus(Number(paymentId), String(accessToken));
+        let payment: Awaited<ReturnType<typeof checkMPPaymentStatus>>;
+        try {
+          payment = await checkMPPaymentStatus(Number(paymentId), String(accessToken));
+        } catch (fetchErr) {
+          // Estabelecimento conectou o MP depois de um pagamento criado pela conta da
+          // plataforma: o token dele não enxerga esse pagamento — tenta com o da plataforma.
+          if (collectedByPlatform || !PLATFORM_MP_ACCESS_TOKEN) throw fetchErr;
+          payment = await checkMPPaymentStatus(Number(paymentId), PLATFORM_MP_ACCESS_TOKEN);
+        }
 
         console.log('📊 [MP Webhook] Status do pagamento:', {
           id: payment.id,
@@ -1352,8 +1387,20 @@ export const handler: Handler = async (event) => {
               origin: 'mercadopago_webhook_appointment',
               payment_status: (payment as any)?.status || null,
               payment_method_id: (payment as any)?.payment_method_id || null,
+              collector: isPlatformCollectedPayment(payment) ? 'platform' : 'establishment',
             },
           });
+
+          // Pagamento pela conta da plataforma (metadata.collector = 'platform'): vira saldo
+          // do estabelecimento (carteira/saque). Só pelo metadata — um estabelecimento que
+          // desconectou o MP depois de receber na própria conta NÃO ganha saldo aqui.
+          if (isPlatformCollectedPayment(payment)) {
+            await recordPlatformCollectedPayment(supabaseAdmin, {
+              establishmentId: String(appointment.establishment_id || ''),
+              appointmentId: String(appointment.id),
+              payment,
+            });
+          }
 
           console.log('✅ [MP Webhook] Agendamento atualizado com sucesso:', appointment.id);
           return json(200, {
@@ -1363,6 +1410,11 @@ export const handler: Handler = async (event) => {
           });
         } else if (payment.status === 'rejected' || payment.status === 'cancelled' || payment.status === 'refunded') {
           console.log('❌ [MP Webhook] Pagamento recusado/cancelado');
+
+          // Estorno de pagamento pela plataforma: sai do saldo do estabelecimento.
+          if (payment.status === 'refunded' && isPlatformCollectedPayment(payment)) {
+            await markPlatformCollectedPaymentRefunded(supabaseAdmin, String(paymentId), 'refunded');
+          }
 
           // Não atualizar o agendamento automaticamente (deixar para o usuário decidir)
           return json(200, {

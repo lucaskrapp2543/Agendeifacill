@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { recordAdminMpCommission } from './adminMpCommission';
+import { isPlatformCollectedPayment, recordPlatformCollectedPayment } from './platformWallet';
 
 /**
  * Confirma agendamento em `pending_payment` usando external_reference/metadata do pagamento MP,
@@ -77,7 +78,17 @@ export async function confirmPendingAppointmentFromMpPaymentMetadata(
       origin: 'confirm_appointment_from_mp_metadata',
       payment_status: payment?.status || null,
       payment_method_id: payment?.payment_method_id || null,
+      collector: isPlatformCollectedPayment(payment) ? 'platform' : 'establishment',
     },
   });
+
+  // Pagamento pela conta da plataforma: vira saldo do estabelecimento (carteira/saque).
+  if (isPlatformCollectedPayment(payment)) {
+    await recordPlatformCollectedPayment(admin, {
+      establishmentId: String(apt.establishment_id || ''),
+      appointmentId: String(apt.id),
+      payment,
+    });
+  }
   return { ok: true, appointmentId: String(apt.id) };
 }

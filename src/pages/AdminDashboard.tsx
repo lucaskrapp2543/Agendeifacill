@@ -257,6 +257,8 @@ const AdminDashboard = () => {
   const [filterActivity, setFilterActivity] = useState<'all' | 'active' | 'inactive'>('all');
   const [filterWhatsapp, setFilterWhatsapp] = useState<'all' | 'connected'>('all');
   const [filterMercadoPago, setFilterMercadoPago] = useState<'all' | 'connected' | 'disconnected'>('all');
+  // Carteira: mostrar só quem pediu saque (pendente) ou tem saldo a pagar
+  const [filterWallet, setFilterWallet] = useState<'all' | 'pending' | 'owed'>('all');
   const [showDeleted, setShowDeleted] = useState(false);
   const [deletedContainmentIds, setDeletedContainmentIds] = useState<string[]>([]);
   const [showNewRegistrations, setShowNewRegistrations] = useState(false);
@@ -271,6 +273,20 @@ const AdminDashboard = () => {
   const [resetOwnerPasswordValue, setResetOwnerPasswordValue] = useState('');
   const [isResettingOwnerPassword, setIsResettingOwnerPassword] = useState(false);
   const [whatsappConnectedOwnerIds, setWhatsappConnectedOwnerIds] = useState<Set<string>>(new Set());
+  // Carteira: pagamentos online recebidos pela conta da plataforma (estabelecimento sem
+  // Mercado Pago). Saldo a pagar + pedido de saque pendente, por estabelecimento.
+  const [walletByEstablishment, setWalletByEstablishment] = useState<
+    Record<
+      string,
+      {
+        balance_cents: number;
+        total_received_cents: number;
+        total_paid_cents: number;
+        pending_request: { id: string; amount_cents: number; requested_at: string; pix_key?: string | null } | null;
+      }
+    >
+  >({});
+  const [markingWithdrawalPaidId, setMarkingWithdrawalPaidId] = useState<string | null>(null);
 
   // Estados para contagem de agendamentos
   const [selectedDateForAppointments, setSelectedDateForAppointments] = useState<Record<string, Date>>({});
@@ -1882,6 +1898,7 @@ const AdminDashboard = () => {
         // Se chegou até aqui, pode carregar dados
         fetchEstablishments();
         fetchWhatsappConnectedSessions();
+        fetchEstablishmentWallets();
         fetchPendingRegistrationsCount();
         loadAdminBillingLinks();
       } catch (error) {
@@ -2424,6 +2441,69 @@ const AdminDashboard = () => {
       setWhatsappConnectedOwnerIds(connectedIds);
     } catch (error) {
       console.warn('Falha ao consultar sessões WhatsApp conectadas:', error);
+    }
+  };
+
+  // Carteira (sem Mercado Pago): saldo a pagar + pedido de saque de cada estabelecimento
+  const fetchEstablishmentWallets = async () => {
+    try {
+      const { data, error } = await supabase.rpc('admin_list_establishment_wallets');
+      if (error) {
+        console.warn('Carteira: não foi possível carregar saldos a pagar:', error.message);
+        return;
+      }
+      const items = Array.isArray((data as any)?.items) ? ((data as any).items as any[]) : [];
+      const map: typeof walletByEstablishment = {};
+      for (const it of items) {
+        const id = String(it?.establishment_id || '').trim();
+        if (!id) continue;
+        map[id] = {
+          balance_cents: Number(it?.balance_cents || 0),
+          total_received_cents: Number(it?.total_received_cents || 0),
+          total_paid_cents: Number(it?.total_paid_cents || 0),
+          pending_request: it?.pending_request
+            ? {
+              id: String(it.pending_request.id || ''),
+              amount_cents: Number(it.pending_request.amount_cents || 0),
+              requested_at: String(it.pending_request.requested_at || ''),
+              pix_key: it.pending_request.pix_key ?? null,
+            }
+            : null,
+        };
+      }
+      setWalletByEstablishment(map);
+    } catch (error) {
+      console.warn('Carteira: falha inesperada ao carregar saldos a pagar:', error);
+    }
+  };
+
+  // Admin enviou o PIX do saque → marca o pedido como pago (some o "solicitou", saldo zera)
+  const marcarSaquePago = async (
+    establishment: Establishment,
+    request: { id: string; amount_cents: number; pix_key?: string | null }
+  ) => {
+    const valor = fmtBRL(Number(request.amount_cents || 0) / 100);
+    const ok = window.confirm(
+      `Confirmar que você JÁ ENVIOU o PIX de ${valor} para ${establishment.name}?\n\nChave PIX: ${request.pix_key || '(não informada)'}\n\nIsso marca o saque como pago e aparece como "Aprovado" para o estabelecimento.`
+    );
+    if (!ok) return;
+    setMarkingWithdrawalPaidId(request.id);
+    try {
+      const { data, error } = await supabase.rpc('admin_update_establishment_withdrawal_request', {
+        p_request_id: request.id,
+        p_action: 'paid',
+      });
+      const res = (data || {}) as { ok?: boolean; message?: string; error?: string };
+      if (error || !res.ok) {
+        toast.error(res?.message || error?.message || 'Não foi possível marcar o saque como pago.');
+        return;
+      }
+      toast.success(`Saque de ${valor} marcado como pago.`);
+      await fetchEstablishmentWallets();
+    } catch (err: any) {
+      toast.error(err?.message || 'Não foi possível marcar o saque como pago.');
+    } finally {
+      setMarkingWithdrawalPaidId(null);
     }
   };
 
@@ -4362,6 +4442,24 @@ const AdminDashboard = () => {
   );
   const mercadoPagoDisconnectedCount = Math.max(0, baseFilteredEstablishments.length - mercadoPagoConnectedCount);
 
+  // 💰 Carteira (barbearias sem MP): quanto devemos no total e quantos pedidos de saque estão abertos
+  const walletOwedCentsOf = (establishmentId: string) => {
+    const w = walletByEstablishment[String(establishmentId)];
+    if (!w) return 0;
+    return Number(w.balance_cents || 0) + Number(w.pending_request?.amount_cents || 0);
+  };
+  const walletTotals = Object.values(walletByEstablishment).reduce(
+    (acc, w) => {
+      acc.owedCents += Number(w.balance_cents || 0) + Number(w.pending_request?.amount_cents || 0);
+      if (w.pending_request) {
+        acc.pendingCount += 1;
+        acc.pendingCents += Number(w.pending_request.amount_cents || 0);
+      }
+      return acc;
+    },
+    { owedCents: 0, pendingCount: 0, pendingCents: 0 }
+  );
+
   /**
    * 🏆 Próximos bônus do mês — quem está mais perto da mensalidade grátis.
    *
@@ -4451,6 +4549,12 @@ const AdminDashboard = () => {
     .filter(est => {
       if (filterMercadoPago === 'connected') return isMercadoPagoConnectedEstablishment(est);
       if (filterMercadoPago === 'disconnected') return !isMercadoPagoConnectedEstablishment(est);
+      return true;
+    })
+    .filter(est => {
+      // 💰 Carteira: só quem pediu saque / só quem tem saldo a pagar
+      if (filterWallet === 'pending') return Boolean(walletByEstablishment[String(est.id)]?.pending_request);
+      if (filterWallet === 'owed') return walletOwedCentsOf(String(est.id)) > 0;
       return true;
     });
 
@@ -5992,6 +6096,36 @@ const AdminDashboard = () => {
               <strong>MP DESCONECTADO:</strong> {mercadoPagoDisconnectedCount}
               {filterMercadoPago === 'disconnected' ? <span className="text-[10px] font-semibold opacity-80">(filtrando)</span> : null}
             </button>
+            {/* 💰 Carteira: pagamentos online de quem não tem MP caem na nossa conta e viram saldo a pagar */}
+            <button
+              type="button"
+              onClick={() => setFilterWallet((prev) => (prev === 'owed' ? 'all' : 'owed'))}
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors ${filterWallet === 'owed'
+                ? 'bg-sky-700 border-sky-800 text-white'
+                : 'bg-white border-sky-300 text-sky-800 hover:bg-sky-50'
+                }`}
+              title="Carteira: total líquido que devemos às barbearias sem Mercado Pago (pagamentos online que caíram na conta do Agendei Fácil). Clique para ver só quem tem saldo a pagar."
+            >
+              <DollarSign className="h-3 w-3" />
+              <strong>CARTEIRA A PAGAR:</strong> {fmtBRL(walletTotals.owedCents / 100)}
+              {filterWallet === 'owed' ? <span className="text-[10px] font-semibold opacity-80">(filtrando)</span> : null}
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterWallet((prev) => (prev === 'pending' ? 'all' : 'pending'))}
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors ${filterWallet === 'pending'
+                ? 'bg-red-700 border-red-800 text-white'
+                : walletTotals.pendingCount > 0
+                  ? 'bg-red-600 border-red-800 text-white animate-pulse'
+                  : 'bg-white border-red-200 text-red-700 hover:bg-red-50'
+                }`}
+              title="Pedidos de saque aguardando você enviar o PIX. Clique para ver só quem pediu."
+            >
+              <AlertTriangle className="h-3 w-3" />
+              <strong>SAQUES PENDENTES:</strong> {walletTotals.pendingCount}
+              {walletTotals.pendingCount > 0 ? <span className="text-[10px] font-semibold opacity-90">({fmtBRL(walletTotals.pendingCents / 100)})</span> : null}
+              {filterWallet === 'pending' ? <span className="text-[10px] font-semibold opacity-80">(filtrando)</span> : null}
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -6289,6 +6423,49 @@ const AdminDashboard = () => {
                                 MP DESCONECTADO
                               </span>
                             )}
+                            {/* 💰 SALDO A PAGAR — pagamentos online recebidos pela conta da plataforma (sem MP).
+                                Aparece SEMPRE para quem não tem MP (mesmo R$ 0,00) e, para quem tem MP, só se ficou saldo antigo. */}
+                            {(() => {
+                              const wallet = walletByEstablishment[String(establishment.id)];
+                              const pending = wallet?.pending_request || null;
+                              // O saldo já desconta o pedido pendente; o que devemos = saldo + pedido em aberto
+                              const owedCents = Number(wallet?.balance_cents || 0) + Number(pending?.amount_cents || 0);
+                              const semMp = !establishmentHasMercadoPago(establishment as any);
+                              if (!semMp && owedCents <= 0 && !pending) return null;
+                              const temValor = owedCents > 0 || Boolean(pending);
+                              return (
+                                <>
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-extrabold rounded-full border shadow-sm whitespace-nowrap ${temValor
+                                      ? 'bg-sky-700 text-white border-sky-900'
+                                      : 'bg-white text-sky-800 border-sky-300'
+                                      }`}
+                                    title="Pagamentos online que caíram na conta do Agendei Fácil (estabelecimento sem Mercado Pago). Valor líquido que devemos a ele — já descontadas a taxa do MP e R$ 1,00 de serviço. Zera quando você marca o saque como pago."
+                                  >
+                                    💰 SALDO A PAGAR: {fmtBRL(owedCents / 100)}
+                                  </span>
+                                  {pending && (
+                                    <>
+                                      <span
+                                        className="inline-flex items-center px-2 py-1 text-[11px] font-extrabold rounded-full bg-red-600 text-white border border-red-800 shadow-sm whitespace-nowrap animate-pulse"
+                                        title={`Pedido de saque em ${pending.requested_at ? format(new Date(pending.requested_at), 'dd/MM HH:mm', { locale: ptBR }) : '—'} · Chave PIX: ${pending.pix_key || '(não informada)'}`}
+                                      >
+                                        (solicitou {fmtBRL(Number(pending.amount_cents || 0) / 100)})
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => void marcarSaquePago(establishment, pending)}
+                                        disabled={markingWithdrawalPaidId === pending.id}
+                                        className="px-2 py-1 text-[11px] font-extrabold rounded bg-emerald-600 text-white hover:bg-emerald-700 transition-colors whitespace-nowrap disabled:opacity-50"
+                                        title={`Já enviei o PIX para a chave ${pending.pix_key || '(não informada)'} — marcar como pago`}
+                                      >
+                                        {markingWithdrawalPaidId === pending.id ? '...' : '✓ Pago'}
+                                      </button>
+                                    </>
+                                  )}
+                                </>
+                              );
+                            })()}
                             <button
                               onClick={() => handleOpenEstablishmentInfo(establishment)}
                               className="px-2 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors whitespace-nowrap"

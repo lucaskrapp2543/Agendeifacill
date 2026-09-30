@@ -60,13 +60,20 @@ export interface CreateMPPaymentResponse {
   date_created: string;
   date_approved?: string;
   payment_method_id: string;
+  /** 'credit_card' | 'debit_card' | 'bank_transfer' (PIX) | ... — o payment_method_id traz a bandeira. */
+  payment_type_id?: string;
   payer: {
     id: string;
     email: string;
+    first_name?: string;
+    last_name?: string;
   };
   application_fee: number;
   metadata?: Record<string, any>;
   external_reference?: string;
+  /** Taxas cobradas pelo Mercado Pago neste pagamento (usado pela carteira da plataforma). */
+  fee_details?: Array<{ type?: string; amount?: number; fee_payer?: string }>;
+  transaction_details?: { net_received_amount?: number; total_paid_amount?: number };
 }
 
 /**
@@ -275,13 +282,24 @@ export async function createMPPayment(
       date_created: payment.date_created,
       date_approved: payment.date_approved,
       payment_method_id: payment.payment_method_id,
+      payment_type_id: payment.payment_type_id,
       payer: {
         id: String(payment.payer?.id || ''),
         email: payment.payer?.email || '',
+        first_name: payment.payer?.first_name || undefined,
+        last_name: payment.payer?.last_name || undefined,
       },
       application_fee: payment.application_fee || (hasApplicationFee ? Number(application_fee) / 100 : 0),
       metadata: payment.metadata,
       external_reference: payment.external_reference,
+      // Taxas do MP e líquido (carteira da plataforma)
+      fee_details: Array.isArray(payment.fee_details) ? payment.fee_details : undefined,
+      transaction_details: payment.transaction_details
+        ? {
+          net_received_amount: payment.transaction_details.net_received_amount,
+          total_paid_amount: payment.transaction_details.total_paid_amount,
+        }
+        : undefined,
       // Incluir dados do PIX se disponível
       point_of_interaction: payment.point_of_interaction,
     } as any;
@@ -360,13 +378,24 @@ export async function checkMPPaymentStatus(
       date_created: payment.date_created,
       date_approved: payment.date_approved,
       payment_method_id: payment.payment_method_id,
+      payment_type_id: payment.payment_type_id,
       payer: {
         id: String(payment.payer?.id || ''),
         email: payment.payer?.email || '',
+        first_name: payment.payer?.first_name || undefined,
+        last_name: payment.payer?.last_name || undefined,
       },
       application_fee: payment.application_fee || 0,
       metadata: payment.metadata,
       external_reference: payment.external_reference,
+      // Taxas do MP e líquido (carteira da plataforma: saldo = bruto - taxa MP - R$ 1,00)
+      fee_details: Array.isArray(payment.fee_details) ? payment.fee_details : undefined,
+      transaction_details: payment.transaction_details
+        ? {
+          net_received_amount: payment.transaction_details.net_received_amount,
+          total_paid_amount: payment.transaction_details.total_paid_amount,
+        }
+        : undefined,
     };
   } catch (error: any) {
     console.error('❌ [MP Payment] Erro ao verificar status:', {

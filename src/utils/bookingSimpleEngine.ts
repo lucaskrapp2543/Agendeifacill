@@ -340,8 +340,12 @@ export async function resolvePaymentRequirement(params: {
 
   const hasPagarMe = !!pagarmeRecipientId;
   const hasMercadoPago = establishmentHasMercadoPago(establishment);
+  // Sem Mercado Pago (e sem Pagar.me): o pagamento online é cobrado pela conta da
+  // PLATAFORMA e vira saldo do estabelecimento (carteira/saque). Mesmas regras de
+  // obrigatório/opcional/50% que o estabelecimento configurou.
+  const cobrancaPelaPlataforma = !hasMercadoPago && !hasPagarMe;
 
-  const usarMercadoPago = hasMercadoPago && exigirPagamentoAntecipadoMercadoPago;
+  const usarMercadoPago = (hasMercadoPago || cobrancaPelaPlataforma) && exigirPagamentoAntecipadoMercadoPago;
   const usarPagarMe = !usarMercadoPago && hasPagarMe && exigirPagamentoAntecipado;
 
   const pagamentoAdiantadoAtivo = (usarPagarMe || usarMercadoPago) && valorAgendamento > 0;

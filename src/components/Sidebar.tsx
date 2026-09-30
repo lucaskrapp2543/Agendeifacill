@@ -31,6 +31,7 @@ import {
 import React, { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { clearDeviceLocalDataForNewLogin } from '../utils/versionManager';
+import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import { TopMonthlyWinnerCard, type TopMonthlyWinnerCardData } from './TopMonthlyWinnerCard';
 
 type TabType =
@@ -748,8 +749,12 @@ const Sidebar: React.FC<SidebarProps> = ({
   }> = [
     {
       id: 'receber-adiantado',
-      label: '💰 Receba Antes',
-      description: 'Seu cliente escolhe: pagar online ou no local. Menos faltas e dinheiro na conta na hora.',
+      // Sem Mercado Pago conectado, o pagamento online cai na conta da plataforma e
+      // vira saldo: o item vira "Saques / Pagamentos online".
+      label: (!establishment || establishmentHasMercadoPago(establishment)) ? '💰 Receba Antes' : '💰 Saques / Pagamentos online',
+      description: establishmentHasMercadoPago(establishment)
+        ? 'Seu cliente escolhe: pagar online ou no local. Menos faltas e dinheiro na conta na hora.'
+        : 'Aqui você ajusta como é feito os pagamentos online e efetua seus saques.',
       icon: CreditCard,
       featured: true,
       featuredTone: 'emerald',
@@ -1109,7 +1114,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       },
       {
         id: 'receber-adiantado',
-        label: '💰 Receba Antes',
+        label: (!establishment || establishmentHasMercadoPago(establishment)) ? '💰 Receba Antes' : '💰 Saques / Pagamentos online',
         icon: CreditCard,
         onClick: () => executeMobileAction('receber-adiantado', openReceberAdiantadoSection),
         className: 'bg-gradient-to-r from-sky-500 to-blue-600 border border-sky-400/40',
@@ -2156,8 +2161,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                           ? 'bg-white text-black shadow-md'
                           : 'bg-gradient-to-r from-sky-500 to-blue-600 text-white hover:from-sky-600 hover:to-blue-700 shadow-md shadow-sky-500/20 border border-sky-400/40'
                         }`}
-                      title={isExpanded ? '' : 'Receba Antes'}
-                      aria-label="Receba Antes"
+                      title={isExpanded ? '' : ((!establishment || establishmentHasMercadoPago(establishment)) ? 'Receba Antes' : 'Saques / Pagamentos online')}
+                      aria-label={(!establishment || establishmentHasMercadoPago(establishment)) ? 'Receba Antes' : 'Saques / Pagamentos online'}
                     >
                       <CreditCard
                         className={`h-5 w-5 flex-shrink-0 ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen ? 'text-black' : 'text-white'
@@ -2166,7 +2171,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                       {isExpanded && (
                         <>
                           <span className={`text-sm font-medium whitespace-nowrap ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen ? 'text-black' : 'text-white'}`}>
-                            💰 Receba Antes
+                            {(!establishment || establishmentHasMercadoPago(establishment)) ? '💰 Receba Antes' : '💰 Saques / Pag. online'}
                           </span>
                           <ChevronRight className={`h-4 w-4 flex-shrink-0 opacity-60 ml-auto ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen ? 'text-black' : 'text-white'}`} />
                         </>
@@ -2176,7 +2181,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     {/* Tooltip para menu recolhido */}
                     {!isExpanded && (
                       <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
-                        💰 Receba Antes
+                        {(!establishment || establishmentHasMercadoPago(establishment)) ? '💰 Receba Antes' : '💰 Saques / Pagamentos online'}
                       </div>
                     )}
 

@@ -28,6 +28,11 @@ interface PaymentModalProps {
   enableAfcoinMotivation?: boolean;
   /** Se true, o valor já inclui R$1 de taxa cobrada do cliente */
   includesPlatformFee?: boolean;
+  /**
+   * Forma escolhida ANTES de abrir (BookingPaymentChoice): 'pix' mostra só o PIX,
+   * cartão já abre no formulário do cartão. Só apresentação — a cobrança não muda.
+   */
+  initialMethod?: 'pix' | 'credit_card' | 'debit_card';
 }
 
 type PaymentMethod = 'pix' | 'credit_card' | 'debit_card' | null;
@@ -45,8 +50,19 @@ export const PaymentModal = ({
   cancelAppointmentOnFailure = true,
   enableAfcoinMotivation,
   includesPlatformFee = false,
+  initialMethod,
 }: PaymentModalProps) => {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(null);
+  // "Prefiro outra forma de pagamento": volta a mostrar PIX e cartão quando veio uma escolha prévia
+  const [showAllMethods, setShowAllMethods] = useState(false);
+  useEffect(() => {
+    if (!isOpen) return;
+    setShowAllMethods(false);
+    // Cartão (crédito ou débito — o formulário do Mercado Pago aceita os dois) já abre no formulário
+    if (initialMethod === 'credit_card' || initialMethod === 'debit_card') {
+      setSelectedMethod('credit_card');
+    }
+  }, [isOpen, initialMethod]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [pixQrCode, setPixQrCode] = useState<string>('');
   const [pixQrCodeUrl, setPixQrCodeUrl] = useState<string>('');
@@ -124,7 +140,11 @@ export const PaymentModal = ({
           // Se apenas Pagar.me está marcado para exigir → usar Pagar.me
           // Se ambos estão marcados → prioridade para Mercado Pago
           // Se nenhum está marcado para exigir → usar Mercado Pago se disponível (sem Pagar.me)
-          if (exigirMP && hasMP) {
+          // Sem Mercado Pago e sem Pagar.me: o pagamento é cobrado pela conta da
+          // PLATAFORMA (mesma tela do Mercado Pago; o servidor usa o token da plataforma
+          // e o valor vira saldo do estabelecimento — carteira/saque).
+          const cobrancaPelaPlataforma = !hasMP && !hasPM;
+          if (exigirMP && (hasMP || cobrancaPelaPlataforma)) {
             // Mercado Pago está configurado para exigir pagamento antecipado → usar Mercado Pago
             setHasMercadoPago(true);
           } else if (exigirPM && hasPM) {
@@ -132,7 +152,7 @@ export const PaymentModal = ({
             setHasMercadoPago(false);
           } else {
             // Fallback: se nenhum está marcado para exigir, usar Mercado Pago se disponível (sem Pagar.me)
-            setHasMercadoPago(hasMP && !hasPM);
+            setHasMercadoPago(hasMP || cobrancaPelaPlataforma);
           }
         })
         .catch(() => {
@@ -1847,6 +1867,7 @@ export const PaymentModal = ({
                 {/* Mostrar opções do Mercado Pago apenas se tiver Mercado Pago conectado */}
                 {hasMercadoPago && (
                   <>
+                    {(showAllMethods || (initialMethod !== 'credit_card' && initialMethod !== 'debit_card')) && (
                     <button
                       onClick={() => handleMercadoPagoPayment('pix')}
                       disabled={isProcessing || isCheckingPayment}
@@ -1861,6 +1882,8 @@ export const PaymentModal = ({
                       </div>
                       <span className="text-sm font-semibold text-white">{formattedAmount}</span>
                     </button>
+                    )}
+                    {(showAllMethods || initialMethod !== 'pix') && (
                     <button
                       onClick={() => setSelectedMethod('credit_card')}
                       disabled={isProcessing || isCheckingPayment}
@@ -1875,6 +1898,16 @@ export const PaymentModal = ({
                       </div>
                       <span className="text-sm font-semibold text-white">{formattedAmount}</span>
                     </button>
+                    )}
+                    {initialMethod && !showAllMethods && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllMethods(true)}
+                        className="w-full text-center text-xs text-gray-400 hover:text-white underline underline-offset-4 py-1"
+                      >
+                        Prefiro outra forma de pagamento
+                      </button>
+                    )}
                   </>
                 )}
               </div>
