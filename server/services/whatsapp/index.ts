@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { WhatsAppMessageQueue } from './messageQueue';
+import { handlePresentationInbound } from './presentationReply';
 import { WhatsAppReminderScheduler } from './reminderScheduler';
 import type { SendMessageResult, SessionStatusPayload } from './types';
 import { WhatsAppManager } from './whatsappManager';
@@ -179,6 +180,13 @@ const persistAutomationMessageResult = async (
 
 const manager = new WhatsAppManager({
   onStatusChange: persistSessionStatus,
+  // Mensagem de apresentação: cliente manda mensagem -> recebe o link de agendamento
+  // (trava de 12h por contato, filtros contra laço — ver presentationReply.ts).
+  onInboundMessages: (userId, socket, upsert) => {
+    void handlePresentationInbound({ getSupabaseAdmin }, userId, socket, upsert).catch((error) => {
+      console.warn('[whatsapp/apresentacao] erro inesperado:', String((error as any)?.message || error));
+    });
+  },
 });
 
 const queue = new WhatsAppMessageQueue(async (job) => {

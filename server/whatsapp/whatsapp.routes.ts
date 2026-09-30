@@ -4,6 +4,18 @@ import { getWhatsAppManager, sendWhatsAppMessage } from '../services/whatsapp';
 
 const router = express.Router();
 const REMINDER_OPTIONS_MINUTES = new Set([10, 30, 60, 180, 300, 720]);
+// Mensagem de apresentação (resposta automática com o link de agendamento)
+const PRESENTATION_LINK_OPTIONS = new Set(['completa', 'af', 'chat']);
+const AUTOMATION_SETTINGS_COLUMNS =
+  'user_id,reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template,presentation_enabled,presentation_link';
+// Banco ainda sem a migration da apresentação: lê/grava só as colunas antigas
+const AUTOMATION_SETTINGS_COLUMNS_LEGACY =
+  'user_id,reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template';
+const isMissingColumnError = (error: any) => {
+  const code = String(error?.code || '').trim();
+  const msg = String(error?.message || '').toLowerCase();
+  return code === '42703' || (msg.includes('column') && msg.includes('does not exist')) || msg.includes('schema cache');
+};
 const REQUIRED_REMINDER_TOKENS = [
   'cliente_nome',
   'barbearia_nome',
@@ -119,6 +131,10 @@ const normalizeAutomationSettings = (row: any, userId: string) => ({
   reminder_template: String(row?.reminder_template || '').trim() || DEFAULT_REMINDER_TEMPLATE,
   greeting_enabled: row?.greeting_enabled !== false,
   greeting_template: String(row?.greeting_template || '').trim() || DEFAULT_GREETING_TEMPLATE,
+  presentation_enabled: row?.presentation_enabled !== false,
+  presentation_link: PRESENTATION_LINK_OPTIONS.has(String(row?.presentation_link || '').trim().toLowerCase())
+    ? String(row.presentation_link).trim().toLowerCase()
+    : 'chat',
 });
 
 const isMissingAutomationSettingsTable = (error: any) => {
@@ -377,15 +393,20 @@ router.get('/automation-settings', async (req, res) => {
 
     let data: any = null;
     let error: any = null;
+    let columns = AUTOMATION_SETTINGS_COLUMNS;
     for (let attempt = 1; attempt <= 3; attempt++) {
       const response = await supabaseAdmin
         .from('whatsapp_automation_settings')
-        .select('user_id,reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template')
+        .select(columns)
         .eq('user_id', userId)
         .maybeSingle();
       data = response.data;
       error = response.error;
       if (!error) break;
+      if (isMissingColumnError(error) && columns !== AUTOMATION_SETTINGS_COLUMNS_LEGACY) {
+        columns = AUTOMATION_SETTINGS_COLUMNS_LEGACY; // migration da apresentação ainda não aplicada
+        continue;
+      }
       if (!isTransientSupabaseError(error) || attempt === 3) break;
       await sleep(attempt * 250);
     }
@@ -419,6 +440,11 @@ router.post('/automation-settings', async (req, res) => {
     const reminderTemplate = String(req.body?.reminder_template || '').trim();
     const greetingEnabled = req.body?.greeting_enabled !== false;
     const greetingTemplate = String(req.body?.greeting_template || '').trim();
+    const presentationEnabled = req.body?.presentation_enabled !== false;
+    const presentationLink = String(req.body?.presentation_link || 'chat').trim().toLowerCase();
+    if (!PRESENTATION_LINK_OPTIONS.has(presentationLink)) {
+      throw new Error('Link da mensagem de apresentação inválido. Use completa, af ou chat.');
+    }
 
     if (!REMINDER_OPTIONS_MINUTES.has(reminderOffsetMinutes)) {
       throw new Error('Tempo de lembrete inválido. Use 10, 30, 60, 180, 300 ou 720 minutos.');
@@ -442,20 +468,31 @@ router.post('/automation-settings', async (req, res) => {
       reminder_template: normalizedReminderTemplate,
       greeting_enabled: Boolean(greetingEnabled),
       greeting_template: normalizedGreetingTemplate,
+      presentation_enabled: Boolean(presentationEnabled),
+      presentation_link: presentationLink,
       updated_at: new Date().toISOString(),
     };
 
     let data: any = null;
     let error: any = null;
+    let columns = AUTOMATION_SETTINGS_COLUMNS;
+    let payloadToSave: Record<string, any> = payload;
     for (let attempt = 1; attempt <= 3; attempt++) {
       const response = await supabaseAdmin
         .from('whatsapp_automation_settings')
-        .upsert(payload, { onConflict: 'user_id' })
-        .select('user_id,reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template')
+        .upsert(payloadToSave, { onConflict: 'user_id' })
+        .select(columns)
         .maybeSingle();
       data = response.data;
       error = response.error;
       if (!error) break;
+      if (isMissingColumnError(error) && columns !== AUTOMATION_SETTINGS_COLUMNS_LEGACY) {
+        // migration da apresentação ainda não aplicada: salva só o que existe
+        columns = AUTOMATION_SETTINGS_COLUMNS_LEGACY;
+        const { presentation_enabled: _pe, presentation_link: _pl, ...legacyPayload } = payload;
+        payloadToSave = legacyPayload;
+        continue;
+      }
       if (!isTransientSupabaseError(error) || attempt === 3) break;
       await sleep(attempt * 250);
     }

@@ -6,6 +6,8 @@ import type { SendMessageInput, SendMessageResult, SessionStatusPayload } from '
 type WhatsAppManagerOptions = {
   sessionsRootDir?: string;
   onStatusChange?: (payload: SessionStatusPayload) => Promise<void> | void;
+  /** Mensagens recebidas (evento messages.upsert). O handler NUNCA pode lançar erro. */
+  onInboundMessages?: (userId: string, socket: any, upsert: any) => void;
 };
 
 export class WhatsAppManager {
@@ -26,6 +28,7 @@ export class WhatsAppManager {
     this.sessionManager = new WhatsAppSessionManager({
       sessionsRootDir,
       onStatusChange: options?.onStatusChange,
+      onInboundMessages: options?.onInboundMessages,
     });
   }
 

@@ -30,6 +30,8 @@ type SendResponsePayload = {
   error?: string;
 };
 
+type PresentationLink = 'completa' | 'af' | 'chat';
+
 type AutomationSettings = {
   user_id: string;
   reminder_enabled: boolean;
@@ -37,6 +39,9 @@ type AutomationSettings = {
   reminder_template: string;
   greeting_enabled: boolean;
   greeting_template: string;
+  /** Mensagem de apresentação: responde sozinho com o link quando o cliente manda mensagem */
+  presentation_enabled: boolean;
+  presentation_link: PresentationLink;
 };
 
 type AutomationSettingsResponse = {
@@ -154,7 +159,42 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
     reminder_template: DEFAULT_REMINDER_TEMPLATE,
     greeting_enabled: true,
     greeting_template: DEFAULT_GREETING_TEMPLATE,
+    presentation_enabled: true,
+    presentation_link: 'chat',
   });
+  // Código e páginas ativas do estabelecimento (para mostrar os links da apresentação)
+  const [presentationEstablishment, setPresentationEstablishment] = useState<{
+    code: string;
+    chatEnabled: boolean;
+    simpleEnabled: boolean;
+  } | null>(null);
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('establishments')
+          .select('code,booking_chat_enabled,booking_simple_page_enabled,created_at')
+          .eq('owner_id', userId)
+          .or('is_deleted.is.null,is_deleted.eq.false')
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (cancelled || !data) return;
+        setPresentationEstablishment({
+          code: String((data as any).code || ''),
+          chatEnabled: (data as any).booking_chat_enabled !== false,
+          simpleEnabled: (data as any).booking_simple_page_enabled === true,
+        });
+      } catch {
+        // sem código: mostra os links de forma genérica
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
   const [showLogs, setShowLogs] = useState(false);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [messageLogs, setMessageLogs] = useState<MessageLogRow[]>([]);
@@ -259,7 +299,7 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
       }
       setApiUnavailable(false);
       setApiUnavailableMessage('');
-      setSettings(data.settings);
+      setSettings((prev) => ({ ...prev, ...data.settings }));
     } catch (error: any) {
       handleBackgroundLoadError(error, 'automation-settings');
     }
@@ -552,6 +592,8 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
           reminder_template: payloadSettings.reminder_template,
           greeting_enabled: payloadSettings.greeting_enabled,
           greeting_template: payloadSettings.greeting_template,
+          presentation_enabled: payloadSettings.presentation_enabled,
+          presentation_link: payloadSettings.presentation_link,
         }),
       });
       const data = await parseApiResponse<AutomationSettingsResponse>(response);
@@ -560,7 +602,7 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
       }
       setApiUnavailable(false);
       setApiUnavailableMessage('');
-      setSettings(data.settings);
+      setSettings((prev) => ({ ...prev, ...data.settings }));
       if (!options?.silent) {
         toast.success('Configurações automáticas de WhatsApp salvas com sucesso.');
       }
@@ -604,7 +646,7 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
       }
       setApiUnavailable(false);
       setApiUnavailableMessage('');
-      if (data.settings) setSettings(data.settings);
+      if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
       toast.success(`Lembrete atualizado para ${REMINDER_OPTIONS.find((opt) => opt.value === normalizedMinutes)?.label || `${normalizedMinutes} min`}.`);
     } catch (error: any) {
       markApiUnavailable(error);
@@ -831,6 +873,77 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
           )}
         </div>
       ) : null}
+
+      {/* Mensagem de apresentação: cliente manda mensagem -> recebe o link de agendamento */}
+      <div className="mt-5 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-4">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-1 h-5 w-5"
+            checked={settings.presentation_enabled}
+            disabled={savingSettings}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setSettings((prev) => ({ ...prev, presentation_enabled: next }));
+              void handleSaveAutomationSettings({ presentation_enabled: next }, { silent: true });
+            }}
+          />
+          <span>
+            <span className="block text-base font-semibold text-white">Mensagem de apresentação</span>
+            <span className="mt-1 block text-xs text-gray-300">
+              Com essa opção ativada, a cada mensagem que você receber o WhatsApp envia sozinho uma mensagem para o
+              cliente com seu link de agendamento. O mesmo cliente só recebe de novo depois de 12 horas, e o sistema
+              nunca responde grupos, status nem você mesmo.
+            </span>
+          </span>
+        </label>
+
+        {settings.presentation_enabled ? (
+          <div className="mt-4">
+            <p className="text-sm font-semibold text-white">Qual link vai na mensagem?</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              {(
+                [
+                  { id: 'chat' as const, label: 'Chat', desc: 'Conversa igual ao WhatsApp', suffix: '/chat', available: presentationEstablishment?.chatEnabled !== false, badge: 'Recomendado' },
+                  { id: 'completa' as const, label: 'Página completa', desc: 'Site completo do estabelecimento', suffix: '', available: true, badge: '' },
+                  { id: 'af' as const, label: 'Página simples', desc: 'Passo a passo rápido', suffix: '/af', available: presentationEstablishment?.simpleEnabled === true, badge: '' },
+                ] as const
+              ).map((opt) => {
+                const selected = settings.presentation_link === opt.id;
+                const code = presentationEstablishment?.code || 'SEU-CÓDIGO';
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    disabled={savingSettings || !opt.available}
+                    onClick={() => {
+                      setSettings((prev) => ({ ...prev, presentation_link: opt.id }));
+                      void handleSaveAutomationSettings({ presentation_link: opt.id }, { silent: true });
+                    }}
+                    className={`rounded-lg border p-3 text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${selected
+                      ? 'border-emerald-400 bg-emerald-500/15'
+                      : 'border-gray-700 bg-black/20 hover:border-gray-500'
+                      }`}
+                    title={!opt.available ? 'Esta página está desativada nas configurações do estabelecimento' : ''}
+                  >
+                    <span className={`block text-sm font-bold ${selected ? 'text-emerald-300' : 'text-white'}`}>
+                      {selected ? '● ' : '○ '}{opt.label}
+                      {opt.badge ? (
+                        <span className="ml-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-extrabold text-emerald-300">{opt.badge}</span>
+                      ) : null}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-gray-400">{opt.desc}</span>
+                    <span className="mt-1 block break-all text-[11px] text-gray-500">agendeifacil.com/booking/{code}{opt.suffix}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-3 rounded-md border border-gray-700 bg-black/30 p-3 text-xs text-gray-300 whitespace-pre-line">
+              {`Olá! 👋 Bem-vindo(a) à *${'Nome do estabelecimento'}*!\nAgende seu horário pelo nosso link, é rápido: você escolhe o profissional, o serviço e o horário, e já fica confirmado:\nagendeifacil.com/booking/${presentationEstablishment?.code || 'SEU-CÓDIGO'}${settings.presentation_link === 'chat' ? '/chat' : settings.presentation_link === 'af' ? '/af' : ''}\nQualquer dúvida é só chamar por aqui. 😊`}
+            </div>
+          </div>
+        ) : null}
+      </div>
 
       <div className="mt-5 rounded-lg border border-gray-700 bg-black/20 p-4">
         <h4 className="text-base font-semibold text-white">Lembrete automático para cliente</h4>

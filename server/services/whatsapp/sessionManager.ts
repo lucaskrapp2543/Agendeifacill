@@ -12,6 +12,8 @@ type SocketMapValue = {
 type SessionManagerOptions = {
   sessionsRootDir: string;
   onStatusChange?: (payload: SessionStatusPayload) => Promise<void> | void;
+  /** Mensagens recebidas (evento messages.upsert). O handler NUNCA pode lançar erro. */
+  onInboundMessages?: (userId: string, socket: any, upsert: any) => void;
 };
 
 export class WhatsAppSessionManager {
@@ -23,10 +25,12 @@ export class WhatsAppSessionManager {
   private manualDisconnect = new Set<string>();
   private readonly sessionsRootDir: string;
   private readonly onStatusChange?: (payload: SessionStatusPayload) => Promise<void> | void;
+  private readonly onInboundMessages?: (userId: string, socket: any, upsert: any) => void;
 
   constructor(options: SessionManagerOptions) {
     this.sessionsRootDir = options.sessionsRootDir;
     this.onStatusChange = options.onStatusChange;
+    this.onInboundMessages = options.onInboundMessages;
   }
 
   private sanitizeUserId(userId: string): string {
@@ -260,6 +264,18 @@ export class WhatsAppSessionManager {
     await this.emitStatus(userId, 'connecting');
 
     socket.ev.on('creds.update', saveCreds);
+
+    // Mensagens recebidas (mensagem de apresentação). Erro aqui NUNCA pode chegar ao
+    // Baileys nem ao processo: fica preso dentro do try.
+    if (this.onInboundMessages) {
+      socket.ev.on('messages.upsert', (upsert: any) => {
+        try {
+          this.onInboundMessages?.(userId, socket, upsert);
+        } catch (error) {
+          console.warn('[whatsapp/inbound] handler falhou:', String((error as any)?.message || error));
+        }
+      });
+    }
 
     socket.ev.on('connection.update', async (update: any) => {
       const { connection, lastDisconnect, qr } = update || {};

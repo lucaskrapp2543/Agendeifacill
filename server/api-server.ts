@@ -66,6 +66,15 @@ import whatsappRoutes from './whatsapp/whatsapp.routes';
 const app = express();
 const PORT = process.env.PORT || process.env.API_PORT || 3001;
 
+// O Baileys dispara erro fora de qualquer try. Sem isto, um erro numa conversa derruba o
+// processo inteiro e todos os estabelecimentos perdem a conexão do WhatsApp junto.
+process.on('unhandledRejection', (err: any) => {
+  console.error('⚠️ promessa sem tratamento:', String(err?.message || err));
+});
+process.on('uncaughtException', (err: any) => {
+  console.error('⚠️ exceção sem tratamento:', String(err?.message || err));
+});
+
 // Supabase Admin (bypass RLS) - usado para registrar assinaturas pagas no Booking público
 const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
