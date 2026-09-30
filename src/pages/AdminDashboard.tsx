@@ -6452,6 +6452,38 @@ const AdminDashboard = () => {
                                       >
                                         (solicitou {fmtBRL(Number(pending.amount_cents || 0) / 100)})
                                       </span>
+                                      {/* Chave PIX que a barbearia informou no pedido: é para ela que você envia */}
+                                      <span
+                                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold rounded bg-white text-gray-900 border border-gray-400 whitespace-nowrap max-w-[300px]"
+                                        title={`Chave PIX informada no pedido de saque${pending.requested_at ? ` (pedido em ${format(new Date(pending.requested_at), 'dd/MM HH:mm', { locale: ptBR })})` : ''}`}
+                                      >
+                                        PIX:&nbsp;<span className="font-mono truncate">{pending.pix_key || '(não informada)'}</span>
+                                      </span>
+                                      {/* Chave do pedido diferente da chave do cadastro: confirmar com o dono antes de pagar */}
+                                      {pending.pix_key && String((establishment as any)?.pix_key || '').trim() &&
+                                        String((establishment as any).pix_key).trim().toLowerCase() !== String(pending.pix_key).trim().toLowerCase() ? (
+                                        <span
+                                          className="inline-flex items-center px-2 py-1 text-[11px] font-bold rounded bg-amber-300 text-amber-950 border border-amber-500 whitespace-nowrap max-w-[320px]"
+                                          title="A chave digitada no pedido de saque é diferente da chave PIX salva no cadastro da barbearia. Confirme com o dono qual é a certa antes de enviar."
+                                        >
+                                          ⚠ cadastro:&nbsp;<span className="font-mono truncate">{String((establishment as any).pix_key)}</span>
+                                        </span>
+                                      ) : null}
+                                      {pending.pix_key ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            navigator.clipboard
+                                              .writeText(String(pending.pix_key || ''))
+                                              .then(() => toast.success('Chave PIX copiada'))
+                                              .catch(() => toast.error('Não consegui copiar. Selecione a chave e copie.'));
+                                          }}
+                                          className="px-2 py-1 text-[11px] font-extrabold rounded bg-gray-800 text-white hover:bg-black transition-colors whitespace-nowrap"
+                                          title="Copiar chave PIX"
+                                        >
+                                          Copiar PIX
+                                        </button>
+                                      ) : null}
                                       <button
                                         type="button"
                                         onClick={() => void marcarSaquePago(establishment, pending)}

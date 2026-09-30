@@ -2210,7 +2210,8 @@ export default function BookingPage() {
       // Sem Mercado Pago e sem Pagar.me: cobrança pela conta da PLATAFORMA (vira
       // saldo do estabelecimento — carteira/saque). Mesma regra da página simples.
       const cobrancaPelaPlataforma = !hasMercadoPago && !hasPagarMe;
-      const usarMercadoPago = (hasMercadoPago || cobrancaPelaPlataforma) && exigirPagamentoAntecipadoMercadoPago;
+      // Pela plataforma o pagamento online existe SEMPRE (não depende da flag exigir_*).
+      const usarMercadoPago = cobrancaPelaPlataforma ? true : hasMercadoPago && exigirPagamentoAntecipadoMercadoPago;
       const usarPagarMe = !usarMercadoPago && hasPagarMe && exigirPagamentoAntecipado;
 
       // ✅ CORRIGIDO: Remover dependência de pagamento_adiantado_liberado_admin
@@ -3506,12 +3507,13 @@ export default function BookingPage() {
     const exigirMercadoPago = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
     // Sem Mercado Pago e sem Pagar.me: cobrança pela conta da plataforma (mesma regra do fluxo).
     const cobrancaPelaPlataforma = !hasMercadoPago && !hasPagarMe;
-    const usarMercadoPago = (hasMercadoPago || cobrancaPelaPlataforma) && exigirMercadoPago;
+    const usarMercadoPago = cobrancaPelaPlataforma ? true : hasMercadoPago && exigirMercadoPago;
     const usarPagarMe = hasPagarMe && exigirPagarMe;
     const algumGatewayExigePagamento = usarMercadoPago || usarPagarMe;
     if (!algumGatewayExigePagamento) return false;
+    const opcionalMp = (establishment as any)?.pagamento_adiantado_opcional_mercadopago === true;
     const pagamentoAdiantadoOpcional = usarMercadoPago
-      ? (establishment as any)?.pagamento_adiantado_opcional_mercadopago === true
+      ? (cobrancaPelaPlataforma ? !(exigirMercadoPago && !opcionalMp) : opcionalMp)
       : (establishment as any)?.pagamento_adiantado_opcional === true;
     return algumGatewayExigePagamento && !pagamentoAdiantadoOpcional;
   })();

@@ -37,6 +37,43 @@ interface PaymentModalProps {
 
 type PaymentMethod = 'pix' | 'credit_card' | 'debit_card' | null;
 
+/**
+ * Nome que aparece como recebedor no comprovante quando o pagamento cai na conta da
+ * plataforma: a razão social do MEI do Agendei Fácil (número + nome), igual ao que o
+ * cliente vê no app do banco. Pode ser trocado pela variável VITE_PLATFORM_RECEIVER_NAME.
+ */
+const PLATFORM_RECEIVER_NAME =
+  String((import.meta as any).env?.VITE_PLATFORM_RECEIVER_NAME || '').trim() || '57.436.351 Erlon de Jesus de Sá';
+
+/**
+ * 🔒 Bloco de confiança: explica quem aparece como recebedor no PIX/cartão.
+ * Sem Mercado Pago na barbearia o dinheiro cai na conta do Agendei Fácil e o cliente
+ * vê um nome/CNPJ que não é o da barbearia — sem esse aviso ele desconfia e desiste.
+ */
+const PaymentTrustNote = ({ platformCollected, establishmentName }: { platformCollected: boolean; establishmentName: string }) => {
+  const nome = String(establishmentName || '').trim() || 'esta barbearia';
+  return (
+    <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.07] p-3">
+      <div className="flex items-center gap-2">
+        <span className="text-base leading-none" aria-hidden>🔒</span>
+        <span className="text-sm font-bold text-emerald-200">Pagamento seguro</span>
+        <span className="ml-auto text-[10px] font-semibold uppercase tracking-wide text-gray-400">Mercado Pago</span>
+      </div>
+      <div className="mt-2 rounded-lg bg-black/30 px-3 py-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Recebedor no comprovante</p>
+        {platformCollected ? (
+          <>
+            <p className="mt-0.5 text-sm font-semibold text-white leading-snug">{PLATFORM_RECEIVER_NAME}</p>
+            <p className="mt-0.5 text-[11px] text-gray-400 leading-snug">CNPJ do Agendei Fácil, o sistema de agendamentos da {nome}</p>
+          </>
+        ) : (
+          <p className="mt-0.5 text-sm font-semibold text-white leading-snug">{nome}</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const PaymentModal = ({
   isOpen,
   onClose,
@@ -97,6 +134,9 @@ export const PaymentModal = ({
   const [cardRefusedReason, setCardRefusedReason] = useState<string>('');
   const [hasPagarMeError, setHasPagarMeError] = useState(false);
   const [hasMercadoPago, setHasMercadoPago] = useState(false);
+  // Sem MP e sem Pagar.me na barbearia: o pagamento cai na conta da plataforma (aviso de recebedor)
+  const [platformCollected, setPlatformCollected] = useState(false);
+  const [establishmentName, setEstablishmentName] = useState('');
   const [establishmentClientAfcoinsEnabled, setEstablishmentClientAfcoinsEnabled] = useState(true);
   // ✅ NOVO: Estados para dados do Card Payment Brick
   const [brickCardToken, setBrickCardToken] = useState<string | null>(null);
@@ -125,12 +165,14 @@ export const PaymentModal = ({
     if (isOpen && establishmentId) {
       supabase
         .from('establishments')
-        .select('has_mercadopago, pagarme_recipient_id, exigir_pagamento_antecipado_mercadopago, exigir_pagamento_antecipado, client_afcoins_enabled')
+        .select('name, has_mercadopago, pagarme_recipient_id, exigir_pagamento_antecipado_mercadopago, exigir_pagamento_antecipado, client_afcoins_enabled')
         .eq('id', establishmentId)
         .single()
         .then(({ data }) => {
           const hasMP = (data as any)?.has_mercadopago === true;
           const hasPM = !!data?.pagarme_recipient_id;
+          setEstablishmentName(String((data as any)?.name || ''));
+          setPlatformCollected(!hasMP && !hasPM);
           const exigirMP = Boolean(data?.exigir_pagamento_antecipado_mercadopago === true);
           const exigirPM = Boolean(data?.exigir_pagamento_antecipado === true);
           setEstablishmentClientAfcoinsEnabled((data as any)?.client_afcoins_enabled !== false);
@@ -1798,6 +1840,8 @@ export const PaymentModal = ({
                 )}
               </div>
 
+              {hasMercadoPago ? <PaymentTrustNote platformCollected={platformCollected} establishmentName={establishmentName} /> : null}
+
               <div className="rounded-2xl border border-gray-700/80 bg-[#222325]/80 p-4 space-y-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Dados do pagador</p>
                 <div>
@@ -1914,6 +1958,8 @@ export const PaymentModal = ({
             </div>
           ) : selectedMethod === 'credit_card' && !pixQrCode ? (
             <div className="space-y-4">
+              {/* Cartão pode abrir direto aqui (escolha feita antes do modal): repete o aviso de recebedor */}
+              {hasMercadoPago ? <PaymentTrustNote platformCollected={platformCollected} establishmentName={establishmentName} /> : null}
               <div className={`${hasMercadoPago ? 'bg-[#009EE3]/10 border-[#009EE3]/30' : 'bg-green-600/10 border-green-500/30'} border rounded-lg p-3`}>
                 <p className={`text-sm ${hasMercadoPago ? 'text-[#009EE3]' : 'text-green-200'}`}>
                   {hasMercadoPago

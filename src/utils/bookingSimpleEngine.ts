@@ -345,7 +345,10 @@ export async function resolvePaymentRequirement(params: {
   // obrigatório/opcional/50% que o estabelecimento configurou.
   const cobrancaPelaPlataforma = !hasMercadoPago && !hasPagarMe;
 
-  const usarMercadoPago = (hasMercadoPago || cobrancaPelaPlataforma) && exigirPagamentoAntecipadoMercadoPago;
+  // Pela plataforma o pagamento online existe SEMPRE ("Apenas no local" não existe mais):
+  // não depende da flag exigir_*, que em conta nova/antiga pode estar false. Só vira
+  // obrigatório se o dono marcou "apenas online" (exigir = true e opcional = false).
+  const usarMercadoPago = cobrancaPelaPlataforma ? true : hasMercadoPago && exigirPagamentoAntecipadoMercadoPago;
   const usarPagarMe = !usarMercadoPago && hasPagarMe && exigirPagamentoAntecipado;
 
   const pagamentoAdiantadoAtivo = (usarPagarMe || usarMercadoPago) && valorAgendamento > 0;
@@ -368,7 +371,11 @@ export async function resolvePaymentRequirement(params: {
     }
   }
 
-  const pagamentoOpcionalNoGatewayAtual = usarPagarMe ? pagamentoAdiantadoOpcional : pagamentoAdiantadoOpcionalMercadoPago;
+  const pagamentoOpcionalNoGatewayAtual = usarPagarMe
+    ? pagamentoAdiantadoOpcional
+    : cobrancaPelaPlataforma
+      ? !(exigirPagamentoAntecipadoMercadoPago && !pagamentoAdiantadoOpcionalMercadoPago)
+      : pagamentoAdiantadoOpcionalMercadoPago;
   const forceMandatoryInOptionalMode = pagamentoAdiantadoAtivo && pagamentoOpcionalNoGatewayAtual && forceAdvancePaymentForClient;
   const precisaPagamento = (pagamentoAdiantadoAtivo && !pagamentoOpcionalNoGatewayAtual) || forceMandatoryInOptionalMode;
   const permitePagamentoOpcional = pagamentoAdiantadoAtivo && pagamentoOpcionalNoGatewayAtual && !forceMandatoryInOptionalMode;
