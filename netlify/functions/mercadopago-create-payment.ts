@@ -6,6 +6,7 @@ import {
   PLATFORM_COLLECTOR_METADATA_KEY,
   PLATFORM_COLLECTOR_VALUE,
   getPlatformMercadoPagoAccessToken,
+  getPlatformMercadoPagoUserId,
   recordPlatformCollectedPayment,
 } from '../../src/lib/mercadopago/platformWallet';
 import { json, parseJsonBody } from './_utils';
@@ -208,6 +209,31 @@ export const handler: Handler = async (event) => {
       accessToken = platformToken;
       collectedByPlatform = true;
       console.log('🏦 [MP Create Payment] Estabelecimento sem MP: cobrando pela conta da plataforma', { establishmentId });
+    }
+
+    // Estabelecimento conectado com a PRÓPRIA conta da plataforma (ex.: conta de teste):
+    // o Mercado Pago recusa application_fee ("You cannot use application_fee with this
+    // payment") porque não dá para cobrar taxa de si mesmo. O dinheiro cai na nossa conta
+    // de qualquer jeito, então trata como cobrança pela plataforma (sem fee, vira carteira).
+    if (!collectedByPlatform && supabaseAdmin) {
+      try {
+        const { data: estRow } = await supabaseAdmin
+          .from('establishments')
+          .select('mercadopago_user_id')
+          .eq('id', String(establishmentId))
+          .maybeSingle();
+        const estUserId = String((estRow as any)?.mercadopago_user_id || '').trim();
+        if (estUserId) {
+          const platformUserId = await getPlatformMercadoPagoUserId();
+          if (platformUserId && estUserId === platformUserId) {
+            collectedByPlatform = true;
+            accessToken = getPlatformMercadoPagoAccessToken() || accessToken;
+            console.log('🏦 [MP Create Payment] Estabelecimento conectado com a conta da própria plataforma: sem application_fee (carteira)', { establishmentId });
+          }
+        }
+      } catch (e: any) {
+        console.warn('⚠️ [MP Create Payment] Não consegui comparar a conta MP do estabelecimento com a da plataforma:', e?.message || e);
+      }
     }
 
     // Taxa da plataforma (centavos) para Mercado Pago.

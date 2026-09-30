@@ -25,6 +25,31 @@ export function getPlatformMercadoPagoAccessToken(): string {
   return String(process.env.MERCADOPAGO_ACCESS_TOKEN || process.env.MP_ACCESS_TOKEN || '').trim();
 }
 
+/**
+ * user_id da conta do Agendei Fácil no Mercado Pago (GET /users/me com o token da
+ * plataforma). Serve para reconhecer um estabelecimento que conectou a PRÓPRIA conta
+ * da plataforma: nesse caso o MP recusa application_fee ("You cannot use application_fee
+ * with this payment") e o pagamento tem que ser tratado como cobrança pela plataforma.
+ * Cache em memória por 6h (uma chamada por cold start).
+ */
+let cachedPlatformUserId: { id: string; at: number } | null = null;
+export async function getPlatformMercadoPagoUserId(): Promise<string> {
+  const token = getPlatformMercadoPagoAccessToken();
+  if (!token) return '';
+  if (cachedPlatformUserId && Date.now() - cachedPlatformUserId.at < 6 * 60 * 60 * 1000) return cachedPlatformUserId.id;
+  try {
+    const base = String(process.env.MERCADOPAGO_API_BASE_URL || 'https://api.mercadopago.com').replace(/\/+$/, '');
+    const res = await fetch(base + '/users/me', { headers: { Authorization: 'Bearer ' + token } });
+    const body: any = await res.json().catch(() => ({}));
+    const id = String(body?.id || '').trim();
+    if (id) cachedPlatformUserId = { id, at: Date.now() };
+    return id;
+  } catch (err: any) {
+    console.warn('⚠️ [Carteira] Não consegui ler o user_id da conta da plataforma:', err?.message || err);
+    return cachedPlatformUserId?.id || '';
+  }
+}
+
 /** Taxa de serviço descontada do estabelecimento em cada pagamento pela plataforma (centavos). */
 export function getPlatformWalletFeeCents(): number {
   const raw = Number(String(process.env.PLATFORM_WALLET_FEE_CENTS || '100').trim());
