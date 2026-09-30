@@ -108,7 +108,20 @@ export async function recordPlatformCollectedPayment(
 
     const methodId = String(payment?.payment_method_id || '').toLowerCase();
     const paymentMethod = methodId === 'pix' ? 'pix' : methodId === 'debit_card' ? 'debito' : methodId ? 'credito' : null;
-    const payerName = [payment?.payer?.first_name, payment?.payer?.last_name].filter(Boolean).join(' ').trim() || null;
+    let payerName = [payment?.payer?.first_name, payment?.payer?.last_name].filter(Boolean).join(' ').trim() || null;
+    // PIX quase nunca traz o nome do pagador: usa o nome do cliente do agendamento.
+    if (!payerName && input.appointmentId) {
+      try {
+        const { data: apt } = await admin
+          .from('appointments')
+          .select('client_name')
+          .eq('id', String(input.appointmentId))
+          .maybeSingle();
+        payerName = String((apt as any)?.client_name || '').trim() || null;
+      } catch {
+        // sem nome, segue com "Cliente"
+      }
+    }
 
     const row = {
       establishment_id: establishmentId,

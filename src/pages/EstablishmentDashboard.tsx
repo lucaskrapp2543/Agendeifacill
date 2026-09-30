@@ -3911,8 +3911,10 @@ const EstablishmentDashboard = () => {
                       mercadopago_access_token: null,
                       mercadopago_refresh_token: null,
                       mercadopago_token_expires_at: null,
-                      exigir_pagamento_antecipado_mercadopago: false,
-                      pagamento_adiantado_opcional_mercadopago: false,
+                      // Sem MP o pagamento online continua (cai na conta da plataforma e vira
+                      // saldo/saque), então mantém "Online e no local" ligado.
+                      exigir_pagamento_antecipado_mercadopago: true,
+                      pagamento_adiantado_opcional_mercadopago: true,
                     })
                     .eq('id', establishment.id);
 
@@ -3926,9 +3928,12 @@ const EstablishmentDashboard = () => {
                     mercadopago_access_token: null,
                     mercadopago_refresh_token: null,
                     mercadopago_token_expires_at: null,
+                    has_mercadopago: false,
                   } as any);
-                  setExigirPagamentoAntecipadoMercadoPago(false);
-                  setPagamentoAdiantadoOpcionalMercadoPago(false);
+                  setExigirPagamentoAntecipadoMercadoPago(true);
+                  setPagamentoAdiantadoOpcionalMercadoPago(true);
+                  setPreviewPaymentMode('both');
+                  setPreviewPaymentRequired('optional');
 
                   toast.success(
                     'Mercado Pago desconectado! Para conectar uma conta diferente (ex: CNPJ), saia primeiro do Mercado Pago no navegador antes de reconectar.',

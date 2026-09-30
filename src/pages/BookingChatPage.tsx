@@ -9,6 +9,7 @@ import { useToast } from '../components/ui/Toaster';
 import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
 import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import type { BookingPayMethod } from '../components/BookingPaymentChoice';
+import { buildWhatsappSuccessNote, fetchBookingWhatsappInfo, formatReminderOffset, type BookingWhatsappInfo } from '../lib/bookingWhatsappInfo';
 import {
   isClientAfcoinsEnabledForEstablishment,
   registerAfcoinBookingEvent,
@@ -398,6 +399,14 @@ const BookingChatPage = () => {
   const [pendingRequirement, setPendingRequirement] = useState<PaymentRequirement | null>(null);
   // PIX / crédito / débito escolhido no chat: o PaymentModal já abre na forma certa
   const [preferredPayMethod, setPreferredPayMethod] = useState<BookingPayMethod | null>(null);
+  // Agendamento cujo pagamento online já foi confirmado (o onClose do modal vem depois do sucesso)
+  const paymentDoneRef = useRef<string | null>(null);
+  // WhatsApp do estabelecimento (conectado? lembra X antes?) para a mensagem final
+  const [waInfo, setWaInfo] = useState<BookingWhatsappInfo | null>(null);
+  const waInfoRef = useRef<BookingWhatsappInfo | null>(null);
+  useEffect(() => {
+    waInfoRef.current = waInfo;
+  }, [waInfo]);
   // Pagamento obrigatório: o agendamento (pending_payment) já foi criado antes de o cliente escolher PIX/cartão.
   const pendingAppointmentIdRef = useRef<string | null>(null);
   const [createdAppointmentId, setCreatedAppointmentId] = useState<string | null>(null);
@@ -433,6 +442,10 @@ const BookingChatPage = () => {
         setLoadError('Este estabelecimento não está aceitando agendamentos no momento.');
       } else {
         setEstablishment(est);
+        // Em paralelo: o WhatsApp dele está conectado? (só para a mensagem final)
+        void fetchBookingWhatsappInfo(String(est.id || '')).then((info) => {
+          if (!cancelled) setWaInfo(info);
+        });
       }
       setLoading(false);
     })();
@@ -1048,6 +1061,9 @@ const BookingChatPage = () => {
     setStep('success');
     setInputMode('none');
     await botSay(intro || `Tudo certo, ${firstName(formRef.current.clientName)}! 🎉 Seu horário está confirmado.`);
+    // WhatsApp do estabelecimento conectado: avisa que a confirmação/lembrete chegam lá.
+    const waNote = buildWhatsappSuccessNote(waInfoRef.current);
+    if (waNote) await botSay(waNote, 500);
     await botWidget('success', undefined, 400);
   };
 
@@ -1300,6 +1316,9 @@ const BookingChatPage = () => {
   // Pagamento opcional: cliente fechou o modal sem pagar → vira "pagar no local" (igual à página simples)
   const handlePaymentModalClose = async () => {
     if (!paymentInfo?.appointmentId || !establishment?.id) return;
+    // O PaymentModal chama onClose logo DEPOIS de onPaymentSuccess. Se o pagamento já foi
+    // confirmado, não pode rebaixar o agendamento para "pagar no local".
+    if (paymentDoneRef.current === paymentInfo.appointmentId) return;
     if (!paymentInfo.requirement.permitePagamentoOpcional) {
       // Obrigatório: o modal cancela o agendamento sozinho; oferecemos recomeçar.
       setPaymentInfo(null);
@@ -1339,6 +1358,7 @@ const BookingChatPage = () => {
 
   const handlePaymentSuccess = async () => {
     const aptId = paymentInfo?.appointmentId || null;
+    paymentDoneRef.current = aptId; // evita que o onClose seguinte converta para "pagar no local"
     setPaymentInfo(null);
     // AFCoins do pagamento online (5 + 10 + 45), igual à página completa.
     let afcoinNote = '';
@@ -1801,6 +1821,9 @@ const BookingChatPage = () => {
               <p>✂️ {effectiveServiceName}</p>
               <p>💈 {f.professional?.name}</p>
               {establishment?.address ? <p>📍 {String(establishment.address)}</p> : null}
+              {waInfo?.connected && waInfo.reminderEnabled ? (
+                <p>📲 Lembrete no WhatsApp {formatReminderOffset(waInfo.reminderOffsetMinutes)} antes</p>
+              ) : null}
               {createdAppointmentId ? <p className="text-xs" style={{ color: WA.muted }}>Código: {createdAppointmentId.slice(0, 8).toUpperCase()}</p> : null}
             </div>
             <div className="flex flex-col gap-2 mt-2">

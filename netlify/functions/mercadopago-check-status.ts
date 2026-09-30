@@ -7,6 +7,7 @@ import {
   isPlatformCollectedPayment,
   recordPlatformCollectedPayment,
 } from '../../src/lib/mercadopago/platformWallet';
+import { recordAdminMpCommission } from '../../src/lib/mercadopago/adminMpCommission';
 import { getQueryParam, json } from './_utils';
 
 // Supabase Admin (bypass RLS)
@@ -131,6 +132,27 @@ export const handler: Handler = async (event) => {
         appointmentId,
         payment,
       });
+      // Ledger "Meus R$1": não depende do webhook chegar (mesma source_key, sem duplicar).
+      const st = String((payment as any)?.status || '').toLowerCase();
+      if ((st === 'approved' || st === 'authorized') && appointmentId) {
+        const methodId = String((payment as any)?.payment_method_id || '').toLowerCase();
+        await recordAdminMpCommission(supabaseAdmin, {
+          establishmentId: String(establishmentId),
+          sourceType: 'appointment',
+          sourceId: appointmentId,
+          paymentId: String(paymentId),
+          externalReference: String((payment as any)?.external_reference || '') || null,
+          paymentMethod: methodId === 'pix' ? 'pix' : 'credito',
+          grossAmountCents: Math.round(Number((payment as any)?.transaction_amount || 0) * 100) || null,
+          paidAt: String((payment as any)?.date_approved || (payment as any)?.date_created || '') || null,
+          metadata: {
+            origin: 'mercadopago_check_status_platform',
+            payment_status: (payment as any)?.status || null,
+            payment_method_id: (payment as any)?.payment_method_id || null,
+            collector: 'platform',
+          },
+        });
+      }
     }
 
     return json(200, payment);

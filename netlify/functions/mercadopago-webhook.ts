@@ -1361,7 +1361,9 @@ export const handler: Handler = async (event) => {
             status: 'confirmed',
             payment_status: 'paid',
             payment_method: paymentMethod,
-            pix_payment_status: payment.payment_method_id === 'pix' ? 'aprovado' : null,
+            // 'confirmado' é o valor aceito pelo CHECK do banco ('aprovado' era rejeitado e
+            // derrubava o webhook com 500 em todo PIX de agendamento).
+            pix_payment_status: payment.payment_method_id === 'pix' ? 'confirmado' : null,
           };
 
           const { error: updateError } = await supabaseAdmin

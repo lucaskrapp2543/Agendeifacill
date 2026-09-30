@@ -51,7 +51,8 @@ export async function confirmPendingAppointmentFromMpPaymentMetadata(
       payment_status: 'paid',
       payment_transaction_id: paymentIdStr,
       payment_method: paymentMethod,
-      pix_payment_status: paymentMethodId === 'pix' ? 'aprovado' : null,
+      // 'confirmado' é o valor aceito pelo CHECK do banco ('aprovado' era rejeitado).
+      pix_payment_status: paymentMethodId === 'pix' ? 'confirmado' : null,
     } as any)
     .eq('id', apt.id);
 

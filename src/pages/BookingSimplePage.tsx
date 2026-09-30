@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Loader2, MapPin, ScissorsLineDashed, Sparkles, User, X } from 'lucide-react';
 import { PaymentModal } from '../components/PaymentModal';
 import { BookingPaymentChoice, type BookingPayMethod } from '../components/BookingPaymentChoice';
+import { buildWhatsappSuccessNote, fetchBookingWhatsappInfo, type BookingWhatsappInfo } from '../lib/bookingWhatsappInfo';
 import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { TimeSlotSelector } from '../components/TimeSlotSelector';
 import { useToast } from '../components/ui/Toaster';
@@ -184,6 +185,8 @@ const BookingSimplePage = () => {
   const [pendingRequirement, setPendingRequirement] = useState<PaymentRequirement | null>(null);
   // Escolha feita na tela padrão de pagamento (PIX / cartão) antes de abrir o PaymentModal
   const [preferredPayMethod, setPreferredPayMethod] = useState<BookingPayMethod | null>(null);
+  // WhatsApp do estabelecimento (conectado? lembra X antes?) para a tela final
+  const [waInfo, setWaInfo] = useState<BookingWhatsappInfo | null>(null);
 
   // Cupom de desconto (mesma regra das outras telas): assinante não usa.
   const [cupomInput, setCupomInput] = useState('');
@@ -226,6 +229,9 @@ const BookingSimplePage = () => {
         setLoadError('Este estabelecimento não está aceitando agendamentos no momento.');
       } else {
         setEstablishment(est);
+        void fetchBookingWhatsappInfo(String(est.id || '')).then((info) => {
+          if (!cancelled) setWaInfo(info);
+        });
       }
       setLoading(false);
     })();
@@ -1521,6 +1527,9 @@ const BookingSimplePage = () => {
               <p className="text-gray-400 text-lg">
                 {state.selectedDate.split('-').reverse().join('/')} às {state.selectedTime} com {state.professional?.name}.
               </p>
+              {buildWhatsappSuccessNote(waInfo) ? (
+                <p className="mt-3 text-base text-emerald-300 font-semibold">{buildWhatsappSuccessNote(waInfo)}</p>
+              ) : null}
             </div>
             <button
               type="button"
