@@ -20,6 +20,7 @@ import { validatePendingClientBookingLimit } from '../utils/pendingClientBooking
 import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
 import { validateSubscriberBooking } from '../utils/subscriberBookingValidation';
 import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
+import { fetchOnlinePaymentBlockedByAdmin } from '../utils/bookingSimpleEngine';
 import {
   buildStalePaymentDetail,
   CANCELLATION_SOURCE,
@@ -1150,6 +1151,11 @@ export default function BookingPage() {
         throw new Error(`Estabelecimento com código "${id}" não encontrado`);
       }
 
+      // Botão do admin "só paga no local" (a função pública não devolve essa coluna)
+      if ((data as any).online_payment_blocked_by_admin === undefined) {
+        (data as any).online_payment_blocked_by_admin = await fetchOnlinePaymentBlockedByAdmin(String(data.id || ''));
+      }
+
       // Verificar se o booking está bloqueado
       if (data.booking_blocked) {
         console.log('🚫 Booking bloqueado para este estabelecimento');
@@ -2210,8 +2216,10 @@ export default function BookingPage() {
       // Sem Mercado Pago e sem Pagar.me: cobrança pela conta da PLATAFORMA (vira
       // saldo do estabelecimento — carteira/saque). Mesma regra da página simples.
       const cobrancaPelaPlataforma = !hasMercadoPago && !hasPagarMe;
+      // Botão do ADMIN "retirar obrigatoriedade de pagamento online": só paga no local.
+      const bloqueadoPeloAdmin = (establishment as any)?.online_payment_blocked_by_admin === true;
       // Pela plataforma o pagamento online existe SEMPRE (não depende da flag exigir_*).
-      const usarMercadoPago = cobrancaPelaPlataforma ? true : hasMercadoPago && exigirPagamentoAntecipadoMercadoPago;
+      const usarMercadoPago = bloqueadoPeloAdmin ? false : cobrancaPelaPlataforma ? true : hasMercadoPago && exigirPagamentoAntecipadoMercadoPago;
       const usarPagarMe = !usarMercadoPago && hasPagarMe && exigirPagamentoAntecipado;
 
       // ✅ CORRIGIDO: Remover dependência de pagamento_adiantado_liberado_admin
@@ -3507,6 +3515,8 @@ export default function BookingPage() {
     const exigirMercadoPago = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
     // Sem Mercado Pago e sem Pagar.me: cobrança pela conta da plataforma (mesma regra do fluxo).
     const cobrancaPelaPlataforma = !hasMercadoPago && !hasPagarMe;
+    const bloqueadoPeloAdmin = (establishment as any)?.online_payment_blocked_by_admin === true;
+    if (bloqueadoPeloAdmin) return false;
     const usarMercadoPago = cobrancaPelaPlataforma ? true : hasMercadoPago && exigirMercadoPago;
     const usarPagarMe = hasPagarMe && exigirPagarMe;
     const algumGatewayExigePagamento = usarMercadoPago || usarPagarMe;

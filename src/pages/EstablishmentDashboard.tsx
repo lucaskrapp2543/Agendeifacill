@@ -32121,6 +32121,14 @@ Estamos te aguardando!`;
               {/* Tab Receba Antes — Mercado Pago */}
               {activeTab === 'receber-adiantado' && (
                 <RecebaNaHoraPageLayout isMpConnected={establishmentHasMercadoPago(establishment as any)}>
+                  {(establishment as any)?.online_payment_blocked_by_admin === true && (
+                    <div className="rounded-2xl border border-amber-400/40 bg-amber-500/10 p-4 text-amber-100">
+                      <p className="text-sm font-extrabold">Pagamento online desativado pelo suporte do Agendei Fácil</p>
+                      <p className="mt-1 text-xs text-amber-100/80">
+                        Seus clientes agendam normalmente e pagam no local. As configurações abaixo ficam guardadas, mas não valem enquanto isso estiver ativo.
+                      </p>
+                    </div>
+                  )}
                   {/* Sem Mercado Pago: saldo dos pagamentos online (conta da plataforma) + saque.
                       Fica FORA do MercadoPagoCard (que é recriado a cada render) para não perder estado. */}
                   {!establishmentHasMercadoPago(establishment as any) && establishment?.id && (

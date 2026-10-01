@@ -185,6 +185,24 @@ export const handler: Handler = async (event) => {
       });
     }
 
+    // Botão do ADMIN "retirar obrigatoriedade de pagamento online": esta barbearia só
+    // recebe no local. Recusa aqui também, mesmo que alguma tela antiga tente cobrar.
+    try {
+      const { data: blockRow } = await supabaseAdmin
+        .from('establishments')
+        .select('online_payment_blocked_by_admin')
+        .eq('id', String(establishmentId))
+        .maybeSingle();
+      if ((blockRow as any)?.online_payment_blocked_by_admin === true) {
+        return json(400, {
+          error: 'Pagamento online desativado para este estabelecimento',
+          userMessage: 'Este estabelecimento recebe apenas no local. Seu horário fica confirmado e você paga na hora.',
+        });
+      }
+    } catch {
+      // coluna ainda não existe ou falha de rede: segue o fluxo normal
+    }
+
     // Quem recebe este pagamento?
     // - Estabelecimento com Mercado Pago conectado: token dele + application_fee (split).
     // - Estabelecimento SEM Mercado Pago: token da PLATAFORMA (conta do Agendei Fácil).

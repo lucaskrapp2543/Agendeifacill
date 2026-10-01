@@ -78,6 +78,7 @@ interface Establishment {
   mercadopago_access_token?: string | null;
   whatsapp?: string; // WhatsApp do estabelecimento
   pagamento_adiantado_liberado_admin?: boolean; // Liberação pelo admin para mostrar "Pagamento adiantado" ao barbeiro
+  online_payment_blocked_by_admin?: boolean; // Admin tirou o pagamento online: cliente desta barbearia só paga no local
 }
 
 type AfcoinWalletRow = {
@@ -2562,6 +2563,35 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Erro ao atualizar status:', error);
       toast.error('Erro ao atualizar status');
+    }
+  };
+
+  // "Retirar obrigatoriedade de pagamento online": cliente desta barbearia só paga no local.
+  // Só o admin mexe (trigger no banco ignora o dono). Reversível pelo mesmo botão.
+  const toggleOnlinePaymentBlock = async (establishment: Establishment) => {
+    const bloquear = establishment.online_payment_blocked_by_admin !== true;
+    const msg = bloquear
+      ? `Retirar o pagamento online da ${establishment.name}?\n\nOs clientes dessa barbearia vão agendar SEM opção de PIX ou cartão: só pagam no local. Você deixa de receber R$ 1,00 por agendamento dela.`
+      : `Reativar o pagamento online da ${establishment.name}?\n\nOs clientes voltam a ver PIX e cartão conforme a configuração da barbearia.`;
+    if (!window.confirm(msg)) return;
+    try {
+      const { data, error } = await supabase
+        .from('establishments')
+        .update({ online_payment_blocked_by_admin: bloquear })
+        .eq('id', establishment.id)
+        .select('online_payment_blocked_by_admin')
+        .single();
+      if (error) throw error;
+      const salvo = (data as any)?.online_payment_blocked_by_admin === true;
+      if (salvo !== bloquear) {
+        toast.error('O banco não aceitou a mudança. Rode a migration 20261001_bloqueio_pagamento_online_admin.sql.');
+        return;
+      }
+      setEstablishments((prev) => prev.map((est) => (est.id === establishment.id ? { ...est, online_payment_blocked_by_admin: bloquear } : est)));
+      toast.success(bloquear ? 'Pagamento online retirado: clientes só pagam no local.' : 'Pagamento online reativado.');
+    } catch (error: any) {
+      const msgErro = String(error?.message || '');
+      toast.error(msgErro.includes('online_payment_blocked_by_admin') ? 'Coluna ainda não existe: rode a migration 20261001 no Supabase.' : `Erro ao salvar: ${msgErro || 'desconhecido'}`);
     }
   };
 
@@ -6423,6 +6453,14 @@ const AdminDashboard = () => {
                                 MP DESCONECTADO
                               </span>
                             )}
+                            {establishment.online_payment_blocked_by_admin === true ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-extrabold rounded-full bg-gray-800 text-white border border-black shadow-sm whitespace-nowrap"
+                                title="Admin retirou o pagamento online: os clientes desta barbearia só pagam no local."
+                              >
+                                🚫 SÓ PAGA NO LOCAL
+                              </span>
+                            ) : null}
                             {/* 💰 SALDO A PAGAR — pagamentos online recebidos pela conta da plataforma (sem MP).
                                 Aparece SEMPRE para quem não tem MP (mesmo R$ 0,00) e, para quem tem MP, só se ficou saldo antigo. */}
                             {(() => {
@@ -6769,6 +6807,19 @@ const AdminDashboard = () => {
 
                         <td className="px-3 py-4 text-sm font-medium">
                           <div className="flex flex-wrap gap-1">
+                            <button
+                              type="button"
+                              onClick={() => void toggleOnlinePaymentBlock(establishment)}
+                              className={`text-xs px-2 py-0.5 border rounded font-bold ${establishment.online_payment_blocked_by_admin === true
+                                ? 'text-white bg-gray-800 border-black hover:bg-black'
+                                : 'text-gray-800 border-gray-400 bg-white hover:bg-gray-100'
+                                }`}
+                              title={establishment.online_payment_blocked_by_admin === true
+                                ? 'Clientes desta barbearia só pagam no local. Clique para reativar o pagamento online.'
+                                : 'Clientes desta barbearia passam a pagar SÓ no local (sem PIX/cartão em nenhuma página).'}
+                            >
+                              {establishment.online_payment_blocked_by_admin === true ? 'Reativar pagamento online' : 'Retirar obrigatoriedade de pagamento online'}
+                            </button>
                             <button
                               onClick={() => togglePaymentAlert(establishment.id, establishment.payment_alert_enabled || false)}
                               disabled={isAdminGridPaymentEmDia(establishment)}

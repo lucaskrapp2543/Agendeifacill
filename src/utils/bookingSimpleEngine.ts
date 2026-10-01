@@ -76,6 +76,10 @@ export async function loadEstablishmentAndServices(code: string): Promise<{ esta
     if ((data as any).booking_blocked) {
       return { establishment: { ...data, _blocked: true }, error: null };
     }
+    // Botão do admin "só paga no local" (não vem na função pública)
+    if ((data as any).online_payment_blocked_by_admin === undefined) {
+      (data as any).online_payment_blocked_by_admin = await fetchOnlinePaymentBlockedByAdmin(String((data as any).id || ''));
+    }
 
     let servicesFromCategories: any[] = [];
     try {
@@ -317,6 +321,28 @@ export interface PaymentRequirement {
 }
 
 /**
+ * "Retirar obrigatoriedade de pagamento online" (botão do ADMIN): quando ligado, o
+ * cliente desta barbearia só paga no local. Lido numa consulta própria porque a
+ * função get_establishment_public não devolve a coluna. Qualquer erro (coluna
+ * ainda não criada, rede) = não bloqueado, ou seja, comportamento normal.
+ */
+export async function fetchOnlinePaymentBlockedByAdmin(establishmentId: string): Promise<boolean> {
+  const id = String(establishmentId || '').trim();
+  if (!id) return false;
+  try {
+    const { data, error } = await supabase
+      .from('establishments')
+      .select('online_payment_blocked_by_admin')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) return false;
+    return (data as any)?.online_payment_blocked_by_admin === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Decide se o pagamento antecipado é obrigatório para este agendamento.
  * Origem: BookingPage.tsx ~2087-2151 — replicado integralmente, incluindo o override
  * por cliente (force_advance_payment), para manter paridade total com a regra de negócio.
@@ -348,8 +374,10 @@ export async function resolvePaymentRequirement(params: {
   // Pela plataforma o pagamento online existe SEMPRE ("Apenas no local" não existe mais):
   // não depende da flag exigir_*, que em conta nova/antiga pode estar false. Só vira
   // obrigatório se o dono marcou "apenas online" (exigir = true e opcional = false).
-  const usarMercadoPago = cobrancaPelaPlataforma ? true : hasMercadoPago && exigirPagamentoAntecipadoMercadoPago;
-  const usarPagarMe = !usarMercadoPago && hasPagarMe && exigirPagamentoAntecipado;
+  // Botão do ADMIN "retirar obrigatoriedade de pagamento online": só paga no local, ponto.
+  const bloqueadoPeloAdmin = establishment?.online_payment_blocked_by_admin === true;
+  const usarMercadoPago = bloqueadoPeloAdmin ? false : cobrancaPelaPlataforma ? true : hasMercadoPago && exigirPagamentoAntecipadoMercadoPago;
+  const usarPagarMe = !bloqueadoPeloAdmin && !usarMercadoPago && hasPagarMe && exigirPagamentoAntecipado;
 
   const pagamentoAdiantadoAtivo = (usarPagarMe || usarMercadoPago) && valorAgendamento > 0;
 

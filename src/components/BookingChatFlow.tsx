@@ -337,6 +337,8 @@ export function BookingChatFlow({
     // Sem Mercado Pago e sem Pagar.me: cobrança pela conta da plataforma — a escolha
     // online/local acontece na tela de pagamento, igual ao Mercado Pago conectado.
     const cobrancaPelaPlataforma = !hasMercadoPagoConnected && !hasPagarMe;
+    // Botão do admin "só paga no local": volta a perguntar como vai pagar no estabelecimento.
+    if ((establishment as any)?.online_payment_blocked_by_admin === true) return false;
     // Pela plataforma o pagamento online existe sempre: a escolha acontece na tela de pagamento.
     return cobrancaPelaPlataforma ? true : hasMercadoPagoConnected && hasAdvancePixEnabled;
   }, [establishment]);
