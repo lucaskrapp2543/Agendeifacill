@@ -140,10 +140,11 @@ async function canonicalNumber(socket: any, jid: string): Promise<string> {
   return onlyDigits(value.split('@')[0]);
 }
 
-function buildLink(baseUrl: string, code: string, choice: string, flags: { chat: boolean; af: boolean }): string {
+/** As três páginas estão sempre no ar: o /chat e o /af não dependem de configuração da barbearia. */
+function buildLink(baseUrl: string, code: string, choice: string): string {
   const base = baseUrl.replace(/\/+$/, '');
-  if (choice === 'chat' && flags.chat) return `${base}/booking/${code}/chat`;
-  if (choice === 'af' && flags.af) return `${base}/booking/${code}/af`;
+  if (choice === 'chat') return `${base}/booking/${code}/chat`;
+  if (choice === 'af') return `${base}/booking/${code}/af`;
   return `${base}/booking/${code}`;
 }
 
@@ -251,7 +252,7 @@ async function handleOne(deps: PresentationReplyDeps, userId: string, socket: an
     // Estabelecimento do dono (nome + código do link)
     const { data: est, error: estError } = await supabaseAdmin
       .from('establishments')
-      .select('id,code,name,booking_chat_enabled,booking_simple_page_enabled,is_deleted,created_at')
+      .select('id,code,name,is_deleted,created_at')
       .eq('owner_id', userId)
       .or('is_deleted.is.null,is_deleted.eq.false')
       .order('created_at', { ascending: true })
@@ -263,10 +264,7 @@ async function handleOne(deps: PresentationReplyDeps, userId: string, socket: an
     }
 
     const baseUrl = String(deps.publicBaseUrl || process.env.PUBLIC_SITE_URL || 'https://agendeifacil.com').trim();
-    const link = buildLink(baseUrl, String(est.code), linkChoice, {
-      chat: est.booking_chat_enabled !== false,
-      af: est.booking_simple_page_enabled === true,
-    });
+    const link = buildLink(baseUrl, String(est.code), linkChoice);
     const text = buildText(String(est.name || ''), link);
 
     // 13) GRAVA a marca antes de enviar (INSERT ... ON CONFLICT DO UPDATE numa consulta só)

@@ -904,9 +904,11 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
               {(
                 [
-                  { id: 'chat' as const, label: 'Chat', desc: 'Conversa igual ao WhatsApp', suffix: '/chat', available: presentationEstablishment?.chatEnabled !== false, badge: 'Recomendado' },
+                  // As três páginas estão sempre no ar (o /chat e o /af não dependem de nenhuma
+                  // configuração), então as três opções ficam sempre liberadas.
+                  { id: 'chat' as const, label: 'Chat', desc: 'Conversa igual ao WhatsApp', suffix: '/chat', available: true, badge: 'Recomendado' },
                   { id: 'completa' as const, label: 'Página completa', desc: 'Site completo do estabelecimento', suffix: '', available: true, badge: '' },
-                  { id: 'af' as const, label: 'Página simples', desc: 'Passo a passo rápido', suffix: '/af', available: presentationEstablishment?.simpleEnabled === true, badge: '' },
+                  { id: 'af' as const, label: 'Página simples', desc: 'Passo a passo rápido', suffix: '/af', available: true, badge: '' },
                 ] as const
               ).map((opt) => {
                 const selected = settings.presentation_link === opt.id;
