@@ -6,8 +6,15 @@ import { PaymentModal } from '../components/PaymentModal';
 import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { TimeSlotSelector } from '../components/TimeSlotSelector';
 import { useToast } from '../components/ui/Toaster';
-import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
+import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
 import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
+import { getSubscriptions } from '../lib/supabase';
+import {
+  estadoCancelamentoParaAgendamentoCliente,
+  formatarDuracaoMinutosParaTexto,
+  minutosEfetivosCancelamentoCliente,
+} from '../utils/regrasCancelamento';
+import { CANCELLATION_SOURCE } from '../utils/appointmentCancellationMeta';
 import type { BookingPayMethod } from '../components/BookingPaymentChoice';
 import { buildWhatsappSuccessNote, fetchBookingWhatsappInfo, formatReminderOffset, type BookingWhatsappInfo } from '../lib/bookingWhatsappInfo';
 import {
@@ -103,6 +110,8 @@ const WALLPAPER =
 type ChatStep =
   | 'menu'
   | 'lookup'
+  | 'cancel'
+  | 'plans'
   | 'name'
   | 'phone'
   | 'subscriber_choice'
@@ -118,6 +127,9 @@ type ChatStep =
 type WidgetKind =
   | 'menu'
   | 'my_appointments'
+  | 'cancel_confirm'
+  | 'cancel_done'
+  | 'plans'
   | 'card_kind'
   | 'subscriber_choice'
   | 'expired_choice'
@@ -365,6 +377,13 @@ const BookingChatPage = () => {
   // "Ver meus agendamentos": telefone consultado e lista encontrada.
   const knownPhoneRef = useRef<string>('');
   const [myAppointments, setMyAppointments] = useState<any[]>([]);
+  // Cancelamento pelo chat: agendamento aguardando o "tem certeza?"
+  const [cancelTarget, setCancelTarget] = useState<any>(null);
+  const [cancelling, setCancelling] = useState(false);
+  // "Ver assinaturas": planos visíveis da barbearia (botão só aparece se houver) e compra
+  const [plans, setPlans] = useState<any[]>([]);
+  const [purchasePlan, setPurchasePlan] = useState<any>(null);
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
 
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const formRef = useRef<FormState>(INITIAL_FORM);
@@ -446,6 +465,15 @@ const BookingChatPage = () => {
         void fetchBookingWhatsappInfo(String(est.id || '')).then((info) => {
           if (!cancelled) setWaInfo(info);
         });
+        // Planos de assinatura visíveis (mesma lista do booking completo): habilita "Ver assinaturas"
+        void getSubscriptions(String(est.id || ''))
+          .then(({ data, error }) => {
+            if (cancelled || error || !Array.isArray(data)) return;
+            setPlans(data.filter((plan: any) => !Boolean(plan?.is_hidden)));
+          })
+          .catch(() => {
+            // Sem planos: o botão simplesmente não aparece.
+          });
       }
       setLoading(false);
     })();
@@ -769,12 +797,22 @@ const BookingChatPage = () => {
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
-  // ===== Menu inicial: agendar ou ver agendamentos =====
-  const handleMenuChoice = async (choice: 'book' | 'view') => {
-    finishWidget('menu', choice === 'book' ? 'Fazer um agendamento' : 'Ver meus agendamentos');
-    userSay(choice === 'book' ? 'Fazer um agendamento 📅' : 'Ver meus agendamentos 🔎');
+  // ===== Menu inicial: agendar, ver agendamentos ou ver assinaturas =====
+  const handleMenuChoice = async (choice: 'book' | 'view' | 'plans') => {
+    const label = choice === 'book' ? 'Fazer um agendamento' : choice === 'view' ? 'Ver meus agendamentos' : 'Ver assinaturas';
+    finishWidget('menu', label);
+    userSay(choice === 'book' ? 'Fazer um agendamento 📅' : choice === 'view' ? 'Ver meus agendamentos 🔎' : 'Ver assinaturas 👑');
     if (choice === 'book') {
       await askName('Boa! Pra começar, me diz seu nome:');
+      return;
+    }
+    if (choice === 'plans') {
+      await showPlans();
+      return;
+    }
+    // Telefone já informado nesta conversa (ex.: depois de cancelar): busca direto.
+    if (knownPhoneRef.current) {
+      await lookupAppointmentsFor(knownPhoneRef.current);
       return;
     }
     await botSay('Me passa seu WhatsApp com DDD que eu busco seus agendamentos:');
@@ -796,6 +834,12 @@ const BookingChatPage = () => {
     knownPhoneRef.current = digits;
     updateForm({ clientWhatsapp: digits });
     userSay(formatPhoneDisplay(digits));
+    await lookupAppointmentsFor(digits);
+  };
+
+  /** Busca os agendamentos futuros do telefone e mostra a lista (usado pelo lookup e depois de cancelar). */
+  const lookupAppointmentsFor = async (digits: string) => {
+    if (!establishment?.id) return;
     const typingId = nextId();
     setBotTyping(true);
     pushMessage({ id: typingId, from: 'bot', kind: 'typing' });
@@ -836,8 +880,191 @@ const BookingChatPage = () => {
 
   const handleNewBookingFromList = async () => {
     finishWidget('my_appointments', 'Fazer um agendamento');
+    finishWidget('cancel_done', 'Fazer um agendamento');
+    finishWidget('plans', 'Fazer um agendamento');
     userSay('Fazer um agendamento 📅');
     await askName('Boa! Me diz seu nome:');
+  };
+
+  // ===== Cancelar pelo chat (regra de prazo = a mesma do app/"Meus agendamentos") =====
+  const appointmentLabel = (a: any) =>
+    `${dateLabel(String(a?.appointment_date || '').slice(0, 10))} às ${String(a?.appointment_time || '').slice(0, 5)}`;
+
+  const canCancelFromChat = (a: any) => {
+    const s = String(a?.status || '').toLowerCase();
+    return s !== 'cancelled' && s !== 'completed';
+  };
+
+  const handleAskCancel = async (a: any) => {
+    if (!establishment || submitting || cancelling) return;
+    const { permitido } = estadoCancelamentoParaAgendamentoCliente(
+      { appointment_date: a?.appointment_date, appointment_time: a?.appointment_time },
+      establishment
+    );
+    finishWidget('my_appointments', `Cancelar ${appointmentLabel(a)}`);
+    userSay(`Cancelar o horário de ${appointmentLabel(a)} ❌`);
+    if (!permitido) {
+      // Dentro do prazo mínimo (ou já passou): não cancela por aqui, só avisa com calma.
+      const minutos = minutosEfetivosCancelamentoCliente(establishment);
+      const jaPassou = (() => {
+        const [y, m, d] = String(a?.appointment_date || '').split('-').map(Number);
+        const [hh, mm] = String(a?.appointment_time || '00:00').split(':').map(Number);
+        return new Date(y, m - 1, d, hh || 0, mm || 0).getTime() <= Date.now();
+      })();
+      if (jaPassou) {
+        await botSay('Esse horário já passou, então não dá mais para cancelar por aqui 😕');
+      } else if (minutos > 0) {
+        await botSay(
+          `Poxa, esse horário já está dentro do prazo: a *${String(establishment?.name || 'barbearia').trim()}* pede cancelamento com pelo menos *${formatarDuracaoMinutosParaTexto(minutos)}* de antecedência, então não dá mais para cancelar por aqui 😕`
+        );
+      } else {
+        await botSay('Não consegui liberar o cancelamento desse horário por aqui 😕');
+      }
+      await botWidget('cancel_done', 'Se precisar, fala direto com a gente 👇', 400);
+      return;
+    }
+    setCancelTarget(a);
+    setStep('cancel');
+    setInputMode('none');
+    await botWidget('cancel_confirm', `Tem certeza que quer cancelar o horário de *${appointmentLabel(a)}*?`, 450);
+  };
+
+  const handleCancelDecision = async (confirm: boolean) => {
+    const a = cancelTarget;
+    if (!a || !establishment?.id) return;
+    finishWidget('cancel_confirm', confirm ? 'Sim, cancelar' : 'Não, manter');
+    userSay(confirm ? 'Sim, pode cancelar ❌' : 'Não, quero manter ✅');
+    if (!confirm) {
+      setCancelTarget(null);
+      await botSay('Beleza, seu horário continua marcado 👍');
+      await botWidget('my_appointments', 'Seus agendamentos:', 400);
+      return;
+    }
+    setCancelling(true);
+    const typingId = nextId();
+    setBotTyping(true);
+    pushMessage({ id: typingId, from: 'bot', kind: 'typing' });
+    try {
+      const result = await cancelAppointmentFromChat(String(a.id));
+      removeMessage(typingId);
+      setBotTyping(false);
+      if (!mountedRef.current) return;
+      if (!result.ok) {
+        await botSay(result.message || 'Não consegui cancelar agora 😕 Tenta de novo em instantes.');
+        await botWidget('cancel_done', 'Se precisar, fala direto com a gente 👇', 400);
+        return;
+      }
+      setMyAppointments((prev) => prev.filter((item) => String(item?.id) !== String(a.id)));
+      setCancelTarget(null);
+      await botSay(`Pronto, cancelei seu horário de *${appointmentLabel(a)}* ✅`);
+      await botWidget('cancel_done', 'Quer marcar outro horário ou avisar a barbearia?', 450);
+    } catch (err: any) {
+      removeMessage(typingId);
+      setBotTyping(false);
+      await botSay(`Não consegui cancelar agora 😕 ${String(err?.message || '')}`.trim());
+      await botWidget('cancel_done', 'Se precisar, fala direto com a gente 👇', 400);
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  /**
+   * Cancela pela API do servidor (valida o prazo e grava origem "cliente", como a página
+   * "Meus agendamentos"). Sem a API (ex.: dev local), tenta direto no banco.
+   */
+  const cancelAppointmentFromChat = async (appointmentId: string): Promise<{ ok: boolean; message?: string }> => {
+    const cancelUrl = import.meta.env.PROD ? '/.netlify/functions/cancel-appointment' : '/api/cancel-appointment';
+    let apiUnavailable = false;
+    try {
+      const response = await fetch(cancelUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appointmentId }),
+      });
+      const isJson = String(response.headers.get('content-type') || '').includes('application/json');
+      if (response.status === 404 || !isJson) {
+        apiUnavailable = true;
+      } else {
+        const result = await response.json().catch(() => ({}));
+        if (response.ok) return { ok: true };
+        return { ok: false, message: String(result?.error || '') || 'Não consegui cancelar agora 😕' };
+      }
+    } catch {
+      apiUnavailable = true;
+    }
+    if (!apiUnavailable) return { ok: false };
+    // Direto no banco (mesmo update da página "Meus agendamentos"); com .select para saber se a RLS deixou.
+    let { data, error } = await supabase
+      .from('appointments')
+      .update({
+        status: 'cancelled',
+        cancellation_source: CANCELLATION_SOURCE.CLIENT,
+        cancellation_detail: 'Cancelado pelo cliente (chat / ver agendamentos).',
+      } as any)
+      .eq('id', appointmentId)
+      .select('id, status');
+    if (error && String((error as any).code || '') === '42703') {
+      ({ data, error } = await supabase.from('appointments').update({ status: 'cancelled' }).eq('id', appointmentId).select('id, status'));
+    }
+    if (error) return { ok: false, message: 'Não consegui cancelar agora 😕 Tenta de novo em instantes.' };
+    if (!data || data.length === 0) {
+      return { ok: false, message: 'Não consegui cancelar por aqui 😕 Fala com a gente no WhatsApp que a gente cancela pra você.' };
+    }
+    return { ok: true };
+  };
+
+  /** wa.me da barbearia (para avisar o cancelamento), como nas outras páginas. */
+  const establishmentWhatsappUrl = (text: string): string => {
+    let digits = String(establishment?.whatsapp || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.length >= 10 && digits.length <= 11) digits = `55${digits}`;
+    if (digits.length < 12) return '';
+    return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+  };
+
+  const handleNotifyCancelOnWhatsapp = (a: any | null) => {
+    const texto = a
+      ? `Olá! Cancelei meu horário pelo Agendei Fácil:\n\n*Data:* ${String(a?.appointment_date || '').slice(0, 10).split('-').reverse().join('/')}\n*Horário:* ${String(a?.appointment_time || '').slice(0, 5)}\n*Serviço:* ${String(a?.service || 'Não especificado')}`
+      : `Olá! Preciso de ajuda com meu agendamento na ${String(establishment?.name || '').trim()}.`;
+    const url = establishmentWhatsappUrl(texto);
+    if (!url) {
+      toast.error('A barbearia não cadastrou WhatsApp.');
+      return;
+    }
+    finishWidget('cancel_done', 'Avisar no WhatsApp');
+    window.open(url, '_blank', 'noopener');
+  };
+
+  // ===== Ver assinaturas (mesmos planos e mesmo modal de compra do booking completo) =====
+  const showPlans = async () => {
+    setStep('plans');
+    setInputMode('none');
+    const nome = String(establishment?.name || 'barbearia').trim();
+    await botWidget('plans', plans.length === 1 ? `Esse é o plano da *${nome}* 👇` : `Esses são os planos da *${nome}* 👇`, 500);
+  };
+
+  /** Mesma decisão do booking completo (handleSubscribeClick): com PIX/cartão/link o modal cobra; senão manda o pedido no WhatsApp. */
+  const subscriptionPurchaseFlow = (plan: any): 'default' | 'whatsapp' => {
+    const pixEnabled = Boolean(plan?.payment_pix_enabled ?? true);
+    const hasCustomLink = Boolean(String(plan?.custom_link || '').trim());
+    const mercadoPago = Boolean(establishment?.use_mercadopago_subscription_pix === true) && establishmentHasMercadoPago(establishment);
+    const pagarme = Boolean(establishment?.use_pagarme_subscription_pix === true) && Boolean(String(establishment?.pagarme_recipient_id || '').trim());
+    return pixEnabled && (hasCustomLink || mercadoPago || pagarme) ? 'default' : 'whatsapp';
+  };
+
+  const handleChoosePlan = (plan: any) => {
+    if (!plan) return;
+    finishWidget('plans', `Assinar ${String(plan?.name || 'plano')}`);
+    userSay(`Quero assinar o ${String(plan?.name || 'plano')} 👑`);
+    setPurchasePlan(plan);
+    setShowPurchaseModal(true);
+  };
+
+  const handlePurchaseModalClose = async () => {
+    setShowPurchaseModal(false);
+    setPurchasePlan(null);
+    await botSay('Qualquer dúvida sobre a assinatura, é só chamar a gente 😉');
+    await botWidget('menu', 'Posso ajudar em mais alguma coisa?', 400);
   };
 
   const handleSubmitName = async () => {
@@ -1452,7 +1679,7 @@ const BookingChatPage = () => {
                 style={{ backgroundColor: WA.chip, border: `1px solid ${WA.chipBorder}` }}
               >
                 {pro.photo_url ? (
-                  <img src={storagePublicUrlForBrowser(pro.photo_url)} alt={pro.name} className="h-11 w-11 rounded-full object-cover shrink-0" />
+                  <img src={storagePublicUrlForBrowser(pro.photo_url, 'avatar')} alt={pro.name} className="h-11 w-11 rounded-full object-cover shrink-0" onError={(e) => { fallbackToOriginalStorageImage(e.currentTarget); }} />
                 ) : (
                   <div className="h-11 w-11 rounded-full flex items-center justify-center font-bold shrink-0" style={{ backgroundColor: WA.accentDark, color: '#fff' }}>
                     {initialsOf(pro.name)}
@@ -1503,9 +1730,10 @@ const BookingChatPage = () => {
                       {temFoto && (
                         foto ? (
                           <img
-                            src={storagePublicUrlForBrowser(foto)}
+                            src={storagePublicUrlForBrowser(foto, 'avatar')}
                             alt=""
                             loading="lazy"
+                            onError={(e) => { fallbackToOriginalStorageImage(e.currentTarget); }}
                             className="h-10 w-10 rounded-xl object-cover shrink-0"
                             style={{ border: `1px solid ${WA.chipBorder}` }}
                           />
@@ -1699,7 +1927,17 @@ const BookingChatPage = () => {
         return (
           <div className="flex flex-col gap-2 mt-2">
             <ChipButton primary disabled={done} onClick={() => void handleMenuChoice('book')}>📅 Fazer um agendamento</ChipButton>
-            <ChipButton disabled={done} onClick={() => void handleMenuChoice('view')}>🔎 Ver meus agendamentos</ChipButton>
+            <ChipButton disabled={done} onClick={() => void handleMenuChoice('view')}>
+              🔎 Ver meus agendamentos
+              {/* Descrição pequena: o cliente já sabe que é aqui que cancela/remarca */}
+              <span className="block text-[11px] font-normal leading-tight mt-0.5" style={{ color: WA.muted }}>
+                (cancelar / reagendar)
+              </span>
+            </ChipButton>
+            {/* Só para barbearias com plano de assinatura visível */}
+            {plans.length > 0 && (
+              <ChipButton disabled={done} onClick={() => void handleMenuChoice('plans')}>👑 Ver assinaturas</ChipButton>
+            )}
           </div>
         );
       case 'my_appointments': {
@@ -1727,6 +1965,18 @@ const BookingChatPage = () => {
                       <p>✂️ {String(a?.service || 'Atendimento')}</p>
                       {proName(a) ? <p>💈 {proName(a)}</p> : null}
                       <p className="text-xs" style={{ color: WA.accent }}>{statusLabel(a)}</p>
+                      {/* Cancelar: a regra de prazo é checada ao tocar (mensagem calma se não der) */}
+                      {!done && canCancelFromChat(a) && (
+                        <button
+                          type="button"
+                          disabled={submitting || cancelling}
+                          onClick={() => void handleAskCancel(a)}
+                          className="mt-2 min-h-[38px] rounded-xl px-3 py-1.5 text-[13px] font-semibold transition-all disabled:opacity-45 active:scale-[0.98]"
+                          style={{ backgroundColor: 'rgba(239,68,68,0.12)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.35)' }}
+                        >
+                          ❌ Cancelar este horário
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -1736,6 +1986,106 @@ const BookingChatPage = () => {
               <div className="flex flex-col gap-2 mt-2">
                 <ChipButton primary disabled={submitting} onClick={() => void handleNewBookingFromList()}>📅 Fazer um agendamento</ChipButton>
               </div>
+            )}
+          </div>
+        );
+      }
+      case 'cancel_confirm': {
+        const a = cancelTarget;
+        return (
+          <div className="mt-2">
+            {a && (
+              <div className="rounded-2xl p-3 text-[14px] space-y-0.5 mb-2" style={{ backgroundColor: 'rgba(0,0,0,0.25)', color: WA.text }}>
+                <p className="font-semibold">📅 {appointmentLabel(a).replace(/^./, (c) => c.toUpperCase())}</p>
+                <p>✂️ {String(a?.service || 'Atendimento')}</p>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={done || cancelling}
+                onClick={() => void handleCancelDecision(true)}
+                className="min-h-[44px] rounded-2xl px-4 py-2.5 text-[15px] font-semibold transition-all disabled:opacity-45 disabled:cursor-not-allowed active:scale-[0.98]"
+                style={{ backgroundColor: 'rgba(239,68,68,0.18)', color: '#fecaca', border: '1px solid rgba(239,68,68,0.5)' }}
+              >
+                Sim, cancelar
+              </button>
+              <ChipButton primary disabled={done || cancelling} onClick={() => void handleCancelDecision(false)}>Não, manter</ChipButton>
+            </div>
+          </div>
+        );
+      }
+      case 'cancel_done':
+        return (
+          <div className="flex flex-col gap-2 mt-2">
+            <ChipButton primary disabled={done || submitting} onClick={() => void handleNewBookingFromList()}>📅 Fazer um agendamento</ChipButton>
+            {myAppointments.length > 0 && (
+              <ChipButton
+                disabled={done || submitting}
+                onClick={() => {
+                  finishWidget('cancel_done', 'Ver meus agendamentos');
+                  userSay('Ver meus agendamentos 🔎');
+                  void botWidget('my_appointments', 'Seus agendamentos:', 400);
+                }}
+              >
+                🔎 Ver meus agendamentos
+              </ChipButton>
+            )}
+            {String(establishment?.whatsapp || '').trim() && (
+              <ChipButton disabled={done} onClick={() => handleNotifyCancelOnWhatsapp(cancelTarget)}>💬 Falar com a barbearia no WhatsApp</ChipButton>
+            )}
+          </div>
+        );
+      case 'plans': {
+        const weekdayLabels: Record<string, string> = {
+          monday: 'Seg', segunda: 'Seg', seg: 'Seg',
+          tuesday: 'Ter', terca: 'Ter', 'terça': 'Ter', ter: 'Ter',
+          wednesday: 'Qua', quarta: 'Qua', qua: 'Qua',
+          thursday: 'Qui', quinta: 'Qui', qui: 'Qui',
+          friday: 'Sex', sexta: 'Sex', sex: 'Sex',
+          saturday: 'Sáb', sabado: 'Sáb', 'sábado': 'Sáb', sab: 'Sáb', 'sáb': 'Sáb',
+          sunday: 'Dom', domingo: 'Dom', dom: 'Dom',
+        };
+        const weekdayOrder = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+        const weekdaysText = (plan: any) =>
+          Array.isArray(plan?.weekdays) && plan.weekdays.length > 0
+            ? plan.weekdays
+                .map((d: string) => weekdayLabels[String(d || '').trim().toLowerCase()] || String(d))
+                .sort((a: string, b: string) => {
+                  const ia = weekdayOrder.indexOf(a);
+                  const ib = weekdayOrder.indexOf(b);
+                  if (ia === -1 && ib === -1) return a.localeCompare(b, 'pt-BR');
+                  if (ia === -1) return 1;
+                  if (ib === -1) return -1;
+                  return ia - ib;
+                })
+                .join(', ')
+            : '';
+        return (
+          <div className="mt-2 flex flex-col gap-2">
+            {plans.map((plan: any) => {
+              const months = Number(plan?.duration_months || 1);
+              return (
+                <div key={String(plan?.id)} className="rounded-2xl p-3 text-[14px]" style={{ backgroundColor: 'rgba(0,0,0,0.25)', color: WA.text }}>
+                  <p className="font-bold text-[15px]">👑 {String(plan?.name || 'Assinatura')}</p>
+                  <p className="mt-0.5" style={{ color: WA.accent }}>
+                    <span className="font-bold">{formatPrice(Number(plan?.value || 0))}</span>
+                    <span className="text-xs"> / {months} {months === 1 ? 'mês' : 'meses'}</span>
+                  </p>
+                  {weekdaysText(plan) ? <p className="text-xs mt-0.5" style={{ color: WA.muted }}>📅 {weekdaysText(plan)}</p> : null}
+                  {String(plan?.description || '').trim() ? (
+                    <p className="text-[13px] mt-1 whitespace-pre-line leading-snug" style={{ color: WA.muted }}>{String(plan.description).trim()}</p>
+                  ) : null}
+                  {!done && (
+                    <ChipButton primary disabled={submitting} onClick={() => handleChoosePlan(plan)} className="mt-2 w-full">
+                      Assinar
+                    </ChipButton>
+                  )}
+                </div>
+              );
+            })}
+            {!done && (
+              <ChipButton disabled={submitting} onClick={() => void handleNewBookingFromList()}>📅 Fazer um agendamento</ChipButton>
             )}
           </div>
         );
@@ -1868,7 +2218,7 @@ const BookingChatPage = () => {
     );
   }
 
-  const logoUrl = establishment?.logo_url ? storagePublicUrlForBrowser(establishment.logo_url) : '';
+  const logoUrl = establishment?.logo_url ? storagePublicUrlForBrowser(establishment.logo_url, 'avatar') : '';
   const isPhoneInput = inputMode === 'phone' || inputMode === 'phone_lookup';
   const inputPlaceholder =
     inputMode === 'name' ? 'Digite seu nome' : isPhoneInput ? '(DDD) 99999-9999' : inputMode === 'coupon' ? 'Digite o cupom' : 'Escolha uma opção acima 👆';
@@ -1901,7 +2251,7 @@ const BookingChatPage = () => {
       <header className="flex items-center gap-3 px-3 py-2 shrink-0" style={{ backgroundColor: WA.header, paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
         <ArrowLeft className="h-6 w-6 shrink-0" style={{ color: WA.text }} aria-hidden />
         {logoUrl ? (
-          <img src={logoUrl} alt={establishment?.name || 'Estabelecimento'} className="h-10 w-10 rounded-full object-cover shrink-0" />
+          <img src={logoUrl} alt={establishment?.name || 'Estabelecimento'} className="h-10 w-10 rounded-full object-cover shrink-0" onError={(e) => { fallbackToOriginalStorageImage(e.currentTarget); }} />
         ) : (
           <div className="h-10 w-10 rounded-full flex items-center justify-center font-bold shrink-0" style={{ backgroundColor: WA.accentDark, color: '#fff' }}>
             {initialsOf(establishment?.name || '')}
@@ -2079,6 +2429,37 @@ const BookingChatPage = () => {
           allowedCard={Boolean(renewalPlan?.payment_card_enabled ?? true)}
           initialFlow="default"
           externalPaymentLink={String(renewalPlan.custom_link || '').trim() || undefined}
+          paymentProvider={
+            Boolean(establishment?.use_mercadopago_subscription_pix === true) && establishmentHasMercadoPago(establishment)
+              ? 'mercadopago'
+              : 'pagarme'
+          }
+        />
+      )}
+
+      {/* "Ver assinaturas" → Assinar: mesmo modal e mesmas regras de cobrança do booking completo */}
+      {showPurchaseModal && purchasePlan && establishment && (
+        <SubscriptionPixModal
+          isOpen={showPurchaseModal}
+          onClose={() => void handlePurchaseModalClose()}
+          initialPrefill={{
+            name: String(form.clientName || '').trim(),
+            whatsapp: String(form.clientWhatsapp || knownPhoneRef.current || '').trim(),
+          }}
+          establishmentId={String(establishment.id || '')}
+          recipientId={String(establishment.pagarme_recipient_id || '')}
+          establishmentName={String(establishment.name || 'este estabelecimento')}
+          establishmentWhatsapp={String(establishment.whatsapp || '')}
+          subscription={{
+            id: String(purchasePlan.id),
+            name: String(purchasePlan.name || 'Assinatura'),
+            value: Number(purchasePlan.value || 0),
+            duration_months: purchasePlan.duration_months ?? null,
+          }}
+          allowedPix={Boolean(purchasePlan?.payment_pix_enabled ?? true)}
+          allowedCard={Boolean(purchasePlan?.payment_card_enabled ?? true)}
+          initialFlow={subscriptionPurchaseFlow(purchasePlan)}
+          externalPaymentLink={String(purchasePlan.custom_link || '').trim() || undefined}
           paymentProvider={
             Boolean(establishment?.use_mercadopago_subscription_pix === true) && establishmentHasMercadoPago(establishment)
               ? 'mercadopago'

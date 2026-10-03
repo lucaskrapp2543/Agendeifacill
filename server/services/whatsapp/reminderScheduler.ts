@@ -33,6 +33,7 @@ type CancellationNotificationRow = {
 };
 const ACTIVE_APPOINTMENT_STATUSES = ['pending', 'confirmed', 'completed', 'waiting', 'pending_payment'];
 const SAFE_APPOINTMENT_STATUSES = ['pending', 'confirmed', 'completed'];
+const ESTABLISHMENT_CACHE_TTL_MS = 5 * 60_000;
 
 type EstablishmentRow = {
   id: string;
@@ -153,6 +154,14 @@ export class WhatsAppReminderScheduler {
   private running = false;
   private settingsCache = new Map<string, AutomationSettings>();
   private dispatchGuard = new Map<string, number>();
+  // Memória do que o banco aceita. A tabela appointments NÃO tem professional_id,
+  // professional_name nem updated_at: sem lembrar, cada varredura fazia ~40 consultas que
+  // falhavam só para redescobrir isso (requests e saída de dados à toa no Supabase).
+  private workingSelectIndex = new Map<string, number>();
+  private windowStatuses: string[] = ACTIVE_APPOINTMENT_STATUSES;
+  private cancelledUpdatedAtMissing = false;
+  private cancelledProfessionalIdMissing = false;
+  private establishmentCache = new Map<string, { row: EstablishmentRow; fetchedAt: number }>();
   private readonly workerId: number;
   private readonly workerCount: number;
   private readonly schedulerLockKey: string;
@@ -172,10 +181,12 @@ export class WhatsAppReminderScheduler {
     this.workerId = Math.max(0, Number(process.env.WHATSAPP_WORKER_ID || 0) || 0);
     this.workerCount = Math.max(1, Number(process.env.WHATSAPP_WORKER_COUNT || 1) || 1);
     this.schedulerLockKey = String(process.env.WHATSAPP_SCHEDULER_LOCK_KEY || 'wa:scheduler:leader').trim();
-    const configuredIntervalMs = Number(process.env.WHATSAPP_SCHEDULER_INTERVAL_MS || 20_000);
+    // 60s (era 20s): a varredura lê agendamentos de HOJE+AMANHÃ de TODAS as barbearias,
+    // 4.320x/dia — pesava na cota de saída do Supabase. Lembrete tem precisão de minuto.
+    const configuredIntervalMs = Number(process.env.WHATSAPP_SCHEDULER_INTERVAL_MS || 60_000);
     this.intervalMs = Number.isFinite(configuredIntervalMs)
       ? Math.min(Math.max(configuredIntervalMs, 10_000), 120_000)
-      : 20_000;
+      : 60_000;
     const redisUrl = String(process.env.REDIS_URL || '').trim();
     if (redisUrl) {
       this.lockClient = new IORedis(redisUrl, { maxRetriesPerRequest: null, enableReadyCheck: false });
@@ -302,8 +313,12 @@ export class WhatsAppReminderScheduler {
       'id,establishment_id,professional_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
       'id,establishment_id,professional_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
       'id,establishment_id,professional_name,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
+      // Banco atual (sem professional_id/professional_name) mas COM as flags de reserva interna:
+      // evita a consulta extra por agendamento em hydrateInternalBookingFlags.
+      'id,establishment_id,professional,client_id,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at,is_establishment_booking,is_avulso,is_squeeze',
       'id,establishment_id,professional,client_name,client_whatsapp,appointment_date,appointment_time,status,created_at',
     ];
+    const memoryKey = params.includeNonCancelledAnyStatus ? 'window:any' : 'window:active';
 
     const buildQuery = (selectClause: string, statuses: string[]) => {
       let query = this.supabase
@@ -328,9 +343,14 @@ export class WhatsAppReminderScheduler {
 
     const runSelectCandidates = async (statuses: string[]) => {
       let lastMissingColumnError: any = null;
-      for (const selectClause of selectCandidates) {
-        const result = await buildQuery(selectClause, statuses);
-        if (!result.error) return (result.data || []) as AppointmentRow[];
+      // Começa pela lista de colunas que já funcionou nesta execução (as anteriores falhariam de novo).
+      const startIndex = this.workingSelectIndex.get(memoryKey) ?? 0;
+      for (let index = startIndex; index < selectCandidates.length; index++) {
+        const result = await buildQuery(selectCandidates[index], statuses);
+        if (!result.error) {
+          this.workingSelectIndex.set(memoryKey, index);
+          return (result.data || []) as AppointmentRow[];
+        }
         if (isMissingColumnError(result.error)) {
           lastMissingColumnError = result.error;
           continue;
@@ -342,13 +362,15 @@ export class WhatsAppReminderScheduler {
     };
 
     try {
-      return await runSelectCandidates(ACTIVE_APPOINTMENT_STATUSES);
+      return await runSelectCandidates(this.windowStatuses);
     } catch (error: any) {
       const invalidEnum =
         !params.includeNonCancelledAnyStatus &&
         String(error?.code || '').trim().toUpperCase() === '22P02' &&
         String(error?.message || '').toLowerCase().includes('appointment_status');
       if (!invalidEnum) throw error;
+      // O enum do banco não aceita algum status da lista completa: usa a lista segura daqui em diante.
+      this.windowStatuses = SAFE_APPOINTMENT_STATUSES;
       return runSelectCandidates(SAFE_APPOINTMENT_STATUSES);
     }
   }
@@ -408,17 +430,27 @@ export class WhatsAppReminderScheduler {
           ? selectFallbackNoProfessionalIdAndUpdatedAt
           : selectFallbackNoProfessionalIdNoUpdatedAt;
 
-      let result = await run(selectPreferred, strategy);
+      // Já sabemos que professional_id não existe? Vai direto na lista sem ela.
+      let result = this.cancelledProfessionalIdMissing
+        ? await run(selectWithoutProfessionalId, strategy)
+        : await run(selectPreferred, strategy);
       if (!result.error) return result;
 
-      if (isMissingColumn(result.error, 'professional_id')) {
+      if (!this.cancelledProfessionalIdMissing && isMissingColumn(result.error, 'professional_id')) {
+        this.cancelledProfessionalIdMissing = true;
         result = await run(selectWithoutProfessionalId, strategy);
+      }
+      if (result.error && strategy === 'updated_at' && isMissingColumn(result.error, 'updated_at')) {
+        // Sem coluna updated_at: nas próximas varreduras só a estratégia por data roda.
+        this.cancelledUpdatedAtMissing = true;
       }
       return result;
     };
 
     // 1) Captura por "cancelou agora" (updated_at), quando disponível.
-    const byUpdatedAt = await runWithColumnFallback('updated_at');
+    const byUpdatedAt = this.cancelledUpdatedAtMissing
+      ? { data: null as AppointmentRow[] | null, error: { message: 'column updated_at does not exist (lembrado)' } as any }
+      : await runWithColumnFallback('updated_at');
     // 2) Captura por data do agendamento (fallback robusto para bases sem updated_at confiável).
     const byAppointmentDate = await runWithColumnFallback('appointment_date');
 
@@ -460,15 +492,19 @@ export class WhatsAppReminderScheduler {
     };
 
     let lastMissingColumnError: any = null;
-    for (const selectClause of selectCandidates) {
+    const startIndex = this.workingSelectIndex.get('byIds') ?? 0;
+    for (let index = startIndex; index < selectCandidates.length; index++) {
       const result = await this.supabase
         .from('appointments')
-        .select(selectClause)
+        .select(selectCandidates[index])
         .in('id', normalizedIds)
         .eq('status', 'cancelled')
         .limit(1000);
 
-      if (!result.error) return (result.data || []) as AppointmentRow[];
+      if (!result.error) {
+        this.workingSelectIndex.set('byIds', index);
+        return (result.data || []) as AppointmentRow[];
+      }
       if (isMissingColumnError(result.error)) {
         lastMissingColumnError = result.error;
         continue;
@@ -653,6 +689,16 @@ export class WhatsAppReminderScheduler {
     if (!aptId || !UUID_REGEX.test(aptId)) return appointment;
 
     if (Boolean(appointment.is_establishment_booking) || Boolean(appointment.is_avulso) || Boolean(appointment.is_squeeze)) {
+      return appointment;
+    }
+    // O SELECT em lote já trouxe as flags (false mesmo)? Então não há o que hidratar:
+    // antes isso gerava uma consulta por agendamento em TODA varredura.
+    if (
+      appointment.is_establishment_booking !== undefined &&
+      appointment.is_avulso !== undefined &&
+      appointment.is_squeeze !== undefined &&
+      appointment.client_id !== undefined
+    ) {
       return appointment;
     }
 
@@ -1041,15 +1087,30 @@ export class WhatsAppReminderScheduler {
         )
       );
 
-      const { data: establishmentsData } = await this.supabase
-        .from('establishments')
-        .select('id,owner_id,name,code,professionals')
-        .in('id', establishmentIds);
-
+      // Cache de 5 min: a lista "professionals" das barbearias é a parte mais pesada da varredura
+      // (~0,9 MB por tick) e quase não muda. Só busca de novo o que venceu ou nunca foi buscado.
       const establishmentById = new Map<string, EstablishmentRow>();
-      ((establishmentsData || []) as EstablishmentRow[]).forEach((row) => {
-        establishmentById.set(String(row.id), row);
-      });
+      const nowTs = Date.now();
+      const establishmentIdsToFetch: string[] = [];
+      for (const id of establishmentIds) {
+        const cached = this.establishmentCache.get(id);
+        if (cached && nowTs - cached.fetchedAt < ESTABLISHMENT_CACHE_TTL_MS) {
+          establishmentById.set(id, cached.row);
+        } else {
+          establishmentIdsToFetch.push(id);
+        }
+      }
+      if (establishmentIdsToFetch.length > 0) {
+        const { data: establishmentsData } = await this.supabase
+          .from('establishments')
+          .select('id,owner_id,name,code,professionals')
+          .in('id', establishmentIdsToFetch);
+        ((establishmentsData || []) as EstablishmentRow[]).forEach((row) => {
+          const id = String(row.id);
+          establishmentById.set(id, row);
+          this.establishmentCache.set(id, { row, fetchedAt: nowTs });
+        });
+      }
 
       const appointmentIds = Array.from(
         new Set(

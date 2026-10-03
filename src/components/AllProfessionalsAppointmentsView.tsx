@@ -1,5 +1,6 @@
 import { addDays, format, isSameDay, parse, startOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
 import { Calendar, CheckCircle2, ChevronLeft, ChevronRight, Clock, Coins, Crown, Eye, EyeOff, Lock, Package, Phone, Plus, Trash2, User, UserPlus, Users, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
@@ -6190,10 +6191,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               <div className="relative">
                                 <div className="w-10 h-10 md:w-12 md:h-12 rounded-full border-2 border-emerald-500/50 overflow-hidden bg-white/10">
                                   <img
-                                    src={professional.photo_url || '/fotopessoa.png'}
+                                    src={storagePublicUrlForBrowser(professional.photo_url, 'avatar') || '/fotopessoa.png'}
                                     alt={professional.name}
                                     className="w-full h-full object-cover"
-                                    onError={(e) => { (e.target as HTMLImageElement).src = '/fotopessoa.png'; }}
+                                    onError={(e) => { if (fallbackToOriginalStorageImage(e.currentTarget)) return; (e.target as HTMLImageElement).src = '/fotopessoa.png'; }}
                                   />
                                 </div>
                               </div>
@@ -6232,10 +6233,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                     : 'border-white/20 opacity-50 group-hover:opacity-75'
                                 }`}>
                                   <img
-                                    src={professional.photo_url || '/fotopessoa.png'}
+                                    src={storagePublicUrlForBrowser(professional.photo_url, 'avatar') || '/fotopessoa.png'}
                                     alt={professional.name}
                                     className="w-full h-full object-cover"
-                                    onError={(e) => { (e.target as HTMLImageElement).src = '/fotopessoa.png'; }}
+                                    onError={(e) => { if (fallbackToOriginalStorageImage(e.currentTarget)) return; (e.target as HTMLImageElement).src = '/fotopessoa.png'; }}
                                   />
                                 </div>
                                 {isVisible ? (
@@ -7215,8 +7216,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           >
                             {professional.photo_url ? (
                               <img
-                                src={professional.photo_url}
+                                src={storagePublicUrlForBrowser(professional.photo_url, 'avatar')}
                                 alt={professional.name}
+                                onError={(e) => { fallbackToOriginalStorageImage(e.currentTarget); }}
                                 className={`w-10 h-10 md:w-14 md:h-14 rounded-full object-cover border-2 group-hover:scale-105 transition-transform cursor-pointer ${useLightLayout ? 'border-gray-300' : 'border-slate-500'
                                   }`}
                               />

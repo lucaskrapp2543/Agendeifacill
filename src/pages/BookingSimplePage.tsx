@@ -8,7 +8,7 @@ import { buildWhatsappSuccessNote, fetchBookingWhatsappInfo, type BookingWhatsap
 import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { TimeSlotSelector } from '../components/TimeSlotSelector';
 import { useToast } from '../components/ui/Toaster';
-import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
+import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
 import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import {
   isClientAfcoinsEnabledForEstablishment,
@@ -829,9 +829,10 @@ const BookingSimplePage = () => {
           <div className="flex-1 flex flex-col items-center text-center gap-6 pt-4">
             {establishment?.logo_url && (
               <img
-                src={storagePublicUrlForBrowser(establishment.logo_url)}
+                src={storagePublicUrlForBrowser(establishment.logo_url, 'avatar')}
                 alt={establishment.name}
                 className="w-24 h-24 rounded-full object-cover border-2"
+                onError={(e) => { fallbackToOriginalStorageImage(e.currentTarget); }}
                 style={{ borderColor: GOLD }}
               />
             )}
@@ -1060,7 +1061,7 @@ const BookingSimplePage = () => {
                     className={`${CARD_BASE} ${state.professional?.id === pro.id ? CARD_SELECTED : CARD_UNSELECTED}`}
                   >
                     {pro.photo_url ? (
-                      <img src={storagePublicUrlForBrowser(pro.photo_url)} alt={pro.name} className="w-14 h-14 rounded-full object-cover shrink-0" />
+                      <img src={storagePublicUrlForBrowser(pro.photo_url, 'avatar')} alt={pro.name} className="w-14 h-14 rounded-full object-cover shrink-0" onError={(e) => { fallbackToOriginalStorageImage(e.currentTarget); }} />
                     ) : (
                       <div className="w-14 h-14 rounded-full bg-[#242628] flex items-center justify-center shrink-0">
                         <User className="h-7 w-7 text-gray-400" />
@@ -1146,9 +1147,10 @@ const BookingSimplePage = () => {
                     >
                       {service.image_url ? (
                         <img
-                          src={storagePublicUrlForBrowser(service.image_url)}
+                          src={storagePublicUrlForBrowser(service.image_url, 'avatar')}
                           alt={service.name}
                           className="w-12 h-12 rounded-xl object-cover shrink-0"
+                          onError={(e) => { fallbackToOriginalStorageImage(e.currentTarget); }}
                         />
                       ) : (
                         <div className="w-12 h-12 rounded-xl bg-[#242628] flex items-center justify-center shrink-0">

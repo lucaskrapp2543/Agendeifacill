@@ -93,7 +93,7 @@ import { resolveAuditActorName } from '../lib/appointmentAuditLog';
 import { PRODUCT_PAYOUT_START_DATE, isProductPaymentSource, isServicePaymentSource } from '../lib/professionalPaymentSources';
 import { isEstablishmentPaymentEmDia } from '../utils/establishmentPaymentState';
 import { PlacaQrGenerator } from '../components/PlacaQrGenerator';
-import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
+import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
 import { BookingChatDemo } from '../components/BookingChatDemo';
 import {
   buildAfcoinBalanceByPhoneKeyFromAppointments,
@@ -16191,7 +16191,7 @@ Estamos te aguardando!`;
     void loadHighlightMonthAttendances();
   }, [activeTab, establishment?.id, highlightMonthCursor, showDetailedAttendancesPanel]);
 
-  // Atualização automática a cada 10 segundos COM PROTEÇÃO PARA EXCLUSÕES
+  // Atualização automática a cada 30 segundos COM PROTEÇÃO PARA EXCLUSÕES
   useEffect(() => {
     if (!establishment) return;
 
@@ -16349,7 +16349,7 @@ Estamos te aguardando!`;
         }
       }
 
-    }, 10000); // 10 segundos
+    }, 30000); // 30 segundos (era 10s: 8.640 consultas/dia por painel aberto estouraram a cota de saída do Supabase)
 
     return () => clearInterval(interval);
   }, [establishment, selectedDate]);
@@ -28718,11 +28718,12 @@ Estamos te aguardando!`;
                   >
                     <div className="mx-auto w-16 h-16 rounded-full overflow-hidden border border-gray-700 bg-[#0f1011]">
                       <img
-                        src={(professional as any).photo_url || '/fotopessoa.png'}
+                        src={storagePublicUrlForBrowser((professional as any).photo_url, 'avatar') || '/fotopessoa.png'}
                         alt={professional.name}
                         className="w-full h-full object-cover"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
+                          if (fallbackToOriginalStorageImage(target)) return;
                           target.src = '/fotopessoa.png';
                         }}
                       />
@@ -31520,11 +31521,12 @@ Estamos te aguardando!`;
                                 title={`Ver avaliações de ${stat.name}`}
                               >
                                 <img
-                                  src={storagePublicUrlForBrowser(stat.photo_url) || '/fotopessoa.png'}
+                                  src={storagePublicUrlForBrowser(stat.photo_url, 'avatar') || '/fotopessoa.png'}
                                   alt={stat.name}
                                   className="w-10 h-10 rounded-full object-cover border border-gray-200 shrink-0"
                                   onError={(e) => {
                                     const target = e.target as HTMLImageElement;
+                                    if (fallbackToOriginalStorageImage(target)) return;
                                     target.src = '/fotopessoa.png';
                                   }}
                                 />
@@ -31608,11 +31610,12 @@ Estamos te aguardando!`;
                                   {review.professional_name && (
                                     <div className="flex items-center gap-3 mt-3 p-3 rounded-lg bg-blue-50 border border-blue-100">
                                       <img
-                                        src={storagePublicUrlForBrowser(review.professional_photo_url) || '/fotopessoa.png'}
+                                        src={storagePublicUrlForBrowser(review.professional_photo_url, 'avatar') || '/fotopessoa.png'}
                                         alt={review.professional_name}
                                         className="w-12 h-12 rounded-full object-cover border-2 border-blue-200"
                                         onError={(e) => {
                                           const target = e.target as HTMLImageElement;
+                                          if (fallbackToOriginalStorageImage(target)) return;
                                           target.src = '/fotopessoa.png';
                                         }}
                                       />
@@ -43056,11 +43059,12 @@ Estamos te aguardando!`;
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-gray-600 flex-shrink-0">
                           <img
-                            src={(professional as any).photo_url || '/fotopessoa.png'}
+                            src={storagePublicUrlForBrowser((professional as any).photo_url, 'avatar') || '/fotopessoa.png'}
                             alt={professional.name}
                             className="w-full h-full object-cover"
                             onError={(e) => {
                               const target = e.target as HTMLImageElement;
+                              if (fallbackToOriginalStorageImage(target)) return;
                               target.src = '/fotopessoa.png';
                             }}
                           />

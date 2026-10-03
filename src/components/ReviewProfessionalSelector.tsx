@@ -1,4 +1,4 @@
-import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
+import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
 import type { ReviewBookingProfessional } from '../lib/reviewQuestions';
 
 type ReviewProfessionalSelectorProps = {
@@ -47,13 +47,14 @@ export function ReviewProfessionalSelector({
                 }}
               >
                 <img
-                  src={storagePublicUrlForBrowser(professional.photo_url) || '/fotopessoa.png'}
+                  src={storagePublicUrlForBrowser(professional.photo_url, 'avatar') || '/fotopessoa.png'}
                   alt={professional.name}
                   className="w-full h-full object-cover"
                   loading="lazy"
                   decoding="async"
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
+                    if (fallbackToOriginalStorageImage(target)) return;
                     target.src = '/fotopessoa.png';
                   }}
                 />

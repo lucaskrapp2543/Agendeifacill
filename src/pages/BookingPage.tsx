@@ -42,7 +42,7 @@ import {
   isClientAfcoinsEnabledForEstablishment,
 } from '../utils/afcoin';
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
-import { storagePublicUrlForBrowser } from '../utils/storagePublicUrl';
+import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
 import { ReviewProfessionalSelector } from '../components/ReviewProfessionalSelector';
 import {
   isExclusiveBookingLinkEnabledForProfessional,
@@ -186,7 +186,7 @@ export default function BookingPage() {
     establishment?.custom_photo_6_url,
     establishment?.custom_photo_7_url,
   ]
-    .map((u) => (u ? storagePublicUrlForBrowser(String(u)) : ''))
+    .map((u) => (u ? storagePublicUrlForBrowser(String(u), 'hero') : ''))
     .filter(Boolean); // Remove valores undefined/null
   const hasCarouselPhotos = duplicatePhotos.length > 0;
   const customAmenities = sanitizeBookingCustomAmenities(establishment?.custom_amenities);
@@ -3596,6 +3596,7 @@ export default function BookingPage() {
                     decoding="async"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
+                      if (fallbackToOriginalStorageImage(target)) return;
                       const defaultPhotos = ['/barbeiro ft 1.png', '/barbeiro ft 2.png', '/barbeiro ft 3.png'];
                       target.src = defaultPhotos[duplicateCarouselIndex % defaultPhotos.length];
                     }}
@@ -3648,11 +3649,12 @@ export default function BookingPage() {
               <div className="absolute -bottom-16 left-1/2 transform -translate-x-1/2 z-20">
                 <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white shadow-2xl bg-white">
                   <img
-                    src={storagePublicUrlForBrowser(establishment?.logo_url) || '/fotopessoa.png'}
+                    src={storagePublicUrlForBrowser(establishment?.logo_url, 'card') || '/fotopessoa.png'}
                     alt={establishment?.name || 'Logo'}
                     className="w-full h-full object-cover"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
+                      if (fallbackToOriginalStorageImage(target)) return;
                       target.src = '/fotopessoa.png';
                     }}
                   />
@@ -3666,11 +3668,12 @@ export default function BookingPage() {
             <div className="flex justify-center mb-6">
               <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white/15 shadow-2xl bg-black/30">
                 <img
-                  src={storagePublicUrlForBrowser(establishment?.logo_url) || '/fotopessoa.png'}
+                  src={storagePublicUrlForBrowser(establishment?.logo_url, 'card') || '/fotopessoa.png'}
                   alt={establishment?.name || 'Logo'}
                   className="w-full h-full object-cover"
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
+                    if (fallbackToOriginalStorageImage(target)) return;
                     target.src = '/fotopessoa.png';
                   }}
                 />
@@ -4424,6 +4427,7 @@ export default function BookingPage() {
                           decoding="async"
                           onError={(e) => {
                             const target = e.target as HTMLImageElement;
+                            if (fallbackToOriginalStorageImage(target)) return;
                             const defaultPhotos = ['/barbeiro ft 1.png', '/barbeiro ft 2.png', '/barbeiro ft 3.png'];
                             target.src = defaultPhotos[duplicateCarouselIndex % defaultPhotos.length];
                           }}
@@ -4524,13 +4528,14 @@ export default function BookingPage() {
                                 }}
                               >
                                 <img
-                                  src={storagePublicUrlForBrowser((professional as any).photo_url) || '/fotopessoa.png'}
+                                  src={storagePublicUrlForBrowser((professional as any).photo_url, 'avatar') || '/fotopessoa.png'}
                                   loading="lazy"
                                   decoding="async"
                                   alt={professional.name}
                                   className="w-full h-full object-cover"
                                   onError={(e) => {
                                     const target = e.target as HTMLImageElement;
+                                    if (fallbackToOriginalStorageImage(target)) return;
                                     target.src = '/fotopessoa.png';
                                   }}
                                 />
@@ -5554,11 +5559,12 @@ export default function BookingPage() {
                     {review.professional_name && (
                       <div className="flex items-center gap-2 mt-2">
                         <img
-                          src={storagePublicUrlForBrowser(review.professional_photo_url) || '/fotopessoa.png'}
+                          src={storagePublicUrlForBrowser(review.professional_photo_url, 'avatar') || '/fotopessoa.png'}
                           alt={review.professional_name}
                           className="w-8 h-8 rounded-full object-cover border border-[#E6C78B]/50"
                           onError={(e) => {
                             const target = e.target as HTMLImageElement;
+                            if (fallbackToOriginalStorageImage(target)) return;
                             target.src = '/fotopessoa.png';
                           }}
                         />

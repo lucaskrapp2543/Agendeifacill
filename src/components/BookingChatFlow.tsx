@@ -1,4 +1,5 @@
 import { format } from 'date-fns';
+import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
@@ -2021,7 +2022,7 @@ export function BookingChatFlow({
                   >
                     <div className="flex items-center gap-3">
                       {String(professional?.photo_url || '').trim() ? (
-                        <img src={String(professional.photo_url)} alt={String(professional?.name || 'Profissional')} className="w-8 h-8 rounded-full object-cover border border-white/20" />
+                        <img src={storagePublicUrlForBrowser(String(professional.photo_url), 'avatar')} alt={String(professional?.name || 'Profissional')} className="w-8 h-8 rounded-full object-cover border border-white/20" onError={(e) => { fallbackToOriginalStorageImage(e.currentTarget); }} />
                       ) : (
                         <div className="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center text-xs font-bold">
                           {String(professional?.name || 'P').trim().charAt(0).toUpperCase()}
