@@ -7838,24 +7838,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         const is50 = advPercent === 50;
                                         const totalPrice = calculateTotalPrice(apt);
 
-                                        if (isPaidOnline && (apt.status === 'confirmed' || apt.status === 'completed')) {
+                                        // Qualquer status que não seja cancelado: se pagou, tem que aparecer.
+                                        if (isPaidOnline && apt.status !== 'cancelled') {
                                           const paidOnline = is50 ? Math.round(totalPrice * 0.5) : totalPrice;
                                           const remaining = totalPrice - paidOnline;
+                                          // Faixa DESTACADA (verde, texto preto): o barbeiro precisa bater o olho e
+                                          // saber que esse cliente já pagou. Cores explícitas: o card muda de cor por
+                                          // status e o texto herdado ficava invisível.
                                           return (
-                                            <div className="text-[10px] mt-1 space-y-0.5">
-                                              <div className="flex justify-between text-emerald-300">
-                                                <span>💳 Pago online:</span>
-                                                <span className="font-bold">{displayCardMoney(paidOnline)}</span>
-                                              </div>
-                                              {remaining > 0 ? (
-                                                <div className="flex justify-between text-amber-300">
-                                                  <span>🏪 Restante no salão:</span>
-                                                  <span className="font-bold">{displayCardMoney(remaining)}</span>
-                                                </div>
-                                              ) : (
-                                                <div className="flex justify-between text-emerald-400">
-                                                  <span>✅ Pago integralmente online</span>
-                                                </div>
+                                            <div className="mt-1.5 md:mt-1 flex flex-col gap-0.5">
+                                              <span
+                                                className="inline-flex items-center justify-center gap-1 w-full px-2 py-1 md:py-0.5 rounded-md text-[11px] md:text-[10px] font-extrabold uppercase tracking-wide bg-emerald-400 text-black shadow-sm"
+                                                title={remaining > 0 ? 'Cliente pagou metade online' : 'Cliente já pagou tudo online'}
+                                              >
+                                                ✅ {remaining > 0 ? 'Pagou 50% online' : 'Pago online'} · {displayCardMoney(paidOnline)}
+                                              </span>
+                                              {remaining > 0 && (
+                                                <span className="inline-flex items-center justify-center gap-1 w-full px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-400 text-black">
+                                                  🏪 Falta no local: {displayCardMoney(remaining)}
+                                                </span>
                                               )}
                                             </div>
                                           );

@@ -48,6 +48,8 @@ import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
 import { establishmentHasMercadoPago, establishmentMercadoPagoNeedsReconnect } from '../utils/establishmentPaymentFlags';
 import { PlatformWalletCard } from '../components/PlatformWalletCard';
+import { NoShowPolicyCard } from '../components/NoShowPolicyCard';
+import { DEFAULT_NO_SHOW_POLICY, isNoShowPolicy } from '../lib/noShowPolicy';
 import { PartnerReferralPanel } from '../components/PartnerReferralPanel';
 import { fetchPartnerReferralCodeForEstablishment } from '../lib/partnerReferral';
 import { RecebaNaHoraPageLayout } from '../components/RecebaNaHoraPageLayout';
@@ -32137,6 +32139,20 @@ Estamos te aguardando!`;
                       pixKey={String((establishment as any)?.pix_key || pixKey || '').trim()}
                       onConnectMercadoPago={() =>
                         document.getElementById('mp-connect-button')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                      }
+                    />
+                  )}
+                  {/* Política de faltas (aviso ao cliente após pagar) — acima das configurações de pagamento */}
+                  {establishment?.id && (
+                    <NoShowPolicyCard
+                      establishmentId={String(establishment.id)}
+                      establishmentName={String(establishment.name || '')}
+                      initialEnabled={(establishment as any)?.no_show_policy_enabled === true}
+                      initialPolicy={isNoShowPolicy((establishment as any)?.no_show_policy) ? (establishment as any).no_show_policy : DEFAULT_NO_SHOW_POLICY}
+                      onSaved={(next) =>
+                        setEstablishment((prev) =>
+                          prev ? ({ ...prev, no_show_policy_enabled: next.enabled, no_show_policy: next.policy } as any) : prev
+                        )
                       }
                     />
                   )}

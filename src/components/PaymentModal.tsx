@@ -6,6 +6,8 @@ import { criarTokenCartaoPagarme } from '../lib/pagarmeTokenize';
 import { supabase } from '../lib/supabase';
 import { AFCOIN_POINTS_ONLINE } from '../utils/appointmentPayment';
 import { CardPaymentBrick } from './CardPaymentBrick';
+import { fetchNoShowPolicy, type NoShowPolicyInfo } from '../lib/noShowPolicy';
+import { NoShowPolicyNotice } from './NoShowPolicyNotice';
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -137,6 +139,19 @@ export const PaymentModal = ({
   // Sem MP e sem Pagar.me na barbearia: o pagamento cai na conta da plataforma (aviso de recebedor)
   const [platformCollected, setPlatformCollected] = useState(false);
   const [establishmentName, setEstablishmentName] = useState('');
+  // Política de faltas: aviso que o cliente vê DEPOIS do pagamento aprovado (se a barbearia ligou)
+  const [noShowPolicy, setNoShowPolicy] = useState<NoShowPolicyInfo | null>(null);
+  const [pendingSuccessPhone, setPendingSuccessPhone] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isOpen || !establishmentId) return;
+    let cancelled = false;
+    void fetchNoShowPolicy(establishmentId).then((info) => {
+      if (!cancelled) setNoShowPolicy(info);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, establishmentId]);
   const [establishmentClientAfcoinsEnabled, setEstablishmentClientAfcoinsEnabled] = useState(true);
   // ✅ NOVO: Estados para dados do Card Payment Brick
   const [brickCardToken, setBrickCardToken] = useState<string | null>(null);
@@ -1691,8 +1706,14 @@ export const PaymentModal = ({
         localStorage.setItem('reminder_creation_data', JSON.stringify(reminderData));
       }
 
-      // Passar telefone para o callback de sucesso
-      onPaymentSuccess(appointmentData?.client_whatsapp || '');
+      // Passar telefone para o callback de sucesso.
+      // Política de faltas ligada: mostra o aviso primeiro; o fluxo segue no "Combinado".
+      const successPhone = appointmentData?.client_whatsapp || '';
+      if (noShowPolicy?.enabled) {
+        setPendingSuccessPhone(String(successPhone));
+        return;
+      }
+      onPaymentSuccess(successPhone);
       onClose();
     } catch (error: any) {
       console.error('❌ Erro ao confirmar agendamento:', error);
@@ -1732,6 +1753,7 @@ export const PaymentModal = ({
   }, [isOpen]);
 
   return (
+    <>
     <div
       className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 overflow-y-auto"
       onClick={(e) => {
@@ -2287,6 +2309,21 @@ export const PaymentModal = ({
         </div>
       </div>
     </div>
+    {/* Aviso da política de faltas: só depois do pagamento aprovado */}
+    {pendingSuccessPhone !== null && noShowPolicy?.enabled ? (
+      <NoShowPolicyNotice
+        policy={noShowPolicy.policy}
+        establishmentName={establishmentName}
+        amountLabel={formattedAmount}
+        onConfirm={() => {
+          const phone = pendingSuccessPhone;
+          setPendingSuccessPhone(null);
+          onPaymentSuccess(phone || '');
+          onClose();
+        }}
+      />
+    ) : null}
+    </>
   );
 };
 
