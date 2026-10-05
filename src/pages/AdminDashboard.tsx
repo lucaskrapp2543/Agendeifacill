@@ -202,6 +202,10 @@ const AdminDashboard = () => {
   const [showPayoutHistoryModal, setShowPayoutHistoryModal] = useState(false);
   const [showLastPaymentsModal, setShowLastPaymentsModal] = useState(false);
   const [lastPaymentsSearch, setLastPaymentsSearch] = useState('');
+  // "Não renovaram": vencimento passou e ninguém marcou pago — inclui quem já foi para a lixeira.
+  const [showNotRenewedModal, setShowNotRenewedModal] = useState(false);
+  const [notRenewedSearch, setNotRenewedSearch] = useState('');
+  const [notRenewedIncludeTrial, setNotRenewedIncludeTrial] = useState(false);
   // Projeção de recebimento: quanto entra entre duas datas, contando só ATIVOS.
   const [showFuturePaymentsModal, setShowFuturePaymentsModal] = useState(false);
   const [futurePaymentsStart, setFuturePaymentsStart] = useState('');
@@ -209,6 +213,13 @@ const AdminDashboard = () => {
   const [showAfBookingModal, setShowAfBookingModal] = useState(false);
   const [afBookingRows, setAfBookingRows] = useState<{ establishment_code: string; establishment_id: string; name: string; count: number }[]>([]);
   const [afBookingTotal, setAfBookingTotal] = useState(0);
+  // BOOKING CHAT (/booking/código/chat): quem usa, quantos agendamentos, e quem ainda não usou (com WhatsApp)
+  const [showChatBookingModal, setShowChatBookingModal] = useState(false);
+  const [chatBookingCountById, setChatBookingCountById] = useState<Record<string, number>>({});
+  const [chatBookingTotal, setChatBookingTotal] = useState(0);
+  const [isLoadingChatBooking, setIsLoadingChatBooking] = useState(false);
+  const [chatBookingTab, setChatBookingTab] = useState<'using' | 'not_using'>('using');
+  const [chatBookingSearch, setChatBookingSearch] = useState('');
   const [isLoadingAfBooking, setIsLoadingAfBooking] = useState(false);
   const [automaticPaymentInfoByEstablishment, setAutomaticPaymentInfoByEstablishment] = useState<
     Record<string, { timestamp: number; paymentProvider: string; paymentMethod: string }>
@@ -3628,6 +3639,41 @@ const AdminDashboard = () => {
     return () => { alive = false; };
   }, [showAfBookingModal]);
 
+  // BOOKING CHAT: contagem por barbearia (abre o modal → carrega). Os nomes/WhatsApp
+  // vêm da lista já carregada no admin, então uma consulta leve basta.
+  useEffect(() => {
+    if (!showChatBookingModal) return;
+    let alive = true;
+    const loadChatBookings = async () => {
+      setIsLoadingChatBooking(true);
+      try {
+        const { data, error } = await supabase
+          .from('appointments')
+          .select('establishment_id')
+          .eq('booking_source', 'chat')
+          .limit(20000);
+        if (error) throw error;
+        if (!alive) return;
+        const rows = (data || []) as { establishment_id: string | null }[];
+        const counts: Record<string, number> = {};
+        for (const r of rows) {
+          const id = String(r.establishment_id || '').trim();
+          if (!id) continue;
+          counts[id] = (counts[id] || 0) + 1;
+        }
+        setChatBookingCountById(counts);
+        setChatBookingTotal(rows.length);
+      } catch (err) {
+        console.error('Erro ao carregar agendamentos do chat:', err);
+        toast.error('Não consegui carregar os agendamentos do chat.');
+      } finally {
+        if (alive) setIsLoadingChatBooking(false);
+      }
+    };
+    void loadChatBookings();
+    return () => { alive = false; };
+  }, [showChatBookingModal]);
+
   const parseBRLNumberInput = (raw: string): number => {
     const s = String(raw || '').trim();
     if (!s) return NaN;
@@ -4906,6 +4952,33 @@ const AdminDashboard = () => {
     })
     .sort((a, b) => getPaymentTimestamp(b) - getPaymentTimestamp(a))
     .slice(0, 100);
+  /**
+   * "Não renovaram": vencimento já passou (mesma regra da coluna STATUS) e ninguém marcou
+   * pago. Olha ativos + lixeira + lixeira de contenção: ir para a lixeira só liga
+   * `is_deleted`, não mexe no vencimento — por isso o cliente continua aqui até pagar.
+   * Teste grátis vencido fica de fora por padrão (nunca renovou porque nunca pagou).
+   */
+  const notRenewedEstablishments = (() => {
+    const byId = new Map<string, Establishment>();
+    [...establishments, ...deletedEstablishments].forEach((est) => {
+      const id = String(est?.id || '').trim();
+      if (id && !byId.has(id)) byId.set(id, est);
+    });
+    return Array.from(byId.values())
+      .filter((est) => getAdminGridDisplayPaymentState(est) === 'expired')
+      .filter((est) => notRenewedIncludeTrial || est.plan_type !== 'trial' || Boolean(est.payment_paid_at))
+      .sort((a, b) => {
+        // Vencimento mais recente primeiro ("venceu dia 01" aparece no topo; os antigos embaixo)
+        const da = parseDateOnlyLocal(a.payment_due_date);
+        const db = parseDateOnlyLocal(b.payment_due_date);
+        return (Number.isFinite(db) ? db : 0) - (Number.isFinite(da) ? da : 0);
+      });
+  })();
+  const daysOverdue = (est: Establishment): number => {
+    const dueAt = parseDateOnlyLocal(est.payment_due_date);
+    if (!Number.isFinite(dueAt)) return 0;
+    return Math.max(0, Math.floor((nowTs - dueAt) / (24 * 60 * 60 * 1000)));
+  };
   const isAutomaticPaymentInLastDays = (est: Establishment): boolean => {
     const paymentTs = getPaymentTimestamp(est);
     const automaticInfo = automaticPaymentInfoByEstablishment[est.id];
@@ -6208,6 +6281,20 @@ const AdminDashboard = () => {
               <strong>Últimos pagamentos</strong>
               <span className="text-[10px] font-semibold opacity-80">({lastTenDaysPayments.length})</span>
             </button>
+            {/* Quem passou do vencimento sem pagar — continua aqui mesmo depois de ir para a lixeira */}
+            <button
+              type="button"
+              onClick={() => setShowNotRenewedModal(true)}
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors ${notRenewedEstablishments.length > 0
+                ? 'bg-white border-orange-300 text-orange-800 hover:bg-orange-50'
+                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              title="Barbearias que passaram do vencimento e não pagaram. Inclui quem está na lixeira: só sai daqui quando for marcada como paga."
+            >
+              <AlertTriangle className="h-3 w-3" />
+              <strong>Não renovaram</strong>
+              <span className="text-[10px] font-semibold opacity-80">({notRenewedEstablishments.length})</span>
+            </button>
             <button
               type="button"
               onClick={() => setShowFuturePaymentsModal(true)}
@@ -6223,6 +6310,14 @@ const AdminDashboard = () => {
               title="Agendamentos feitos pelo link simplificado /af"
             >
               <strong>BOOKING AF:</strong> {afBookingTotal > 0 ? afBookingTotal : '—'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowChatBookingModal(true)}
+              className="inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors bg-white border-teal-200 text-teal-700 hover:bg-teal-50"
+              title="Agendamentos feitos pela página em formato de chat (/booking/código/chat): quem usa, quantos, e quem ainda não usou"
+            >
+              <strong>BOOKING CHAT:</strong> {chatBookingTotal > 0 ? chatBookingTotal : '—'}
             </button>
           </div>
           <div className="mt-1 text-xs text-gray-700 flex flex-wrap gap-x-4 gap-y-1">
@@ -8031,6 +8126,129 @@ const AdminDashboard = () => {
                 </div>
               )}
 
+              {showNotRenewedModal && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
+                  <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 border-b gap-3">
+                      <div className="shrink-0">
+                        <div className="text-sm font-bold text-gray-900">Não renovaram</div>
+                        <div className="text-xs text-gray-600">Vencimento passou e não pagou • inclui lixeira • mais recente primeiro</div>
+                      </div>
+                      <input
+                        type="text"
+                        value={notRenewedSearch}
+                        onChange={(e) => setNotRenewedSearch(e.target.value)}
+                        placeholder="Buscar por nome ou código..."
+                        className="flex-1 min-w-0 text-sm border border-gray-300 rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-orange-300 focus:border-orange-400"
+                      />
+                      <button
+                        onClick={() => { setShowNotRenewedModal(false); setNotRenewedSearch(''); }}
+                        className="p-1 rounded hover:bg-gray-100 text-gray-600 shrink-0"
+                        title="Fechar"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="p-4 overflow-y-auto max-h-[70vh]">
+                      {(() => {
+                        const _search = notRenewedSearch.toLowerCase().trim();
+                        const _list = notRenewedEstablishments.filter((est) =>
+                          !_search ||
+                          String(est.name || '').toLowerCase().includes(_search) ||
+                          String(est.code || '').includes(_search)
+                        );
+                        const _naLixeira = _list.filter((est) => est.is_deleted === true).length;
+                        const planoLabel = (est: Establishment) =>
+                          est.plan_type === 'annual' ? 'Anual' : est.plan_type === 'trial' ? 'Teste grátis' : 'Mensal';
+                        const whatsappLink = (est: Establishment) => {
+                          let d = String(est.whatsapp || '').replace(/\D/g, '');
+                          if (!d) return '';
+                          if (d.length >= 10 && d.length <= 11) d = `55${d}`;
+                          return d.length >= 12 ? `https://wa.me/${d}` : '';
+                        };
+                        return (
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center gap-2 text-xs">
+                              <span className="inline-flex items-center rounded border border-orange-200 bg-orange-50 px-2 py-1 text-orange-800 font-semibold">
+                                Total: {_list.length}
+                              </span>
+                              <span className="inline-flex items-center rounded border border-gray-200 bg-gray-50 px-2 py-1 text-gray-700 font-semibold">
+                                Na lixeira: {_naLixeira}
+                              </span>
+                              <span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700 font-semibold">
+                                Ativos: {_list.length - _naLixeira}
+                              </span>
+                              <label className="inline-flex items-center gap-1.5 text-gray-700 cursor-pointer ml-auto">
+                                <input
+                                  type="checkbox"
+                                  checked={notRenewedIncludeTrial}
+                                  onChange={(e) => setNotRenewedIncludeTrial(e.target.checked)}
+                                  className="h-3.5 w-3.5"
+                                />
+                                Incluir teste grátis vencido
+                              </label>
+                            </div>
+                            <p className="text-[11px] text-gray-500">
+                              Quem está aqui só sai quando for marcado como pago (o vencimento avança). Ir para a lixeira não tira da lista.
+                            </p>
+                            {_list.length === 0 ? (
+                              <div className="text-sm text-gray-600">Ninguém vencido sem pagar. 🎉</div>
+                            ) : (
+                              <div className="space-y-2">
+                                {_list.map((est, idx) => {
+                                  const dias = daysOverdue(est);
+                                  const wa = whatsappLink(est);
+                                  return (
+                                    <div
+                                      key={`not-renewed-${est.id}`}
+                                      className="rounded-lg border border-gray-200 p-3 flex items-center justify-between gap-3"
+                                    >
+                                      <div className="min-w-0">
+                                        <div className="text-sm font-semibold text-gray-900 truncate flex items-center gap-2 flex-wrap">
+                                          <span>{idx + 1}. {est.name}</span>
+                                          {est.is_deleted === true && (
+                                            <span className="inline-flex items-center rounded bg-gray-800 text-white text-[10px] font-bold px-1.5 py-0.5">
+                                              {deletedContainmentIdSet.has(String(est.id)) ? 'LIXEIRA DE CONTENÇÃO' : 'NA LIXEIRA'}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="text-xs text-gray-600 mt-0.5">
+                                          Código: {est.code || '—'} • Plano: {planoLabel(est)}
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-0.5">
+                                          Último pagamento: {est.payment_paid_at ? new Date(est.payment_paid_at).toLocaleDateString('pt-BR') : 'nunca marcado'}
+                                          {est.last_access ? ` • Último acesso: ${new Date(est.last_access).toLocaleDateString('pt-BR')}` : ''}
+                                        </div>
+                                        {wa ? (
+                                          <a
+                                            href={wa}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 mt-1 text-xs font-semibold text-emerald-700 hover:underline"
+                                          >
+                                            💬 Chamar no WhatsApp
+                                          </a>
+                                        ) : null}
+                                      </div>
+                                      <div className="text-right shrink-0">
+                                        <div className="text-xs text-gray-500">Venceu em</div>
+                                        <div className="text-sm font-semibold text-red-700">{formatDateOnlyBR(est.payment_due_date)}</div>
+                                        <div className="text-[11px] text-red-600">{dias === 0 ? 'hoje' : dias === 1 ? 'há 1 dia' : `há ${dias} dias`}</div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {showLastPaymentsModal && (
                 <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
                   <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] overflow-hidden">
@@ -8249,6 +8467,171 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               )}
+
+              {/* BOOKING CHAT: quem usa a página /chat, quantos agendamentos, e quem ainda não usou (com WhatsApp) */}
+              {showChatBookingModal && (() => {
+                const activeList = establishments.filter((est) => est.is_deleted !== true);
+                const search = chatBookingSearch.toLowerCase().trim();
+                const matches = (est: Establishment) =>
+                  !search || String(est.name || '').toLowerCase().includes(search) || String(est.code || '').includes(search);
+                const using = activeList
+                  .filter((est) => (chatBookingCountById[est.id] || 0) > 0)
+                  .sort((a, b) => (chatBookingCountById[b.id] || 0) - (chatBookingCountById[a.id] || 0));
+                // Barbearia na lixeira que usou o chat também conta (o histórico é dela)
+                const usingDeleted = deletedEstablishments
+                  .filter((est) => (chatBookingCountById[est.id] || 0) > 0 && !using.some((u) => u.id === est.id))
+                  .sort((a, b) => (chatBookingCountById[b.id] || 0) - (chatBookingCountById[a.id] || 0));
+                const notUsing = activeList
+                  .filter((est) => !(chatBookingCountById[est.id] || 0))
+                  .sort((a, b) => {
+                    // Quem acessou o painel mais recentemente primeiro: é quem vale a pena chamar
+                    const la = a.last_access ? new Date(a.last_access).getTime() : 0;
+                    const lb = b.last_access ? new Date(b.last_access).getTime() : 0;
+                    return lb - la;
+                  });
+                const whatsappLink = (est: Establishment) => {
+                  let d = String(est.whatsapp || '').replace(/\D/g, '');
+                  if (!d) return '';
+                  if (d.length >= 10 && d.length <= 11) d = `55${d}`;
+                  return d.length >= 12 ? `https://wa.me/${d}` : '';
+                };
+                const chatLigado = (est: Establishment) => ((est as any).booking_chat_enabled ?? true) !== false;
+                const rowsUsing = [...using, ...usingDeleted].filter(matches);
+                const rowsNotUsing = notUsing.filter(matches);
+                return (
+                  <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+                      <div className="flex items-center justify-between px-4 py-3 border-b gap-3">
+                        <div className="shrink-0">
+                          <div className="text-sm font-bold text-gray-900">Agendamentos pelo Booking CHAT</div>
+                          <div className="text-xs text-gray-500">Página /booking/código/chat • total: {chatBookingTotal}</div>
+                        </div>
+                        <input
+                          type="text"
+                          value={chatBookingSearch}
+                          onChange={(e) => setChatBookingSearch(e.target.value)}
+                          placeholder="Buscar por nome ou código..."
+                          className="flex-1 min-w-0 text-sm border border-gray-300 rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-teal-300 focus:border-teal-400"
+                        />
+                        <button
+                          onClick={() => { setShowChatBookingModal(false); setChatBookingSearch(''); }}
+                          className="p-1 rounded hover:bg-gray-100 text-gray-500 shrink-0"
+                          title="Fechar"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <div className="flex gap-2 px-4 pt-3 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setChatBookingTab('using')}
+                          className={`rounded px-3 py-1.5 font-semibold border ${chatBookingTab === 'using' ? 'bg-teal-700 border-teal-800 text-white' : 'bg-white border-teal-200 text-teal-700 hover:bg-teal-50'}`}
+                        >
+                          Usando o chat ({using.length + usingDeleted.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setChatBookingTab('not_using')}
+                          className={`rounded px-3 py-1.5 font-semibold border ${chatBookingTab === 'not_using' ? 'bg-gray-900 border-gray-900 text-white' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                        >
+                          Ainda não usaram ({notUsing.length})
+                        </button>
+                      </div>
+                      <div className="overflow-y-auto flex-1 p-4">
+                        {isLoadingChatBooking ? (
+                          <p className="text-sm text-gray-500 text-center py-6">Carregando...</p>
+                        ) : chatBookingTab === 'using' ? (
+                          rowsUsing.length === 0 ? (
+                            <p className="text-sm text-gray-500 text-center py-6">Nenhum agendamento pelo chat ainda.</p>
+                          ) : (
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="text-left text-xs text-gray-500 border-b">
+                                  <th className="pb-2 font-semibold">Estabelecimento</th>
+                                  <th className="pb-2 font-semibold text-center">Código</th>
+                                  <th className="pb-2 font-semibold text-right">Agendamentos</th>
+                                  <th className="pb-2 font-semibold text-right">WhatsApp</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {rowsUsing.map((est) => {
+                                  const wa = whatsappLink(est);
+                                  return (
+                                    <tr key={`chat-using-${est.id}`} className="border-b last:border-0">
+                                      <td className="py-2 text-gray-900 font-medium">
+                                        <span className="truncate block max-w-[240px]">{est.name}</span>
+                                        {est.is_deleted === true && <span className="text-[10px] font-bold text-gray-500">NA LIXEIRA</span>}
+                                      </td>
+                                      <td className="py-2 text-center text-gray-500">{est.code || '—'}</td>
+                                      <td className="py-2 text-right">
+                                        <span className="inline-flex items-center justify-center rounded-full bg-teal-100 text-teal-700 font-bold text-xs px-2 py-0.5 min-w-[28px]">
+                                          {chatBookingCountById[est.id] || 0}
+                                        </span>
+                                      </td>
+                                      <td className="py-2 text-right">
+                                        {wa ? (
+                                          <a href={wa} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-emerald-700 hover:underline">💬 Chamar</a>
+                                        ) : (
+                                          <span className="text-xs text-gray-400">sem número</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          )
+                        ) : rowsNotUsing.length === 0 ? (
+                          <p className="text-sm text-gray-500 text-center py-6">Todo mundo já usou o chat. 🎉</p>
+                        ) : (
+                          <div className="space-y-2">
+                            <p className="text-[11px] text-gray-500">
+                              Barbearias ativas sem nenhum agendamento pelo chat, as que acessaram o painel mais recentemente primeiro.
+                            </p>
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="text-left text-xs text-gray-500 border-b">
+                                  <th className="pb-2 font-semibold">Estabelecimento</th>
+                                  <th className="pb-2 font-semibold text-center">Código</th>
+                                  <th className="pb-2 font-semibold text-center">Chat</th>
+                                  <th className="pb-2 font-semibold text-center">Último acesso</th>
+                                  <th className="pb-2 font-semibold text-right">WhatsApp</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {rowsNotUsing.map((est) => {
+                                  const wa = whatsappLink(est);
+                                  return (
+                                    <tr key={`chat-not-using-${est.id}`} className="border-b last:border-0">
+                                      <td className="py-2 text-gray-900 font-medium"><span className="truncate block max-w-[220px]">{est.name}</span></td>
+                                      <td className="py-2 text-center text-gray-500">{est.code || '—'}</td>
+                                      <td className="py-2 text-center">
+                                        <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 ${chatLigado(est) ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                                          {chatLigado(est) ? 'ligado' : 'desligado'}
+                                        </span>
+                                      </td>
+                                      <td className="py-2 text-center text-xs text-gray-500">
+                                        {est.last_access ? new Date(est.last_access).toLocaleDateString('pt-BR') : 'nunca'}
+                                      </td>
+                                      <td className="py-2 text-right">
+                                        {wa ? (
+                                          <a href={wa} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-emerald-700 hover:underline">💬 Chamar</a>
+                                        ) : (
+                                          <span className="text-xs text-gray-400">sem número</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Modal - Histórico de Renovações pagas esse mês */}
               {showClientesPagosHistoryModal && (
