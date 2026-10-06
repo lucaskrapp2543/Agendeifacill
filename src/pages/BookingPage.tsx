@@ -20,6 +20,11 @@ import { validatePendingClientBookingLimit } from '../utils/pendingClientBooking
 import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
 import { validateSubscriberBooking } from '../utils/subscriberBookingValidation';
 import { establishmentHasMercadoPago, establishmentHasUsableMercadoPago, isOnlinePaymentOptionalForEstablishment } from '../utils/establishmentPaymentFlags';
+
+// "Agendamento por chat" na página completa: SEMPRE ativo (decisão de 06/10/2026 — a caixinha
+// de desligar saiu das Configurações). A coluna booking_chat_enabled continua no banco, mas
+// não é mais lida: o dono escolhe qual link vai para o cliente em "Lembretes para clientes".
+const BOOKING_CHAT_ALWAYS_ON: boolean = true;
 import { fetchOnlinePaymentBlockedByAdmin } from '../utils/bookingSimpleEngine';
 import {
   buildStalePaymentDetail,
@@ -810,7 +815,7 @@ export default function BookingPage() {
     if (!establishment || hasRestoredQuickFlowRef.current) return;
     hasRestoredQuickFlowRef.current = true;
 
-    const chatEnabled = Boolean((establishment as any)?.booking_chat_enabled ?? true);
+    const chatEnabled = BOOKING_CHAT_ALWAYS_ON;
     const flow = safeSessionGet(QUICK_BOOKING_FLOW_KEY);
     if (flow === 'modal') {
       if (chatEnabled) {
@@ -2848,7 +2853,7 @@ export default function BookingPage() {
 
 
   const handleAgendarClick = () => {
-    const isChatEnabled = Boolean((establishment as any)?.booking_chat_enabled ?? true);
+    const isChatEnabled = BOOKING_CHAT_ALWAYS_ON;
 
     if ((id === '3814' || id === '3315') && !isChatEnabled) {
       setUseLegacyBookingFlow(true);
@@ -2880,7 +2885,7 @@ export default function BookingPage() {
     persistGuestClientData(name, phone);
     setShowQuickBookingModal(false);
     setShowBookingForm(true);
-    setUseLegacyBookingFlow(!Boolean((establishment as any)?.booking_chat_enabled ?? true));
+    setUseLegacyBookingFlow(!BOOKING_CHAT_ALWAYS_ON);
     if (showAfcoinFeatures) {
       toast.success('🎉 Parabéns! Você ganhou +5 AFCoins');
       void registerAfcoinBookingEvent({
@@ -2924,7 +2929,7 @@ export default function BookingPage() {
 
   useEffect(() => {
     if (!showBookingForm) return;
-    const enabled = Boolean((establishment as any)?.booking_chat_enabled ?? true);
+    const enabled = BOOKING_CHAT_ALWAYS_ON;
     if (enabled) return;
     if (!useLegacyBookingFlow) {
       setUseLegacyBookingFlow(true);
@@ -3539,7 +3544,7 @@ export default function BookingPage() {
       : (establishment as any)?.pagamento_adiantado_opcional === true;
     return algumGatewayExigePagamento && !pagamentoAdiantadoOpcional;
   })();
-  const bookingChatEnabled = Boolean((establishment as any)?.booking_chat_enabled ?? true);
+  const bookingChatEnabled = BOOKING_CHAT_ALWAYS_ON;
   const isSimpleBookingPageEnabled = Boolean((establishment as any)?.booking_simple_page_enabled ?? false);
 
   const handleGoToMyAppointments = () => {

@@ -24146,7 +24146,7 @@ Estamos te aguardando!`;
       autoCompleteServicesEnabled: config?.autoCompleteServicesEnabled ?? autoCompleteServicesEnabled,
       closedTimeEnabled: config?.closedTimeEnabled ?? closedTimeEnabled,
       showBestOfBrazilImage: config?.showBestOfBrazilImage ?? showBestOfBrazilImage,
-      bookingChatEnabled: config?.bookingChatEnabled ?? bookingChatEnabled,
+      bookingChatEnabled: true, // sempre ativo (sem opção de desligar desde 06/10/2026)
       bookingSimplePageEnabled: config?.bookingSimplePageEnabled ?? bookingSimplePageEnabled,
     };
     const bookingMinAdvanceHoursCompatibility =
@@ -34531,20 +34531,8 @@ Estamos te aguardando!`;
                             }} className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded shrink-0" />
                           </div>
 
-                          {/* Chat de atendimento — só mostra para estabelecimentos antigos, novos já usam chat por padrão */}
-                          {!isNewUser && (
-                            <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-700 bg-[#242628] p-3">
-                              <div className="flex-1 min-w-0">
-                                <label htmlFor="bookingChatEnabled" className="block text-sm font-bold text-white">Agendamento por chat</label>
-                                <p className="text-[10px] text-gray-400 mt-0.5">O cliente agenda num fluxo tipo chatbot — mais fácil pra quem não é bom com tecnologia.</p>
-                              </div>
-                              <input type="checkbox" id="bookingChatEnabled" checked={bookingChatEnabled} onChange={(e) => {
-                                const newValue = e.target.checked; setBookingChatEnabled(newValue); notifySettingsNeedManualSave(true);
-                                if (scheduleConfigAutoSaveTimeoutRef.current) clearTimeout(scheduleConfigAutoSaveTimeoutRef.current);
-                                scheduleConfigAutoSaveTimeoutRef.current = setTimeout(() => { autoSaveScheduleConfig({ bookingChatEnabled: newValue }); }, 1000);
-                              }} className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded shrink-0" />
-                            </div>
-                          )}
+                          {/* "Agendamento por chat" saiu daqui em 06/10/2026: o chat é sempre ativo.
+                              O dono escolhe qual link vai para o cliente em "Lembretes para clientes". */}
                         </div>
 
                         {/* ── BLOCO 4: Extras ── */}

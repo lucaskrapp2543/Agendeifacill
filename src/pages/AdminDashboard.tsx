@@ -8495,7 +8495,6 @@ const AdminDashboard = () => {
                   if (d.length >= 10 && d.length <= 11) d = `55${d}`;
                   return d.length >= 12 ? `https://wa.me/${d}` : '';
                 };
-                const chatLigado = (est: Establishment) => ((est as any).booking_chat_enabled ?? true) !== false;
                 const rowsUsing = [...using, ...usingDeleted].filter(matches);
                 const rowsNotUsing = notUsing.filter(matches);
                 return (
@@ -8593,7 +8592,6 @@ const AdminDashboard = () => {
                                 <tr className="text-left text-xs text-gray-500 border-b">
                                   <th className="pb-2 font-semibold">Estabelecimento</th>
                                   <th className="pb-2 font-semibold text-center">Código</th>
-                                  <th className="pb-2 font-semibold text-center">Chat</th>
                                   <th className="pb-2 font-semibold text-center">Último acesso</th>
                                   <th className="pb-2 font-semibold text-right">WhatsApp</th>
                                 </tr>
@@ -8605,11 +8603,6 @@ const AdminDashboard = () => {
                                     <tr key={`chat-not-using-${est.id}`} className="border-b last:border-0">
                                       <td className="py-2 text-gray-900 font-medium"><span className="truncate block max-w-[220px]">{est.name}</span></td>
                                       <td className="py-2 text-center text-gray-500">{est.code || '—'}</td>
-                                      <td className="py-2 text-center">
-                                        <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 ${chatLigado(est) ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-                                          {chatLigado(est) ? 'ligado' : 'desligado'}
-                                        </span>
-                                      </td>
                                       <td className="py-2 text-center text-xs text-gray-500">
                                         {est.last_access ? new Date(est.last_access).toLocaleDateString('pt-BR') : 'nunca'}
                                       </td>
