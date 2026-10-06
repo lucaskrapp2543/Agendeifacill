@@ -3,7 +3,7 @@ import { checkWhatsAppSubscriber as checkLegacySubscriber, createGuestClientAndL
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
 import { resolveBookingPaymentAmount } from './appointmentPayment';
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from './scheduleGrid';
-import { establishmentHasMercadoPago } from './establishmentPaymentFlags';
+import { establishmentHasUsableMercadoPago } from './establishmentPaymentFlags';
 
 /**
  * Motor de agendamento da página simples (/booking/:id/af).
@@ -365,7 +365,8 @@ export async function resolvePaymentRequirement(params: {
   const valorAgendamento = advancePercent === 50 ? Math.round(valorAgendamentoFull * 0.5) : valorAgendamentoFull;
 
   const hasPagarMe = !!pagarmeRecipientId;
-  const hasMercadoPago = establishmentHasMercadoPago(establishment);
+  // MP caído (reconnect_required) conta como "sem MP": a cobrança cai na plataforma.
+  const hasMercadoPago = establishmentHasUsableMercadoPago(establishment);
   // Sem Mercado Pago (e sem Pagar.me): o pagamento online é cobrado pela conta da
   // PLATAFORMA e vira saldo do estabelecimento (carteira/saque). Mesmas regras de
   // obrigatório/opcional/50% que o estabelecimento configurou.

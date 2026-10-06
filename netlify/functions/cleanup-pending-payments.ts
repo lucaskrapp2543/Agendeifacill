@@ -1,6 +1,7 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { json } from './_utils';
+import { settleStalePendingPaymentsWithoutTx } from '../../src/utils/stalePendingPayments';
 
 const PENDING_PAYMENT_NO_TX_MINUTES = 15;
 const PENDING_PAYMENT_WITH_TX_MINUTES = 12 * 60;
@@ -32,22 +33,18 @@ const handler: Handler = async (event) => {
 
   let cancelledNoTx = 0;
   let cancelledWithTx = 0;
+  let convertedToLocal = 0;
 
-  // 1) Sem transaction_id — cliente nunca iniciou pagamento (15 min)
-  const { data: noTxData } = await supabase
-    .from('appointments')
-    .update({
-      status: 'cancelled',
-      payment_status: 'failed',
-      cancellation_source: 'system_abandoned_checkout',
-      cancellation_detail: `Limpeza automática: pagamento obrigatório não iniciado (sem ID de transação) por mais de ${PENDING_PAYMENT_NO_TX_MINUTES} min.`,
-    } as any)
-    .eq('status', 'pending_payment')
-    .is('payment_transaction_id', null)
-    .lt('created_at', thresholdNoTxDate)
-    .select('id');
-
-  cancelledNoTx = noTxData?.length || 0;
+  // 1) Sem transaction_id — cliente nunca iniciou pagamento (15 min).
+  //    Barbearia OPCIONAL: vira "pagar no local" (uma por vez). OBRIGATÓRIA ou cliente com
+  //    pagamento obrigatório: cancela e libera o horário. Regra única em stalePendingPayments.ts.
+  const settled = await settleStalePendingPaymentsWithoutTx(supabase as any, {
+    thresholdIso: thresholdNoTxDate,
+    cancelDetail: `Limpeza automática: pagamento obrigatório não iniciado (sem ID de transação) por mais de ${PENDING_PAYMENT_NO_TX_MINUTES} min.`,
+    log: (m, extra) => console.warn(m, extra ?? ''),
+  });
+  cancelledNoTx = settled.cancelled;
+  convertedToLocal = settled.converted;
 
   // 2) Com transaction_id — pagamento iniciado mas não confirmado (12h)
   const { data: staleWithTx } = await supabase
@@ -85,6 +82,7 @@ const handler: Handler = async (event) => {
   return json(200, {
     ok: true,
     cancelledNoTx,
+    convertedToLocal,
     cancelledWithTx,
     total: cancelledNoTx + cancelledWithTx,
     timestamp: new Date().toISOString(),

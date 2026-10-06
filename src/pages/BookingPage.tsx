@@ -19,7 +19,7 @@ import { validateOneWeekLimit } from '../utils/oneWeekLimitValidation';
 import { validatePendingClientBookingLimit } from '../utils/pendingClientBookingValidation';
 import { validateSameDayReschedule } from '../utils/sameDayRescheduleValidation';
 import { validateSubscriberBooking } from '../utils/subscriberBookingValidation';
-import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
+import { establishmentHasMercadoPago, establishmentHasUsableMercadoPago, isOnlinePaymentOptionalForEstablishment } from '../utils/establishmentPaymentFlags';
 import { fetchOnlinePaymentBlockedByAdmin } from '../utils/bookingSimpleEngine';
 import {
   buildStalePaymentDetail,
@@ -1345,8 +1345,11 @@ export default function BookingPage() {
       const thresholdNoTxDate = new Date(Date.now() - thresholdNoTxMinutes * 60 * 1000).toISOString();
       const thresholdWithTxDate = new Date(Date.now() - thresholdWithTxMinutes * 60 * 1000).toISOString();
 
-      // 1) Pendências sem transaction_id (mais antigas): cancelar
-      {
+      // 1) Pendências sem transaction_id (mais antigas): cancelar — SÓ em barbearia com
+      //    pagamento OBRIGATÓRIO. Na OPCIONAL quem resolve é o servidor (a cada 5 min): vira
+      //    "pagar no local" uma por vez, respeitando cliente com pagamento obrigatório e a trava
+      //    de conflito (src/utils/stalePendingPayments.ts). Daqui o navegador não enxerga isso.
+      if (!isOnlinePaymentOptionalForEstablishment(establishment)) {
         const payload: Record<string, unknown> = {
           status: 'cancelled',
           payment_status: 'failed',
@@ -2195,7 +2198,8 @@ export default function BookingPage() {
       const pagamentoAdiantadoOpcional = (establishment as any)?.pagamento_adiantado_opcional === true;
       const pagamentoAdiantadoOpcionalMercadoPago = (establishment as any)?.pagamento_adiantado_opcional_mercadopago === true;
       const pagarmeRecipientId = String((establishment as any)?.pagarme_recipient_id || '').trim();
-      const mercadopagoAccessToken = establishmentHasMercadoPago(establishment as any);
+      // MP caído (reconnect_required) conta como "sem MP": a cobrança cai na plataforma.
+      const mercadopagoAccessToken = establishmentHasUsableMercadoPago(establishment as any);
       const isSubscriber = appointmentData?.is_subscriber === true;
       const valorAgendamentoFull = resolveBookingPaymentAmount(appointmentData);
       const advancePercent = (establishment as any)?.advance_payment_percentage === 50 ? 50 : 100;
@@ -2253,7 +2257,13 @@ export default function BookingPage() {
         }
       }
 
-      const pagamentoOpcionalNoGatewayAtual = usarPagarMe ? pagamentoAdiantadoOpcional : pagamentoAdiantadoOpcionalMercadoPago;
+      // Mesma regra do engine (bookingSimpleEngine.resolvePaymentRequirement): pela PLATAFORMA
+      // (sem MP, ou MP caído) o online é opcional, salvo se o dono marcou obrigatório.
+      const pagamentoOpcionalNoGatewayAtual = usarPagarMe
+        ? pagamentoAdiantadoOpcional
+        : cobrancaPelaPlataforma
+          ? !(exigirPagamentoAntecipadoMercadoPago && !pagamentoAdiantadoOpcionalMercadoPago)
+          : pagamentoAdiantadoOpcionalMercadoPago;
       const forceMandatoryInOptionalMode = pagamentoAdiantadoAtivo && pagamentoOpcionalNoGatewayAtual && forceAdvancePaymentForClient;
       const precisaPagamento = (pagamentoAdiantadoAtivo && !pagamentoOpcionalNoGatewayAtual) || forceMandatoryInOptionalMode;
       const permitePagamentoOpcional =
@@ -2513,7 +2523,9 @@ export default function BookingPage() {
           toast.error('Este estabelecimento exige pagamento antecipado, mas ainda não configurou o recebedor Pagar.me. Fale com o estabelecimento.');
           return;
         }
-        if (usarMercadoPago && !mercadopagoAccessToken) {
+        // Pela plataforma (sem MP ou MP caído) não existe token da barbearia: o servidor cobra
+        // com o da plataforma — esse aviso só vale para quem deveria cobrar na própria conta.
+        if (usarMercadoPago && !mercadopagoAccessToken && !cobrancaPelaPlataforma) {
           toast.error('Este estabelecimento exige pagamento antecipado, mas ainda não configurou o Mercado Pago. Fale com o estabelecimento.');
           return;
         }
@@ -3511,9 +3523,9 @@ export default function BookingPage() {
   const bookingRequireAdvancePayment = (() => {
     const hasPagarMe = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
     const exigirPagarMe = (establishment as any)?.exigir_pagamento_antecipado === true;
-    const hasMercadoPago = establishmentHasMercadoPago(establishment as any);
+    const hasMercadoPago = establishmentHasUsableMercadoPago(establishment as any);
     const exigirMercadoPago = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
-    // Sem Mercado Pago e sem Pagar.me: cobrança pela conta da plataforma (mesma regra do fluxo).
+    // Sem Mercado Pago (ou MP caído) e sem Pagar.me: cobrança pela conta da plataforma (mesma regra do fluxo).
     const cobrancaPelaPlataforma = !hasMercadoPago && !hasPagarMe;
     const bloqueadoPeloAdmin = (establishment as any)?.online_payment_blocked_by_admin === true;
     if (bloqueadoPeloAdmin) return false;

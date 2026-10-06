@@ -1200,6 +1200,10 @@ export class WhatsAppReminderScheduler {
         const appointmentAt = toDateTime(appointment.appointment_date, appointment.appointment_time);
         if (!appointmentAt) continue;
 
+        // Reserva ainda sem pagamento (pending_payment) não é agendamento confirmado:
+        // nem confirmação nem lembrete até o pagamento cair (ou virar "pagar no local").
+        if (String(appointment.status || '').trim().toLowerCase() === 'pending_payment') continue;
+
         const hydratedAppointment = await this.hydrateInternalBookingFlags(appointment);
         const isInternalBooking = this.isInternalEstablishmentBooking(hydratedAppointment, establishmentById);
         const isRecentlyCreated =

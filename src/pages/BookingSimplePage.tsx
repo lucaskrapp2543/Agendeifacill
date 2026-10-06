@@ -1,7 +1,7 @@
 import { addMonths, endOfMonth, format, isSameMonth, startOfMonth, subMonths } from 'date-fns';
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Loader2, MapPin, ScissorsLineDashed, Sparkles, User, X } from 'lucide-react';
+import { Link, useParams } from 'react-router-dom';
+import { AlertCircle, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Loader2, MapPin, ScissorsLineDashed, Sparkles, User, X } from 'lucide-react';
 import { PaymentModal } from '../components/PaymentModal';
 import { BookingPaymentChoice, type BookingPayMethod } from '../components/BookingPaymentChoice';
 import { buildWhatsappSuccessNote, fetchBookingWhatsappInfo, type BookingWhatsappInfo } from '../lib/bookingWhatsappInfo';
@@ -170,6 +170,8 @@ const BookingSimplePage = () => {
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Estabelecimento bloqueado (booking_blocked): guarda os dados para a tela de "inativo" com o WhatsApp dele
+  const [blockedEstablishment, setBlockedEstablishment] = useState<any>(null);
   const [establishment, setEstablishment] = useState<any>(null);
 
   const [step, setStep] = useState<WizardStep>('welcome');
@@ -226,7 +228,7 @@ const BookingSimplePage = () => {
       if (error || !est) {
         setLoadError(error || 'Estabelecimento não encontrado.');
       } else if (est._blocked) {
-        setLoadError('Este estabelecimento não está aceitando agendamentos no momento.');
+        setBlockedEstablishment(est);
       } else {
         setEstablishment(est);
         void fetchBookingWhatsappInfo(String(est.id || '')).then((info) => {
@@ -774,6 +776,49 @@ const BookingSimplePage = () => {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#0f1011' }}>
         <Loader2 className="h-10 w-10 animate-spin" style={{ color: GOLD }} />
+      </div>
+    );
+  }
+
+  if (blockedEstablishment) {
+    const digits = String(blockedEstablishment?.whatsapp || '').replace(/\D/g, '');
+    const whatsappE164 = digits.length === 0 ? '' : digits.startsWith('55') ? digits : `55${digits}`;
+    const mandarMensagemBarbeiro = () => {
+      if (!whatsappE164) {
+        toast.error('WhatsApp do barbeiro não está cadastrado.');
+        return;
+      }
+      // Mesmo texto da página de booking completa
+      const mensagem = encodeURIComponent(
+        'Opa, fui agendar no Agendei Fácil e não consegui. O que houve?\n\n' +
+        'Preciso agendar e não abriu para mim. Diz: "Página desativada temporariamente".'
+      );
+      window.open(`https://wa.me/${whatsappE164}?text=${mensagem}`, '_blank', 'noopener,noreferrer');
+    };
+    return (
+      <div className="min-h-screen" style={{ backgroundColor: '#f0f6ff' }}>
+        <div className="container-custom py-8">
+          <div className="text-center">
+            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold mb-4 text-gray-900">Estabelecimento Inativo</h1>
+            <p className="text-gray-600 mb-4 text-lg">Este estabelecimento está inativo.</p>
+            <button
+              type="button"
+              onClick={mandarMensagemBarbeiro}
+              className="inline-flex items-center justify-center mt-2 mb-4 px-5 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold transition-colors"
+            >
+              Mandar mensagem barbeiro
+            </button>
+            <div className="mt-1">
+              <div className="text-xs text-gray-500">
+                {whatsappE164 ? 'Abrirá o WhatsApp para falar com o estabelecimento.' : 'Estabelecimento sem WhatsApp cadastrado.'}
+              </div>
+            </div>
+            <Link to="/" className="text-primary hover:underline">
+              Voltar para a página inicial
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }

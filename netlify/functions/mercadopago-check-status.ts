@@ -102,8 +102,11 @@ export const handler: Handler = async (event) => {
       accessToken = await getValidMercadoPagoAccessToken(String(establishmentId));
     } catch (e: any) {
       const msg = String(e?.message || 'Falha ao obter token do Mercado Pago');
-      const semConta = e?.code === 'NO_MP_ACCOUNT' || msg.toLowerCase().includes('não possui conta');
-      const platformToken = semConta ? getPlatformMercadoPagoAccessToken() : '';
+      // Aqui é só CONSULTA (não cobra nada): se o token da barbearia não serve — sem conta,
+      // ou MP caiu (refresh recusado) e o create-payment cobrou pela PLATAFORMA — consulta
+      // com o token da plataforma. Antes só caía aqui sem conta, e com MP caído o cliente
+      // pagava e via "tempo limite" (o pagamento estava na conta da plataforma).
+      const platformToken = getPlatformMercadoPagoAccessToken();
       if (!platformToken) {
         return json(400, { error: msg });
       }

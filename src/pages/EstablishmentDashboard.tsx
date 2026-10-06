@@ -46,7 +46,7 @@ import { RescheduleAppointmentModal } from '../components/RescheduleAppointmentM
 import ReservarCliente from '../components/ReservarCliente';
 import Sidebar from '../components/Sidebar';
 import { SpecificServiceModal } from '../components/SpecificServiceModal';
-import { establishmentHasMercadoPago, establishmentMercadoPagoNeedsReconnect } from '../utils/establishmentPaymentFlags';
+import { establishmentHasMercadoPago, establishmentMercadoPagoNeedsReconnect, isOnlinePaymentOptionalForEstablishment } from '../utils/establishmentPaymentFlags';
 import { PlatformWalletCard } from '../components/PlatformWalletCard';
 import { NoShowPolicyCard } from '../components/NoShowPolicyCard';
 import { DEFAULT_NO_SHOW_POLICY, isNoShowPolicy } from '../lib/noShowPolicy';
@@ -13802,8 +13802,10 @@ Estamos te aguardando!`;
         const thresholdNoTxDate = new Date(Date.now() - thresholdNoTxMinutes * 60 * 1000).toISOString();
         const thresholdWithTxDate = new Date(Date.now() - thresholdWithTxMinutes * 60 * 1000).toISOString();
 
-        // 1) Pendências sem transaction_id (antigas): cancelar
-        {
+        // 1) Pendências sem transaction_id (antigas): cancelar — SÓ em barbearia com pagamento
+        //    OBRIGATÓRIO. Na OPCIONAL quem resolve é o servidor (a cada 5 min): vira "pagar no
+        //    local" uma por vez, com as proteções de src/utils/stalePendingPayments.ts.
+        if (!isOnlinePaymentOptionalForEstablishment(establishment)) {
           const payload: Record<string, unknown> = {
             status: 'cancelled',
             payment_status: 'failed',
@@ -26960,31 +26962,7 @@ Estamos te aguardando!`;
     return null;
   };
 
-  const resolveAppointmentSortTime = (appointment: {
-    appointment_date?: string | null;
-    appointment_time?: string | null;
-    created_at?: string | null;
-  }): number => {
-    const dateRaw = String(appointment.appointment_date || '').trim();
-    const timeRaw = String(appointment.appointment_time || '').trim();
-    if (dateRaw) {
-      const normalizedTime = /^\d{2}:\d{2}(:\d{2})?$/.test(timeRaw)
-        ? (timeRaw.length === 5 ? `${timeRaw}:00` : timeRaw)
-        : '23:59:59';
-      const parsedByDateAndTime = new Date(`${dateRaw}T${normalizedTime}`);
-      if (!Number.isNaN(parsedByDateAndTime.getTime())) {
-        return parsedByDateAndTime.getTime();
-      }
-    }
-    const createdAtRaw = String(appointment.created_at || '').trim();
-    if (createdAtRaw) {
-      const parsedCreatedAt = new Date(createdAtRaw);
-      if (!Number.isNaN(parsedCreatedAt.getTime())) {
-        return parsedCreatedAt.getTime();
-      }
-    }
-    return Number.MAX_SAFE_INTEGER;
-  };
+// (resolveAppointmentSortTime removido: o desempate do Top 1 agora vem de last_completed_at do servidor)
 
   const loadMonthlyTopWinner = useCallback(async (forceRefresh = false) => {
     try {
@@ -27072,54 +27050,33 @@ Estamos te aguardando!`;
         eligibleEstablishments.map((est) => [String(est.id), est] as const)
       );
 
-      const appointmentsRaw = await fetchAllPaged<{
-        establishment_id: string | null;
-        appointment_date: string | null;
-        appointment_time: string | null;
-        created_at: string | null;
-      }>(() =>
-        supabase
-          .from('appointments')
-          .select('establishment_id,appointment_date,appointment_time,created_at')
-          .gte('appointment_date', format(monthStart, 'yyyy-MM-dd'))
-          .lte('appointment_date', format(rankingRangeEnd, 'yyyy-MM-dd'))
-          .eq('status', 'completed')
-      );
+      // Contagem GLOBAL calculada no servidor (só id + total + último concluído). Ler a
+      // tabela direto daqui mostrava só os agendamentos desta barbearia (RLS) => todo
+      // mundo se via como Top 1 e achava que ganhou o mês grátis.
+      const { data: rankingRows, error: rankingError } = await supabase.rpc('get_completed_ranking', {
+        p_start: format(monthStart, 'yyyy-MM-dd'),
+        p_end: format(rankingRangeEnd, 'yyyy-MM-dd'),
+      });
+      if (rankingError) throw rankingError;
 
-      const validAppointments = appointmentsRaw
-        .map((row) => ({ ...row, establishment_id: String(row.establishment_id || '').trim() }))
-        .filter((row) => row.establishment_id && establishmentMap.has(row.establishment_id));
+      const totalCountByEstablishment = new Map<string, number>();
+      // Desempate do Top 1: quem chegou primeiro à sua contagem final (= último concluído mais cedo)
+      const reachedFinalCountAt = new Map<string, number>();
+      ((rankingRows || []) as Array<{ establishment_id: string | null; completed_count: number | string | null; last_completed_at: string | null }>).forEach((row) => {
+        const estId = String(row.establishment_id || '').trim();
+        if (!estId || !establishmentMap.has(estId)) return;
+        const total = Number(row.completed_count || 0);
+        if (!Number.isFinite(total) || total <= 0) return;
+        totalCountByEstablishment.set(estId, total);
+        const lastAt = row.last_completed_at ? new Date(String(row.last_completed_at)).getTime() : Number.NaN;
+        if (Number.isFinite(lastAt)) reachedFinalCountAt.set(estId, lastAt);
+      });
 
-      if (validAppointments.length === 0) {
+      if (totalCountByEstablishment.size === 0) {
         setMonthlyTopWinner(null);
         localStorage.setItem(cacheKey, JSON.stringify({ monthKey, savedAt: now.toISOString(), winner: null } as MonthlyTopCache));
         return;
       }
-
-      const totalCountByEstablishment = new Map<string, number>();
-      validAppointments.forEach((row) => {
-        const estId = row.establishment_id;
-        totalCountByEstablishment.set(estId, (totalCountByEstablishment.get(estId) || 0) + 1);
-      });
-
-      const appointmentsSorted = [...validAppointments].sort((a, b) => {
-        const ta = resolveAppointmentSortTime(a);
-        const tb = resolveAppointmentSortTime(b);
-        if (ta !== tb) return ta - tb;
-        return String(a.establishment_id).localeCompare(String(b.establishment_id));
-      });
-
-      const runningCountByEstablishment = new Map<string, number>();
-      const reachedFinalCountAt = new Map<string, number>();
-      appointmentsSorted.forEach((row) => {
-        const estId = row.establishment_id;
-        const nextCount = (runningCountByEstablishment.get(estId) || 0) + 1;
-        runningCountByEstablishment.set(estId, nextCount);
-        const finalCount = totalCountByEstablishment.get(estId) || 0;
-        if (nextCount >= finalCount && !reachedFinalCountAt.has(estId)) {
-          reachedFinalCountAt.set(estId, resolveAppointmentSortTime(row));
-        }
-      });
 
       const topCount = Math.max(...Array.from(totalCountByEstablishment.values()));
       if (!Number.isFinite(topCount) || topCount <= 0) {
@@ -27206,7 +27163,9 @@ Estamos te aguardando!`;
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
       const monthKey = format(monthStart, 'yyyy-MM');
-      const snapshotStorageKey = `agendeifacil_top10_barbearias_${monthKey}`;
+      // _v2: snapshots antigos foram calculados só com os agendamentos da própria barbearia
+      // (RLS) e mostravam "#1" para todo mundo — chave nova descarta esse cache errado.
+      const snapshotStorageKey = `agendeifacil_top10_barbearias_v2_${monthKey}`;
       const snapshotWindowDays = 1;
 
       const daysInMonth = monthEnd.getDate();
@@ -27344,25 +27303,21 @@ Estamos te aguardando!`;
       });
       setTop10LeaderboardTotalBarbershops(visibleEstablishments.length);
 
-      const appointmentsRaw = await fetchAllPaged<{ establishment_id: string | null; appointment_date: string | null }>(() =>
-        supabase
-          .from('appointments')
-          .select('establishment_id,appointment_date')
-          .gte('appointment_date', format(monthStart, 'yyyy-MM-dd'))
-          .lte('appointment_date', format(bucketEndDate, 'yyyy-MM-dd'))
-          .eq('status', 'completed')
-      );
+      // Contagem GLOBAL calculada no servidor (só id + total, sem dado pessoal). Ler a tabela
+      // direto daqui mostrava só os agendamentos desta barbearia (RLS) => "#1" para todo mundo.
+      const { data: rankingRows, error: rankingError } = await supabase.rpc('get_completed_ranking', {
+        p_start: format(monthStart, 'yyyy-MM-dd'),
+        p_end: format(bucketEndDate, 'yyyy-MM-dd'),
+      });
+      if (rankingError) throw rankingError;
 
       const countByEstablishment = new Map<string, number>();
-      appointmentsRaw.forEach((apt) => {
-        const establishmentId = String(apt.establishment_id || '').trim();
+      ((rankingRows || []) as Array<{ establishment_id: string | null; completed_count: number | string | null }>).forEach((row) => {
+        const establishmentId = String(row.establishment_id || '').trim();
         if (!establishmentId) return;
-        const appointmentDateRaw = String(apt.appointment_date || '').trim();
-        if (!appointmentDateRaw) return;
-        const aptDate = parseISO(`${appointmentDateRaw}T00:00:00`);
-        if (Number.isNaN(aptDate.getTime())) return;
-        if (aptDate < monthStart || aptDate > bucketEndDate) return;
-        countByEstablishment.set(establishmentId, (countByEstablishment.get(establishmentId) || 0) + 1);
+        const total = Number(row.completed_count || 0);
+        if (!Number.isFinite(total) || total <= 0) return;
+        countByEstablishment.set(establishmentId, total);
       });
 
       const previousCounts = new Map<string, number>();
@@ -32136,7 +32091,7 @@ Estamos te aguardando!`;
                   )}
                   {/* Sem Mercado Pago: saldo dos pagamentos online (conta da plataforma) + saque.
                       Fica FORA do MercadoPagoCard (que é recriado a cada render) para não perder estado. */}
-                  {!establishmentHasMercadoPago(establishment as any) && establishment?.id && (
+                  {(!establishmentHasMercadoPago(establishment as any) || establishmentMercadoPagoNeedsReconnect(establishment as any)) && establishment?.id && (
                     <PlatformWalletCard
                       establishmentId={String(establishment.id)}
                       pixKey={String((establishment as any)?.pix_key || pixKey || '').trim()}

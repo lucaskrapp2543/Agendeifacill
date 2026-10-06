@@ -52,6 +52,7 @@ import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { recordAdminMpCommission } from '../src/lib/mercadopago/adminMpCommission';
 import { checkMPPaymentStatus } from '../src/lib/mercadopago/mp-service';
+import { settleStalePendingPaymentsWithoutTx } from '../src/utils/stalePendingPayments';
 import {
   checkPaymentStatus,
   createPayment,
@@ -1317,22 +1318,22 @@ app.get('/api/pagarme/order-details', async (req, res) => {
 
 // Iniciar servidor
 async function cleanupPendingPayments() {
+  if (!supabaseAdmin) return;
   try {
     const noTxThreshold = new Date(Date.now() - 15 * 60 * 1000).toISOString();
     const withTxThreshold = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
 
-    const { data: noTx } = await supabaseAdmin
-      .from('appointments')
-      .update({
-        status: 'cancelled',
-        payment_status: 'failed',
-        cancellation_source: 'system_abandoned_checkout',
-        cancellation_detail: 'Limpeza automática: pagamento obrigatório não iniciado (sem ID de transação) por mais de 15 min.',
-      } as any)
-      .eq('status', 'pending_payment')
-      .is('payment_transaction_id', null)
-      .lt('created_at', noTxThreshold)
-      .select('id');
+    // Sem transação há 15 min: barbearia OPCIONAL vira "pagar no local" (uma por vez, sem
+    // aviso de cancelamento); OBRIGATÓRIA ou cliente com pagamento obrigatório cancela.
+    const settled = await settleStalePendingPaymentsWithoutTx(supabaseAdmin, {
+      thresholdIso: noTxThreshold,
+      cancelDetail: 'Limpeza automática: pagamento obrigatório não iniciado (sem ID de transação) por mais de 15 min.',
+      log: (m, extra) => console.warn(m, extra ?? ''),
+    });
+    const noTx = { length: settled.cancelled };
+    if (settled.converted > 0) {
+      console.log(`🧹 Limpeza de pagamentos pendentes: ${settled.converted} viraram "pagar no local" (pagamento opcional)`);
+    }
 
     const { data: staleWithTx } = await supabaseAdmin
       .from('appointments')

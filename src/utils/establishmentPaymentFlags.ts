@@ -31,3 +31,43 @@ export function establishmentMercadoPagoNeedsReconnect(establishment: any): bool
   if (!establishmentHasMercadoPago(establishment)) return false;
   return String(establishment?.mercadopago_health || '').trim() === 'reconnect_required';
 }
+
+/**
+ * Mercado Pago "utilizável" para COBRAR: conectado E saudável.
+ *
+ * Quando a conta caiu no Mercado Pago (`reconnect_required`), o booking passa a
+ * cobrar pela conta da PLATAFORMA (o valor vira saldo da barbearia — carteira/saque),
+ * exatamente como uma barbearia sem Mercado Pago. O painel continua avisando
+ * "Mercado Pago caiu — reconecte"; só a cobrança do cliente não para.
+ * (Regra pedida em 06/10/2026 depois de clientes verem "pagamento falhou / cancelado".)
+ */
+export function establishmentHasUsableMercadoPago(establishment: any): boolean {
+  return establishmentHasMercadoPago(establishment) && !establishmentMercadoPagoNeedsReconnect(establishment);
+}
+
+/**
+ * O pagamento online é OPCIONAL nesta barbearia? (cliente pode escolher pagar no local)
+ *
+ * Mesma regra das páginas de booking (resolvePaymentRequirement / BookingPage), em
+ * versão pura (só colunas do estabelecimento) para as rotinas de limpeza de
+ * `pending_payment`: em barbearia OPCIONAL, um checkout abandonado vira "pagar no
+ * local" em vez de cancelamento + aviso de "não recebemos seu pagamento".
+ * Fallback seguro: sem dados => false (= comportamento antigo, cancela).
+ */
+export function isOnlinePaymentOptionalForEstablishment(establishment: any): boolean {
+  if (!establishment) return false;
+  if (establishment.online_payment_blocked_by_admin === true) return true; // só paga no local
+  const hasPagarMe = Boolean(String(establishment.pagarme_recipient_id || '').trim());
+  const hasMercadoPago = establishmentHasUsableMercadoPago(establishment);
+  const exigirMp = establishment.exigir_pagamento_antecipado_mercadopago === true;
+  const opcionalMp = establishment.pagamento_adiantado_opcional_mercadopago === true;
+  const exigirPm = establishment.exigir_pagamento_antecipado === true;
+  const opcionalPm = establishment.pagamento_adiantado_opcional === true;
+  const cobrancaPelaPlataforma = !hasMercadoPago && !hasPagarMe;
+  const usarMercadoPago = cobrancaPelaPlataforma ? true : hasMercadoPago && exigirMp;
+  const usarPagarMe = !usarMercadoPago && hasPagarMe && exigirPm;
+  if (!usarMercadoPago && !usarPagarMe) return true; // nenhum gateway exige pagamento => nunca é obrigatório
+  if (usarPagarMe) return opcionalPm;
+  if (cobrancaPelaPlataforma) return !(exigirMp && !opcionalMp);
+  return opcionalMp;
+}

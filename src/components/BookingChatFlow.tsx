@@ -11,7 +11,7 @@ import { getEffectiveAppointmentBaseDurationMinutes } from '../utils/effectiveAp
 import { PaymentMethodSelector } from './PaymentMethodSelector';
 import { TimeSlotSelector } from './TimeSlotSelector';
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
-import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
+import { establishmentHasMercadoPago, establishmentHasUsableMercadoPago } from '../utils/establishmentPaymentFlags';
 import { registerAfcoinBookingEvent, isClientAfcoinsEnabledForEstablishment } from '../utils/afcoin';
 import {
   buildCouponPayloadFields,
@@ -332,7 +332,8 @@ export function BookingChatFlow({
   }, [establishment]);
 
   const shouldSkipPaymentMethodQuestion = useMemo(() => {
-    const hasMercadoPagoConnected = establishmentHasMercadoPago(establishment as any);
+    // MP caído (reconnect_required) conta como "sem MP": a cobrança cai na plataforma.
+    const hasMercadoPagoConnected = establishmentHasUsableMercadoPago(establishment as any);
     const hasPagarMe = !!String((establishment as any)?.pagarme_recipient_id || '').trim();
     const hasAdvancePixEnabled = (establishment as any)?.exigir_pagamento_antecipado_mercadopago === true;
     // Sem Mercado Pago e sem Pagar.me: cobrança pela conta da plataforma — a escolha

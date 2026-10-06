@@ -180,14 +180,17 @@ export const PaymentModal = ({
     if (isOpen && establishmentId) {
       supabase
         .from('establishments')
-        .select('name, has_mercadopago, pagarme_recipient_id, exigir_pagamento_antecipado_mercadopago, exigir_pagamento_antecipado, client_afcoins_enabled')
+        .select('name, has_mercadopago, mercadopago_health, pagarme_recipient_id, exigir_pagamento_antecipado_mercadopago, exigir_pagamento_antecipado, client_afcoins_enabled')
         .eq('id', establishmentId)
         .single()
         .then(({ data }) => {
           const hasMP = (data as any)?.has_mercadopago === true;
           const hasPM = !!data?.pagarme_recipient_id;
+          // MP caiu (reconnect_required): o servidor cobra pela conta da plataforma — o
+          // recibo precisa mostrar o recebedor certo (coluna ausente => comportamento antigo).
+          const mpCaiu = hasMP && String((data as any)?.mercadopago_health || '') === 'reconnect_required';
           setEstablishmentName(String((data as any)?.name || ''));
-          setPlatformCollected(!hasMP && !hasPM);
+          setPlatformCollected((!hasMP || mpCaiu) && !hasPM);
           const exigirMP = Boolean(data?.exigir_pagamento_antecipado_mercadopago === true);
           const exigirPM = Boolean(data?.exigir_pagamento_antecipado === true);
           setEstablishmentClientAfcoinsEnabled((data as any)?.client_afcoins_enabled !== false);
@@ -559,6 +562,8 @@ export const PaymentModal = ({
       }
 
       const paymentResult = await paymentResponse.json();
+      // O servidor decide quem recebe (pode cair na plataforma se o MP da barbearia caiu)
+      if (paymentResult?.collector === 'platform') setPlatformCollected(true);
       const feeExpectedCents = Number((paymentResult as any)?.application_fee_cents_expected ?? 100);
       const feeReturned = Number((paymentResult as any)?.application_fee ?? 0);
       const feeReturnedCents = Math.round(feeReturned * 100);
@@ -831,6 +836,8 @@ export const PaymentModal = ({
       }
 
       const paymentResult = await paymentResponse.json();
+      // O servidor decide quem recebe (pode cair na plataforma se o MP da barbearia caiu)
+      if (paymentResult?.collector === 'platform') setPlatformCollected(true);
       const feeExpectedCents = Number((paymentResult as any)?.application_fee_cents_expected ?? 100);
       const feeReturned = Number((paymentResult as any)?.application_fee ?? 0);
       const feeReturnedCents = Math.round(feeReturned * 100);
@@ -1246,6 +1253,8 @@ export const PaymentModal = ({
       }
 
       const paymentResult = await paymentResponse.json();
+      // O servidor decide quem recebe (pode cair na plataforma se o MP da barbearia caiu)
+      if (paymentResult?.collector === 'platform') setPlatformCollected(true);
 
       // Guardar referência local para permitir “Verificar agora” e evitar duplicidade
       if (paymentResult?.id) {

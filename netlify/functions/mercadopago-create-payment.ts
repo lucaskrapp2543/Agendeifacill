@@ -88,7 +88,9 @@ export async function getValidMercadoPagoAccessToken(establishmentId: string): P
       'reconnect_required',
       'Token expirado e sem refresh_token salvo. Necessário reconectar o Mercado Pago.'
     );
-    throw new Error('Mercado Pago expirado e sem refresh_token. Reconecte o Mercado Pago.');
+    const noRefreshErr: any = new Error('Mercado Pago expirado e sem refresh_token. Reconecte o Mercado Pago.');
+    noRefreshErr.mpReconnectRequired = true;
+    throw noRefreshErr;
   }
 
   // Refresh do token
@@ -215,7 +217,12 @@ export const handler: Handler = async (event) => {
     } catch (e: any) {
       const msg = String(e?.message || 'Falha ao obter token do Mercado Pago');
       const semConta = e?.code === 'NO_MP_ACCOUNT' || msg.toLowerCase().includes('não possui conta');
-      const platformToken = semConta ? getPlatformMercadoPagoAccessToken() : '';
+      // Conta do estabelecimento CAIU no Mercado Pago (refresh recusado / sem refresh_token):
+      // o cliente não pode ficar sem pagar — cobra pela conta da PLATAFORMA (vira saldo da
+      // barbearia na carteira), e o painel segue avisando "reconecte". Erro transitório de
+      // rede do MP NÃO entra aqui (mpReconnectRequired só é true em invalid_grant).
+      const mpCaiu = e?.mpReconnectRequired === true;
+      const platformToken = semConta || mpCaiu ? getPlatformMercadoPagoAccessToken() : '';
       if (!platformToken) {
         return json(400, {
           error: msg,
@@ -226,7 +233,12 @@ export const handler: Handler = async (event) => {
       }
       accessToken = platformToken;
       collectedByPlatform = true;
-      console.log('🏦 [MP Create Payment] Estabelecimento sem MP: cobrando pela conta da plataforma', { establishmentId });
+      console.log(
+        mpCaiu
+          ? '🏦 [MP Create Payment] Mercado Pago do estabelecimento caiu (reconnect_required): cobrando pela conta da plataforma'
+          : '🏦 [MP Create Payment] Estabelecimento sem MP: cobrando pela conta da plataforma',
+        { establishmentId }
+      );
     }
 
     // Estabelecimento conectado com a PRÓPRIA conta da plataforma (ex.: conta de teste):
