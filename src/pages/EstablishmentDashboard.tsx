@@ -12112,6 +12112,27 @@ const EstablishmentDashboard = () => {
     ));
   };
 
+  // "Excluir" na caixa de serviços legados: grava NA HORA. Antes só tirava da tela e o
+  // dono precisava lembrar de clicar em "Salvar serviços legados" — senão os serviços
+  // voltavam ao recarregar (caso 8340: "nem excluir consigo").
+  const handleRemoveLegacyServiceAndSave = async (id: string) => {
+    if (!establishment?.id) return;
+    const remaining = (servicesWithPrices || []).filter((s) => s.id !== id);
+    setServicesWithPrices(remaining);
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ services_with_prices: remaining })
+        .eq('id', establishment.id);
+      if (error) throw error;
+      setEstablishment((prev) => (prev ? { ...prev, services_with_prices: remaining } : prev));
+      toast.success(remaining.length === 0 ? 'Serviços legados removidos.' : 'Serviço legado excluído.');
+    } catch (error: any) {
+      console.error('Erro ao excluir serviço legado:', error);
+      toast.error('Não foi possível excluir agora. Tente de novo.');
+    }
+  };
+
   const handleSaveLegacyServicesFallback = async () => {
     if (!establishment?.id) return;
 
@@ -41706,7 +41727,7 @@ Estamos te aguardando!`;
                               )}
                               <button
                                 type="button"
-                                onClick={() => handleRemoveService(service.id)}
+                                onClick={() => void handleRemoveLegacyServiceAndSave(service.id)}
                                 className="px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors"
                               >
                                 Excluir

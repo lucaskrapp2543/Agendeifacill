@@ -1,11 +1,92 @@
-import { Edit, Plus, Trash2, X } from 'lucide-react';
+import { Edit, GripVertical, Plus, Trash2, X } from 'lucide-react';
 import React, { useState } from 'react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface SpecificService {
   id: string;
   name: string;
   price: number;
   duration: number;
+}
+
+/**
+ * Linha arrastável da lista "Serviços Cadastrados". A ORDEM desta lista é a ordem em que
+ * o cliente vê os serviços (chat, /af e página completa), por isso dá para reordenar.
+ * Mesma biblioteca/padrão de DraggableServiceList.tsx (categorias).
+ */
+function SortableSpecificServiceRow({
+  sortableId,
+  service,
+  onEdit,
+  onDelete,
+}: {
+  sortableId: string;
+  service: SpecificService;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: sortableId });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center justify-between p-3 bg-gray-800 rounded-lg border-2 ${isDragging ? 'border-blue-500 shadow-lg' : 'border-transparent'}`}
+    >
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          className="shrink-0 p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 cursor-grab active:cursor-grabbing"
+          style={{ touchAction: 'none' }}
+          title="Arrastar para mudar a ordem"
+          aria-label="Arrastar para mudar a ordem"
+        >
+          <GripVertical className="w-5 h-5" />
+        </button>
+        <div className="min-w-0">
+          <div className="text-white font-medium truncate">{service.name}</div>
+          <div className="text-gray-400 text-sm">
+            R$ {service.price.toFixed(2)} • {service.duration}min
+          </div>
+        </div>
+      </div>
+      <div className="flex gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="p-2 text-blue-400 hover:text-blue-300 transition-colors"
+          title="Editar"
+        >
+          <Edit className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="p-2 text-red-400 hover:text-red-300 transition-colors"
+          title="Excluir"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 interface SpecificServiceModalProps {
@@ -85,6 +166,24 @@ export function SpecificServiceModal({
     setServices(prev => prev.filter(service => service.id !== serviceId));
   };
 
+  // Arrastar para reordenar. Ids repetidos (cadastros antigos) usariam o mesmo id no
+  // sortable e quebrariam o arrasto, então o id de arrasto leva a posição junto.
+  const sortableIds = services.map((service, index) => `${String(service.id)}::${index}`);
+  const sensors = useSensors(
+    // Precisa mover 6px para começar a arrastar: toque/clique nos botões continua normal.
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = sortableIds.indexOf(String(active.id));
+    const newIndex = sortableIds.indexOf(String(over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+    setServices((prev) => arrayMove(prev, oldIndex, newIndex));
+  };
+
   const handleSave = () => {
     console.log('🔧 DEBUG - Modal salvando serviços:', services);
     onSave(services);
@@ -143,35 +242,25 @@ export function SpecificServiceModal({
           {/* Lista de serviços existentes */}
           {services.length > 0 && (
             <div className="mb-6">
-              <h4 className="text-lg font-medium text-white mb-4">Serviços Cadastrados:</h4>
-              <div className="space-y-3">
-                {services.map((service) => (
-                  <div key={service.id} className="flex items-center justify-between p-3 bg-gray-800 rounded-lg">
-                    <div className="flex-1">
-                      <div className="text-white font-medium">{service.name}</div>
-                      <div className="text-gray-400 text-sm">
-                        R$ {service.price.toFixed(2)} • {service.duration}min
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleEditService(service)}
-                        className="p-2 text-blue-400 hover:text-blue-300 transition-colors"
-                        title="Editar"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteService(service.id)}
-                        className="p-2 text-red-400 hover:text-red-300 transition-colors"
-                        title="Excluir"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+              <h4 className="text-lg font-medium text-white mb-1">Serviços Cadastrados:</h4>
+              <p className="text-xs text-gray-400 mb-4">
+                Segure em <GripVertical className="inline w-3.5 h-3.5 align-text-bottom" /> e arraste para mudar a ordem. É nessa ordem que o cliente vê os serviços. Clique em "Salvar Serviços" para gravar.
+              </p>
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+                  <div className="space-y-3">
+                    {services.map((service, index) => (
+                      <SortableSpecificServiceRow
+                        key={sortableIds[index]}
+                        sortableId={sortableIds[index]}
+                        service={service}
+                        onEdit={() => handleEditService(service)}
+                        onDelete={() => handleDeleteService(service.id)}
+                      />
+                    ))}
                   </div>
-                ))}
-              </div>
+                </SortableContext>
+              </DndContext>
             </div>
           )}
 

@@ -39,6 +39,7 @@ import {
   loadSubscriptionPlanForRenewal,
   resolvePaymentRequirement,
   resolveSubscriberByPhone,
+  servicesForProfessional,
   supabase,
   withTimeout,
   type PaymentRequirement,
@@ -257,18 +258,12 @@ const BookingSimplePage = () => {
     return locked.length > 0 ? locked : visible;
   }, [establishment, subscriberFlow, detectedSubscriber]);
 
-  const services: SimpleService[] = useMemo(() => {
-    const all: SimpleService[] = Array.isArray(establishment?.services_with_prices)
-      ? establishment.services_with_prices
-      : [];
-    // Bloqueio por categoria: não mostrar serviços cuja categoria excluiu o profissional escolhido
-    const profId = String(state.professional?.id || '').trim();
-    if (!profId) return all;
-    return all.filter((service) => {
-      const excluded = Array.isArray(service?.excluded_professional_ids) ? service.excluded_professional_ids : [];
-      return !excluded.some((x) => String(x || '').trim() === profId);
-    });
-  }, [establishment, state.professional]);
+  // Específicos do profissional (se tiver) ou lista geral sem os bloqueados por categoria —
+  // mesma regra da página completa.
+  const services: SimpleService[] = useMemo(
+    () => servicesForProfessional(establishment, state.professional),
+    [establishment, state.professional]
+  );
 
   const toggleService = (service: SimpleService) => {
     setState((s) => {

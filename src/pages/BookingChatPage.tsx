@@ -47,6 +47,7 @@ import {
   loadSubscriptionPlanForRenewal,
   resolvePaymentRequirement,
   resolveSubscriberByPhone,
+  servicesForProfessional as resolveServicesForProfessional,
   supabase,
   withTimeout,
   type PaymentRequirement,
@@ -501,16 +502,9 @@ const BookingChatPage = () => {
     return locked.length > 0 ? locked : visible;
   }, [establishment, subscriberFlow, detectedSubscriber]);
 
+  // Específicos do profissional (se tiver) ou lista geral — mesma regra da página completa.
   const servicesForProfessional = useCallback(
-    (professional: SimpleProfessional | null): SimpleService[] => {
-      const all: SimpleService[] = Array.isArray(establishment?.services_with_prices) ? establishment.services_with_prices : [];
-      const profId = String(professional?.id || '').trim();
-      if (!profId) return all;
-      return all.filter((service: any) => {
-        const excluded = Array.isArray(service?.excluded_professional_ids) ? service.excluded_professional_ids : [];
-        return !excluded.some((x: any) => String(x || '').trim() === profId);
-      });
-    },
+    (professional: SimpleProfessional | null): SimpleService[] => resolveServicesForProfessional(establishment, professional),
     [establishment]
   );
 

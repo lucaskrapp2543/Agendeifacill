@@ -34,6 +34,8 @@ export interface SimpleProfessional {
   absences?: string[];
   blocked_hours?: Record<string, string[]>;
   hidden_from_booking?: boolean;
+  /** "Serviços específicos" cadastrados em Profissionais (vêm no JSON de establishments.professionals). */
+  specific_services?: Array<{ id?: string; name?: string; price?: number; duration?: number | string; image_url?: string | null }> | null;
 }
 
 export interface SimpleService {
@@ -44,6 +46,64 @@ export interface SimpleService {
   image_url?: string | null;
   /** Profissionais bloqueados pela categoria do serviço (não veem o serviço no agendamento). */
   excluded_professional_ids?: string[];
+}
+
+/** Duração aceita número (minutos) ou "HH:MM"; qualquer outra coisa cai no padrão. */
+const parseServiceDurationMinutes = (value: unknown, fallback = 30): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value > 0 ? Math.round(value) : fallback;
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  const hhmm = raw.match(/^(\d{1,2}):(\d{2})$/);
+  if (hhmm) {
+    const total = Number(hhmm[1]) * 60 + Number(hhmm[2]);
+    return Number.isFinite(total) && total > 0 ? total : fallback;
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : fallback;
+};
+
+/**
+ * Serviços específicos do profissional (Profissionais → "Serviços específicos"), no formato
+ * da lista do booking. Origem da regra: BookingChatFlow.tsx (allServices) — se o profissional
+ * tem específicos, o cliente vê APENAS eles; senão, a lista geral (categorias ou legado).
+ * Antes de 06/10/2026 o /chat e o /af ignoravam esse cadastro e mostravam a lista geral
+ * (caso 8340: o dono apagou as categorias e viu os serviços legados no chat).
+ */
+export function professionalSpecificServices(professional: SimpleProfessional | null | undefined): SimpleService[] {
+  const raw = Array.isArray(professional?.specific_services) ? professional!.specific_services! : [];
+  const profId = String(professional?.id || 'prof').trim();
+  return raw
+    .map((service: any, index: number) => {
+      const name = String(service?.name || service?.service_name || '').trim();
+      const price = Number(service?.price ?? service?.service_price ?? 0);
+      if (!name || !Number.isFinite(price) || price <= 0) return null;
+      const rawId = String(service?.id || service?.service_id || '').trim() || `generated-${profId}-${index}`;
+      return {
+        id: `specific-${rawId}`,
+        name,
+        price,
+        duration: parseServiceDurationMinutes(service?.duration ?? service?.service_duration_minutes, 30),
+        image_url: String(service?.image_url || '').trim() || null,
+      } as SimpleService;
+    })
+    .filter((s): s is SimpleService => Boolean(s));
+}
+
+/**
+ * Lista de serviços que o cliente vê depois de escolher o profissional:
+ * específicos do profissional (se houver) ou a lista geral sem os serviços cuja
+ * categoria bloqueou esse profissional.
+ */
+export function servicesForProfessional(establishment: any, professional: SimpleProfessional | null | undefined): SimpleService[] {
+  const specific = professionalSpecificServices(professional);
+  if (specific.length > 0) return specific;
+  const all: SimpleService[] = Array.isArray(establishment?.services_with_prices) ? establishment.services_with_prices : [];
+  const profId = String(professional?.id || '').trim();
+  if (!profId) return all;
+  return all.filter((service: any) => {
+    const excluded = Array.isArray(service?.excluded_professional_ids) ? service.excluded_professional_ids : [];
+    return !excluded.some((x: any) => String(x || '').trim() === profId);
+  });
 }
 
 /** Origem: BookingPage.tsx ~989-1167 (fetchEstablishment, sem os fallbacks de coluna legada). */
