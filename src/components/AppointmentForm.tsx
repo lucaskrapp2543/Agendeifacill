@@ -19,6 +19,7 @@ import { ProfessionalSelector } from './ProfessionalSelector';
 // import { ServiceList } from './ServiceList'; // ✅ removido: agora sempre permite multi-seleção
 import { SubscriptionLimitModal } from './SubscriptionLimitModal';
 import { TimeSlotSelector } from './TimeSlotSelector';
+import { useClientBookingBlocked } from '../lib/clientBookingBlock';
 
 const DEFAULT_SERVICE_IMAGE_URL = '/SERVIÇOS2.png';
 
@@ -178,6 +179,8 @@ export function AppointmentForm({
 
   const [clientName, setClientName] = useState('');
   const [clientWhatsapp, setClientWhatsapp] = useState('');
+  // "Bloquear cliente": cliente bloqueado pelo dono vê a agenda lotada.
+  const clientBookingBlocked = useClientBookingBlocked(establishment?.id, clientWhatsapp);
   const [clientCpf, setClientCpf] = useState('');
   const [isLoadingUserData, setIsLoadingUserData] = useState(false);
 
@@ -3541,6 +3544,7 @@ export function AppointmentForm({
               </div>
             ) : (
               <TimeSlotSelector
+                forceFullDay={clientBookingBlocked}
                 selectedDate={selectedDate}
                 selectedService={isSubscriberBooking && subscriberService ? {
                   id: subscriberService.id,

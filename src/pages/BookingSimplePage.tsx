@@ -9,6 +9,7 @@ import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { TimeSlotSelector } from '../components/TimeSlotSelector';
 import { useToast } from '../components/ui/Toaster';
 import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
+import { useClientBookingBlocked } from '../lib/clientBookingBlock';
 import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import {
   isClientAfcoinsEnabledForEstablishment,
@@ -177,6 +178,8 @@ const BookingSimplePage = () => {
 
   const [step, setStep] = useState<WizardStep>('welcome');
   const [state, setState] = useState<WizardState>(INITIAL_STATE);
+  // "Bloquear cliente": com o telefone informado, cliente bloqueado vê a agenda lotada.
+  const clientBookingBlocked = useClientBookingBlocked(establishment?.id, state.clientWhatsapp);
   const [submitting, setSubmitting] = useState(false);
 
   const [dayAppointments, setDayAppointments] = useState<any[]>([]);
@@ -1325,6 +1328,7 @@ const BookingSimplePage = () => {
                   </div>
                 ) : (
                   <TimeSlotSelector
+                    forceFullDay={clientBookingBlocked}
                     selectedDate={new Date(`${state.selectedDate}T00:00:00`)}
                     selectedDuration={effectiveDuration}
                     existingAppointments={dayAppointments}

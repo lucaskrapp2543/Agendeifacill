@@ -65,6 +65,11 @@ interface TimeSlotSelectorProps {
   onVisibleSlotsChange?: (count: number) => void;
   /** Planos de assinatura (mesma forma que no dashboard) para corrigir duração em conflitos de grade. */
   subscriptionPlansForDuration?: Array<Record<string, unknown>>;
+  /**
+   * "Bloquear cliente" (Meus Clientes): mostra o dia como LOTADO (mesma tela de quando
+   * não sobra horário), sem dizer que o cliente foi bloqueado. Só as páginas públicas usam.
+   */
+  forceFullDay?: boolean;
 }
 
 export function TimeSlotSelector({
@@ -89,6 +94,7 @@ export function TimeSlotSelector({
   professionalWorkHours = null,
   onVisibleSlotsChange,
   subscriptionPlansForDuration = [],
+  forceFullDay = false,
 }: TimeSlotSelectorProps) {
   // Função para converter horário HH:mm para minutos totais
   const timeToMinutes = (time: string | null): number => {
@@ -145,6 +151,8 @@ export function TimeSlotSelector({
 
   // Função para gerar os horários disponíveis
   const generateTimeSlots = (): TimeSlot[] => {
+    // Cliente bloqueado pelo dono: nenhum horário (aparece "Nenhum horário disponível para este dia").
+    if (forceFullDay) return [];
     const slots: TimeSlot[] = [];
     const selectedDateString = format(selectedDate, 'yyyy-MM-dd');
     const dayOfWeek = getDayOfWeek(selectedDate);

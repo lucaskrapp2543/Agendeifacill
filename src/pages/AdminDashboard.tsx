@@ -34,6 +34,8 @@ import { AppDownloadLinks } from '../components/AppDownloadLinks';
 import { NewRegistrations } from '../components/NewRegistrations';
 import { PWADownloadLink } from '../components/PWADownloadLink';
 import { SiteClientsPanel } from '../components/SiteClientsPanel';
+import { AdminFeatureRequestsModal } from '../components/AdminFeatureRequestsModal';
+import { adminListFeatureRequests, type FeatureRequest } from '../lib/featureRequests';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { fireMercadoPagoPendingReconcile } from '../utils/fireMercadoPagoPendingReconcile';
@@ -220,9 +222,35 @@ const AdminDashboard = () => {
   const [isLoadingChatBooking, setIsLoadingChatBooking] = useState(false);
   const [chatBookingTab, setChatBookingTab] = useState<'using' | 'not_using'>('using');
   const [chatBookingSearch, setChatBookingSearch] = useState('');
+  // "Fazer pedidos": pedidos de melhoria enviados pelos estabelecimentos (aceitar / negar com mensagem).
+  const [featureRequests, setFeatureRequests] = useState<FeatureRequest[]>([]);
+  const [featureRequestsModal, setFeatureRequestsModal] = useState<{ establishmentId: string | null } | null>(null);
+  const loadFeatureRequests = async () => {
+    const result = await adminListFeatureRequests();
+    if (result.ok) setFeatureRequests(result.items);
+  };
+  useEffect(() => {
+    void loadFeatureRequests();
+  }, []);
+  const featureRequestsByEstablishment = useMemo(() => {
+    const map: Record<string, { total: number; pending: number }> = {};
+    featureRequests.forEach((request) => {
+      const id = String(request.establishment_id || '');
+      if (!id) return;
+      const current = map[id] || { total: 0, pending: 0 };
+      current.total += 1;
+      if (request.status === 'pending') current.pending += 1;
+      map[id] = current;
+    });
+    return map;
+  }, [featureRequests]);
+  const establishmentsWithPendingRequests = useMemo(
+    () => Object.values(featureRequestsByEstablishment).filter((item) => item.pending > 0).length,
+    [featureRequestsByEstablishment]
+  );
   const [isLoadingAfBooking, setIsLoadingAfBooking] = useState(false);
   const [automaticPaymentInfoByEstablishment, setAutomaticPaymentInfoByEstablishment] = useState<
-    Record<string, { timestamp: number; paymentProvider: string; paymentMethod: string }>
+    Record<string, { timestamp: number; paymentProvider: string; paymentMethod: string; amountCents: number | null; netAmount: number | null; mpFeeAmount: number | null }>
   >({});
   const [isLoadingLastPaymentsSources, setIsLoadingLastPaymentsSources] = useState(false);
   const [lastPaymentsSourcesWarning, setLastPaymentsSourcesWarning] = useState('');
@@ -3550,21 +3578,25 @@ const AdminDashboard = () => {
           return;
         }
 
-        const next: Record<string, { timestamp: number; paymentProvider: string }> = {};
+        const next: Record<string, { timestamp: number; paymentProvider: string; paymentMethod: string; amountCents: number | null; netAmount: number | null; mpFeeAmount: number | null }> = {};
         const items = Array.isArray((payload as any)?.items) ? (payload as any).items : [];
         items.forEach((row: any) => {
           const id = String(row?.establishment_id || '').trim();
           if (!id) return;
-
           const ts = new Date(String(row?.paid_at || row?.updated_at || '')).getTime();
           if (!Number.isFinite(ts)) return;
           const provider = String(row?.payment_provider || 'mercadopago').trim();
-
           if (!next[id] || ts > next[id].timestamp) {
+            const amountCents = Number(row?.amount_cents);
+            const net = Number(row?.net_received_amount);
+            const fee = Number(row?.mp_fee_amount);
             next[id] = {
               timestamp: ts,
               paymentProvider: provider,
               paymentMethod: String(row?.payment_method || '').trim(),
+              amountCents: Number.isFinite(amountCents) && amountCents > 0 ? amountCents : null,
+              netAmount: Number.isFinite(net) && net > 0 ? net : null,
+              mpFeeAmount: Number.isFinite(fee) && fee >= 0 ? fee : null,
             };
           }
         });
@@ -4989,6 +5021,40 @@ const AdminDashboard = () => {
     const toleranceMs = 24 * 60 * 60 * 1000;
     return Math.abs(paymentTs - automaticTs) <= toleranceMs;
   };
+  /**
+   * Quanto EU recebi de verdade nessa mensalidade (líquido). Automático: líquido exato do
+   * Mercado Pago (net_received_amount); se ainda não veio, estimativa pela taxa (≈).
+   * Manual: o valor que o admin informou em "lucro" (admin_profit_value); sem ele, o
+   * valor da mensalidade com aviso de que é o bruto.
+   */
+  const getLastPaymentNetInfo = (est: Establishment): { value: number | null; exact: boolean; gross: number | null; fee: number | null; note: string } => {
+    const auto = automaticPaymentInfoByEstablishment[est.id];
+    const isAuto = isAutomaticPaymentInLastDays(est) && Boolean(auto);
+    if (isAuto && auto) {
+      const gross = auto.amountCents !== null ? auto.amountCents / 100 : null;
+      if (auto.netAmount !== null) {
+        return { value: auto.netAmount, exact: true, gross, fee: auto.mpFeeAmount, note: 'líquido exato do Mercado Pago' };
+      }
+      if (gross !== null) {
+        const method = String(auto.paymentMethod || '').toLowerCase();
+        const provider = String(auto.paymentProvider || '').toLowerCase();
+        const isCard = method.includes('credit') || method.includes('card') || method.includes('cred') || provider.includes('subscription');
+        const rate = isCard ? 0.0499 : method.includes('debit') ? 0.0199 : 0.0099;
+        return { value: Math.round(gross * (1 - rate) * 100) / 100, exact: false, gross, fee: null, note: 'estimativa pela taxa do Mercado Pago' };
+      }
+      return { value: null, exact: false, gross: null, fee: null, note: 'valor não disponível' };
+    }
+    const informed = Number(est.admin_profit_value ?? 0);
+    if (Number.isFinite(informed) && informed > 0) {
+      return { value: Math.round(informed * 100) / 100, exact: true, gross: null, fee: null, note: 'líquido informado por você' };
+    }
+    const planAmount = Number(est.mercadopago_billing_amount ?? 0);
+    if (Number.isFinite(planAmount) && planAmount > 0) {
+      return { value: Math.round(planAmount * 100) / 100, exact: false, gross: planAmount, fee: null, note: 'valor da mensalidade (bruto) — líquido não informado' };
+    }
+    return { value: null, exact: false, gross: null, fee: null, note: 'valor não informado' };
+  };
+
   const getLastPaymentMethodLabel = (est: Establishment): string => {
     const automaticInfo = automaticPaymentInfoByEstablishment[est.id];
     if (!isAutomaticPaymentInLastDays(est) || !automaticInfo) {
@@ -6319,6 +6385,21 @@ const AdminDashboard = () => {
             >
               <strong>BOOKING CHAT:</strong> {chatBookingTotal > 0 ? chatBookingTotal : '—'}
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFeatureRequestsModal({ establishmentId: null });
+                void loadFeatureRequests();
+              }}
+              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 border transition-colors ${establishmentsWithPendingRequests > 0
+                ? 'bg-white border-amber-300 text-amber-800 hover:bg-amber-50'
+                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              title="Estabelecimentos com pedidos de melhoria aguardando resposta (menu Fazer pedidos)"
+            >
+              💡 <strong>Clientes com pedidos</strong>
+              <span className="text-[10px] font-semibold opacity-80">({establishmentsWithPendingRequests})</span>
+            </button>
           </div>
           <div className="mt-1 text-xs text-gray-700 flex flex-wrap gap-x-4 gap-y-1">
             <span>
@@ -6783,6 +6864,26 @@ const AdminDashboard = () => {
                               Enviar cobrança
                             </button>
                           </div>
+
+                          {/* 💡 Pedidos deste estabelecimento (menu "Fazer pedidos") */}
+                          {(() => {
+                            const requestInfo = featureRequestsByEstablishment[String(establishment.id)];
+                            if (!requestInfo || requestInfo.total === 0) return null;
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => setFeatureRequestsModal({ establishmentId: String(establishment.id) })}
+                                className={`mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded border text-[11px] font-bold transition-colors ${requestInfo.pending > 0
+                                  ? 'border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100'
+                                  : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100'
+                                  }`}
+                                title="Ver e responder os pedidos deste estabelecimento"
+                              >
+                                💡 Pedidos: {requestInfo.total}
+                                {requestInfo.pending > 0 ? ` • ${requestInfo.pending} pendente${requestInfo.pending === 1 ? '' : 's'}` : ''}
+                              </button>
+                            );
+                          })()}
 
                           {/* 🏆 META MENSAL — somente leitura. Não cria nem altera cobrança. */}
                           {(() => {
@@ -8126,6 +8227,15 @@ const AdminDashboard = () => {
                 </div>
               )}
 
+              {featureRequestsModal && (
+                <AdminFeatureRequestsModal
+                  requests={featureRequests}
+                  establishmentId={featureRequestsModal.establishmentId}
+                  onClose={() => setFeatureRequestsModal(null)}
+                  onAnswered={loadFeatureRequests}
+                />
+              )}
+
               {showNotRenewedModal && (
                 <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
                   <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] overflow-hidden">
@@ -8304,6 +8414,9 @@ const AdminDashboard = () => {
                             <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700 font-semibold">
                               Manuais: {_filteredManual.length}
                             </span>
+                            <span className="inline-flex items-center rounded border-2 border-emerald-400 bg-emerald-50 px-2 py-1 text-emerald-800 font-black">
+                              Líquido total (lista): {fmtBRL([..._filteredAuto, ..._filteredManual].reduce((sum, est) => sum + (getLastPaymentNetInfo(est).value || 0), 0))}
+                            </span>
                             {_search && (
                               <span className="text-gray-500">
                                 {_totalFiltered} resultado{_totalFiltered !== 1 ? 's' : ''} para "{lastPaymentsSearch}"
@@ -8354,6 +8467,22 @@ const AdminDashboard = () => {
                                         <div className="text-xs text-gray-500 mt-0.5">
                                           Forma de pagamento: {getLastPaymentMethodLabel(est)}
                                         </div>
+                                        {(() => {
+                                          const net = getLastPaymentNetInfo(est);
+                                          return (
+                                            <div className="mt-2 inline-flex flex-col rounded-lg border-2 border-emerald-400 bg-emerald-50 px-3 py-1.5">
+                                              <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">Líquido pra você</span>
+                                              <span className="text-2xl font-black text-emerald-800 leading-tight">
+                                                {net.value !== null ? `${net.exact ? '' : '≈ '}${fmtBRL(net.value)}` : '—'}
+                                              </span>
+                                              <span className="text-[10px] text-emerald-700">
+                                                {net.gross !== null && net.exact && net.value !== null && net.gross > net.value
+                                                  ? `bruto ${fmtBRL(net.gross)} · taxa MP ${fmtBRL(Math.round((net.gross - net.value) * 100) / 100)}`
+                                                  : net.note}
+                                              </span>
+                                            </div>
+                                          );
+                                        })()}
                                       </div>
                                       <div className="text-right shrink-0">
                                         <div className="text-xs text-gray-500">Pago em</div>
@@ -8400,6 +8529,22 @@ const AdminDashboard = () => {
                                         <div className="text-xs text-gray-500 mt-0.5">
                                           Forma de pagamento: {getLastPaymentMethodLabel(est)}
                                         </div>
+                                        {(() => {
+                                          const net = getLastPaymentNetInfo(est);
+                                          return (
+                                            <div className="mt-2 inline-flex flex-col rounded-lg border-2 border-emerald-400 bg-emerald-50 px-3 py-1.5">
+                                              <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">Líquido pra você</span>
+                                              <span className="text-2xl font-black text-emerald-800 leading-tight">
+                                                {net.value !== null ? `${net.exact ? '' : '≈ '}${fmtBRL(net.value)}` : '—'}
+                                              </span>
+                                              <span className="text-[10px] text-emerald-700">
+                                                {net.gross !== null && net.exact && net.value !== null && net.gross > net.value
+                                                  ? `bruto ${fmtBRL(net.gross)} · taxa MP ${fmtBRL(Math.round((net.gross - net.value) * 100) / 100)}`
+                                                  : net.note}
+                                              </span>
+                                            </div>
+                                          );
+                                        })()}
                                       </div>
                                       <div className="text-right shrink-0">
                                         <div className="text-xs text-gray-500">Pago em</div>

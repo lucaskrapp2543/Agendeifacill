@@ -9,6 +9,7 @@ import { useToast } from '../components/ui/Toaster';
 import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
 import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import { getSubscriptions } from '../lib/supabase';
+import { useClientBookingBlocked } from '../lib/clientBookingBlock';
 import {
   estadoCancelamentoParaAgendamentoCliente,
   formatarDuracaoMinutosParaTexto,
@@ -394,6 +395,8 @@ const BookingChatPage = () => {
     formRef.current = { ...formRef.current, ...patch };
     setForm(formRef.current);
   };
+  // "Bloquear cliente": com o telefone informado, cliente bloqueado vê a agenda lotada.
+  const clientBookingBlocked = useClientBookingBlocked(establishment?.id, form.clientWhatsapp);
 
   // Seleção em andamento dentro dos widgets
   const [draftServiceIds, setDraftServiceIds] = useState<string[]>([]);
@@ -1217,6 +1220,10 @@ const BookingChatPage = () => {
     await askDay();
   };
 
+  // A lista de horários pode avisar "0 horários" mais de uma vez (re-render).
+  // Esta trava garante uma única mensagem de "dia lotado" por dia escolhido.
+  const noSlotsHandledRef = useRef(false);
+
   const handlePickDay = async (dateStr: string) => {
     if (!establishment?.id) return;
     finishWidget('days', dateLabel(dateStr));
@@ -1242,10 +1249,13 @@ const BookingChatPage = () => {
     setDayAppointments(rows);
     removeMessage(searchingId);
     setBotTyping(false);
+    noSlotsHandledRef.current = false;
     pushMessage({ from: 'bot', kind: 'widget', widget: 'times', text: `Esses são os horários livres ${dateLabel(dateStr)} com ${firstName(formRef.current.professional?.name || '')}:` });
   };
 
   const handleNoSlots = useCallback(async () => {
+    if (noSlotsHandledRef.current) return;
+    noSlotsHandledRef.current = true;
     finishWidget('times', 'Nenhum horário livre');
     await botSay('Poxa, esse dia já está lotado 😕 Quer tentar outro?');
     await askDay('Escolha outro dia 👇');
@@ -1847,6 +1857,7 @@ const BookingChatPage = () => {
           <div className={`mt-2 wa-slots ${done ? 'pointer-events-none opacity-60' : ''}`}>
             {form.professional && form.selectedDate ? (
               <TimeSlotSelector
+                forceFullDay={clientBookingBlocked}
                 selectedDate={new Date(`${form.selectedDate}T00:00:00`)}
                 selectedDuration={effectiveDuration}
                 existingAppointments={filteredDayAppointments}

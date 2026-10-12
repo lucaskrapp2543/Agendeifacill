@@ -1,12 +1,13 @@
 import { addDays, addMonths, endOfDay, endOfMonth, format, parseISO, startOfMonth, subDays, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Accessibility, AlertTriangle, Armchair, Bell, Building2, Calendar, CarFront, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Coffee, Copy, CreditCard, Crown, CupSoda, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Music2, Package, Phone, Plus, Receipt, RefreshCw, Shuffle, Snowflake, Star, Tag, Trash2, TrendingUp, Tv, User, Users, UtensilsCrossed, Wifi, X, type LucideIcon } from 'lucide-react';
+import { Accessibility, AlertTriangle, Armchair, Bell, Building2, Calendar, CarFront, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock, Coffee, Copy, CreditCard, Crown, CupSoda, DollarSign, Edit, Eye, EyeOff, HelpCircle, Image as ImageIcon, Layers, Link as LinkIcon, Menu, MessageSquare, Music2, Package, Phone, Plus, Receipt, RefreshCw, Search, Shuffle, Snowflake, Star, Tag, Trash2, TrendingUp, Tv, User, Users, UtensilsCrossed, Wifi, X, type LucideIcon } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast as hotToast } from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import * as XLSX from 'xlsx';
 import AdditionalProductModal from '../components/AdditionalProductModal';
+import { FeatureRequestsPanel } from '../components/FeatureRequestsPanel';
 import { ClientAfcoinBadge } from '../components/AfcoinClientModals';
 import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
 import { ChangeAppointmentServiceModal } from '../components/ChangeAppointmentServiceModal';
@@ -303,7 +304,8 @@ type TabType =
   | 'indication'
   | 'receber-adiantado'
   | 'whatsapp-reminders'
-  | 'support';
+  | 'support'
+  | 'feature-requests';
 
 interface EstablishmentReview {
   id: string;
@@ -501,6 +503,7 @@ interface Client {
   birthday: string | null; // Campo de aniversário
   alert?: string | null; // Campo de alerta/anotação (máximo 100 caracteres)
   forceAdvancePayment?: boolean; // Se true, este cliente precisa pagar antes de agendar
+  bookingBlocked?: boolean; // "Bloquear cliente": nas páginas de agendamento ele vê a agenda sempre lotada
   /** Timestamp (ms) do último agendamento não cancelado — usado em Clientes Sumidos */
   lastAppointmentAt?: number;
   /** Último profissional vinculado ao último agendamento não cancelado */
@@ -4412,6 +4415,32 @@ const EstablishmentDashboard = () => {
     Boolean(professionalAccessSession?.pinVerified) &&
     Boolean(professionalAccessSession?.uniqueAccessEnabled) &&
     professionalAccessSession?.role === 'owner';
+  // "Não mostrar número dos clientes para profissionais": com a opção ligada, "Meus
+  // agendamentos" mostra ******** no lugar do WhatsApp do cliente. Só quem entrou como DONO
+  // pelo acesso com PIN continua vendo (sem acesso por PIN não dá para saber quem está na tela).
+  const hideClientPhoneForProfessionals = (establishment as any)?.hide_client_phone_for_professionals === true;
+  const maskClientPhonesInAgenda = hideClientPhoneForProfessionals && !isUniqueOwnerAccessSession;
+  const [savingHideClientPhone, setSavingHideClientPhone] = useState(false);
+  const handleToggleHideClientPhone = async (next: boolean) => {
+    if (!establishment?.id || savingHideClientPhone) return;
+    setSavingHideClientPhone(true);
+    const anterior = hideClientPhoneForProfessionals;
+    setEstablishment((prev) => (prev ? ({ ...prev, hide_client_phone_for_professionals: next } as any) : prev));
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ hide_client_phone_for_professionals: next } as any)
+        .eq('id', establishment.id);
+      if (error) throw error;
+      hotToast.success(next ? 'Pronto: o número dos clientes fica escondido em Meus agendamentos.' : 'O número dos clientes voltou a aparecer em Meus agendamentos.');
+    } catch (err: any) {
+      setEstablishment((prev) => (prev ? ({ ...prev, hide_client_phone_for_professionals: anterior } as any) : prev));
+      const msg = String(err?.message || '');
+      hotToast.error(msg.includes('hide_client_phone_for_professionals') ? 'Ainda não disponível: falta liberar no sistema.' : 'Não foi possível salvar. Tente novamente.');
+    } finally {
+      setSavingHideClientPhone(false);
+    }
+  };
   const collaboratorRestrictedProfessionalId = isCollaboratorRestrictedView
     ? String(professionalAccessSession?.professionalId || '').trim()
     : '';
@@ -6162,6 +6191,96 @@ const EstablishmentDashboard = () => {
   const [sellQuantity, setSellQuantity] = useState<number>(1);
   const [sellUnitPrice, setSellUnitPrice] = useState<string>(''); // em reais (input)
   const [sellDate, setSellDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
+  // Venda de produto: cliente que comprou e forma de pagamento (aparecem em "Meus produtos").
+  const [sellPaymentMethod, setSellPaymentMethod] = useState<string>('');
+  const [sellClientMode, setSellClientMode] = useState<'lista' | 'novo' | 'nenhum'>('lista');
+  const [sellClientSearch, setSellClientSearch] = useState('');
+  const [sellSelectedClient, setSellSelectedClient] = useState<{ name: string; whatsapp: string } | null>(null);
+  const [sellNewClientName, setSellNewClientName] = useState('');
+  const [sellNewClientWhatsapp, setSellNewClientWhatsapp] = useState('');
+  const [sellClientRemoteResults, setSellClientRemoteResults] = useState<Array<{ name: string; whatsapp: string }>>([]);
+  const [sellClientSearching, setSellClientSearching] = useState(false);
+
+  // Mesmas formas de pagamento configuradas no estabelecimento ("Pagar no Local" não faz sentido aqui).
+  const sellPaymentOptions = useMemo(() => {
+    const list = (paymentMethodsEnabled || [])
+      .map((m) => String(m || '').trim())
+      .filter((m) => m.length > 0 && m !== 'pagar_local');
+    return list.length > 0 ? list : ['dinheiro', 'pix', 'credito', 'debito'];
+  }, [paymentMethodsEnabled]);
+
+  // Sugestões de cliente: usa a lista "Meus Clientes" já carregada; se ainda não carregou, busca no banco.
+  const sellClientSuggestions = useMemo(() => {
+    const q = sellClientSearch.trim();
+    if (q.length < 2) return [] as Array<{ name: string; whatsapp: string }>;
+    if (clients.length === 0) return sellClientRemoteResults;
+    const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const nq = norm(q);
+    const dq = q.replace(/\D/g, '');
+    return clients
+      .filter(
+        (c) =>
+          norm(String(c.name || '')).includes(nq) ||
+          (dq.length >= 3 && String(c.whatsapp || '').replace(/\D/g, '').includes(dq))
+      )
+      .slice(0, 8)
+      .map((c) => ({ name: String(c.name || '').trim() || 'Cliente', whatsapp: String(c.whatsapp || '') }));
+  }, [sellClientSearch, clients, sellClientRemoteResults]);
+
+  useEffect(() => {
+    if (!showSellProductModal || sellClientMode !== 'lista' || !establishment?.id) return;
+    if (clients.length > 0) return;
+    const q = sellClientSearch.trim();
+    if (q.length < 2) {
+      setSellClientRemoteResults([]);
+      setSellClientSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setSellClientSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const digits = q.replace(/\D/g, '');
+        const byPhone = /^[\d\s()+-]+$/.test(q) && digits.length >= 3;
+        const like = `%${q.replace(/[%_,()]/g, ' ').trim()}%`;
+        const manualQuery = supabase
+          .from('manual_clients')
+          .select('name, whatsapp')
+          .eq('establishment_id', establishment.id)
+          .limit(10);
+        const apptQuery = supabase
+          .from('appointments')
+          .select('client_name, client_whatsapp')
+          .eq('establishment_id', establishment.id)
+          .order('appointment_date', { ascending: false })
+          .limit(40);
+        const [manualRes, apptRes] = await Promise.all([
+          byPhone ? manualQuery.ilike('whatsapp', `%${digits}%`) : manualQuery.ilike('name', like),
+          byPhone ? apptQuery.ilike('client_whatsapp', `%${digits}%`) : apptQuery.ilike('client_name', like),
+        ]);
+        if (cancelled) return;
+        const seen = new Map<string, { name: string; whatsapp: string }>();
+        const add = (rawName: any, rawWhatsapp: any) => {
+          const name = String(rawName || '').trim();
+          if (!name) return;
+          const whatsapp = String(rawWhatsapp || '').trim();
+          const key = whatsapp.replace(/\D/g, '').slice(-9) || name.toLowerCase();
+          if (!seen.has(key)) seen.set(key, { name, whatsapp });
+        };
+        (manualRes.data || []).forEach((r: any) => add(r?.name, r?.whatsapp));
+        (apptRes.data || []).forEach((r: any) => add(r?.client_name, r?.client_whatsapp));
+        setSellClientRemoteResults(Array.from(seen.values()).slice(0, 8));
+      } catch {
+        if (!cancelled) setSellClientRemoteResults([]);
+      } finally {
+        if (!cancelled) setSellClientSearching(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [showSellProductModal, sellClientMode, sellClientSearch, clients.length, establishment?.id]);
 
   // Saldo por produtos (repasse do mês) por profissional
   const [productSaldoPorProfissional, setProductSaldoPorProfissional] = useState<Record<string, number>>({});
@@ -6191,14 +6310,19 @@ const EstablishmentDashboard = () => {
     // Buscar vendas avulsas individuais do mês selecionado (com ID para permitir estorno)
     const avulsoStart = startOfMonth(selectedProductsMonth);
     const avulsoEnd = endOfMonth(selectedProductsMonth);
-    const { data: avulso } = await supabase
-      .from('product_sales')
-      .select('id, quantity, unit_price, professional_name, sold_at')
-      .eq('establishment_id', establishment?.id)
-      .eq('product_id', productId)
-      .gte('sold_at', avulsoStart.toISOString())
-      .lte('sold_at', avulsoEnd.toISOString())
-      .order('sold_at', { ascending: false });
+    const avulsoQuery = (columns: string) =>
+      supabase
+        .from('product_sales')
+        .select(columns)
+        .eq('establishment_id', establishment?.id)
+        .eq('product_id', productId)
+        .gte('sold_at', avulsoStart.toISOString())
+        .lte('sold_at', avulsoEnd.toISOString())
+        .order('sold_at', { ascending: false });
+    // Com forma de pagamento e cliente; banco sem as colunas novas → busca do jeito antigo.
+    let avulsoRes: any = await avulsoQuery('id, quantity, unit_price, professional_name, sold_at, payment_method, client_name, client_whatsapp');
+    if (avulsoRes?.error) avulsoRes = await avulsoQuery('id, quantity, unit_price, professional_name, sold_at');
+    const avulso = avulsoRes?.data;
     setProductAvulsoSales(prev => ({ ...prev, [productId]: avulso || [] }));
   };
 
@@ -7252,14 +7376,18 @@ const EstablishmentDashboard = () => {
         const end = endOfMonth(month);
         const rows: any[] = [];
 
-        // 1) Vendas de balcão (product_sales)
-        const { data: avulso } = await supabase
-          .from('product_sales')
-          .select('id, quantity, unit_price, professional_id, professional_name, sold_at')
-          .eq('establishment_id', establishment.id)
-          .eq('product_id', pid)
-          .gte('sold_at', start.toISOString())
-          .lte('sold_at', end.toISOString());
+        // 1) Vendas de balcão (product_sales) — com forma de pagamento e cliente quando o banco já tem
+        const balcaoQuery = (columns: string) =>
+          supabase
+            .from('product_sales')
+            .select(columns)
+            .eq('establishment_id', establishment.id)
+            .eq('product_id', pid)
+            .gte('sold_at', start.toISOString())
+            .lte('sold_at', end.toISOString());
+        let balcaoRes: any = await balcaoQuery('id, quantity, unit_price, professional_id, professional_name, sold_at, payment_method, client_name, client_whatsapp');
+        if (balcaoRes?.error) balcaoRes = await balcaoQuery('id, quantity, unit_price, professional_id, professional_name, sold_at');
+        const avulso = balcaoRes?.data;
         (avulso || []).forEach((s: any) => {
           const qty = Number(s?.quantity || 0);
           const unit = Number(s?.unit_price || 0);
@@ -7271,7 +7399,8 @@ const EstablishmentDashboard = () => {
             id: `balcao-${s.id}`,
             date: String(s?.sold_at || '').slice(0, 10),
             professional: profName,
-            client: null,
+            client: String(s?.client_name || '').trim() || null,
+            payment: s?.payment_method ? getPaymentMethodLabel(String(s.payment_method)) : null,
             quantity: qty,
             value,
             payout,
@@ -8856,6 +8985,14 @@ const EstablishmentDashboard = () => {
       setSellQuantity(1);
       setSellUnitPrice(String(product.sale_price ?? '').replace('.', ','));
       setSellDate(format(new Date(), 'yyyy-MM-dd'));
+      setSellPaymentMethod('');
+      setSellClientMode('lista');
+      setSellClientSearch('');
+      setSellSelectedClient(null);
+      setSellNewClientName('');
+      setSellNewClientWhatsapp('');
+      setSellClientRemoteResults([]);
+      setSellClientSearching(false);
       setShowSellProductModal(true);
     },
     [establishment?.id]
@@ -8903,12 +9040,35 @@ const EstablishmentDashboard = () => {
       return;
     }
 
+    if (!sellPaymentMethod) {
+      toast.error('Escolha a forma de pagamento.');
+      return;
+    }
+
+    let saleClientName = '';
+    let saleClientWhatsapp = '';
+    if (sellClientMode === 'lista') {
+      if (!sellSelectedClient) {
+        toast.error('Escolha o cliente da lista (ou marque "Cliente novo" / "Sem cliente").');
+        return;
+      }
+      saleClientName = String(sellSelectedClient.name || '').trim();
+      saleClientWhatsapp = String(sellSelectedClient.whatsapp || '').replace(/\D/g, '');
+    } else if (sellClientMode === 'novo') {
+      saleClientName = sellNewClientName.trim();
+      if (!saleClientName) {
+        toast.error('Digite o nome do cliente.');
+        return;
+      }
+      saleClientWhatsapp = sellNewClientWhatsapp.replace(/\D/g, '');
+    }
+
     const soldAtIso = sellDate ? new Date(`${sellDate}T12:00:00`).toISOString() : new Date().toISOString();
     const profName =
       (establishment.professionals || []).find((p: any) => String(p?.id) === profId)?.name || '';
 
     try {
-      const { error } = await supabase.from('product_sales').insert({
+      const baseSaleRow = {
         establishment_id: establishment.id,
         product_id: sellingProduct.id,
         professional_id: profId,
@@ -8916,7 +9076,20 @@ const EstablishmentDashboard = () => {
         quantity: qty,
         unit_price: unit,
         sold_at: soldAtIso,
+      };
+      // Forma de pagamento e cliente ficam em colunas novas. Se o banco ainda não tem
+      // essas colunas, a venda é gravada do jeito antigo (nada deixa de funcionar).
+      let extrasSaved = true;
+      let { error } = await supabase.from('product_sales').insert({
+        ...baseSaleRow,
+        payment_method: sellPaymentMethod,
+        client_name: saleClientName || null,
+        client_whatsapp: saleClientWhatsapp || null,
       });
+      if (error && /payment_method|client_name|client_whatsapp|schema cache/i.test(String(error.message || ''))) {
+        extrasSaved = false;
+        ({ error } = await supabase.from('product_sales').insert(baseSaleRow));
+      }
 
       if (error) {
         console.error('Erro ao registrar venda avulsa:', error);
@@ -8935,6 +9108,8 @@ const EstablishmentDashboard = () => {
       if (stockError) {
         console.error('Erro ao atualizar estoque após venda avulsa:', stockError);
         toast.error('Venda registrada, mas falhou ao atualizar estoque. Atualize a página e confira.');
+      } else if (!extrasSaved) {
+        toast.success('Venda registrada! Forma de pagamento e cliente vão aparecer depois da atualização do banco.');
       } else {
         toast.success('Venda registrada com sucesso!');
       }
@@ -8964,6 +9139,11 @@ const EstablishmentDashboard = () => {
     sellQuantity,
     sellUnitPrice,
     sellDate,
+    sellPaymentMethod,
+    sellClientMode,
+    sellSelectedClient,
+    sellNewClientName,
+    sellNewClientWhatsapp,
     fetchProducts,
     fetchProductSalesByPeriod,
     selectedProductsMonth,
@@ -18405,6 +18585,8 @@ Estamos te aguardando!`;
               birthday: existingManualClient.birthday,
               alert: existingManualClient.alert,
               force_advance_payment: existingManualClient.force_advance_payment === true,
+              // Só manda a coluna quando o cliente está bloqueado (banco sem a coluna continua funcionando)
+              ...((existingManualClient as any).booking_blocked === true ? { booking_blocked: true } : {}),
               updated_at: new Date().toISOString()
             }, {
               onConflict: 'establishment_id,whatsapp'
@@ -19403,6 +19585,7 @@ Estamos te aguardando!`;
             street: String((client as any)?.street || '').trim() || null,
             alert: client.alert,
             forceAdvancePayment: client.force_advance_payment === true,
+            bookingBlocked: (client as any).booking_blocked === true,
             addedAt: client.created_at,
             appointmentCount: 0
           };
@@ -19998,6 +20181,62 @@ Estamos te aguardando!`;
           .join(' '),
         'error'
       );
+    }
+  };
+
+  // "Bloquear cliente": o cliente bloqueado vê a agenda sempre lotada nas páginas de
+  // agendamento (completa, chat e simples). Ele não é avisado do bloqueio.
+  const toggleClientBookingBlocked = async (client: Client) => {
+    if (!establishment?.id) return;
+    const normalizedWhatsapp = normalizeWhatsappForStorage(client.whatsapp);
+    if (!normalizedWhatsapp) {
+      toast('WhatsApp do cliente inválido.', 'error');
+      return;
+    }
+    const nextValue = !(client.bookingBlocked === true);
+    if (nextValue) {
+      const ok = window.confirm(
+        `Bloquear ${client.name || 'este cliente'}?\n\nQuando ele for agendar pelo seu link (página completa, chat ou simples), todos os dias vão aparecer como LOTADOS. Ele não recebe nenhum aviso de bloqueio.\n\nVocê pode desbloquear quando quiser aqui mesmo.`
+      );
+      if (!ok) return;
+    }
+    try {
+      const { error } = await supabase
+        .from('manual_clients')
+        .upsert(
+          {
+            establishment_id: establishment.id,
+            whatsapp: normalizedWhatsapp,
+            name: client.name || 'Cliente',
+            booking_blocked: nextValue,
+            updated_at: new Date().toISOString(),
+          } as any,
+          { onConflict: 'establishment_id,whatsapp' }
+        );
+      if (error) {
+        const msg = String(error?.message || '').toLowerCase();
+        if (msg.includes('booking_blocked') || msg.includes('schema cache') || msg.includes('column')) {
+          toast('Ainda não disponível: falta liberar no sistema (rodar a atualização do banco).', 'error');
+          return;
+        }
+        throw error;
+      }
+      // Atualiza o cartão na hora; a recarga da lista confirma em seguida.
+      setClients((prev) =>
+        prev.map((c) =>
+          normalizeWhatsappForStorage(c.whatsapp) === normalizedWhatsapp ? { ...c, bookingBlocked: nextValue } : c
+        )
+      );
+      toast(
+        nextValue
+          ? 'Cliente bloqueado: para ele a agenda vai aparecer lotada.'
+          : 'Cliente desbloqueado: ele volta a ver os horários livres.',
+        'success'
+      );
+      await fetchClients();
+    } catch (error: any) {
+      console.error('❌ Erro ao bloquear/desbloquear cliente:', error);
+      toast(error?.message || 'Não foi possível salvar agora. Tente novamente.', 'error');
     }
   };
 
@@ -21786,7 +22025,8 @@ Estamos te aguardando!`;
           appointmentCount: 0,
           isSubscriber: false,
           birthday: manualClient.birthday,
-          forceAdvancePayment: manualClient.forceAdvancePayment === true
+          forceAdvancePayment: manualClient.forceAdvancePayment === true,
+          bookingBlocked: manualClient.bookingBlocked === true,
         }));
 
         setClients(uniqueClients);
@@ -22042,6 +22282,7 @@ Estamos te aguardando!`;
             isSubscriber: false,
             birthday: manualClient.birthday,
             forceAdvancePayment: manualClient.forceAdvancePayment === true,
+            bookingBlocked: manualClient.bookingBlocked === true,
             subscriberPaymentStatus: null,
           });
         } else {
@@ -22055,6 +22296,7 @@ Estamos te aguardando!`;
             existingClient.birthday = manualClient.birthday;
           }
           existingClient.forceAdvancePayment = manualClient.forceAdvancePayment === true;
+          existingClient.bookingBlocked = manualClient.bookingBlocked === true;
         }
       });
 
@@ -27699,6 +27941,41 @@ Estamos te aguardando!`;
     }
   };
 
+  // Barra "Áreas de clientes" (mesma nas 5 telas: Meus Clientes, Ranking, Sumidos, Sorteio e Fidelidade).
+  const renderClientAreasNav = (current: 'clients' | 'ranking' | 'missing-clients' | 'draw' | 'client-loyalty-bulk') => {
+    const items = [
+      { tab: 'clients', label: 'Meus Clientes', Icon: Users, iconClass: 'text-gray-400' },
+      { tab: 'ranking', label: 'Ranking Clientes', Icon: Crown, iconClass: 'text-amber-500' },
+      { tab: 'missing-clients', label: 'Clientes Sumidos', Icon: Users, iconClass: 'text-gray-400' },
+      { tab: 'draw', label: 'Sorteio', Icon: Shuffle, iconClass: 'text-gray-400' },
+      { tab: 'client-loyalty-bulk', label: 'Ponto Fidelidade', Icon: Star, iconClass: 'text-amber-500' },
+    ];
+    return (
+      <div className="rounded-2xl border border-white/10 bg-[#141518] p-3 sm:p-4">
+        <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-gray-400">Áreas de clientes</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          {items.map(({ tab, label, Icon, iconClass }, index) => {
+            const isCurrent = current === tab;
+            return (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => handleTabChange(tab)}
+                className={`${index === items.length - 1 ? 'col-span-2 sm:col-span-1 ' : ''}flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm transition-colors ${isCurrent
+                  ? 'bg-amber-400 text-black font-bold'
+                  : 'border border-white/10 bg-white/5 text-gray-100 hover:bg-white/10 font-semibold'
+                  }`}
+              >
+                <Icon className={`h-4 w-4 shrink-0 ${isCurrent ? 'text-black' : iconClass}`} />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const goToCurrentOnboardingStep = () => {
     setShowOnboardingWelcomeModal(false);
     setShowBlockedItemModal(false);
@@ -29246,6 +29523,7 @@ Estamos te aguardando!`;
                   <div className={`${activeTab === 'appointments' ? 'mb-2' : 'mb-6'}`}>
                     <AllProfessionalsAppointmentsView
                       professionals={professionals || []}
+                      maskClientPhones={maskClientPhonesInAgenda}
                       appointments={appointments}
                       monthlyAppointments={monthlyAppointments}
                       returningClientPhones={returningClientPhones}
@@ -31405,6 +31683,11 @@ Estamos te aguardando!`;
                     </div>
                   </div>
                 </div>
+              )}
+
+              {/* Fazer pedidos: o dono pede melhorias e vê a resposta do suporte */}
+              {activeTab === 'feature-requests' && establishment?.id && (
+                <FeatureRequestsPanel establishmentId={establishment.id} toast={toast} />
               )}
 
               {activeTab === 'reviews' && (
@@ -34556,6 +34839,28 @@ Estamos te aguardando!`;
                               O dono escolhe qual link vai para o cliente em "Lembretes para clientes". */}
                         </div>
 
+                        {/* ── Privacidade: número dos clientes ── */}
+                        <div className="rounded-2xl border border-gray-700 bg-[#242628]/50 p-4 space-y-3">
+                          <h4 className="text-sm font-extrabold text-white">🔒 Privacidade</h4>
+                          <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-700 bg-[#242628] p-3">
+                            <div className="flex-1 min-w-0">
+                              <label htmlFor="hideClientPhoneForProfessionals" className="block text-sm font-bold text-white">Não mostrar número dos clientes para profissionais</label>
+                              <p className="text-[10px] text-gray-400 mt-0.5">
+                                Em Meus agendamentos o WhatsApp do cliente aparece como ******** e somem os botões que abrem a conversa (WhatsApp e Imprevisto).
+                                O número continua salvo: lembretes automáticos e Meus Clientes funcionam normal. Quem entra como dono pelo acesso com PIN continua vendo.
+                              </p>
+                            </div>
+                            <input
+                              type="checkbox"
+                              id="hideClientPhoneForProfessionals"
+                              checked={hideClientPhoneForProfessionals}
+                              disabled={savingHideClientPhone}
+                              onChange={(e) => { void handleToggleHideClientPhone(e.target.checked); }}
+                              className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded shrink-0"
+                            />
+                          </div>
+                        </div>
+
                         {/* ── BLOCO 4: Extras ── */}
                         <div className="rounded-2xl border border-gray-700 bg-[#242628]/50 p-4 space-y-3">
                           <h4 className="text-sm font-extrabold text-white">✨ Extras</h4>
@@ -36381,7 +36686,7 @@ Estamos te aguardando!`;
                                     <div className="min-w-0">
                                       <p className="text-sm font-semibold text-gray-900 truncate">{s.professional}</p>
                                       <p className="text-[11px] text-gray-500 truncate">
-                                        {s.date ? new Date(s.date + 'T00:00:00').toLocaleDateString('pt-BR') : '—'} • {s.quantity} un. • {s.source}{s.client ? ` • ${s.client}` : ''}
+                                        {s.date ? new Date(s.date + 'T00:00:00').toLocaleDateString('pt-BR') : '—'} • {s.quantity} un. • {s.source}{s.client ? ` • 👤 ${s.client}` : ''}{s.payment ? ` • 💳 ${s.payment}` : ''}
                                       </p>
                                     </div>
                                     <div className="text-right shrink-0">
@@ -38276,7 +38581,7 @@ Estamos te aguardando!`;
 
 
               {activeTab === 'clients' && (
-                <div className="space-y-6">
+                <div className="-mx-4 sm:mx-0 space-y-5 text-gray-100 bg-[#0b0b0c] sm:rounded-3xl p-3 sm:p-5 sm:border sm:border-white/5">
                   <style>{`
                     @keyframes pulse {
                       0%, 100% {
@@ -38289,145 +38594,151 @@ Estamos te aguardando!`;
                       }
                     }
                   `}</style>
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-2xl font-bold text-gray-900">Meus Clientes</h2>
-                    <div className="bg-gray-800 text-white px-3 py-1 rounded-full text-sm font-medium">
-                      {isLoadingClients && clients.length === 0
-                        ? 'Carregando...'
-                        : `${filteredClients.length} ${filteredClients.length === 1 ? 'cliente' : 'clientes'}`}
-                    </div>
-                  </div>
-                  <p className="text-gray-600 mb-4">
-                    Aqui você encontra todos os clientes que já agendaram em seu estabelecimento.
-                  </p>
 
-                  <div className="mb-4 p-4 rounded-lg border border-gray-200 bg-gray-50">
-                    <p className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Ultimos 60 dias (concluidos)</p>
-                    <p className="text-2xl font-extrabold text-gray-900 mt-1">{clientInsightsLast60d.singleVisitClients}</p>
-                    <p className="text-sm text-gray-700 mt-1">Clientes que agendaram somente 1 vez e nao voltaram</p>
-                    <p className="mt-2 inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">
-                      💡 Essa opcao serve para voce fazer repescagem de clientes que nao vieram mais.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setShowSingleVisitClientList((prev) => !prev)}
-                      className="mt-3 px-3 py-1.5 rounded-lg bg-black text-white text-xs font-semibold hover:bg-gray-800 transition-colors"
-                    >
-                      {showSingleVisitClientList ? 'Ocultar clientes' : `Ver clientes (${singleVisitClientListLast60d.length})`}
-                    </button>
-                  </div>
-
-                  {showSingleVisitClientList && (
-                    <div className="rounded-lg border border-gray-200 bg-white p-4 mb-6">
-                      <h4 className="text-sm font-bold text-gray-900 mb-2">Clientes que vieram so 1 vez nos ultimos 60 dias</h4>
-                      {singleVisitClientListLast60d.length === 0 ? (
-                        <p className="text-sm text-gray-500">Nenhum cliente encontrado neste periodo.</p>
-                      ) : (
-                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                          {singleVisitClientListLast60d.map((client) => (
-                            <div
-                              key={`single-visit-${client.whatsapp}`}
-                              className="rounded-md border border-gray-100 bg-gray-50 px-3 py-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2"
-                            >
-                              <div>
-                                <p className="text-sm font-semibold text-gray-900">{client.name}</p>
-                                <p className="text-xs text-gray-600">
-                                  {client.whatsapp} • Ultimo agendamento: {client.lastCompletedAt ? format(new Date(client.lastCompletedAt), 'dd/MM/yyyy HH:mm') : '-'} • Ja veio {client.completedVisits}x
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => openClientWhatsApp(client.whatsapp)}
-                                className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
-                              >
-                                WhatsApp
-                              </button>
-                            </div>
-                          ))}
+                  {/* ===== Topo: título, quantidade e ações principais ===== */}
+                  <div className="rounded-2xl border border-amber-400/25 bg-[#141518] bg-gradient-to-br from-[#2b2412] via-[#16171a] to-[#111214] p-4 sm:p-5 text-white shadow-lg shadow-black/30">
+                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="text-xl sm:text-2xl font-black text-white">👥 Meus Clientes</h2>
+                          <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs sm:text-sm font-bold text-white">
+                            {isLoadingClients && clients.length === 0
+                              ? 'Carregando...'
+                              : `${filteredClients.length} ${filteredClients.length === 1 ? 'cliente' : 'clientes'}`}
+                          </span>
                         </div>
-                      )}
-                    </div>
-                  )}
+                        <p className="mt-1 text-xs sm:text-sm text-gray-300">
+                          Aqui você encontra todos os clientes que já agendaram em seu estabelecimento.
+                        </p>
+                      </div>
 
-                  {/* Botões de navegação */}
-                  <div className="flex flex-col sm:flex-row gap-3 mb-6">
-                    <button
-                      onClick={() => {
-                        console.log('🔍 Abrindo modal ReservarCliente para establishment:', establishment?.id);
-                        setReserveClientPrefilledProfessionalId(null);
-                        setReserveClientSlotPrefill(null);
-                        setShowReservarClienteModal(true);
-                        setHighlightReserveButton(false);
-                      }}
-                      className={`flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-all text-sm font-medium ${highlightReserveButton
-                        ? 'ring-4 ring-gray-400 shadow-2xl animate-pulse scale-110'
-                        : ''
-                        }`}
-                      style={highlightReserveButton ? {
-                        animation: 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite'
-                      } : {}}
-                    >
-                      <User className="h-4 w-4" />
-                      {highlightReserveButton ? '👉 Reservar Cliente 👈' : 'Reservar Cliente'}
-                    </button>
-                    {(() => {
-                      const code = String((establishment as any)?.second_unit_booking_code ?? '').trim();
-                      return code.length > 0;
-                    })() && (
-                        <a
-                          href={`https://agendeifacil.com/booking/${String((establishment as any).second_unit_booking_code).trim()}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex flex-col items-center gap-1 px-4 py-2.5 rounded-xl border-2 border-amber-500/60 bg-amber-500/10 hover:bg-amber-500/20 transition-all text-center shadow-md hover:shadow-amber-500/20 hover:scale-[1.02] active:scale-[0.98]"
+                      <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            console.log('🔍 Abrindo modal ReservarCliente para establishment:', establishment?.id);
+                            setReserveClientPrefilledProfessionalId(null);
+                            setReserveClientSlotPrefill(null);
+                            setShowReservarClienteModal(true);
+                            setHighlightReserveButton(false);
+                          }}
+                          className={`inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition-all ${highlightReserveButton
+                            ? 'ring-4 ring-amber-300 shadow-2xl animate-pulse scale-110'
+                            : ''
+                            }`}
+                          style={highlightReserveButton ? {
+                            animation: 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                          } : {}}
                         >
-                          <span className="text-[10px] uppercase tracking-widest font-bold text-amber-400">Agendar outra unidade</span>
-                          <span className="font-bold text-white leading-tight">{secondUnitName || 'Segunda Unidade'}</span>
-                          {(establishment as any)?.second_unit_label && (
-                            <span className="text-xs text-amber-200/90">{(establishment as any).second_unit_label}</span>
-                          )}
-                        </a>
-                      )}
-                    <button
-                      onClick={() => handleTabChange('clients')}
-                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                    >
-                      <Users className="h-4 w-4" />
-                      Meus Clientes
-                    </button>
-                    <button
-                      onClick={() => handleTabChange('ranking')}
-                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                    >
-                      <Crown className="h-4 w-4" />
-                      Ranking Clientes
-                    </button>
-                    <button
-                      onClick={() => handleTabChange('missing-clients')}
-                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                    >
-                      <Users className="h-4 w-4" />
-                      Clientes Sumidos
-                    </button>
-                    <button
-                      onClick={() => handleTabChange('draw')}
-                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                    >
-                      <Shuffle className="h-4 w-4" />
-                      Sorteio
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleTabChange('client-loyalty-bulk')}
-                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                    >
-                      <Star className="h-4 w-4" />
-                      Ponto Fidelidade
-                    </button>
+                          <User className="h-4 w-4 shrink-0" />
+                          {highlightReserveButton ? '👉 Reservar Cliente 👈' : 'Reservar Cliente'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowAddClientModal(true)}
+                          className="inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2.5 rounded-xl bg-white text-gray-900 hover:bg-gray-100 text-sm font-bold transition-colors"
+                        >
+                          ➕ Adicionar Cliente
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => importClientsInputRef.current?.click()}
+                          disabled={isImportingClients}
+                          className={`inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-semibold transition-colors ${isImportingClients
+                            ? 'border-white/10 bg-white/5 text-gray-400 cursor-not-allowed'
+                            : 'border-white/15 bg-white/5 text-gray-100 hover:bg-white/10'
+                            }`}
+                          title="Importa CSV/Excel com colunas de nome e telefone"
+                        >
+                          {isImportingClients ? 'Importando...' : '📤 Importar clientes'}
+                        </button>
+                        <input
+                          ref={importClientsInputRef}
+                          type="file"
+                          accept=".csv,.xlsx,.xls"
+                          onChange={handleImportClientsFile}
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleExportClients}
+                          disabled={isExportingClients}
+                          className={`inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-semibold transition-colors ${isExportingClients
+                            ? 'border-white/10 bg-white/5 text-gray-400 cursor-not-allowed'
+                            : 'border-white/15 bg-white/5 text-gray-100 hover:bg-white/10'
+                            }`}
+                          title="Baixa 2 arquivos CSV: resumo + histórico"
+                        >
+                          {isExportingClients ? 'Exportando...' : '📥 Exportar clientes'}
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Controles de busca e filtros */}
-                  <div className="flex flex-col gap-4 mb-6">
-                    <div className="flex-1">
+                  {/* ===== Outras áreas de clientes ===== */}
+                  {renderClientAreasNav('clients')}
+
+                  {/* ===== Repescagem: clientes que vieram só 1 vez ===== */}
+                  <div className="rounded-2xl border border-amber-500/30 bg-[#1a1608] p-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="h-12 min-w-[3rem] px-2 shrink-0 rounded-xl border border-amber-500/30 bg-black/40 flex items-center justify-center text-2xl font-extrabold text-amber-300">
+                          {clientInsightsLast60d.singleVisitClients}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[11px] uppercase tracking-wide font-bold text-amber-400">Últimos 60 dias (concluídos)</p>
+                          <p className="text-sm font-semibold text-white">Clientes que agendaram somente 1 vez e não voltaram</p>
+                          <p className="mt-1 text-xs text-amber-200/90">
+                            💡 Essa opção serve para você fazer repescagem de clientes que não vieram mais.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowSingleVisitClientList((prev) => !prev)}
+                        className="shrink-0 px-4 py-2 rounded-xl bg-amber-400 text-black text-xs font-bold hover:bg-amber-300 transition-colors"
+                      >
+                        {showSingleVisitClientList ? 'Ocultar clientes' : `Ver clientes (${singleVisitClientListLast60d.length})`}
+                      </button>
+                    </div>
+
+                    {showSingleVisitClientList && (
+                      <div className="mt-3 rounded-xl border border-white/10 bg-[#111214] p-3">
+                        <h4 className="text-sm font-bold text-white mb-2">Clientes que vieram só 1 vez nos últimos 60 dias</h4>
+                        {singleVisitClientListLast60d.length === 0 ? (
+                          <p className="text-sm text-gray-400">Nenhum cliente encontrado neste período.</p>
+                        ) : (
+                          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                            {singleVisitClientListLast60d.map((client) => (
+                              <div
+                                key={`single-visit-${client.whatsapp}`}
+                                className="rounded-lg border border-white/5 bg-white/5 px-3 py-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2"
+                              >
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-white">{client.name}</p>
+                                  <p className="text-xs text-gray-400">
+                                    {client.whatsapp} • Último agendamento: {client.lastCompletedAt ? format(new Date(client.lastCompletedAt), 'dd/MM/yyyy HH:mm') : '-'} • Já veio {client.completedVisits}x
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => openClientWhatsApp(client.whatsapp)}
+                                  className="shrink-0 px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
+                                >
+                                  WhatsApp
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ===== Busca, filtro e páginas ===== */}
+                  <div className="rounded-2xl border border-white/10 bg-[#141518] p-3 sm:p-4 space-y-3">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                       <input
                         type="text"
                         placeholder="Buscar cliente por nome..."
@@ -38436,121 +38747,89 @@ Estamos te aguardando!`;
                           setSearchQuery(e.target.value);
                           setClientsCurrentPage(1);
                         }}
-                        className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500"
+                        className="w-full pl-10 pr-4 py-2.5 bg-[#0b0b0c] border border-white/15 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-400/60 focus:border-amber-400/60"
                       />
                     </div>
 
-                    {/* Botões de ação */}
                     <div className="flex flex-wrap items-center gap-2">
                       <button
+                        type="button"
                         onClick={() => {
                           setShowBirthdayFilter(!showBirthdayFilter);
                           setClientsCurrentPage(1);
                         }}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${showBirthdayFilter
-                          ? 'bg-black text-white'
-                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${showBirthdayFilter
+                          ? 'bg-amber-400 text-black'
+                          : 'border border-white/10 bg-white/5 text-gray-100 hover:bg-white/10'
                           }`}
                       >
                         🎂 Aniversariantes do mês
                       </button>
-                      <button
-                        onClick={() => setShowAddClientModal(true)}
-                        className="px-4 py-2 rounded-lg text-sm font-medium bg-black text-white hover:bg-gray-800 transition-colors"
-                      >
-                        ➕ Adicionar Cliente
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => importClientsInputRef.current?.click()}
-                        disabled={isImportingClients}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isImportingClients
-                          ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                          : 'bg-black text-white hover:bg-gray-800'
-                          }`}
-                        title="Importa CSV/Excel com colunas de nome e telefone"
-                      >
-                        {isImportingClients ? 'Importando...' : '📤 Importar clientes'}
-                      </button>
-                      <input
-                        ref={importClientsInputRef}
-                        type="file"
-                        accept=".csv,.xlsx,.xls"
-                        onChange={handleImportClientsFile}
-                        className="hidden"
-                      />
-                      <button
-                        onClick={handleExportClients}
-                        disabled={isExportingClients}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isExportingClients
-                          ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                          : 'bg-black text-white hover:bg-gray-800'
-                          }`}
-                        title="Baixa 2 arquivos CSV: resumo + histórico"
-                      >
-                        {isExportingClients ? 'Exportando...' : '📥 Exportar clientes'}
-                      </button>
-
                       {showBirthdayFilter && (
-                        <span className="px-3 py-2 bg-gray-800 text-white rounded-lg text-sm">
+                        <span className="px-3 py-2 rounded-xl bg-white/10 text-white text-sm">
                           {filteredClients.length} encontrado(s)
                         </span>
                       )}
                     </div>
+
+                    {filteredClients.length > 0 && (
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-3 border-t border-white/10">
+                        <p className="text-sm text-gray-300">
+                          Exibindo {clientsPageStartIndex + 1}-
+                          {Math.min(clientsPageStartIndex + CLIENTS_PAGE_SIZE, filteredClients.length)} de {filteredClients.length} cliente(s)
+                        </p>
+                        <div className="flex items-center justify-between sm:justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setClientsCurrentPage((prev) => Math.max(1, prev - 1))}
+                            disabled={safeCurrentClientPage <= 1}
+                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${safeCurrentClientPage <= 1
+                              ? 'bg-white/5 text-gray-600 cursor-not-allowed'
+                              : 'bg-amber-400 text-black hover:bg-amber-300'
+                              }`}
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                            Anterior
+                          </button>
+                          <span className="text-sm text-gray-300 whitespace-nowrap">
+                            Página {safeCurrentClientPage} de {totalClientPages}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setClientsCurrentPage((prev) => Math.min(totalClientPages, prev + 1))}
+                            disabled={safeCurrentClientPage >= totalClientPages}
+                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${safeCurrentClientPage >= totalClientPages
+                              ? 'bg-white/5 text-gray-600 cursor-not-allowed'
+                              : 'bg-amber-400 text-black hover:bg-amber-300'
+                              }`}
+                          >
+                            Próxima
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  {filteredClients.length > 0 && (
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                      <p className="text-sm text-gray-700">
-                        Exibindo {clientsPageStartIndex + 1}-
-                        {Math.min(clientsPageStartIndex + CLIENTS_PAGE_SIZE, filteredClients.length)} de {filteredClients.length} cliente(s)
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setClientsCurrentPage((prev) => Math.max(1, prev - 1))}
-                          disabled={safeCurrentClientPage <= 1}
-                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${safeCurrentClientPage <= 1
-                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                            : 'bg-black text-white hover:bg-gray-800'
-                            }`}
-                        >
-                          Anterior
-                        </button>
-                        <span className="text-sm text-gray-700">
-                          Página {safeCurrentClientPage} de {totalClientPages}
-                        </span>
-                        <button
-                          onClick={() => setClientsCurrentPage((prev) => Math.min(totalClientPages, prev + 1))}
-                          disabled={safeCurrentClientPage >= totalClientPages}
-                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${safeCurrentClientPage >= totalClientPages
-                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                            : 'bg-black text-white hover:bg-gray-800'
-                            }`}
-                        >
-                          Próxima
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
                   {isLoadingClients && clients.length > 0 && (
-                    <div className="mb-4 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                    <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-gray-300">
                       <RefreshCw className="h-4 w-4 animate-spin shrink-0" />
                       Atualizando lista de clientes...
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {/* ===== Lista de clientes ===== */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
                     {isLoadingClients && clients.length === 0 ? (
-                      <div className="col-span-full text-center py-12 bg-white rounded-lg border border-gray-300">
-                        <RefreshCw className="h-10 w-10 mx-auto mb-3 text-gray-500 animate-spin" />
-                        <p className="text-gray-700 font-medium">Carregando clientes...</p>
-                        <p className="text-sm text-gray-500 mt-1">Aguarde um instante, estamos buscando sua lista.</p>
+                      <div className="col-span-full text-center py-12 bg-[#141518] rounded-2xl border border-white/10">
+                        <RefreshCw className="h-10 w-10 mx-auto mb-3 text-gray-400 animate-spin" />
+                        <p className="text-gray-200 font-medium">Carregando clientes...</p>
+                        <p className="text-sm text-gray-400 mt-1">Aguarde um instante, estamos buscando sua lista.</p>
                       </div>
                     ) : filteredClients.length === 0 ? (
-                      <div className="col-span-full text-center py-8 bg-white rounded-lg border border-gray-300">
+                      <div className="col-span-full text-center py-10 bg-[#141518] rounded-2xl border border-white/10">
                         <Users className="h-12 w-12 mx-auto mb-2 text-gray-400 opacity-30" />
-                        <p className="text-gray-500">
+                        <p className="text-gray-400">
                           {searchQuery.trim() || showBirthdayFilter
                             ? 'Nenhum cliente encontrado para este filtro.'
                             : 'Nenhum cliente encontrado.'}
@@ -38562,45 +38841,80 @@ Estamos te aguardando!`;
                         const isExpandedClientCard = Boolean(expandedClientCards[clientCardKey]);
                         const chance = getClienteChanceFalta(client);
                         const nivel = getClienteNivel(chance);
-                        const nivelUi = getNivelClasses(nivel);
+                        // Cores do nível (bom / médio / risco) para o fundo escuro do cartão
+                        const nivelUi = nivel === 'bom'
+                          ? { card: 'border-emerald-500/35', badge: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' }
+                          : nivel === 'medio'
+                            ? { card: 'border-amber-500/45', badge: 'bg-amber-500/15 text-amber-300 border border-amber-500/30' }
+                            : { card: 'border-red-500/45', badge: 'bg-red-500/15 text-red-300 border border-red-500/30' };
+                        const clientInitials = String(client.name || '?')
+                          .trim()
+                          .split(/\s+/)
+                          .filter(Boolean)
+                          .slice(0, 2)
+                          .map((part) => part.charAt(0))
+                          .join('')
+                          .toUpperCase() || '?';
+                        const isClientBirthdayMonth = Boolean(client.birthday && isBirthdayThisMonth(client.birthday));
                         return (
                           <div
                             key={`${client.whatsapp}-${client.id}-${index}`}
-                            className={`rounded-lg p-4 border-2 shadow-sm ${client.alert ? 'bg-gray-50 border-gray-400' : 'bg-white border-gray-300'} ${nivelUi.card}`}
+                            className={`rounded-2xl border-2 bg-[#141518] text-gray-100 p-4 shadow-lg shadow-black/30 ${nivelUi.card}`}
                           >
-                            {/* Header com nome e botões de ação */}
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2 flex-1 min-w-0">
-                                {editingClient === client.whatsapp ? (
-                                  <input
-                                    type="text"
-                                    value={editClientName}
-                                    onChange={(e) => setEditClientName(e.target.value)}
-                                    className="text-lg font-medium text-gray-900 border border-gray-300 rounded px-2 py-1 flex-1"
-                                    placeholder="Nome do cliente"
-                                  />
-                                ) : (
-                                  <h3 className="text-lg font-medium text-gray-900 truncate">{client.name}</h3>
-                                )}
-                                {client.isSubscriber && <Crown className="h-5 w-5 text-yellow-500" />}
+                            {/* Cabeçalho: iniciais, nome, telefone e editar/excluir */}
+                            <div className="flex items-start gap-3">
+                              <div className="h-11 w-11 shrink-0 rounded-full bg-gradient-to-br from-amber-300 to-amber-600 text-black flex items-center justify-center text-sm font-black">
+                                {clientInitials}
                               </div>
-                              <div className="flex items-center gap-1 ml-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  {editingClient === client.whatsapp ? (
+                                    <input
+                                      type="text"
+                                      value={editClientName}
+                                      onChange={(e) => setEditClientName(e.target.value)}
+                                      className="min-w-0 flex-1 text-base font-medium text-white bg-[#0b0b0c] border border-white/15 rounded-lg px-2 py-1"
+                                      placeholder="Nome do cliente"
+                                    />
+                                  ) : (
+                                    <h3 className="text-base sm:text-lg font-bold text-white truncate">{client.name}</h3>
+                                  )}
+                                  {client.isSubscriber && <Crown className="h-5 w-5 shrink-0 text-yellow-500" />}
+                                </div>
+                                <div className="mt-1 flex items-center gap-1.5 text-sm text-gray-400 min-w-0">
+                                  <Phone className="h-3.5 w-3.5 shrink-0 text-gray-500" />
+                                  {editingClient === client.whatsapp ? (
+                                    <input
+                                      type="text"
+                                      value={editClientWhatsapp}
+                                      onChange={(e) => setEditClientWhatsapp(e.target.value)}
+                                      className="min-w-0 flex-1 border border-white/15 rounded-lg px-2 py-1 text-white bg-[#0b0b0c] focus:outline-none focus:ring-1 focus:ring-amber-400/60"
+                                      placeholder="WhatsApp do cliente"
+                                    />
+                                  ) : (
+                                    <span className="truncate text-gray-300">{client.whatsapp}</span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
                                 {editingClient === client.whatsapp ? (
                                   <>
                                     <button
+                                      type="button"
                                       onClick={saveClientEdit}
-                                      className="text-gray-700 hover:text-black p-1"
+                                      className="h-8 w-8 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 flex items-center justify-center font-bold"
                                       title="Salvar"
                                     >
                                       ✓
                                     </button>
                                     <button
+                                      type="button"
                                       onClick={() => {
                                         setEditingClient(null);
                                         setEditClientName('');
                                         setEditClientWhatsapp('');
                                       }}
-                                      className="text-gray-600 hover:text-gray-900 p-1"
+                                      className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-gray-200 hover:bg-white/10 flex items-center justify-center font-bold"
                                       title="Cancelar"
                                     >
                                       ✗
@@ -38609,15 +38923,17 @@ Estamos te aguardando!`;
                                 ) : (
                                   <>
                                     <button
+                                      type="button"
                                       onClick={() => handleEditClient(client)}
-                                      className="text-gray-600 hover:text-black p-1"
+                                      className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-gray-200 hover:bg-white/10 flex items-center justify-center"
                                       title="Editar cliente"
                                     >
                                       ✏️
                                     </button>
                                     <button
+                                      type="button"
                                       onClick={() => handleDeleteClient(client.whatsapp)}
-                                      className="text-gray-600 hover:text-black p-1"
+                                      className="h-8 w-8 rounded-lg border border-white/10 bg-white/5 text-gray-200 hover:bg-red-500/20 flex items-center justify-center"
                                       title="Excluir cliente"
                                     >
                                       🗑️
@@ -38627,361 +38943,416 @@ Estamos te aguardando!`;
                               </div>
                             </div>
 
-                            <div className="text-gray-700 flex items-center gap-2 mb-2">
-                              <Phone className="h-4 w-4 text-gray-600" />
-                              {editingClient === client.whatsapp ? (
-                                <input
-                                  type="text"
-                                  value={editClientWhatsapp}
-                                  onChange={(e) => setEditClientWhatsapp(e.target.value)}
-                                  className="border border-gray-300 rounded px-2 py-1 flex-1 text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-500"
-                                  placeholder="WhatsApp do cliente"
-                                />
-                              ) : (
-                                <span className="text-gray-700">{client.whatsapp}</span>
-                              )}
-                            </div>
+                            {/* Etiquetas rápidas (só aparecem quando valem para o cliente) */}
+                            {(client.isSubscriber || client.bookingBlocked || client.forceAdvancePayment || client.alert || isClientBirthdayMonth) && (
+                              <div className="mt-3 flex flex-wrap gap-1.5">
+                                {client.isSubscriber && (
+                                  <span className="px-2 py-0.5 rounded-full border border-yellow-500/40 bg-yellow-500/10 text-[11px] font-bold text-yellow-300">👑 Assinante</span>
+                                )}
+                                {client.bookingBlocked && (
+                                  <span className="px-2 py-0.5 rounded-full border border-red-500/40 bg-red-500/10 text-[11px] font-bold text-red-300">🚫 Bloqueado</span>
+                                )}
+                                {client.forceAdvancePayment && (
+                                  <span className="px-2 py-0.5 rounded-full border border-blue-500/40 bg-blue-500/10 text-[11px] font-bold text-blue-300">💳 Cobrança obrigatória</span>
+                                )}
+                                {isClientBirthdayMonth && (
+                                  <span className="px-2 py-0.5 rounded-full border border-pink-500/40 bg-pink-500/10 text-[11px] font-bold text-pink-300">🎂 Aniversário este mês</span>
+                                )}
+                                {client.alert && (
+                                  <span
+                                    className="max-w-full truncate px-2 py-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 text-[11px] font-bold text-amber-200"
+                                    title={client.alert}
+                                  >
+                                    ⚠️ {client.alert}
+                                  </span>
+                                )}
+                              </div>
+                            )}
 
                             {clientAfcoinsEnabled && client.afcoinBalance !== undefined && (
-                              <div className="mb-3">
+                              <div className="mt-3">
                                 <ClientAfcoinBadge balance={client.afcoinBalance} />
                               </div>
                             )}
 
-                            <div className="mb-3">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setExpandedClientCards((prev) => ({
-                                    ...prev,
-                                    [clientCardKey]: !isExpandedClientCard,
-                                  }))
-                                }
-                                className="w-full px-3 py-2 rounded-lg bg-gray-100 text-gray-900 hover:bg-gray-200 transition-colors text-xs font-extrabold"
-                              >
-                                {isExpandedClientCard ? 'Ver menos' : 'Ver mais'}
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedClientCards((prev) => ({
+                                  ...prev,
+                                  [clientCardKey]: !isExpandedClientCard,
+                                }))
+                              }
+                              className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-gray-100 hover:bg-white/10 transition-colors text-xs font-extrabold"
+                            >
+                              {isExpandedClientCard ? 'Ver menos' : 'Ver mais'}
+                              <ChevronDown className={`h-4 w-4 transition-transform ${isExpandedClientCard ? 'rotate-180' : ''}`} />
+                            </button>
 
                             {isExpandedClientCard && (
-                              <>
-                                <div className="flex items-center justify-between gap-2 mb-2">
-                                  <span className={`px-2 py-1 rounded-lg text-[11px] font-extrabold ${nivelUi.badge}`}>
-                                    {getNivelLabel(nivel)} {chance}% {chance > 40 ? '⚠️' : ''}
-                                  </span>
-                                  <span className="text-[11px] text-gray-600">
-                                    Faltas: <strong className="text-gray-900">{Number(client.faltas || 0)}</strong>
-                                  </span>
-                                </div>
-                                <p className="text-gray-700 flex items-center gap-2 mb-1">
-                                  <Calendar className="h-4 w-4 text-gray-600" />
-                                  Agendamentos: {client.appointmentCount}
-                                </p>
-                                <p className="text-gray-700 flex items-center gap-2 mb-1">
-                                  <span className="text-gray-600">✅</span>
-                                  {Number(client.completedCount || 0) === 0 ? (
-                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-500 text-white">🆕 PRIMEIRO AGENDAMENTO</span>
-                                  ) : (
-                                    <>Realizados: {Number(client.completedCount || 0)}</>
-                                  )}
-                                </p>
-                                {client.isSubscriber && (
-                                  <p className="text-gray-700 flex items-center gap-2 mb-1">
-                                    <Crown className="h-4 w-4 text-yellow-600" />
-                                    Assinante:{' '}
-                                    <span
-                                      className={`px-2 py-0.5 rounded-md border text-[11px] font-extrabold ${
-                                        client.subscriberPaymentStatus === 'paid'
-                                          ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
-                                          : 'border-red-300 bg-red-50 text-red-900'
-                                      }`}
-                                    >
-                                      {client.subscriberPaymentStatus === 'paid' ? 'Pago' : 'Vencido'}
+                              <div className="mt-4 space-y-4">
+                                {/* --- Resumo --- */}
+                                <div>
+                                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-gray-400">📊 Resumo</p>
+                                  <div className="mb-2 flex items-center justify-between gap-2">
+                                    <span className={`px-2 py-1 rounded-lg text-[11px] font-extrabold ${nivelUi.badge}`}>
+                                      {getNivelLabel(nivel)} {chance}% {chance > 40 ? '⚠️' : ''}
                                     </span>
-                                  </p>
-                                )}
-                                {editingClientContact === client.whatsapp ? (
-                                  <div className="mb-3 rounded-lg border border-gray-300 bg-gray-50 p-3 space-y-2">
-                                    <input
-                                      type="text"
-                                      value={newClientContactCpf}
-                                      onChange={(e) => setNewClientContactCpf(e.target.value)}
-                                      placeholder="CPF (opcional)"
-                                      className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary text-gray-900 bg-white placeholder-gray-500"
-                                    />
-                                    <input
-                                      type="text"
-                                      value={newClientContactStreet}
-                                      onChange={(e) => setNewClientContactStreet(e.target.value)}
-                                      placeholder="Rua / Endereço (opcional)"
-                                      className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary text-gray-900 bg-white placeholder-gray-500"
-                                    />
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        type="button"
-                                        disabled={isSavingClientContact}
-                                        onClick={() => handleSaveClientContact(client)}
-                                        className="px-3 py-1 rounded bg-black text-white text-xs font-bold disabled:opacity-60"
-                                      >
-                                        Salvar contato
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={isSavingClientContact}
-                                        onClick={() => {
-                                          setEditingClientContact(null);
-                                          setNewClientContactCpf('');
-                                          setNewClientContactStreet('');
-                                        }}
-                                        className="px-3 py-1 rounded bg-gray-200 text-gray-800 text-xs font-bold"
-                                      >
-                                        Cancelar
-                                      </button>
+                                    <span className="text-[11px] text-gray-400">
+                                      Faltas: <strong className="text-white">{Number(client.faltas || 0)}</strong>
+                                    </span>
+                                  </div>
+                                  <div className="grid grid-cols-3 gap-2">
+                                    <div className="rounded-xl border border-white/10 bg-black/30 px-1 py-2 text-center">
+                                      <p className="text-lg font-black text-white leading-tight">{client.appointmentCount}</p>
+                                      <p className="text-[10px] font-bold uppercase tracking-tight leading-tight text-gray-400">Agendamentos</p>
+                                    </div>
+                                    <div className="rounded-xl border border-white/10 bg-black/30 px-1 py-2 text-center">
+                                      <p className="text-lg font-black text-white leading-tight">{Number(client.completedCount || 0)}</p>
+                                      <p className="text-[10px] font-bold uppercase tracking-tight leading-tight text-gray-400">Realizados</p>
+                                    </div>
+                                    <div className="rounded-xl border border-white/10 bg-black/30 px-1 py-2 text-center">
+                                      <p className="text-lg font-black text-white leading-tight">{Number(client.faltas || 0)}</p>
+                                      <p className="text-[10px] font-bold uppercase tracking-tight leading-tight text-gray-400">Faltas</p>
                                     </div>
                                   </div>
-                                ) : (
-                                  <div className="mb-2">
-                                    <p className="text-gray-700 flex items-center gap-2 mb-1">
-                                      <span className="text-gray-600">🪪</span>
-                                      CPF: {client.cpf ? formatCpfDisplay(client.cpf) : 'Não informado'}
-                                    </p>
-                                    <p className="text-gray-700 flex items-center gap-2 mb-1">
-                                      <span className="text-gray-600">📍</span>
-                                      Rua: {client.street ? client.street : 'Não informado'}
-                                    </p>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleEditClientContact(client)}
-                                      className="text-xs text-gray-700 hover:text-black font-semibold underline"
-                                    >
-                                      {client.cpf || client.street ? 'Editar CPF/endereço' : 'Adicionar CPF/endereço'}
-                                    </button>
-                                  </div>
-                                )}
-
-                                {/* Campo de aniversário */}
-                                <div className="text-gray-700 flex items-center gap-2 mb-4">
-                                  <span className="text-gray-500">🎂</span>
-                                  {editingClientBirthday === client.whatsapp ? (
-                                    <div className="flex items-center gap-2">
-                                      <input
-                                        type="text"
-                                        inputMode="numeric"
-                                        value={newBirthday}
-                                        onChange={(e) => setNewBirthday(formatBirthdayMask(e.target.value))}
-                                        placeholder="DD/MM/AAAA"
-                                        maxLength={10}
-                                        className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary"
-                                      />
-                                      <button
-                                        onClick={() => saveBirthday(client.whatsapp, newBirthday)}
-                                        className="text-gray-700 hover:text-black"
-                                        title="Salvar"
-                                      >
-                                        ✓
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          setEditingClientBirthday(null);
-                                          setNewBirthday('');
-                                        }}
-                                        className="text-gray-600 hover:text-gray-900"
-                                        title="Cancelar"
-                                      >
-                                        ✗
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-sm">
-                                        {client.birthday
-                                          ? new Date(client.birthday + 'T12:00:00').toLocaleDateString('pt-BR')
-                                          : 'Não informado'
-                                        }
-                                      </span>
-                                      <button
-                                        onClick={() => {
-                                          console.log('🎯 Cliente clicado para editar:', {
-                                            clientWhatsapp: client.whatsapp,
-                                            clientName: client.name,
-                                            currentBirthday: client.birthday
-                                          });
-                                          setEditingClientBirthday(client.whatsapp);
-                                          setNewBirthday(isoBirthdayToDisplay(client.birthday || ''));
-                                        }}
-                                        className="text-gray-600 hover:text-black text-xs"
-                                        title="Editar aniversário"
-                                      >
-                                        ✏️
-                                      </button>
-                                    </div>
+                                  {Number(client.completedCount || 0) === 0 && (
+                                    <span className="mt-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-500 text-white">🆕 PRIMEIRO AGENDAMENTO</span>
                                   )}
-                                  {client.birthday && isBirthdayThisMonth(client.birthday) && (
-                                    <span className="text-gray-700 text-xs font-medium">• Aniversário este mês!</span>
-                                  )}
-                                </div>
-
-                                {/* Campo de alerta */}
-                                <div className="text-gray-700 flex items-center gap-2 mb-4">
-                                  <span className="text-red-500">⚠️</span>
-                                  {editingClientAlert === client.whatsapp ? (
-                                    <div className="flex items-center gap-2 flex-1">
-                                      <input
-                                        type="text"
-                                        value={newAlert}
-                                        onChange={(e) => {
-                                          const value = e.target.value;
-                                          if (value.length <= 100) {
-                                            setNewAlert(value);
-                                          }
-                                        }}
-                                        maxLength={100}
-                                        placeholder="Digite o alerta (máx. 100 caracteres)"
-                                        className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-primary flex-1"
-                                      />
-                                      <span className="text-xs text-gray-500">{newAlert.length}/100</span>
-                                      <button
-                                        onClick={() => saveAlert(client.whatsapp, newAlert)}
-                                        className="text-gray-700 hover:text-black"
-                                        title="Salvar"
-                                      >
-                                        ✓
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          setEditingClientAlert(null);
-                                          setNewAlert('');
-                                        }}
-                                        className="text-gray-600 hover:text-gray-900"
-                                        title="Cancelar"
-                                      >
-                                        ✗
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center gap-2 flex-1">
-                                      <span className={`text-sm ${client.alert ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
-                                        {client.alert || 'Nenhum alerta'}
-                                      </span>
-                                      <button
-                                        onClick={() => {
-                                          setEditingClientAlert(client.whatsapp);
-                                          setNewAlert(client.alert || '');
-                                        }}
-                                        className="text-gray-600 hover:text-black text-xs"
-                                        title="Editar alerta"
-                                      >
-                                        ✏️
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="mb-4 rounded-lg border border-gray-300 bg-gray-50 p-3">
-                                  <div className="flex items-center justify-between gap-3">
-                                    <div>
-                                      <p className="text-sm font-semibold text-gray-900">Cobrança obrigatória</p>
-                                      <p className="text-xs text-gray-600">
-                                        Se ativado, este cliente só agenda mediante pagamento.
-                                      </p>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleClientMandatoryCharge(client)}
-                                      disabled={!canUseClientMandatoryCharge}
-                                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${!canUseClientMandatoryCharge
-                                        ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                                        : client.forceAdvancePayment
-                                          ? 'bg-red-600 text-white hover:bg-red-700'
-                                          : 'bg-gray-900 text-white hover:bg-black'
+                                  {client.isSubscriber && (
+                                    <p className="mt-2 text-sm text-gray-300 flex items-center gap-2">
+                                      <Crown className="h-4 w-4 text-yellow-400" />
+                                      Assinante:{' '}
+                                      <span
+                                        className={`px-2 py-0.5 rounded-md border text-[11px] font-extrabold ${
+                                          client.subscriberPaymentStatus === 'paid'
+                                            ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                                            : 'border-red-500/40 bg-red-500/15 text-red-300'
                                         }`}
-                                      title={
-                                        canUseClientMandatoryCharge
-                                          ? 'Ativar/desativar cobrança obrigatória para este cliente'
-                                          : 'Conecte Mercado Pago e deixe pagamento adiantado como opcional para liberar'
-                                      }
-                                    >
-                                      {client.forceAdvancePayment ? 'ATIVADO' : 'DESATIVADO'}
-                                    </button>
-                                  </div>
-                                  {!canUseClientMandatoryCharge && (
-                                    <p className="mt-2 text-[11px] text-amber-700">
-                                      Disponível somente com Mercado Pago conectado e opção global de pagamento adiantado opcional ativa.
+                                      >
+                                        {client.subscriberPaymentStatus === 'paid' ? 'Pago' : 'Vencido'}
+                                      </span>
                                     </p>
                                   )}
                                 </div>
 
-                                <div className="flex items-center gap-2 mb-3">
+                                {/* --- Dados do cliente --- */}
+                                <div className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-2">
+                                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">👤 Dados do cliente</p>
+                                  {editingClientContact === client.whatsapp ? (
+                                    <div className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-2">
+                                      <input
+                                        type="text"
+                                        value={newClientContactCpf}
+                                        onChange={(e) => setNewClientContactCpf(e.target.value)}
+                                        placeholder="CPF (opcional)"
+                                        className="w-full text-xs px-2 py-1.5 border border-white/15 rounded focus:outline-none focus:ring-1 focus:ring-amber-400/60 text-white bg-[#0b0b0c] placeholder-gray-500"
+                                      />
+                                      <input
+                                        type="text"
+                                        value={newClientContactStreet}
+                                        onChange={(e) => setNewClientContactStreet(e.target.value)}
+                                        placeholder="Rua / Endereço (opcional)"
+                                        className="w-full text-xs px-2 py-1.5 border border-white/15 rounded focus:outline-none focus:ring-1 focus:ring-amber-400/60 text-white bg-[#0b0b0c] placeholder-gray-500"
+                                      />
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          type="button"
+                                          disabled={isSavingClientContact}
+                                          onClick={() => handleSaveClientContact(client)}
+                                          className="px-3 py-1 rounded bg-amber-400 text-black text-xs font-bold disabled:opacity-60"
+                                        >
+                                          Salvar contato
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isSavingClientContact}
+                                          onClick={() => {
+                                            setEditingClientContact(null);
+                                            setNewClientContactCpf('');
+                                            setNewClientContactStreet('');
+                                          }}
+                                          className="px-3 py-1 rounded bg-white/10 text-gray-100 text-xs font-bold"
+                                        >
+                                          Cancelar
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      <p className="text-sm text-gray-300 flex items-center gap-2 mb-1">
+                                        <span className="text-gray-400">🆔</span>
+                                        CPF: {client.cpf ? formatCpfDisplay(client.cpf) : 'Não informado'}
+                                      </p>
+                                      <p className="text-sm text-gray-300 flex items-center gap-2 mb-1">
+                                        <span className="text-gray-400">📍</span>
+                                        <span className="min-w-0 break-words">Rua: {client.street ? client.street : 'Não informado'}</span>
+                                      </p>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleEditClientContact(client)}
+                                        className="text-xs text-amber-300 hover:text-amber-200 font-semibold underline"
+                                      >
+                                        {client.cpf || client.street ? 'Editar CPF/endereço' : 'Adicionar CPF/endereço'}
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {/* Campo de aniversário */}
+                                  <div className="text-sm text-gray-300 flex flex-wrap items-center gap-2 pt-2 border-t border-white/10">
+                                    <span className="text-gray-400">🎂</span>
+                                    {editingClientBirthday === client.whatsapp ? (
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="text"
+                                          inputMode="numeric"
+                                          value={newBirthday}
+                                          onChange={(e) => setNewBirthday(formatBirthdayMask(e.target.value))}
+                                          placeholder="DD/MM/AAAA"
+                                          maxLength={10}
+                                          className="text-xs px-2 py-1 border border-white/15 rounded text-white bg-[#0b0b0c] placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-amber-400/60"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => saveBirthday(client.whatsapp, newBirthday)}
+                                          className="text-emerald-300 hover:text-emerald-200"
+                                          title="Salvar"
+                                        >
+                                          ✓
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingClientBirthday(null);
+                                            setNewBirthday('');
+                                          }}
+                                          className="text-gray-400 hover:text-white"
+                                          title="Cancelar"
+                                        >
+                                          ✗
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-sm text-gray-300">
+                                          {client.birthday
+                                            ? new Date(client.birthday + 'T12:00:00').toLocaleDateString('pt-BR')
+                                            : 'Não informado'
+                                          }
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            console.log('🎯 Cliente clicado para editar:', {
+                                              clientWhatsapp: client.whatsapp,
+                                              clientName: client.name,
+                                              currentBirthday: client.birthday
+                                            });
+                                            setEditingClientBirthday(client.whatsapp);
+                                            setNewBirthday(isoBirthdayToDisplay(client.birthday || ''));
+                                          }}
+                                          className="text-gray-400 hover:text-white text-xs"
+                                          title="Editar aniversário"
+                                        >
+                                          ✏️
+                                        </button>
+                                      </div>
+                                    )}
+                                    {client.birthday && isBirthdayThisMonth(client.birthday) && (
+                                      <span className="text-pink-300 text-xs font-medium">• Aniversário este mês!</span>
+                                    )}
+                                  </div>
+
+                                  {/* Campo de alerta */}
+                                  <div className="text-sm text-gray-300 flex items-center gap-2 pt-2 border-t border-white/10">
+                                    <span className="text-red-500">⚠️</span>
+                                    {editingClientAlert === client.whatsapp ? (
+                                      <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+                                        <input
+                                          type="text"
+                                          value={newAlert}
+                                          onChange={(e) => {
+                                            const value = e.target.value;
+                                            if (value.length <= 100) {
+                                              setNewAlert(value);
+                                            }
+                                          }}
+                                          maxLength={100}
+                                          placeholder="Digite o alerta (máx. 100 caracteres)"
+                                          className="text-xs px-2 py-1 border border-white/15 rounded text-white bg-[#0b0b0c] placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-amber-400/60 flex-1 min-w-0"
+                                        />
+                                        <span className="text-xs text-gray-400">{newAlert.length}/100</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => saveAlert(client.whatsapp, newAlert)}
+                                          className="text-emerald-300 hover:text-emerald-200"
+                                          title="Salvar"
+                                        >
+                                          ✓
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingClientAlert(null);
+                                            setNewAlert('');
+                                          }}
+                                          className="text-gray-400 hover:text-white"
+                                          title="Cancelar"
+                                        >
+                                          ✗
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                                        <span className={`text-sm break-words ${client.alert ? 'text-amber-200 font-semibold' : 'text-gray-500'}`}>
+                                          {client.alert || 'Nenhum alerta'}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingClientAlert(client.whatsapp);
+                                            setNewAlert(client.alert || '');
+                                          }}
+                                          className="text-gray-400 hover:text-white text-xs"
+                                          title="Editar alerta"
+                                        >
+                                          ✏️
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* --- Controles do cliente --- */}
+                                <div className="space-y-2">
+                                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">⚙️ Controles</p>
+                                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <div>
+                                        <p className="text-sm font-semibold text-white">💳 Cobrança obrigatória</p>
+                                        <p className="text-xs text-gray-400">
+                                          Se ativado, este cliente só agenda mediante pagamento.
+                                        </p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleClientMandatoryCharge(client)}
+                                        disabled={!canUseClientMandatoryCharge}
+                                        className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${!canUseClientMandatoryCharge
+                                          ? 'bg-white/10 text-gray-500 cursor-not-allowed'
+                                          : client.forceAdvancePayment
+                                            ? 'bg-red-600 text-white hover:bg-red-700'
+                                            : 'bg-white/10 text-gray-100 border border-white/15 hover:bg-white/15'
+                                          }`}
+                                        title={
+                                          canUseClientMandatoryCharge
+                                            ? 'Ativar/desativar cobrança obrigatória para este cliente'
+                                            : 'Conecte Mercado Pago e deixe pagamento adiantado como opcional para liberar'
+                                        }
+                                      >
+                                        {client.forceAdvancePayment ? 'ATIVADO' : 'DESATIVADO'}
+                                      </button>
+                                    </div>
+                                    {!canUseClientMandatoryCharge && (
+                                      <p className="mt-2 text-[11px] text-amber-300">
+                                        Disponível somente com Mercado Pago conectado e opção global de pagamento adiantado opcional ativa.
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  {/* Bloquear cliente: para ele a agenda aparece sempre lotada */}
+                                  <div className={`rounded-xl border p-3 ${client.bookingBlocked ? 'border-red-500/50 bg-red-500/10' : 'border-white/10 bg-white/5'}`}>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <div>
+                                        <p className="text-sm font-semibold text-white">🚫 Bloquear cliente</p>
+                                        <p className="text-xs text-gray-400">
+                                          Se ativado, quando ele for agendar (página completa, chat ou simples) a agenda aparece sempre lotada. Ele não é avisado.
+                                        </p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleClientBookingBlocked(client)}
+                                        className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${client.bookingBlocked
+                                          ? 'bg-red-600 text-white hover:bg-red-700'
+                                          : 'bg-white/10 text-gray-100 border border-white/15 hover:bg-white/15'
+                                          }`}
+                                        title="Bloquear/desbloquear este cliente nas páginas de agendamento"
+                                      >
+                                        {client.bookingBlocked ? 'BLOQUEADO' : 'DESATIVADO'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* --- Ações --- */}
+                                <div className="space-y-2">
+                                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">⚡ Ações</p>
                                   <button
                                     type="button"
                                     onClick={() => handleOpenClientFutureAppointments(client)}
-                                    className="w-full px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors text-xs font-extrabold"
+                                    className="w-full px-3 py-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition-colors text-xs font-extrabold"
                                   >
-                                    AGENDAMENTOS FUTUROS
+                                    📅 AGENDAMENTOS FUTUROS
                                   </button>
-                                </div>
-
-                                <div className="flex items-center gap-2 mb-3">
                                   <button
                                     type="button"
                                     onClick={() => handleOpenClientPastAppointments(client)}
-                                    className="w-full px-3 py-2 rounded-lg bg-slate-600 text-white hover:bg-slate-700 transition-colors text-xs font-extrabold"
+                                    className="w-full px-3 py-2.5 rounded-xl bg-slate-600 text-white hover:bg-slate-700 transition-colors text-xs font-extrabold"
                                   >
-                                    ( Agendamentos / pontos fidelidade)
+                                    📜 HISTÓRICO ( Agendamentos / pontos fidelidade)
                                   </button>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedClientInfo(client);
+                                        setShowClientInfoModal(true);
+                                      }}
+                                      className="px-3 py-2.5 rounded-xl border border-white/15 bg-white/10 text-white hover:bg-white/15 transition-colors text-xs font-extrabold"
+                                    >
+                                      ℹ️ INFORMAÇÕES
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={isSavingFalta}
+                                      onClick={() => ajustarFaltaCliente(client, 1)}
+                                      className={`px-3 py-2.5 rounded-xl text-xs font-extrabold transition-colors ${isSavingFalta ? 'bg-red-900/50 text-red-200 opacity-70 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-700'
+                                        }`}
+                                      title="Soma 1 falta para este cliente"
+                                    >
+                                      ❌ FALTOU
+                                    </button>
+                                  </div>
+                                  <a
+                                    href={(() => {
+                                      let phoneNumber = client.whatsapp.replace(/\D/g, '');
+                                      // Lista de códigos de países comuns
+                                      const countryCodes = [
+                                        { code: '351', minLength: 12 },
+                                        { code: '244', minLength: 12 },
+                                        { code: '54', minLength: 12 },
+                                        { code: '56', minLength: 11 },
+                                        { code: '55', minLength: 12 },
+                                        { code: '34', minLength: 11 },
+                                        { code: '1', minLength: 11 }
+                                      ];
+                                      const hasCountryCode = countryCodes.some(({ code, minLength }) =>
+                                        phoneNumber.startsWith(code) && phoneNumber.length >= minLength
+                                      );
+                                      if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
+                                        phoneNumber = '55' + phoneNumber;
+                                      }
+                                      return `https://wa.me/${phoneNumber}`;
+                                    })()}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors text-sm font-bold"
+                                  >
+                                    <MessageSquare className="h-5 w-5" />
+                                    Enviar Mensagem
+                                  </a>
                                 </div>
-
-                                <div className="flex items-center gap-2 mb-3">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedClientInfo(client);
-                                      setShowClientInfoModal(true);
-                                    }}
-                                    className="flex-1 px-3 py-2 rounded-lg bg-gray-200 text-gray-900 hover:bg-gray-300 transition-colors text-xs font-extrabold"
-                                  >
-                                    INFORMAÇÕES
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={isSavingFalta}
-                                    onClick={() => ajustarFaltaCliente(client, 1)}
-                                    className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-colors ${isSavingFalta ? 'bg-red-200 text-red-900 opacity-70 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-700'
-                                      }`}
-                                  >
-                                    FALTOU
-                                  </button>
-                                </div>
-
-                                <a
-                                  href={(() => {
-                                    let phoneNumber = client.whatsapp.replace(/\D/g, '');
-                                    // Lista de códigos de países comuns
-                                    const countryCodes = [
-                                      { code: '351', minLength: 12 },
-                                      { code: '244', minLength: 12 },
-                                      { code: '54', minLength: 12 },
-                                      { code: '56', minLength: 11 },
-                                      { code: '55', minLength: 12 },
-                                      { code: '34', minLength: 11 },
-                                      { code: '1', minLength: 11 }
-                                    ];
-                                    const hasCountryCode = countryCodes.some(({ code, minLength }) =>
-                                      phoneNumber.startsWith(code) && phoneNumber.length >= minLength
-                                    );
-                                    if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
-                                      phoneNumber = '55' + phoneNumber;
-                                    }
-                                    return `https://wa.me/${phoneNumber}`;
-                                  })()}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
-                                >
-                                  <MessageSquare className="h-5 w-5" />
-                                  Enviar Mensagem
-                                </a>
-                              </>
+                              </div>
                             )}
                           </div>
                         );
@@ -40933,284 +41304,182 @@ Estamos te aguardando!`;
 
           {/* Tab de Ranking */}
           {activeTab === 'ranking' && (
-            <div className="bg-white rounded-lg p-6 border border-gray-300">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">🏆 Ranking dos Clientes Mais Fiéis</h2>
-
-              {/* Botões de navegação */}
-              <div className="flex flex-col sm:flex-row gap-3 mb-6">
-                <button
-                  onClick={() => handleTabChange('clients')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Users className="h-4 w-4" />
-                  Meus Clientes
-                </button>
-                <button
-                  onClick={() => handleTabChange('ranking')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Crown className="h-4 w-4" />
-                  Ranking Clientes
-                </button>
-                <button
-                  onClick={() => handleTabChange('missing-clients')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Users className="h-4 w-4" />
-                  Clientes Sumidos
-                </button>
-                <button
-                  onClick={() => handleTabChange('draw')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Shuffle className="h-4 w-4" />
-                  Sorteio
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTabChange('client-loyalty-bulk')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Star className="h-4 w-4" />
-                  Ponto Fidelidade
-                </button>
-              </div>
-
-              <div className="mb-4 p-3 bg-gray-100 border border-gray-300 rounded-lg">
-                <p className="text-sm text-gray-700">
-                  <strong>Critério:</strong> Apenas clientes com 9 ou mais agendamentos aparecem no ranking.
+            <div className="-mx-4 sm:mx-0 space-y-5 text-gray-100 bg-[#0b0b0c] sm:rounded-3xl p-3 sm:p-5 sm:border sm:border-white/5">
+              <div className="rounded-2xl border border-amber-400/25 bg-[#141518] bg-gradient-to-br from-[#2b2412] via-[#16171a] to-[#111214] p-4 sm:p-5 text-white shadow-lg shadow-black/30">
+                <h2 className="text-xl sm:text-2xl font-black text-white">🏆 Ranking dos Clientes Mais Fiéis</h2>
+                <p className="mt-1 text-xs sm:text-sm text-gray-300">
+                  <strong className="text-white">Critério:</strong> Apenas clientes com 9 ou mais agendamentos aparecem no ranking.
                 </p>
               </div>
-              {rankingClients.length === 0 ? (
-                <div className="text-center py-8">
-                  <div className="text-6xl mb-4">🏆</div>
-                  <h4 className="text-lg font-medium text-gray-900 mb-2">Nenhum cliente no ranking ainda</h4>
-                  <p className="text-gray-600">
-                    Os clientes precisam ter pelo menos 9 agendamentos para aparecerem aqui.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {rankingClients.map((client, index) => (
-                    <div key={`${client.id}-${client.whatsapp}-${index}`} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
-                      <div className="flex items-center gap-4">
-                        {/* Posição */}
-                        <div className={`flex items-center justify-center w-10 h-10 rounded-full text-white font-bold text-lg ${client.position === 1 ? 'bg-gray-800' :
-                          client.position === 2 ? 'bg-gray-600' :
-                            client.position === 3 ? 'bg-gray-700' :
-                              'bg-gray-500'
-                          }`}>
-                          {client.position === 1 ? '🥇' :
-                            client.position === 2 ? '🥈' :
-                              client.position === 3 ? '🥉' :
-                                client.position}
-                        </div>
 
-                        {/* Informações do cliente */}
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-medium text-gray-900">{client.name}</h4>
-                            {client.isSubscriber && <Crown className="h-4 w-4 text-gray-700" />}
+              {/* Botões de navegação */}
+              {renderClientAreasNav('ranking')}
+
+              <div className="rounded-2xl border border-white/10 bg-[#141518] p-3 sm:p-4">
+                {rankingClients.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="text-6xl mb-4">🏆</div>
+                    <h4 className="text-lg font-medium text-white mb-2">Nenhum cliente no ranking ainda</h4>
+                    <p className="text-gray-400">
+                      Os clientes precisam ter pelo menos 9 agendamentos para aparecerem aqui.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {rankingClients.map((client, index) => (
+                      <div key={`${client.id}-${client.whatsapp}-${index}`} className="flex items-center justify-between gap-3 p-3 sm:p-4 rounded-xl border border-white/10 bg-white/5">
+                        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                          {/* Posição */}
+                          <div className={`flex shrink-0 items-center justify-center w-10 h-10 rounded-full font-bold text-lg ${client.position === 1 ? 'bg-amber-400 text-black' :
+                            client.position === 2 ? 'bg-gray-300 text-black' :
+                              client.position === 3 ? 'bg-amber-700 text-white' :
+                                'bg-white/10 text-white'
+                            }`}>
+                            {client.position === 1 ? '🥇' :
+                              client.position === 2 ? '🥈' :
+                                client.position === 3 ? '🥉' :
+                                  client.position}
                           </div>
-                          <p className="text-sm text-gray-600">{client.whatsapp}</p>
-                          <p className="text-sm text-gray-700 font-medium">
-                            {client.appointmentCount} agendamento{client.appointmentCount !== 1 ? 's' : ''}
-                          </p>
-                        </div>
-                      </div>
 
-                      {/* Botão WhatsApp */}
-                      <a
-                        href={(() => {
-                          let phoneNumber = client.whatsapp.replace(/\D/g, '');
-                          if (!phoneNumber.startsWith('55')) {
-                            phoneNumber = '55' + phoneNumber;
-                          }
-                          return `https://wa.me/${phoneNumber}`;
-                        })()}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-3 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm"
-                      >
-                        WhatsApp
-                      </a>
-                    </div>
-                  ))}
-                </div>
-              )}
+                          {/* Informações do cliente */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5 min-w-0">
+                              <h4 className="font-semibold text-white truncate">{client.name}</h4>
+                              {client.isSubscriber && <Crown className="h-4 w-4 shrink-0 text-yellow-400" />}
+                            </div>
+                            <p className="text-sm text-gray-400">{client.whatsapp}</p>
+                            <p className="text-sm text-gray-200 font-medium">
+                              {client.appointmentCount} agendamento{client.appointmentCount !== 1 ? 's' : ''}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Botão WhatsApp */}
+                        <a
+                          href={(() => {
+                            let phoneNumber = client.whatsapp.replace(/\D/g, '');
+                            if (!phoneNumber.startsWith('55')) {
+                              phoneNumber = '55' + phoneNumber;
+                            }
+                            return `https://wa.me/${phoneNumber}`;
+                          })()}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-semibold"
+                        >
+                          WhatsApp
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
           {/* Tab de Clientes Sumidos */}
           {activeTab === 'missing-clients' && (
-            <div className="bg-white rounded-lg p-6 border border-gray-300">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">👻 Clientes Sumidos</h2>
-
-              {/* Botões de navegação */}
-              <div className="flex flex-col sm:flex-row gap-3 mb-6">
-                <button
-                  onClick={() => handleTabChange('clients')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Users className="h-4 w-4" />
-                  Meus Clientes
-                </button>
-                <button
-                  onClick={() => handleTabChange('ranking')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Crown className="h-4 w-4" />
-                  Ranking Clientes
-                </button>
-                <button
-                  onClick={() => handleTabChange('missing-clients')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Users className="h-4 w-4" />
-                  Clientes Sumidos
-                </button>
-                <button
-                  onClick={() => handleTabChange('draw')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Shuffle className="h-4 w-4" />
-                  Sorteio
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTabChange('client-loyalty-bulk')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Star className="h-4 w-4" />
-                  Ponto Fidelidade
-                </button>
-              </div>
-
-              <div className="mb-4 p-3 bg-gray-100 border border-gray-300 rounded-lg">
-                <p className="text-sm text-gray-700">
-                  <strong>Critério:</strong> Último agendamento (não cancelado) há <strong>30 dias ou mais</strong>. Quem agendou há menos de 30 dias não aparece aqui.
+            <div className="-mx-4 sm:mx-0 space-y-5 text-gray-100 bg-[#0b0b0c] sm:rounded-3xl p-3 sm:p-5 sm:border sm:border-white/5">
+              <div className="rounded-2xl border border-amber-400/25 bg-[#141518] bg-gradient-to-br from-[#2b2412] via-[#16171a] to-[#111214] p-4 sm:p-5 text-white shadow-lg shadow-black/30">
+                <h2 className="text-xl sm:text-2xl font-black text-white">👻 Clientes Sumidos</h2>
+                <p className="mt-1 text-xs sm:text-sm text-gray-300">
+                  <strong className="text-white">Critério:</strong> Último agendamento (não cancelado) há <strong className="text-white">30 dias ou mais</strong>. Quem agendou há menos de 30 dias não aparece aqui.
                 </p>
               </div>
-              {missingClients.length === 0 ? (
-                <div className="text-center py-8">
-                  <div className="text-6xl mb-4">🎉</div>
-                  <h4 className="text-lg font-medium text-gray-900 mb-2">Nenhum cliente sumido!</h4>
-                  <p className="text-gray-600">
-                    Todos os seus clientes estão ativos. Parabéns!
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {missingClients.map((client, index) => (
-                    <div key={`${client!.id}-${client!.whatsapp}-${index}`} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
-                      <div className="flex items-center gap-4">
-                        {/* Indicador de tempo */}
-                        <div className={`flex items-center justify-center w-12 h-12 rounded-full text-white font-bold text-sm ${client!.isOver2Months ? 'bg-gray-800' : 'bg-gray-600'
-                          }`}>
-                          {client!.daysSince >= 30 ? `${client!.monthsInactive}m` : `${client!.daysSince}d`}
-                        </div>
 
-                        {/* Informações do cliente */}
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-medium text-gray-900">{client!.name}</h4>
-                            {client!.isSubscriber && <Crown className="h-4 w-4 text-gray-700" />}
-                            {client!.isOver2Months && (
-                              <span className="px-2 py-1 bg-gray-800 text-white text-xs rounded-full">
-                                SUMIDO
-                              </span>
-                            )}
+              {/* Botões de navegação */}
+              {renderClientAreasNav('missing-clients')}
+
+              <div className="rounded-2xl border border-white/10 bg-[#141518] p-3 sm:p-4">
+                {missingClients.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="text-6xl mb-4">🎉</div>
+                    <h4 className="text-lg font-medium text-white mb-2">Nenhum cliente sumido!</h4>
+                    <p className="text-gray-400">
+                      Todos os seus clientes estão ativos. Parabéns!
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {missingClients.map((client, index) => (
+                      <div key={`${client!.id}-${client!.whatsapp}-${index}`} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 sm:p-4 rounded-xl border border-white/10 bg-white/5">
+                        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                          {/* Indicador de tempo */}
+                          <div className={`flex shrink-0 items-center justify-center w-12 h-12 rounded-full font-bold text-sm ${client!.isOver2Months ? 'bg-red-600 text-white' : 'bg-amber-500 text-black'
+                            }`}>
+                            {client!.daysSince >= 30 ? `${client!.monthsInactive}m` : `${client!.daysSince}d`}
                           </div>
-                          <p className="text-sm text-gray-600">{client!.whatsapp}</p>
-                          <p className="text-sm text-gray-500">
-                            Último agendamento: {client!.lastAppointmentDate.toLocaleDateString('pt-BR')}
-                          </p>
-                          <p className="text-sm text-gray-500">
-                            Profissional do último atendimento: {client!.lastProfessionalName}
-                          </p>
-                          <p className="text-sm text-gray-700 font-medium">
-                            Total: {client!.appointmentCount} agendamento{client!.appointmentCount !== 1 ? 's' : ''}
-                          </p>
+
+                          {/* Informações do cliente */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 mb-0.5">
+                              <h4 className="font-semibold text-white">{client!.name}</h4>
+                              {client!.isSubscriber && <Crown className="h-4 w-4 shrink-0 text-yellow-400" />}
+                              {client!.isOver2Months && (
+                                <span className="px-2 py-0.5 rounded-full border border-red-500/40 bg-red-500/15 text-red-300 text-xs font-bold">
+                                  SUMIDO
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-400">{client!.whatsapp}</p>
+                            <p className="text-sm text-gray-400">
+                              Último agendamento: {client!.lastAppointmentDate.toLocaleDateString('pt-BR')}
+                            </p>
+                            <p className="text-sm text-gray-400">
+                              Profissional do último atendimento: {client!.lastProfessionalName}
+                            </p>
+                            <p className="text-sm text-gray-200 font-medium">
+                              Total: {client!.appointmentCount} agendamento{client!.appointmentCount !== 1 ? 's' : ''}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Botões de ação */}
+                        <div className="flex gap-2 shrink-0">
+                          <a
+                            href={`https://wa.me/${client!.whatsapp}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 sm:flex-none text-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-semibold"
+                          >
+                            WhatsApp
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => removeFromMissingList(client!.whatsapp)}
+                            className="px-3 py-2 rounded-lg border border-white/15 bg-white/10 text-gray-200 hover:bg-white/15 transition-colors text-sm"
+                            title="Remover da lista de sumidos"
+                          >
+                            ✕
+                          </button>
                         </div>
                       </div>
-
-                      {/* Botões de ação */}
-                      <div className="flex gap-2">
-                        <a
-                          href={`https://wa.me/${client!.whatsapp}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm"
-                        >
-                          WhatsApp
-                        </a>
-                        <button
-                          onClick={() => removeFromMissingList(client!.whatsapp)}
-                          className="px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm"
-                          title="Remover da lista de sumidos"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
           {/* Tab de Sorteio */}
           {activeTab === 'draw' && (
-            <div className="bg-white rounded-lg p-6 border border-gray-300">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">🎲 Sorteio de Clientes</h2>
-
-              {/* Botões de navegação */}
-              <div className="flex flex-col sm:flex-row gap-3 mb-6">
-                <button
-                  onClick={() => handleTabChange('clients')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Users className="h-4 w-4" />
-                  Meus Clientes
-                </button>
-                <button
-                  onClick={() => handleTabChange('ranking')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Crown className="h-4 w-4" />
-                  Ranking Clientes
-                </button>
-                <button
-                  onClick={() => handleTabChange('missing-clients')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Users className="h-4 w-4" />
-                  Clientes Sumidos
-                </button>
-                <button
-                  onClick={() => handleTabChange('draw')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Shuffle className="h-4 w-4" />
-                  Sorteio
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTabChange('client-loyalty-bulk')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Star className="h-4 w-4" />
-                  Ponto Fidelidade
-                </button>
+            <div className="-mx-4 sm:mx-0 space-y-5 text-gray-100 bg-[#0b0b0c] sm:rounded-3xl p-3 sm:p-5 sm:border sm:border-white/5">
+              <div className="rounded-2xl border border-amber-400/25 bg-[#141518] bg-gradient-to-br from-[#2b2412] via-[#16171a] to-[#111214] p-4 sm:p-5 text-white shadow-lg shadow-black/30">
+                <h2 className="text-xl sm:text-2xl font-black text-white">🎲 Sorteio de Clientes</h2>
+                <p className="mt-1 text-xs sm:text-sm text-gray-300">Sorteie um prêmio entre os seus clientes fiéis.</p>
               </div>
 
-              <div className="text-center">
-                <p className="text-gray-600 mb-6 text-lg">
+              {/* Botões de navegação */}
+              {renderClientAreasNav('draw')}
+
+              <div className="rounded-2xl border border-white/10 bg-[#141518] p-5 sm:p-8 text-center">
+                <p className="text-gray-300 mb-6 text-base sm:text-lg">
                   Clique no botão abaixo para abrir o sorteio de clientes fiéis.
                 </p>
                 <button
+                  type="button"
                   onClick={() => setShowDrawModal(true)}
-                  className="inline-flex items-center px-6 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-medium text-lg"
+                  className="inline-flex items-center px-6 py-3 bg-amber-400 text-black rounded-xl hover:bg-amber-300 transition-colors font-bold text-lg"
                 >
                   🎲 ABRIR SORTEIO
                 </button>
@@ -41220,59 +41489,20 @@ Estamos te aguardando!`;
 
           {/* Tab Ponto Fidelidade — mesmos dados que o modal ( Agendamentos / pontos fidelidade ) */}
           {activeTab === 'client-loyalty-bulk' && (
-            <div className="bg-white rounded-lg p-6 border border-gray-300">
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Ponto Fidelidade</h2>
-              <p className="text-gray-600 text-sm mb-6">
-                Ajuste os pontos do ciclo de fidelidade por cliente. Os valores aparecem da mesma forma em &quot;Meus Clientes&quot; → Ver mais → ( Agendamentos / pontos fidelidade ). Programa válido para
-                clientes não assinantes.
-              </p>
-
-              <div className="flex flex-col sm:flex-row flex-wrap gap-3 mb-6">
-                <button
-                  type="button"
-                  onClick={() => handleTabChange('clients')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Users className="h-4 w-4" />
-                  Meus Clientes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTabChange('ranking')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Crown className="h-4 w-4" />
-                  Ranking Clientes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTabChange('missing-clients')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Users className="h-4 w-4" />
-                  Clientes Sumidos
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTabChange('draw')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
-                >
-                  <Shuffle className="h-4 w-4" />
-                  Sorteio
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTabChange('client-loyalty-bulk')}
-                  className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg ring-2 ring-teal-500/80 transition-colors text-sm font-medium"
-                >
-                  <Star className="h-4 w-4" />
-                  Ponto Fidelidade
-                </button>
+            <div className="-mx-4 sm:mx-0 space-y-5 text-gray-100 bg-[#0b0b0c] sm:rounded-3xl p-3 sm:p-5 sm:border sm:border-white/5">
+              <div className="rounded-2xl border border-amber-400/25 bg-[#141518] bg-gradient-to-br from-[#2b2412] via-[#16171a] to-[#111214] p-4 sm:p-5 text-white shadow-lg shadow-black/30">
+                <h2 className="text-xl sm:text-2xl font-black text-white">⭐ Ponto Fidelidade</h2>
+                <p className="mt-1 text-xs sm:text-sm text-gray-300">
+                  Ajuste os pontos do ciclo de fidelidade por cliente. Os valores aparecem da mesma forma em &quot;Meus Clientes&quot; → Ver mais → ( Agendamentos / pontos fidelidade ). Programa válido para
+                  clientes não assinantes.
+                </p>
               </div>
 
-              <div className="flex flex-wrap items-end gap-3 mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              {renderClientAreasNav('client-loyalty-bulk')}
+
+              <div className="flex flex-wrap items-end gap-3 p-4 rounded-2xl border border-white/10 bg-[#141518]">
                 <div className="flex flex-col gap-1">
-                  <span className="text-xs font-bold text-gray-800">Definir meta (atendimentos) para todos os clientes</span>
+                  <span className="text-xs font-bold text-white">Definir meta (atendimentos) para todos os clientes</span>
                   <div className="flex flex-wrap items-center gap-2">
                     <input
                       type="number"
@@ -41281,34 +41511,34 @@ Estamos te aguardando!`;
                       value={loyaltyBulkApplyAllInput}
                       onChange={(e) => setLoyaltyBulkApplyAllInput(e.target.value)}
                       placeholder="Ex.: 00"
-                      className="w-28 px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                      className="w-28 px-3 py-2 border border-white/15 rounded-lg text-white bg-[#0b0b0c] placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-400/60"
                     />
                     <button
                       type="button"
                       disabled={loyaltyBulkSavingAll || loyaltyBulkLoading}
                       onClick={() => void handleLoyaltyBulkApplyAll()}
-                      className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-4 py-2 bg-amber-400 text-black rounded-lg hover:bg-amber-300 text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {loyaltyBulkSavingAll ? 'Salvando...' : 'Salvar em todos'}
                     </button>
                   </div>
-                  <span className="text-[11px] text-gray-600">Define a meta de atendimentos e zera o ciclo para todos os clientes não assinantes com WhatsApp válido.</span>
-                  <span className="text-[11px] text-amber-700">Se informar <strong>00</strong> e salvar, o programa de pontos de fidelidade fica desativado para todos os clientes.</span>
+                  <span className="text-[11px] text-gray-400">Define a meta de atendimentos e zera o ciclo para todos os clientes não assinantes com WhatsApp válido.</span>
+                  <span className="text-[11px] text-amber-300">Se informar <strong>00</strong> e salvar, o programa de pontos de fidelidade fica desativado para todos os clientes.</span>
                 </div>
               </div>
 
               {loyaltyBulkLoading ? (
-                <p className="text-gray-600">Carregando pontos...</p>
+                <p className="text-gray-400">Carregando pontos...</p>
               ) : clients.length === 0 ? (
-                <p className="text-gray-600">Nenhum cliente neste estabelecimento.</p>
+                <p className="text-gray-400">Nenhum cliente neste estabelecimento.</p>
               ) : (
-                <div className="overflow-x-auto border border-gray-200 rounded-lg max-h-[min(70vh,720px)] overflow-y-auto">
+                <div className="overflow-x-auto rounded-2xl border border-white/10 bg-[#141518] max-h-[min(70vh,720px)] overflow-y-auto">
                   <table className="min-w-full text-sm">
-                    <thead className="bg-gray-100 sticky top-0 z-10">
+                    <thead className="bg-[#1d1e22] sticky top-0 z-10">
                       <tr>
-                        <th className="text-left p-3 font-semibold text-gray-900">Nome</th>
-                        <th className="text-left p-3 font-semibold text-gray-900">Telefone</th>
-                        <th className="text-left p-3 font-semibold text-gray-900">Pontos (ciclo)</th>
+                        <th className="text-left p-3 font-semibold text-gray-200">Nome</th>
+                        <th className="text-left p-3 font-semibold text-gray-200">Telefone</th>
+                        <th className="text-left p-3 font-semibold text-gray-200">Pontos (ciclo)</th>
                         <th className="p-3 w-28" />
                       </tr>
                     </thead>
@@ -41321,14 +41551,14 @@ Estamos te aguardando!`;
                           const displayVal =
                             loyaltyBulkDraft[key] ?? String(loyaltyBulkByKey[key]?.cycle_progress ?? 0);
                           return (
-                            <tr key={`loyalty-bulk-${client.id}-${String(client.whatsapp)}`} className="border-t border-gray-200">
-                              <td className="p-3 text-gray-900 font-medium align-middle">{client.name}</td>
-                              <td className="p-3 text-gray-700 align-middle">{client.whatsapp}</td>
+                            <tr key={`loyalty-bulk-${client.id}-${String(client.whatsapp)}`} className="border-t border-white/10">
+                              <td className="p-3 text-white font-medium align-middle">{client.name}</td>
+                              <td className="p-3 text-gray-300 align-middle">{client.whatsapp}</td>
                               <td className="p-3 align-middle">
                                 {client.isSubscriber ? (
                                   <span className="text-gray-500 text-xs">Assinante — programa não se aplica</span>
                                 ) : !key ? (
-                                  <span className="text-amber-800 text-xs">WhatsApp inválido para salvar</span>
+                                  <span className="text-amber-300 text-xs">WhatsApp inválido para salvar</span>
                                 ) : (
                                   <input
                                     type="number"
@@ -41341,7 +41571,7 @@ Estamos te aguardando!`;
                                         [key]: e.target.value,
                                       }))
                                     }
-                                    className="w-24 px-2 py-1.5 border border-gray-300 rounded-lg text-gray-900"
+                                    className="w-24 px-2 py-1.5 border border-white/15 rounded-lg text-white bg-[#0b0b0c] focus:outline-none focus:ring-2 focus:ring-amber-400/60"
                                   />
                                 )}
                               </td>
@@ -41351,7 +41581,7 @@ Estamos te aguardando!`;
                                     type="button"
                                     disabled={loyaltyBulkSavingKey === key || loyaltyBulkSavingAll}
                                     onClick={() => void handleLoyaltyBulkSaveOne(client)}
-                                    className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-bold hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="px-3 py-1.5 bg-amber-400 text-black rounded-lg text-xs font-bold hover:bg-amber-300 disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
                                     {loyaltyBulkSavingKey === key ? 'Salvando...' : 'Salvar'}
                                   </button>
@@ -42575,6 +42805,13 @@ Estamos te aguardando!`;
                                                         <p className="text-xs text-gray-500">
                                                           {avulso.quantity} un. • {formatCurrency(avulso.unit_price * avulso.quantity)}
                                                         </p>
+                                                        {(avulso.client_name || avulso.payment_method) && (
+                                                          <p className="text-[11px] text-gray-700">
+                                                            {avulso.client_name ? `👤 ${avulso.client_name}` : ''}
+                                                            {avulso.client_name && avulso.payment_method ? ' • ' : ''}
+                                                            {avulso.payment_method ? `💳 ${getPaymentMethodLabel(String(avulso.payment_method))}` : ''}
+                                                          </p>
+                                                        )}
                                                       </div>
                                                       <button
                                                         onClick={(e) => {
@@ -42720,8 +42957,8 @@ Estamos te aguardando!`;
           {/* Modal: Venda avulsa de produto */}
           {showSellProductModal && sellingProduct && (
             <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4">
-              <div className="w-full max-w-md bg-[#1a1b1c] border border-gray-800 rounded-xl shadow-2xl overflow-hidden">
-                <div className="p-4 border-b border-gray-800">
+              <div className="w-full max-w-md bg-[#1a1b1c] border border-gray-800 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+                <div className="p-4 border-b border-gray-800 flex-shrink-0">
                   <div className="flex items-center justify-between">
                     <div className="text-white font-bold">Vender produto</div>
                     <button
@@ -42738,7 +42975,7 @@ Estamos te aguardando!`;
                   <div className="text-sm text-gray-400 mt-1">{sellingProduct.name}</div>
                 </div>
 
-                <div className="p-4 space-y-3">
+                <div className="p-4 space-y-4 overflow-y-auto">
                   <div>
                     <label className="text-xs text-gray-300">Profissional</label>
                     <select
@@ -42753,6 +42990,121 @@ Estamos te aguardando!`;
                         </option>
                       ))}
                     </select>
+                  </div>
+
+                  {/* Cliente que está comprando */}
+                  <div>
+                    <label className="text-xs text-gray-300">Cliente</label>
+                    <div className="mt-1 grid grid-cols-3 gap-1.5">
+                      {([
+                        { mode: 'lista', label: 'Meus clientes' },
+                        { mode: 'novo', label: 'Cliente novo' },
+                        { mode: 'nenhum', label: 'Sem cliente' },
+                      ] as const).map(({ mode, label }) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setSellClientMode(mode)}
+                          className={`px-2 py-2 rounded-lg text-xs font-bold transition-colors ${sellClientMode === mode
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-[#2a2b2c] border border-gray-700 text-gray-200 hover:bg-[#333436]'
+                            }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {sellClientMode === 'lista' && (
+                      <div className="mt-2">
+                        {sellSelectedClient ? (
+                          <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-600/50 bg-emerald-600/10 px-3 py-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-white truncate">👤 {sellSelectedClient.name}</p>
+                              {sellSelectedClient.whatsapp && (
+                                <p className="text-[11px] text-gray-400 truncate">{sellSelectedClient.whatsapp}</p>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSellSelectedClient(null);
+                                setSellClientSearch('');
+                              }}
+                              className="shrink-0 text-xs font-bold text-emerald-300 hover:text-emerald-200"
+                            >
+                              Trocar
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <input
+                              type="text"
+                              value={sellClientSearch}
+                              onChange={(e) => setSellClientSearch(e.target.value)}
+                              placeholder="Digite o nome ou telefone do cliente..."
+                              className="w-full bg-[#2a2b2c] border border-gray-700 text-white placeholder-gray-500 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                            {(() => {
+                              const q = sellClientSearch.trim();
+                              if (q.length < 2) {
+                                return <p className="mt-1 text-[11px] text-gray-500">Digite pelo menos 2 letras para buscar.</p>;
+                              }
+                              const suggestions = sellClientSuggestions;
+                              if (sellClientSearching && suggestions.length === 0) {
+                                return <p className="mt-1 text-[11px] text-gray-400">Buscando...</p>;
+                              }
+                              if (suggestions.length === 0) {
+                                return (
+                                  <p className="mt-1 text-[11px] text-gray-400">
+                                    Nenhum cliente encontrado. Use &quot;Cliente novo&quot; para digitar só o nome.
+                                  </p>
+                                );
+                              }
+                              return (
+                                <div className="mt-1 max-h-44 overflow-y-auto rounded-lg border border-gray-700 divide-y divide-gray-800">
+                                  {suggestions.map((c) => (
+                                    <button
+                                      key={`${c.name}-${c.whatsapp}`}
+                                      type="button"
+                                      onClick={() => setSellSelectedClient(c)}
+                                      className="w-full text-left px-3 py-2 bg-[#232425] hover:bg-[#2c2d2f] transition-colors"
+                                    >
+                                      <p className="text-sm text-white truncate">{c.name}</p>
+                                      {c.whatsapp && <p className="text-[11px] text-gray-400 truncate">{c.whatsapp}</p>}
+                                    </button>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {sellClientMode === 'novo' && (
+                      <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          value={sellNewClientName}
+                          onChange={(e) => setSellNewClientName(e.target.value)}
+                          placeholder="Nome do cliente"
+                          className="w-full bg-[#2a2b2c] border border-gray-700 text-white placeholder-gray-500 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                        <input
+                          type="tel"
+                          inputMode="numeric"
+                          value={sellNewClientWhatsapp}
+                          onChange={(e) => setSellNewClientWhatsapp(e.target.value)}
+                          placeholder="WhatsApp (opcional)"
+                          className="w-full bg-[#2a2b2c] border border-gray-700 text-white placeholder-gray-500 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                      </div>
+                    )}
+
+                    {sellClientMode === 'nenhum' && (
+                      <p className="mt-2 text-[11px] text-gray-500">A venda fica registrada sem cliente.</p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
@@ -42778,6 +43130,26 @@ Estamos te aguardando!`;
                     </div>
                   </div>
 
+                  {/* Forma de pagamento (as mesmas configuradas no estabelecimento) */}
+                  <div>
+                    <label className="text-xs text-gray-300">Forma de pagamento</label>
+                    <div className="mt-1 grid grid-cols-2 gap-1.5">
+                      {sellPaymentOptions.map((method) => (
+                        <button
+                          key={method}
+                          type="button"
+                          onClick={() => setSellPaymentMethod(method)}
+                          className={`px-2 py-2 rounded-lg text-xs font-bold transition-colors truncate ${sellPaymentMethod === method
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-[#2a2b2c] border border-gray-700 text-gray-200 hover:bg-[#333436]'
+                            }`}
+                        >
+                          {getPaymentMethodLabel(method)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div>
                     <label className="text-xs text-gray-300">Data da venda</label>
                     <input
@@ -42790,9 +43162,20 @@ Estamos te aguardando!`;
                       Essa venda entra direto no "Vendas por funcionário" e no "Saldo por produtos" (sem agendamento).
                     </div>
                   </div>
+
+                  {(() => {
+                    const unit = Number(String(sellUnitPrice || '').replace(/\./g, '').replace(',', '.'));
+                    const total = Number.isFinite(unit) ? unit * Number(sellQuantity || 0) : 0;
+                    return (
+                      <div className="flex items-center justify-between rounded-lg border border-gray-700 bg-[#232425] px-3 py-2">
+                        <span className="text-xs text-gray-300">Total da venda</span>
+                        <span className="text-base font-extrabold text-white">{formatCurrency(Math.max(0, total))}</span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
-                <div className="p-4 border-t border-gray-800 flex gap-2">
+                <div className="p-4 border-t border-gray-800 flex gap-2 flex-shrink-0">
                   <button
                     onClick={() => {
                       setShowSellProductModal(false);

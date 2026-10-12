@@ -401,6 +401,9 @@ const formatSupabaseLikeError = (e: any): string => {
   return [msg, code, details, hint].filter(Boolean).join(' · ') || 'Erro desconhecido ao carregar histórico.';
 };
 
+/** Abas da tela "Meus Assinantes" (versão 5.0). */
+type SubscribersTab = 'assinantes' | 'planos' | 'resumo' | 'config';
+
 export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establishmentId, clients, onClientUpdated, establishment, onEstablishmentUpdate }) => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -408,6 +411,25 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [clientSubscriptions, setClientSubscriptions] = useState<ClientSubscription[]>([]);
+  // 5.0: aba aberta (sempre começa em "Assinantes") e formulário de novo assinante recolhido.
+  const [subscribersTab, setSubscribersTab] = useState<SubscribersTab>('assinantes');
+  // Ordem da lista de assinantes: do jeito de sempre ou pelos que vencem primeiro (fica lembrada neste aparelho).
+  const [subscribersOrder, setSubscribersOrder] = useState<'normal' | 'vencimento'>(() => {
+    try {
+      return localStorage.getItem('subscribers:order') === 'vencimento' ? 'vencimento' : 'normal';
+    } catch {
+      return 'normal';
+    }
+  });
+  const changeSubscribersOrder = (order: 'normal' | 'vencimento') => {
+    setSubscribersOrder(order);
+    try {
+      localStorage.setItem('subscribers:order', order);
+    } catch {
+      // sem armazenamento no aparelho: só não lembra a escolha
+    }
+  };
+  const [showAddSubscriberForm, setShowAddSubscriberForm] = useState(false);
   // const [clients, setClients] = useState<Profile[]>([]); // REMOVIDO: Agora vem via prop
 
 
@@ -5454,6 +5476,19 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return matchesSubscriberSearch(cs);
   });
 
+  // "Próximos a vencer": data de vencimento crescente (vencidos primeiro); sem data vão para o fim.
+  const displayedClientSubscriptions =
+    subscribersOrder === 'vencimento'
+      ? [...filteredClientSubscriptions].sort((a, b) => {
+          const ea = String((a as any)?.end_date || '').slice(0, 10);
+          const eb = String((b as any)?.end_date || '').slice(0, 10);
+          if (!ea && !eb) return 0;
+          if (!ea) return 1;
+          if (!eb) return -1;
+          return ea.localeCompare(eb);
+        })
+      : filteredClientSubscriptions;
+
   const filteredDeactivatedSubscriptions = clientSubscriptions.filter(cs => {
     if (isArchivedSubscriber(cs) || !isDeactivatedSubscriber(cs)) return false;
     return matchesSubscriberSearch(cs);
@@ -5585,9 +5620,180 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     setShowNaoPagosBreakdown(false);
   }, [selectedMonth, selectedYear]);
 
+  // 5.0: contagem para os selos das abas (mesmos filtros da lista: sem arquivados e desativados)
+  const activeSubscribersCount = clientSubscriptions.filter(
+    (cs) => !isArchivedSubscriber(cs) && !isDeactivatedSubscriber(cs)
+  ).length;
+  const subscribersTabs: Array<{ id: SubscribersTab; icon: string; label: string; badge?: number; hint: string }> = [
+    {
+      id: 'assinantes',
+      icon: '👥',
+      label: 'Assinantes',
+      badge: activeSubscribersCount,
+      hint: 'Seus assinantes: busca, pagamento do mês, atendimentos, limites, editar, desativar e recorrência do Mercado Pago. Para cadastrar alguém, clique em "Adicionar assinante".',
+    },
+    {
+      id: 'planos',
+      icon: '🎫',
+      label: 'Planos',
+      badge: subscriptions.length,
+      hint: 'Crie um plano novo e edite os que já existem: valor, duração, descrição, links e formas de pagamento.',
+    },
+    {
+      id: 'resumo',
+      icon: '📊',
+      label: 'Resumo e profissionais',
+      hint: 'Números do mês (com troca de mês), "Gerar nota" para o contador, saldo dos assinantes e o controle por profissional.',
+    },
+    {
+      id: 'config',
+      icon: '⚙️',
+      label: 'Configurações',
+      hint: 'Regras de agendamento para assinantes e clientes para reset.',
+    },
+  ];
+  const currentSubscribersTabHint = subscribersTabs.find((t) => t.id === subscribersTab)?.hint || '';
+  const goToSummaryBreakdown = (open: () => void) => {
+    setSubscribersTab('resumo');
+    open();
+  };
+
   return (
     <div className="space-y-6">
-      <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800 text-white">
+      {/* ══ Meus Assinantes 5.0 — cabeçalho, números do mês e abas ══
+          Nada foi removido: cada bloco antigo continua igual, só que dentro de uma aba.
+          Fundo com cores SÓLIDAS: o painel tem página branca atrás, e cor transparente aqui deixava o
+          topo esbranquiçado com letra branca por cima (ilegível). */}
+      <div className="rounded-2xl border border-amber-400/25 bg-[#141518] bg-gradient-to-br from-[#2b2412] via-[#16171a] to-[#111214] p-4 sm:p-5 text-white shadow-lg shadow-black/30">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-black text-white">👑 Meus Assinantes</h1>
+            <p className="mt-1 text-xs sm:text-sm text-gray-300">
+              Tudo da assinatura organizado em abas: assinantes, planos, resumo do mês e configurações.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const abrir = !(showAddSubscriberForm && subscribersTab === 'assinantes');
+                setSubscribersTab('assinantes');
+                setShowAddSubscriberForm(abrir);
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition-colors"
+            >
+              {showAddSubscriberForm && subscribersTab === 'assinantes' ? (
+                <>
+                  <X className="h-4 w-4" /> Fechar formulário
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4" /> Adicionar assinante
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowRecoveryModal(true)}
+              className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 text-gray-100 text-sm font-semibold transition-colors"
+              title="Recuperar clientes dos agendamentos"
+            >
+              📥 Recuperar clientes
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenTrash}
+              className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 text-gray-100 text-sm font-semibold transition-colors"
+              title="Ver assinantes excluídos"
+            >
+              <Trash2 className="h-4 w-4" /> Lixeira
+            </button>
+          </div>
+        </div>
+
+        {/* Números do mês (os mesmos do Resumo) — tocar abre a lista correspondente */}
+        <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => setSubscribersTab('assinantes')}
+            className="text-left rounded-xl border border-indigo-400/30 bg-indigo-500/10 hover:bg-indigo-500/15 px-3 py-2.5 transition-colors"
+          >
+            <p className="text-[11px] sm:text-xs font-semibold text-indigo-200">👥 Assinantes ativos</p>
+            <p className="text-xl sm:text-2xl font-black text-white">{totalAssinantes}</p>
+            <p className="text-[10px] text-indigo-200/80">plano dentro da validade · de {activeSubscribersCount} cadastrado(s)</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => goToSummaryBreakdown(() => setShowNaoPagosBreakdown(true))}
+            className="text-left rounded-xl border border-rose-400/30 bg-rose-500/10 hover:bg-rose-500/15 px-3 py-2.5 transition-colors"
+          >
+            <p className="text-[11px] sm:text-xs font-semibold text-rose-200">⚠️ Não pagos</p>
+            <p className="text-xl sm:text-2xl font-black text-rose-300">{assinantesNaoPagos}</p>
+            <p className="text-[10px] text-rose-200/80">Ver quem não pagou</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => goToSummaryBreakdown(() => setShowLiquidoAtivoBreakdown(true))}
+            className="text-left rounded-xl border border-sky-400/30 bg-sky-500/10 hover:bg-sky-500/15 px-3 py-2.5 transition-colors"
+          >
+            <p className="text-[11px] sm:text-xs font-semibold text-sky-200">💙 Líquido (pagos)</p>
+            <p className="text-lg sm:text-2xl font-black text-sky-300">{fmtBRL(liquidoAtivo)}</p>
+            <p className="text-[10px] text-sky-200/80">Ver quem compõe</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => goToSummaryBreakdown(() => setShowEmContaBreakdown(true))}
+            className="text-left rounded-xl border border-emerald-400/30 bg-emerald-500/10 hover:bg-emerald-500/15 px-3 py-2.5 transition-colors"
+          >
+            <p className="text-[11px] sm:text-xs font-semibold text-emerald-200">💰 Em conta</p>
+            <p className="text-lg sm:text-2xl font-black text-emerald-300">{fmtBRL(emContaMes)}</p>
+            <p className="text-[10px] text-emerald-200/80">Ver detalhes</p>
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-gray-400">
+          Números de {monthNames[selectedMonth]} {selectedYear}. Para trocar o mês, use a aba "Resumo e profissionais".
+        </p>
+
+        {/* Abas — no celular em grade 2x2 (todas aparecem, ninguém precisa arrastar para o lado) */}
+        <p className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-200/90">Toque numa aba para abrir:</p>
+        <div>
+          <div role="tablist" aria-label="Seções de assinantes" className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
+            {subscribersTabs.map((tab) => {
+              const ativa = subscribersTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={ativa}
+                  onClick={() => setSubscribersTab(tab.id)}
+                  className={`inline-flex items-center justify-center text-center leading-tight gap-2 px-3 sm:px-4 py-3 sm:py-2.5 min-h-[48px] rounded-xl text-sm font-bold border transition-colors ${ativa
+                    ? 'bg-amber-400 text-black border-amber-300 shadow-md shadow-amber-500/20'
+                    : 'bg-white/5 text-gray-200 border-white/10 hover:bg-white/10'
+                    }`}
+                >
+                  <span aria-hidden>{tab.icon}</span>
+                  {tab.label}
+                  {typeof tab.badge === 'number' && (
+                    <span className={`ml-0.5 rounded-full px-2 py-0.5 text-[11px] font-black ${ativa ? 'bg-black/15 text-black' : 'bg-white/10 text-gray-100'}`}>
+                      {tab.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {currentSubscribersTabHint ? (
+          <p className="mt-3 text-xs sm:text-sm text-gray-300 rounded-lg bg-black/25 border border-white/5 px-3 py-2">
+            {currentSubscribersTabHint}
+          </p>
+        ) : null}
+      </div>
+
+      {/* Aba "Resumo e profissionais" */}
+      {subscribersTab === 'resumo' && (
+      <div className="bg-[#1a1b1c] rounded-2xl border border-gray-800 text-white shadow-lg shadow-black/20 p-4 sm:p-6">
         {/* Vídeo (topo da página de assinantes) */}
         <div className="mb-4 sm:mb-6">
           <div className="rounded-xl overflow-hidden border border-gray-700 bg-black">
@@ -6310,9 +6516,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           </div>
         )}
       </div>
+      )}
 
-      {/* Configurações de Agendamento para Assinantes */}
-      <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800 text-white">
+      {/* Configurações de Agendamento para Assinantes — aba "Configurações" */}
+      {subscribersTab === 'config' && (
+      <div className="bg-[#1a1b1c] rounded-2xl border border-gray-800 text-white shadow-lg shadow-black/20 p-4 sm:p-6">
         <h2 className="text-lg sm:text-xl font-semibold mb-4 sm:mb-6">Configurações de Agendamento</h2>
         <div className="space-y-3 sm:space-y-4">
 
@@ -6542,10 +6750,15 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
         </div>
       </div>
+      )}
 
 
-      {/* Criação de Assinatura */}
-      <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 text-white">
+      {/* Criação de Assinatura — aba "Planos" */}
+      {subscribersTab === 'planos' && (
+      <>
+      <div className="bg-[#1a1b1c] rounded-2xl border border-gray-800 text-white shadow-lg shadow-black/20 p-4 sm:p-6">
+        <h2 className="text-lg sm:text-xl font-semibold text-white mb-1">➕ Criar novo plano de assinatura</h2>
+        <p className="text-xs sm:text-sm text-gray-400 mb-4">Preencha os dados e clique em "Criar Assinatura". Os planos criados aparecem logo abaixo, em "Tipos de Assinatura Criados".</p>
         <form onSubmit={handleCreateSubscription} className="space-y-4">
           <div>
             <label htmlFor="subscriptionName" className="block text-sm font-medium text-gray-400 mb-1">Nome da Assinatura</label>
@@ -6832,7 +7045,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       </div>
 
       {/* Lista de Tipos de Assinatura */}
-      <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 text-white">
+      <div className="bg-[#1a1b1c] rounded-2xl border border-gray-800 text-white shadow-lg shadow-black/20 p-4 sm:p-6">
         <h2 className="text-xl font-semibold mb-4">Tipos de Assinatura Criados</h2>
 
         {/* Vídeo (Tipos de Assinatura Criados) */}
@@ -7253,9 +7466,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           </div>
         )}
       </div>
+      </>
+      )}
 
-      {/* Adicionar Assinante */}
-      <div className="bg-[#1a1b1c] rounded-lg p-6 border border-gray-800 text-white">
+      {/* Adicionar Assinante — aba "Assinantes" (abre no botão "Adicionar assinante") */}
+      {subscribersTab === 'assinantes' && showAddSubscriberForm && (
+      <div className="bg-[#1a1b1c] rounded-2xl p-4 sm:p-6 border-2 border-emerald-500/40 text-white shadow-lg shadow-black/20">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold">Adicionar Assinante</h2>
           <button
@@ -7466,9 +7682,11 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           </button>
         </form>
       </div>
+      )}
 
-      {/* Lista Meus Assinantes */}
-      <div className="bg-[#1a1b1c] rounded-lg p-4 sm:p-6 border border-gray-800 text-white">
+      {/* Lista Meus Assinantes — aba "Assinantes" */}
+      {subscribersTab === 'assinantes' && (
+      <div className="bg-[#1a1b1c] rounded-2xl border border-gray-800 text-white shadow-lg shadow-black/20 p-4 sm:p-6">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-lg sm:text-xl font-semibold">Meus Assinantes</h2>
           <button
@@ -7509,6 +7727,35 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           {searchTerm && (
             <p className="text-xs text-gray-400 mt-1 sm:mt-2">
               {filteredClientSubscriptions.length} de {clientSubscriptions.length} assinante(s) encontrado(s)
+            </p>
+          )}
+
+          {/* Ordem da lista */}
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            <button
+              type="button"
+              onClick={() => changeSubscribersOrder('normal')}
+              className={`px-3 py-2 rounded-lg text-xs sm:text-sm font-bold transition-colors ${subscribersOrder === 'normal'
+                ? 'bg-amber-400 text-black'
+                : 'border border-gray-600 bg-[#2a2b2c] text-gray-200 hover:bg-[#33353a]'
+                }`}
+            >
+              📋 Ordem normal
+            </button>
+            <button
+              type="button"
+              onClick={() => changeSubscribersOrder('vencimento')}
+              className={`px-3 py-2 rounded-lg text-xs sm:text-sm font-bold transition-colors ${subscribersOrder === 'vencimento'
+                ? 'bg-amber-400 text-black'
+                : 'border border-gray-600 bg-[#2a2b2c] text-gray-200 hover:bg-[#33353a]'
+                }`}
+            >
+              ⏰ Próximos a vencer
+            </button>
+          </div>
+          {subscribersOrder === 'vencimento' && (
+            <p className="text-[11px] text-gray-400 mt-1.5">
+              Do vencimento mais próximo para o mais distante. Quem já venceu aparece primeiro (em vermelho).
             </p>
           )}
         </div>
@@ -7838,7 +8085,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           <p className="text-gray-400 text-center">Nenhum assinante encontrado para "{searchTerm}".</p>
         ) : (
           <div className="space-y-3">
-            {filteredClientSubscriptions.map((cs) => {
+            {displayedClientSubscriptions.map((cs) => {
               const isPaid = isPaymentStatusPaid(cs);
               const isExpired = isPastIsoDateSafe(cs.end_date);
 
@@ -8262,6 +8509,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           </div>
         )}
       </div>
+      )}
 
       {/* Modal de Recuperação de Clientes */}
       <ClientRecoveryModal

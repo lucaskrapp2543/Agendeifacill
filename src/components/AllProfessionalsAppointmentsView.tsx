@@ -276,6 +276,8 @@ interface ProfessionalGoalMonthlyConfig {
 
 interface AllProfessionalsAppointmentsViewProps {
   professionals: Professional[];
+  /** "Não mostrar número dos clientes para profissionais": mostra ******** e esconde os botões que abrem o WhatsApp do cliente. */
+  maskClientPhones?: boolean;
   appointments: Appointment[];
   monthlyAppointments: Appointment[];
   /** Telefones normalizados de clientes recorrentes (≥1 concluído). null = ainda carregando. */
@@ -385,6 +387,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   AllProfessionalsAppointmentsViewProps
 > = ({
   professionals,
+  maskClientPhones = false,
   appointments,
   monthlyAppointments,
   returningClientPhones,
@@ -884,6 +887,21 @@ export const AllProfessionalsAppointmentsView: React.FC<
           });
         } catch {
           return 0;
+        }
+      },
+      [subscriberRepassMaps]
+    );
+
+    // Vencimento do plano do assinante (chip 📅 no card) — mesmo casamento do chip 💰.
+    const getSubscriberEndDateForAppointment = useCallback(
+      (apt: Appointment): string => {
+        try {
+          const matched =
+            findMatchingSubscriptionForAppointment(apt as any, subscriberRepassMaps.byPhone, subscriberRepassMaps.byName) ||
+            findMatchingSubscriptionRelaxed(apt as any, subscriberRepassMaps.byPhone, subscriberRepassMaps.byName);
+          return String((matched as any)?.end_date || '').trim().slice(0, 10);
+        } catch {
+          return '';
         }
       },
       [subscriberRepassMaps]
@@ -2551,12 +2569,32 @@ export const AllProfessionalsAppointmentsView: React.FC<
           </span>
         ) : null;
 
+      const subscriberEndDateIso = getSubscriberEndDateForAppointment(apt);
+      const subscriberEndDateChip = /^\d{4}-\d{2}-\d{2}$/.test(subscriberEndDateIso)
+        ? (() => {
+            const [endY, endM, endD] = subscriberEndDateIso.split('-');
+            const planExpired = subscriberEndDateIso < format(new Date(), 'yyyy-MM-dd');
+            return (
+              <span
+                className={`inline-flex shrink-0 items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${planExpired
+                  ? 'border-red-300/60 bg-red-600/85 text-white'
+                  : 'border-sky-300/50 bg-sky-500/25 text-sky-50'
+                  }`}
+                title="Data de vencimento do plano deste assinante"
+              >
+                📅 {planExpired ? 'Venceu' : 'Vence'} {endD}/{endM}/{endY}
+              </span>
+            );
+          })()
+        : null;
+
       const goldNameStrip = (
         <div className="rounded-lg border border-amber-400/70 bg-gradient-to-r from-amber-950/95 via-amber-900 to-yellow-950 px-2.5 py-1.5 ring-1 ring-amber-500/30 shadow-inner shadow-black/25">
           <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
             <span className="truncate text-amber-50 font-bold text-sm min-w-0 flex-1">{displayName}</span>
             {subscriberRepassChip}
             {subscriberBadge}
+            {subscriberEndDateChip}
             {serviceLabelNodes}
             {avulsoEditButton}
           </div>
@@ -6876,7 +6914,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             </div>
                             {apt.client_whatsapp && (
                               <div className="text-[11px] text-gray-700">
-                                WhatsApp: {apt.client_whatsapp}
+                                WhatsApp: {maskClientPhones ? '********' : apt.client_whatsapp}
                               </div>
                             )}
                           </div>
@@ -7041,7 +7079,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               </div>
                               {apt.client_whatsapp && (
                                 <div className="text-[11px] text-gray-700">
-                                  WhatsApp: {apt.client_whatsapp}
+                                  WhatsApp: {maskClientPhones ? '********' : apt.client_whatsapp}
                                 </div>
                               )}
                               {apt.payment_method && (
@@ -8036,8 +8074,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             {/* Número como TEXTO (não clicável) — evita abrir WhatsApp sem querer ao tentar fechar a comanda */}
                                             <span className="flex items-center gap-1">
                                               <Phone className="w-3 h-3" />
-                                              {apt.client_whatsapp}
+                                              {maskClientPhones ? '********' : apt.client_whatsapp}
                                             </span>
+                                            {!maskClientPhones && (
                                             <button
                                               type="button"
                                               onClick={(e) => {
@@ -8050,6 +8089,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             >
                                               💬 WhatsApp
                                             </button>
+                                            )}
                                           </div>
                                         )}
                                         <div className="text-white/80 text-xs mt-1">
@@ -8408,6 +8448,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               ❌ CANCELAR
                                             </button>
 
+                                            {/* Imprevisto abre o WhatsApp do cliente: some quando o número está oculto para profissionais */}
+                                            {!maskClientPhones && (
                                             <button
                                               onClick={(e) => {
                                                 e.stopPropagation();
@@ -8440,6 +8482,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             >
                                               IMPREVISTO
                                             </button>
+                                            )}
 
                                             {onGenerateNF && (
                                               <button
@@ -8691,7 +8734,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             </div>
                                             {String(apt.client_whatsapp || '').trim() && (
                                               <div>
-                                                <span className="font-bold">WhatsApp:</span> {String(apt.client_whatsapp || '').trim()}
+                                                <span className="font-bold">WhatsApp:</span> {maskClientPhones ? '********' : String(apt.client_whatsapp || '').trim()}
                                               </div>
                                             )}
                                             <div>

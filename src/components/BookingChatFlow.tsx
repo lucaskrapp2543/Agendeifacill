@@ -1,5 +1,6 @@
 import { format } from 'date-fns';
 import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
+import { useClientBookingBlocked } from '../lib/clientBookingBlock';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
@@ -214,6 +215,11 @@ export function BookingChatFlow({
   const [step, setStep] = useState<ChatStep>('name');
   const [chatClientName, setChatClientName] = useState(String(guestClientData?.name || '').trim());
   const [chatClientPhone, setChatClientPhone] = useState(formatPhoneChat(String(guestClientData?.phone || '').trim()));
+  // "Bloquear cliente": com o telefone informado, cliente bloqueado vê a agenda lotada.
+  const clientBookingBlocked = useClientBookingBlocked(
+    String((establishment as any)?.id || (establishment as any)?.establishment_id || ''),
+    chatClientPhone || String(guestClientData?.phone || '')
+  );
   const savedBookingName = typeof window !== 'undefined' ? (localStorage.getItem('booking_saved_name') || '') : '';
   const savedBookingPhone = typeof window !== 'undefined' ? (localStorage.getItem('booking_saved_phone') || '') : '';
   const [draftInput, setDraftInput] = useState(savedBookingName);
@@ -2280,6 +2286,7 @@ export function BookingChatFlow({
                 ) : (
                   <>
                     <TimeSlotSelector
+                      forceFullDay={clientBookingBlocked}
                       selectedDate={selectedDate}
                       selectedService={effectiveSelectedService}
                       existingAppointments={filteredExistingAppointments}

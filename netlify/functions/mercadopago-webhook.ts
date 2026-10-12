@@ -26,6 +26,24 @@ const supabaseAdmin =
     : null;
 const PLATFORM_MP_ACCESS_TOKEN = getPlatformMercadoPagoAccessToken();
 
+/**
+ * Líquido EXATO da mensalidade (o que caiu na conta da plataforma depois da taxa do MP),
+ * guardado no metadata de establishment_billing_payments para o admin mostrar sem
+ * precisar consultar o Mercado Pago de novo ("Últimos pagamentos" → Líquido).
+ */
+function billingNetMetadata(payment: any): Record<string, number> {
+  const out: Record<string, number> = {};
+  const net = Number(payment?.transaction_details?.net_received_amount);
+  if (Number.isFinite(net) && net > 0) out.net_received_amount = Math.round(net * 100) / 100;
+  const gross = Number(payment?.transaction_amount);
+  if (Number.isFinite(gross) && gross > 0) out.transaction_amount = Math.round(gross * 100) / 100;
+  if (Array.isArray(payment?.fee_details)) {
+    const fee = payment.fee_details.reduce((sum: number, f: any) => sum + (Number(f?.amount) || 0), 0);
+    if (Number.isFinite(fee)) out.mp_fee_amount = Math.round(fee * 100) / 100;
+  }
+  return out;
+}
+
 const normalizeBillingStatus = (raw: unknown): 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded' => {
   const status = String(raw || '').toLowerCase().trim();
   if (status === 'approved' || status === 'authorized') return 'paid';
@@ -840,7 +858,7 @@ export const handler: Handler = async (event) => {
       // Buscar cobrança de regularização da barbearia (novo fluxo)
       const { data: billingRows, error: billingFetchError } = await supabaseAdmin
         .from('establishment_billing_payments')
-        .select('id, establishment_id, payment_id, status')
+        .select('id, establishment_id, payment_id, status, metadata')
         .eq('payment_id', String(paymentId))
         .limit(1);
 
@@ -1005,6 +1023,8 @@ export const handler: Handler = async (event) => {
                       metadata: {
                         type: 'establishment_billing_subscription_payment',
                         external_reference: externalReference,
+                        payment_method: String((payment as any)?.payment_type_id || (payment as any)?.payment_method_id || '') || undefined,
+                        ...billingNetMetadata(payment),
                       },
                       paid_at: normalized === 'paid' ? nowIso : null,
                       updated_at: nowIso,
@@ -1201,7 +1221,14 @@ export const handler: Handler = async (event) => {
           status: billingStatus,
           updated_at: nowIso,
         };
-        if (billingStatus === 'paid') billingUpdatePayload.paid_at = nowIso;
+        if (billingStatus === 'paid') {
+          billingUpdatePayload.paid_at = nowIso;
+          // Líquido exato (admin → "Últimos pagamentos"); mescla para não perder o que já havia no metadata.
+          const netMeta = billingNetMetadata(payment);
+          if (Object.keys(netMeta).length > 0) {
+            billingUpdatePayload.metadata = { ...((billing as any)?.metadata || {}), ...netMeta };
+          }
+        }
 
         const { error: billingUpdateError } = await supabaseAdmin
           .from('establishment_billing_payments')

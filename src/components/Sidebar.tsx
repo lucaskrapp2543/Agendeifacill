@@ -10,6 +10,7 @@ import {
   DollarSign,
   Gift,
   Layers,
+  Lightbulb,
   Link,
   ListOrdered,
   Lock,
@@ -59,7 +60,8 @@ type TabType =
   | 'indication'
   | 'receber-adiantado'
   | 'whatsapp-reminders'
-  | 'support';
+  | 'support'
+  | 'feature-requests';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -257,7 +259,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   // Função para verificar se um item deve estar bloqueado
   const isItemLocked = (itemId: string): boolean => {
     // Suporte precisa ficar disponível mesmo no primeiro acesso.
-    if (itemId === 'support') return false;
+    if (itemId === 'support' || itemId === 'feature-requests') return false;
 
     // Se onboarding completo (step >= 4), nada está bloqueado
     if (onboardingStep >= 4) return false;
@@ -284,7 +286,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   // Usado para mostrar a mensagem de "Função bloqueada por configuração".
   const isItemLockedByOnboarding = (itemId: string): boolean => {
     // Suporte precisa ficar disponível mesmo no primeiro acesso.
-    if (itemId === 'support') return false;
+    if (itemId === 'support' || itemId === 'feature-requests') return false;
 
     // Se onboarding completo (step >= 4), nada está bloqueado
     if (onboardingStep >= 4) return false;
@@ -629,6 +631,14 @@ const Sidebar: React.FC<SidebarProps> = ({
       disabled: isItemLocked('support')
     },
     {
+      id: 'feature-requests',
+      label: 'Fazer pedidos',
+      icon: Lightbulb,
+      onClick: () => handleItemClick(() => onTabChange('feature-requests')),
+      isActive: activeTab === 'feature-requests',
+      disabled: false
+    },
+    {
       id: 'passo-a-passo',
       label: 'Como funciona o Sistema',
       icon: Rocket,
@@ -701,7 +711,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const mainSidebarItemOrder = new Map(
     // 🏆 Meta Mensal fica no menu PRINCIPAL, logo abaixo do Top 5: precisa estar
     // visível para o barbeiro se motivar a vender — escondida ele nem descobre.
-    ['notifications', 'top10-clientes', 'monthly-goal', 'appointments', 'client-page', 'admin-menu', 'support', 'passo-a-passo', 'logout'].map((id, index) => [id, index])
+    ['notifications', 'top10-clientes', 'monthly-goal', 'appointments', 'client-page', 'admin-menu', 'support', 'feature-requests', 'passo-a-passo', 'logout'].map((id, index) => [id, index])
   );
   const sidebarMenuItems = menuItems
     .filter((item) => !adminMenuItemIds.has(item.id) && mainSidebarItemOrder.has(item.id))
@@ -1209,6 +1219,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     const mainMobileMenuActions: Array<{ id: string; label: string; icon: LucideIcon; onClick: () => void; tone?: 'danger'; isActive?: boolean }> = [
       { id: 'admin-menu', label: 'Menu Admin', icon: Settings, onClick: openAdminMenu, isActive: showAdminMenu || isAdminTabActive },
       { id: 'support', label: 'Falar com Suporte', icon: MessageSquare, onClick: () => executeMobileAction('support', () => onTabChange('support')) },
+      { id: 'feature-requests', label: 'Fazer pedidos', icon: Lightbulb, onClick: () => executeMobileAction('feature-requests', () => onTabChange('feature-requests')), isActive: activeTab === 'feature-requests' },
       { id: 'passo-a-passo', label: 'Como funciona', icon: Rocket, onClick: () => executeMobileAction('passo-a-passo', () => onTabChange('passo-a-passo')) },
       { id: 'logout', label: 'Sair', icon: LogOut, onClick: onSignOut, tone: 'danger' },
     ];
@@ -1500,7 +1511,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             )}
 
             <div className="mt-3 space-y-2">
-              {mainMobileMenuActions.filter((action) => action.id !== 'admin-menu').map((action) => {
+              {mainMobileMenuActions.filter((action) => action.id !== 'admin-menu' && (action.id !== 'feature-requests' || !isCollaboratorView)).map((action) => {
                 const Icon = action.icon;
                 const isDanger = action.tone === 'danger';
                 return (
