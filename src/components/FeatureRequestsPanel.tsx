@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, Lightbulb, RefreshCw, Send, X } from 'lucide-react';
 import { FeatureRequestPhotos } from './FeatureRequestPhotos';
+import { SystemUpdatesCard } from './SystemUpdatesCard';
 import {
   compressImageForUpload,
   createFeatureRequest,
@@ -197,6 +198,9 @@ export function FeatureRequestsPanel({ establishmentId, toast, onAnswersSeen }: 
           </div>
         </div>
       </div>
+
+      {/* Atualizações e novidades do sistema */}
+      <SystemUpdatesCard />
 
       {/* Novo pedido */}
       <div className="rounded-2xl border border-white/10 bg-[#141518] p-3 sm:p-4 space-y-3">
