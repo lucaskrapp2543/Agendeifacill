@@ -10700,7 +10700,9 @@ const EstablishmentDashboard = () => {
         });
         professionals.forEach((p: any) => {
           const id = String(p?.id || '').trim();
-          if (id) baseProfessionalsById.set(id, p);
+          if (!id) return;
+          const dbVersion = baseProfessionalsById.get(id);
+          baseProfessionalsById.set(id, dbVersion ? mergeProfessionalsPreservingCriticalFields([p], [dbVersion])[0] : p);
         });
 
         const updatedProfessionals = [...Array.from(baseProfessionalsById.values()), newProfessional];
@@ -25280,10 +25282,15 @@ Estamos te aguardando!`;
         }
 
         const localProfessional = professionals.find((p) => p.id === professionalId);
+        // Base = bloqueios que estão no banco agora. A cópia da tela pode estar velha
+        // (outro aparelho/aba) e apagaria bloqueios feitos depois.
+        const dbBlockedHoursRaw = selectedProfessionalInDb?.blocked_hours;
         const currentBlockedHoursRaw =
+          (dbBlockedHoursRaw && typeof dbBlockedHoursRaw === 'object' && !Array.isArray(dbBlockedHoursRaw)
+            ? dbBlockedHoursRaw
+            : null) ||
           blockedHours[professionalId] ||
           (localProfessional as any)?.blocked_hours ||
-          selectedProfessionalInDb?.blocked_hours ||
           {};
         const updatedBlockedHours = normalizeBlockedHoursMap(currentBlockedHoursRaw);
         const daySet = new Set(updatedBlockedHours[dateKey] || []);

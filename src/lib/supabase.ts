@@ -652,11 +652,32 @@ export const updateEstablishment = async (id: string, data: any) => {
               : typeof (existingProf as any).oculto_da_reserva === 'boolean'
                 ? (existingProf as any).oculto_da_reserva
                 : Boolean(existingProf.hidden_from_booking);
+          // Horários bloqueados NÃO são editados por esta tela (Configurações): o banco manda.
+          // Antes o objeto vinha sem blocked_hours e o "Salvar" apagava todos os bloqueios
+          // (cliente conseguia agendar em horário bloqueado).
+          const existingBlockedHours = (existingProf as any)?.blocked_hours;
+          const blockedHours =
+            existingBlockedHours && typeof existingBlockedHours === 'object' && !Array.isArray(existingBlockedHours)
+              ? existingBlockedHours
+              : newProf.blocked_hours ?? {};
+          // Lista vazia/ausente vinda da tela (cópia antiga ou campo esquecido) não apaga o que está no banco.
+          const keepDbWhenEmpty = (localValue: any, dbValue: any) => {
+            const localEmpty =
+              localValue == null ||
+              (Array.isArray(localValue) && localValue.length === 0) ||
+              (typeof localValue === 'object' && !Array.isArray(localValue) && Object.keys(localValue).length === 0);
+            return localEmpty && dbValue != null ? dbValue : localValue;
+          };
           return {
+            ...existingProf,
             ...newProf,
             photo_url: existingProf?.photo_url || newProf.photo_url,
             hidden_from_booking: hiddenBooking,
             oculto_da_reserva: ocultoReserva,
+            blocked_hours: blockedHours,
+            absences: keepDbWhenEmpty(newProf.absences, (existingProf as any)?.absences),
+            work_hours: keepDbWhenEmpty(newProf.work_hours, (existingProf as any)?.work_hours),
+            specific_services: keepDbWhenEmpty(newProf.specific_services, (existingProf as any)?.specific_services),
           };
         });
 
