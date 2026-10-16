@@ -5,11 +5,13 @@ import { AlertCircle, ArrowLeft, Check, CheckCheck, Loader2, Mic, MoreVertical, 
 import { PaymentModal } from '../components/PaymentModal';
 import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { TimeSlotSelector } from '../components/TimeSlotSelector';
+import { SlotDaysGrid } from '../components/AvailableSlotsPanel';
+import { formatSlotDuration, useAvailableSlots } from '../hooks/useAvailableSlots';
 import { useToast } from '../components/ui/Toaster';
 import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
 import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import { getSubscriptions } from '../lib/supabase';
-import { useClientBookingBlocked } from '../lib/clientBookingBlock';
+import { isClientBookingBlocked, useClientBookingBlocked } from '../lib/clientBookingBlock';
 import {
   estadoCancelamentoParaAgendamentoCliente,
   formatarDuracaoMinutosParaTexto,
@@ -111,6 +113,7 @@ const WALLPAPER =
 
 type ChatStep =
   | 'menu'
+  | 'slots'
   | 'lookup'
   | 'cancel'
   | 'plans'
@@ -143,6 +146,12 @@ type WidgetKind =
   | 'summary'
   | 'payment'
   | 'local_confirm'
+  | 'cash_change'
+  | 'cash_confirm'
+  | 'slots'
+  | 'slot_services'
+  | 'slot_suggestions'
+  | 'slot_professionals'
   | 'success';
 
 type ChatMessage = {
@@ -375,7 +384,7 @@ const BookingChatPage = () => {
   const [step, setStep] = useState<ChatStep>('menu');
   const [botTyping, setBotTyping] = useState(false);
   const [inputValue, setInputValue] = useState('');
-  const [inputMode, setInputMode] = useState<'name' | 'phone' | 'phone_lookup' | 'coupon' | 'none'>('none');
+  const [inputMode, setInputMode] = useState<'name' | 'phone' | 'phone_lookup' | 'coupon' | 'cash' | 'none'>('none');
   const [submitting, setSubmitting] = useState(false);
 
   // "Ver meus agendamentos": telefone consultado e lista encontrada.
@@ -606,6 +615,23 @@ const BookingChatPage = () => {
     [todayStr, tomorrowStr]
   );
 
+  // ---------------------------------------------------------------------
+  // "👀 Ver vagas" (opcional: establishments.booking_chat_show_slots — vale para todas as
+  // páginas de agendamento). Mesma peça da página completa e do /af (useAvailableSlots):
+  // horários livres dia a dia → serviço → profissional → nome/WhatsApp → mesmo resumo.
+  // ---------------------------------------------------------------------
+  const slotsFeatureEnabled = establishment?.booking_chat_show_slots === true;
+  const slotFirstRef = useRef(false);
+  const [slotServiceKey, setSlotServiceKey] = useState('');
+  const slots = useAvailableSlots({
+    enabled: slotsFeatureEnabled,
+    establishment,
+    professionals: visibleProfessionals,
+    servicesForProfessional: servicesForProfessional as (pro: SimpleProfessional) => SimpleService[],
+    forceFullDay: clientBookingBlocked,
+  });
+  const slotServiceOptions = slots.serviceOptions;
+
   // Limites por serviço do plano (mesma validação central do booking normal)
   useEffect(() => {
     if (!subscriberFlow || !establishment?.id || !detectedSubscriber || subscriberOptions.length === 0) {
@@ -797,11 +823,31 @@ const BookingChatPage = () => {
   };
 
   // ===== Menu inicial: agendar, ver agendamentos ou ver assinaturas =====
-  const handleMenuChoice = async (choice: 'book' | 'view' | 'plans') => {
-    const label = choice === 'book' ? 'Fazer um agendamento' : choice === 'view' ? 'Ver meus agendamentos' : 'Ver assinaturas';
+  const handleMenuChoice = async (choice: 'book' | 'view' | 'plans' | 'slots') => {
+    const label =
+      choice === 'book'
+        ? 'Fazer um agendamento'
+        : choice === 'view'
+          ? 'Ver meus agendamentos'
+          : choice === 'slots'
+            ? 'Ver vagas'
+            : 'Ver assinaturas';
     finishWidget('menu', label);
-    userSay(choice === 'book' ? 'Fazer um agendamento 📅' : choice === 'view' ? 'Ver meus agendamentos 🔎' : 'Ver assinaturas 👑');
+    userSay(
+      choice === 'book'
+        ? 'Fazer um agendamento 📅'
+        : choice === 'view'
+          ? 'Ver meus agendamentos 🔎'
+          : choice === 'slots'
+            ? 'Ver vagas 👀'
+            : 'Ver assinaturas 👑'
+    );
+    if (choice === 'slots') {
+      await startSlotsView();
+      return;
+    }
     if (choice === 'book') {
+      slotFirstRef.current = false;
       await askName('Boa! Pra começar, me diz seu nome:');
       return;
     }
@@ -1109,6 +1155,17 @@ const BookingChatPage = () => {
     updateForm({ clientWhatsapp: digits });
     setSubmitting(true);
     try {
+      // "Ver vagas": o horário foi escolhido antes do WhatsApp. Cliente bloqueado pelo dono
+      // vê o horário como preenchido (sem falar de bloqueio), igual à agenda lotada.
+      if (slotFirstRef.current && (await isClientBookingBlocked(String(establishment.id), digits))) {
+        slotFirstRef.current = false;
+        slots.setPick(null);
+        updateForm({ selectedDate: '', selectedTime: '', services: [], professional: null });
+        await botSay('Poxa, esse horário acabou de ser preenchido 😕 No momento não encontrei outra vaga pra você.');
+        setStep('menu');
+        await botWidget('menu', 'Posso ajudar em mais alguma coisa?', 400);
+        return;
+      }
       const typingId = nextId();
       setBotTyping(true);
       pushMessage({ id: typingId, from: 'bot', kind: 'typing' });
@@ -1157,6 +1214,10 @@ const BookingChatPage = () => {
       setExpiredSubscriber(null);
       setRenewalPlan(null);
       await botSay('Anotado! ✅');
+      if (slotFirstRef.current) {
+        await goSlotSummary();
+        return;
+      }
       await askProfessional();
     } catch (err: any) {
       setBotTyping(false);
@@ -1175,6 +1236,20 @@ const BookingChatPage = () => {
     if (!useSubscription) {
       setSelectedSubscriberIds([]);
     }
+    if (slotFirstRef.current) {
+      if (!useSubscription) {
+        await botSay('Sem problema!');
+        await goSlotSummary();
+        return;
+      }
+      // Pela assinatura valem os serviços/dias do plano: segue o caminho de assinante.
+      slotFirstRef.current = false;
+      slots.setPick(null);
+      updateForm({ selectedDate: '', selectedTime: '', services: [], professional: null });
+      await botSay('Boa! Vou te mostrar os horários pelo seu plano 👑');
+      await askProfessional();
+      return;
+    }
     await botSay(useSubscription ? 'Boa! Sua assinatura já cobre o serviço 😉' : 'Sem problema!');
     await askProfessional();
   };
@@ -1192,6 +1267,10 @@ const BookingChatPage = () => {
       await botSay('Tranquilo! Vamos agendar normalmente.');
     }
     setExpiredSubscriber(null);
+    if (slotFirstRef.current) {
+      await goSlotSummary();
+      return;
+    }
     await askProfessional();
   };
 
@@ -1269,6 +1348,117 @@ const BookingChatPage = () => {
     await botWidget('summary', 'Fechou! Confere se está tudo certo:');
   };
 
+  // ===== "👀 Ver vagas" =====
+  const startSlotsView = async () => {
+    slotFirstRef.current = true;
+    setSlotServiceKey('');
+    setStep('slots');
+    setInputMode('none');
+    if (!slots.nextDay && slots.days.length === 0) {
+      slotFirstRef.current = false;
+      await botSay('Poxa, não temos dias abertos para agendamento nos próximos dias 😕');
+      await botWidget('menu', 'Posso ajudar em mais alguma coisa?', 400);
+      return;
+    }
+    // Toda vez que abre, busca de novo (vaga de 5 minutos atrás pode não existir mais).
+    slots.start();
+    await botWidget('slots', 'Esses são os horários livres 👇 Toque no que você quiser:', 400);
+  };
+
+  const handleSlotPick = async (date: string, time: string) => {
+    const dayText = dateLabel(date);
+    finishWidget('slots', `${dayText} às ${time}`);
+    userSay(`${dayText.replace(/^./, (c) => c.toUpperCase())} às ${time}`);
+    slots.setPick({ date, time });
+    setSlotServiceKey('');
+    updateForm({ selectedDate: date, selectedTime: time, services: [], professional: null });
+    setStep('services');
+    await botWidget('slot_services', `Boa! ${dayText.replace(/^./, (c) => c.toUpperCase())} às *${time}* 😄 Qual serviço você quer?`, 400);
+  };
+
+  const handleSlotBackToList = async () => {
+    finishWidget('slot_services', 'Escolher outro horário');
+    finishWidget('slot_suggestions', 'Escolher outro horário');
+    finishWidget('slot_professionals', 'Escolher outro horário');
+    userSay('Quero outro horário');
+    slots.setPick(null);
+    setSlotServiceKey('');
+    updateForm({ selectedDate: '', selectedTime: '', services: [], professional: null });
+    setStep('slots');
+    await botWidget('slots', 'Sem problema! Esses são os horários livres 👇', 300);
+  };
+
+  const applySlotMatch = async (match: { pro: SimpleProfessional; service: SimpleService }, fromList: boolean) => {
+    if (fromList) {
+      finishWidget('slot_professionals', match.pro.name);
+      userSay(match.pro.name);
+    } else {
+      await botSay(`Você vai ser atendido(a) por *${match.pro.name}* ✂️`);
+    }
+    updateForm({ professional: match.pro, services: [match.service] });
+    await askName('Perfeito! Pra reservar, me diz seu nome:');
+  };
+
+  /** Serviço que não cabe no horário escolhido: avisa e sugere os horários do dia em que ele cabe. */
+  const handleSlotNoFitPick = async (groupKey: string) => {
+    const group = slotServiceOptions.options.find((g) => g.key === groupKey);
+    const pick = slots.pick;
+    if (!group || !pick) return;
+    finishWidget('slot_services', group.name);
+    userSay(group.name);
+    setSlotServiceKey(group.key);
+    await botSay(`⏱ *${group.name}* leva *${formatSlotDuration(group.duration)}* e não cabe às ${pick.time} 😕`);
+    if (group.suggestions.length > 0) {
+      setStep('time');
+      await botWidget('slot_suggestions', `Esses horários de ${dateLabel(pick.date)} cabem certinho 👇`, 300);
+      return;
+    }
+    await botSay(`${dateLabel(pick.date).replace(/^./, (c) => c.toUpperCase())} ele não cabe mais. Escolhe outro dia 👇`);
+    setStep('slots');
+    await botWidget('slots', 'Esses são os horários livres 👇 (toque em "Ver amanhã" para outro dia)', 300);
+  };
+
+  const handleSlotSuggestionPick = async (time: string) => {
+    const pick = slots.pick;
+    if (!pick) return;
+    finishWidget('slot_suggestions', time);
+    userSay(time);
+    slots.setPick({ date: pick.date, time });
+    updateForm({ selectedDate: pick.date, selectedTime: time });
+    setStep('professional');
+    await botWidget('slot_professionals', `Boa! Às *${time}* então. Com quem você prefere ser atendido(a)?`, 300);
+  };
+
+  const handleSlotServicePick = async (groupKey: string) => {
+    const group = slotServiceOptions.options.find((g) => g.key === groupKey);
+    if (!group) return;
+    if (!group.fits) {
+      await handleSlotNoFitPick(groupKey);
+      return;
+    }
+    finishWidget('slot_services', group.name);
+    userSay(group.name);
+    setSlotServiceKey(group.key);
+    if (group.matches.length === 1) {
+      await applySlotMatch(group.matches[0], false);
+      return;
+    }
+    setStep('professional');
+    await botWidget('slot_professionals', 'Com quem você prefere ser atendido(a)?', 300);
+  };
+
+  /** Depois do nome/WhatsApp no "Ver vagas": vai direto para o resumo (horário já escolhido). */
+  const goSlotSummary = async () => {
+    const f = formRef.current;
+    if (!f.professional || f.services.length === 0 || !f.selectedDate || !f.selectedTime) {
+      slotFirstRef.current = false;
+      await askProfessional();
+      return;
+    }
+    setStep('summary');
+    await botWidget('summary', 'Fechou! Confere se está tudo certo:');
+  };
+
   // ---------------------------------------------------------------------
   // Confirmação e pagamento (mesma sequência da página simples)
   // ---------------------------------------------------------------------
@@ -1303,8 +1493,18 @@ const BookingChatPage = () => {
   // Origem "chat" no agendamento: o admin conta por booking_source (a página simples usa 'af').
   const BOOKING_SOURCE = 'chat';
 
-  const doInsertAndSuccess = async (userId: string, paymentMethod: string) => {
-    const payload = { ...buildNormalPayload(buildPayloadInput(userId)), ...couponFieldsForPayload(), payment_method: paymentMethod, booking_source: BOOKING_SOURCE };
+  const doInsertAndSuccess = async (
+    userId: string,
+    paymentMethod: string,
+    extra?: { observationNote?: string; successNote?: string }
+  ) => {
+    const payload = {
+      ...buildNormalPayload(buildPayloadInput(userId)),
+      ...couponFieldsForPayload(),
+      payment_method: paymentMethod,
+      booking_source: BOOKING_SOURCE,
+      ...(extra?.observationNote ? { observation: extra.observationNote } : {}),
+    };
     const { data: inserted, error: insertError } = await withTimeout(
       supabase.from('appointments').insert([payload]).select('id').single(),
       20000, 'insert (normal)'
@@ -1328,7 +1528,10 @@ const BookingChatPage = () => {
         if (confirmed) afcoinNote = ' ✨ Você ganhou +10 AFCoins!';
       }
     }
-    await goSuccess(String(inserted?.id || ''), `Tudo certo, ${firstName(formRef.current.clientName)}! 🎉 Seu horário está confirmado.${afcoinNote}`);
+    await goSuccess(
+      String(inserted?.id || ''),
+      `Tudo certo, ${firstName(formRef.current.clientName)}! 🎉 Seu horário está confirmado.${afcoinNote}${extra?.successNote ? ` ${extra.successNote}` : ''}`
+    );
   };
 
   const handleConfirmSummary = async () => {
@@ -1509,6 +1712,94 @@ const BookingChatPage = () => {
     }
   };
 
+  // 💵 Dinheiro (papel): pergunta "troco pra quanto?", confirma e grava como "pagar no local".
+  // O troco vai na observação do cliente para o barbeiro ver na agenda.
+  const cashChangeForRef = useRef<number | null>(null);
+  const cashTotalToPay = () => Math.max(0, Math.round((Number(precoFinalComDesconto) || 0) * 100) / 100);
+
+  const handleCashIntent = async () => {
+    finishWidget('payment', 'Pagar no dinheiro');
+    userSay('Pagar no dinheiro 💵');
+    cashChangeForRef.current = null;
+    await botWidget(
+      'cash_change',
+      `Você vai pagar *${formatPrice(cashTotalToPay())}* em dinheiro. Vai precisar de troco? Troco pra quanto? 💵`,
+      500
+    );
+  };
+
+  const handleCashChangePick = async (changeFor: number | null) => {
+    const total = cashTotalToPay();
+    if (changeFor !== null && (!Number.isFinite(changeFor) || changeFor < total)) {
+      setInputMode('cash');
+      await botSay(`Esse valor é menor que *${formatPrice(total)}* 😅 Digite o valor da nota que você vai usar (ex.: 50).`);
+      return;
+    }
+    const label = changeFor === null ? 'Não preciso de troco' : `Troco pra ${formatPrice(changeFor)}`;
+    finishWidget('cash_change', label);
+    userSay(label);
+    setInputMode('none');
+    cashChangeForRef.current = changeFor;
+    const troco = changeFor !== null ? Math.round((changeFor - total) * 100) / 100 : 0;
+    const texto =
+      troco > 0
+        ? `Confirmando: você paga *${formatPrice(total)}* em dinheiro com *${formatPrice(changeFor!)}*. Seu troco será *${formatPrice(troco)}*. Posso confirmar?`
+        : `Confirmando: você paga *${formatPrice(total)}* em dinheiro, sem troco. Posso confirmar?`;
+    await botWidget('cash_confirm', texto, 400);
+  };
+
+  const handleCashOtherValue = async () => {
+    setInputValue('');
+    setInputMode('cash');
+    await botSay('Digite o valor da nota que você vai usar (ex.: 50) 👇', 300);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  };
+
+  const handleSubmitCashValue = async () => {
+    const raw = inputValue.trim().replace(/[^\d,.]/g, '');
+    const normalized = raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw;
+    const value = Number(normalized);
+    setInputValue('');
+    if (!raw || !Number.isFinite(value) || value <= 0) {
+      await botSay('Não entendi o valor 😅 Digite só o número da nota, por exemplo: 50');
+      return;
+    }
+    await handleCashChangePick(Math.round(value * 100) / 100);
+  };
+
+  const handleCashConfirm = async (confirmed: boolean) => {
+    if (!confirmed) {
+      finishWidget('cash_confirm', 'Mudar o valor');
+      userSay('Quero mudar o valor');
+      await botWidget('cash_change', 'Sem problema! Troco pra quanto? 💵', 300);
+      return;
+    }
+    finishWidget('cash_confirm', 'Confirmar ✅');
+    userSay('Confirmar ✅');
+    if (!establishment?.id || !formRef.current.professional || formRef.current.services.length === 0) return;
+    const total = cashTotalToPay();
+    const changeFor = cashChangeForRef.current;
+    const troco = changeFor !== null ? Math.round((changeFor - total) * 100) / 100 : 0;
+    const observationNote =
+      troco > 0
+        ? `💵 Paga em dinheiro ${formatPrice(total)} — troco para ${formatPrice(changeFor!)} (devolver ${formatPrice(troco)})`
+        : `💵 Paga em dinheiro ${formatPrice(total)} (sem troco)`;
+    const successNote =
+      troco > 0
+        ? `💵 Você vai pagar *${formatPrice(total)}* no local. Seu troco será *${formatPrice(troco)}*.`
+        : `💵 Você vai pagar *${formatPrice(total)}* no local, sem troco.`;
+    setSubmitting(true);
+    try {
+      const { userId, error } = await ensureGuestSession(formRef.current.clientName.trim(), formRef.current.clientWhatsapp);
+      if (error || !userId) throw new Error('Sessão expirada. Tente novamente.');
+      await doInsertAndSuccess(userId, 'pagar_local', { observationNote, successNote });
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro. Tente novamente.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   /** "Prefiro pagar no local": antes de aceitar, mostra o que ele perde pagando depois. */
   const handlePayLocalIntent = async () => {
     finishWidget('payment', 'Prefiro pagar no local');
@@ -1613,6 +1904,7 @@ const BookingChatPage = () => {
   };
 
   const handleChangeChoice = async (what: 'services' | 'day' | 'professional') => {
+    slotFirstRef.current = false;
     finishWidget('summary', 'Alterar');
     userSay(what === 'services' ? 'Trocar o serviço' : what === 'day' ? 'Trocar dia/horário' : 'Trocar profissional');
     if (what === 'day') {
@@ -1941,6 +2233,15 @@ const BookingChatPage = () => {
                 (cancelar / reagendar)
               </span>
             </ChipButton>
+            {/* "Ver vagas": só para quem ativou em Configurações */}
+            {slotsFeatureEnabled && visibleProfessionals.length > 0 && (
+              <ChipButton disabled={done} onClick={() => void handleMenuChoice('slots')}>
+                👀 Ver vagas
+                <span className="block text-[11px] font-normal leading-tight mt-0.5" style={{ color: WA.muted }}>
+                  (horários livres a partir de hoje)
+                </span>
+              </ChipButton>
+            )}
             {/* Só para barbearias com plano de assinatura visível */}
             {plans.length > 0 && (
               <ChipButton disabled={done} onClick={() => void handleMenuChoice('plans')}>👑 Ver assinaturas</ChipButton>
@@ -2127,6 +2428,21 @@ const BookingChatPage = () => {
           <div className="flex flex-col gap-2 mt-2">
             {payRow('💠', 'Pagar com PIX', () => void handlePayOnline('pix'), true)}
             {payRow('💳', 'Pagar com cartão', () => void handleCardIntent(), false)}
+            {optional && (
+              <button
+                type="button"
+                disabled={done || submitting}
+                onClick={() => void handleCashIntent()}
+                className="w-full min-h-[50px] rounded-2xl px-4 py-2.5 flex items-center gap-3 text-left transition-all disabled:opacity-45 disabled:cursor-not-allowed active:scale-[0.98]"
+                style={{ backgroundColor: WA.chip, color: WA.text, border: `1px solid ${WA.chipBorder}` }}
+              >
+                <span className="text-xl leading-none">💵</span>
+                <span className="flex-1 text-[15px] font-semibold whitespace-nowrap">
+                  Pagar no dinheiro <span className="text-[11px] font-normal" style={{ color: WA.muted }}>(papel)</span>
+                </span>
+                <span className="text-lg leading-none opacity-70">›</span>
+              </button>
+            )}
             {optional && !done && (
               <button
                 type="button"
@@ -2138,6 +2454,211 @@ const BookingChatPage = () => {
                 Prefiro pagar no local
               </button>
             )}
+          </div>
+        );
+      }
+      case 'cash_change': {
+        const total = cashTotalToPay();
+        const notes = [20, 50, 100, 200].filter((note) => note > total).slice(0, 3);
+        return (
+          <div className="flex flex-col gap-2 mt-2">
+            <ChipButton primary disabled={done || submitting} onClick={() => void handleCashChangePick(null)}>
+              Não preciso de troco
+            </ChipButton>
+            {notes.length > 0 && (
+              <div className="grid grid-cols-3 gap-2">
+                {notes.map((note) => (
+                  <ChipButton key={note} disabled={done || submitting} onClick={() => void handleCashChangePick(note)}>
+                    {formatPrice(note).replace(',00', '')}
+                  </ChipButton>
+                ))}
+              </div>
+            )}
+            {!done && (
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => void handleCashOtherValue()}
+                className="self-center mt-1 text-[13px] underline underline-offset-2 disabled:opacity-45"
+                style={{ color: WA.muted }}
+              >
+                Outro valor
+              </button>
+            )}
+          </div>
+        );
+      }
+      case 'cash_confirm':
+        return (
+          <div className="flex flex-col gap-2 mt-2">
+            <ChipButton primary disabled={done || submitting} onClick={() => void handleCashConfirm(true)}>
+              Confirmar ✅
+            </ChipButton>
+            {!done && (
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => void handleCashConfirm(false)}
+                className="self-center mt-1 text-[13px] underline underline-offset-2 disabled:opacity-45"
+                style={{ color: WA.muted }}
+              >
+                Mudar o valor
+              </button>
+            )}
+          </div>
+        );
+      case 'slots': {
+        if (done) return null;
+        return (
+          <div className="mt-2">
+            <SlotDaysGrid
+              days={slots.days}
+              timesByDay={slots.timesByDay}
+              nextDay={slots.nextDay}
+              onShowNextDay={slots.showNextDay}
+              onPickTime={(date, time) => void handleSlotPick(date, time)}
+              disabled={submitting}
+            />
+          </div>
+        );
+      }
+      case 'slot_services': {
+        if (done) return null;
+        if (!slotServiceOptions.ready) {
+          return <p className="mt-2 text-[13px]" style={{ color: WA.muted }}>Vendo os serviços que cabem nesse horário… 🔎</p>;
+        }
+        const fitting = slotServiceOptions.options.filter((group) => group.fits);
+        const notFitting = slotServiceOptions.options.filter((group) => !group.fits);
+        if (fitting.length === 0 && notFitting.length === 0) {
+          return (
+            <div className="mt-2 flex flex-col gap-2">
+              <p className="text-[13px]" style={{ color: WA.muted }}>Poxa, esse horário acabou de ser ocupado 😕</p>
+              <ChipButton primary onClick={() => void handleSlotBackToList()}>Ver outras vagas</ChipButton>
+            </div>
+          );
+        }
+        return (
+          <div className="mt-2 flex flex-col gap-2">
+            {fitting.length === 0 && (
+              <p className="text-[13px]" style={{ color: WA.muted }}>
+                Nenhum serviço cabe inteiro nesse horário. Toque no serviço que você quer e eu te mostro quando ele cabe 👇
+              </p>
+            )}
+            {fitting.map((group) => {
+              const minPrice = Math.min(...group.prices);
+              const maxPrice = Math.max(...group.prices);
+              return (
+                <ChipButton key={group.key} onClick={() => void handleSlotServicePick(group.key)}>
+                  <span className="flex w-full items-center justify-between gap-3">
+                    <span className="text-left">
+                      {group.name}
+                      <span className="block text-[11px] font-normal" style={{ color: WA.muted }}>⏱ {formatSlotDuration(group.duration)}</span>
+                    </span>
+                    <span className="shrink-0 text-[13px] font-normal" style={{ color: WA.muted }}>
+                      {minPrice !== maxPrice ? `a partir de ${formatPrice(minPrice)}` : formatPrice(minPrice)}
+                    </span>
+                  </span>
+                </ChipButton>
+              );
+            })}
+            {notFitting.length > 0 && (
+              <>
+                <p className="mt-1 text-[11px] font-bold uppercase tracking-wide" style={{ color: WA.muted }}>
+                  Não cabem nesse horário
+                </p>
+                {notFitting.map((group) => (
+                  <ChipButton key={group.key} onClick={() => void handleSlotNoFitPick(group.key)}>
+                    <span className="flex w-full items-center justify-between gap-3">
+                      <span className="text-left" style={{ color: WA.muted }}>
+                        {group.name}
+                        <span className="block text-[11px] font-normal">⏱ {formatSlotDuration(group.duration)} · ver quando cabe</span>
+                      </span>
+                      <span className="shrink-0 text-[12px] font-bold" style={{ color: WA.accent }}>Ver horários ›</span>
+                    </span>
+                  </ChipButton>
+                ))}
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => void handleSlotBackToList()}
+              className="self-center mt-1 text-[13px] underline underline-offset-2"
+              style={{ color: WA.muted }}
+            >
+              Escolher outro horário
+            </button>
+          </div>
+        );
+      }
+      case 'slot_suggestions': {
+        if (done) return null;
+        const group = slotServiceOptions.options.find((g) => g.key === slotServiceKey);
+        const suggestions = group?.suggestions || [];
+        return (
+          <div className="mt-2 flex flex-col gap-2">
+            {suggestions.length > 0 ? (
+              <div className="grid grid-cols-4 gap-1.5">
+                {suggestions.map((time) => (
+                  <button
+                    key={time}
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => void handleSlotSuggestionPick(time)}
+                    className="min-h-[40px] rounded-xl bg-green-600 text-[14px] font-bold text-white transition-all hover:bg-green-500 disabled:opacity-45 active:scale-[0.97]"
+                  >
+                    {time}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[13px]" style={{ color: WA.muted }}>Vendo os horários… 🔎</p>
+            )}
+            <button
+              type="button"
+              onClick={() => void handleSlotBackToList()}
+              className="self-center mt-1 text-[13px] underline underline-offset-2"
+              style={{ color: WA.muted }}
+            >
+              Escolher outro horário
+            </button>
+          </div>
+        );
+      }
+      case 'slot_professionals': {
+        if (done) return null;
+        const group = slotServiceOptions.options.find((g) => g.key === slotServiceKey);
+        if (!slotServiceOptions.ready) {
+          return <p className="mt-2 text-[13px]" style={{ color: WA.muted }}>Vendo quem está livre… 🔎</p>;
+        }
+        if (!group || group.matches.length === 0) {
+          return (
+            <div className="mt-2 flex flex-col gap-2">
+              <p className="text-[13px]" style={{ color: WA.muted }}>Poxa, esse horário acabou de ser ocupado 😕</p>
+              <ChipButton primary onClick={() => void handleSlotBackToList()}>Ver outras vagas</ChipButton>
+            </div>
+          );
+        }
+        return (
+          <div className="flex flex-col gap-2 mt-2">
+            {group.matches.map((match) => (
+              <button
+                key={match.pro.id}
+                type="button"
+                onClick={() => void applySlotMatch(match, true)}
+                className="flex items-center gap-3 rounded-2xl p-2.5 text-left transition-colors active:scale-[0.99]"
+                style={{ backgroundColor: WA.chip, border: `1px solid ${WA.chipBorder}` }}
+              >
+                {match.pro.photo_url ? (
+                  <img src={storagePublicUrlForBrowser(match.pro.photo_url, 'avatar')} alt={match.pro.name} className="h-11 w-11 rounded-full object-cover shrink-0" onError={(e) => { fallbackToOriginalStorageImage(e.currentTarget); }} />
+                ) : (
+                  <div className="h-11 w-11 rounded-full flex items-center justify-center font-bold shrink-0" style={{ backgroundColor: WA.accentDark, color: '#fff' }}>
+                    {initialsOf(match.pro.name)}
+                  </div>
+                )}
+                <span className="flex-1 font-semibold" style={{ color: WA.text }}>{match.pro.name}</span>
+                <span className="shrink-0 text-[13px]" style={{ color: WA.muted }}>{formatPrice(Number(match.service.price) || 0)}</span>
+              </button>
+            ))}
           </div>
         );
       }
@@ -2271,7 +2792,15 @@ const BookingChatPage = () => {
   const logoUrl = establishment?.logo_url ? storagePublicUrlForBrowser(establishment.logo_url, 'avatar') : '';
   const isPhoneInput = inputMode === 'phone' || inputMode === 'phone_lookup';
   const inputPlaceholder =
-    inputMode === 'name' ? 'Digite seu nome' : isPhoneInput ? '(DDD) 99999-9999' : inputMode === 'coupon' ? 'Digite o cupom' : 'Escolha uma opção acima 👆';
+    inputMode === 'name'
+      ? 'Digite seu nome'
+      : isPhoneInput
+        ? '(DDD) 99999-9999'
+        : inputMode === 'coupon'
+          ? 'Digite o cupom'
+          : inputMode === 'cash'
+            ? 'Valor da nota (ex.: 50)'
+            : 'Escolha uma opção acima 👆';
   const canType = inputMode !== 'none' && !submitting;
 
   const submitInput = () => {
@@ -2280,6 +2809,7 @@ const BookingChatPage = () => {
     else if (inputMode === 'phone') void handleSubmitPhone();
     else if (inputMode === 'phone_lookup') void handleLookupPhone();
     else if (inputMode === 'coupon') void handleApplyCoupon();
+    else if (inputMode === 'cash') void handleSubmitCashValue();
   };
 
   return (
@@ -2296,6 +2826,9 @@ const BookingChatPage = () => {
         .wa-slots button:disabled { opacity: .35; filter: grayscale(1); }
         .wa-bubble strong { font-weight: 700; }
       `}</style>
+
+      {/* "Ver vagas": seletores escondidos só para calcular as vagas (mesma regra da tela de horários) */}
+      {slots.probesElement}
 
       {/* Cabeçalho */}
       <header className="flex items-center gap-3 px-3 py-2 shrink-0" style={{ backgroundColor: WA.header, paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}>
@@ -2414,7 +2947,7 @@ const BookingChatPage = () => {
             }}
             disabled={!canType}
             placeholder={inputPlaceholder}
-            inputMode={isPhoneInput ? 'tel' : 'text'}
+            inputMode={isPhoneInput ? 'tel' : inputMode === 'cash' ? 'decimal' : 'text'}
             autoComplete={inputMode === 'name' ? 'name' : isPhoneInput ? 'tel' : 'off'}
             className="flex-1 bg-transparent outline-none text-[16px] py-2 disabled:cursor-not-allowed"
             style={{ color: WA.text }}

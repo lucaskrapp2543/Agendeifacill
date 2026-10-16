@@ -9,7 +9,9 @@ import { PaymentModal } from '../components/PaymentModal';
 import { ReviewCustomQuestionFields } from '../components/ReviewCustomQuestionFields';
 import { QuickBookingModal } from '../components/QuickBookingModal';
 import { AfcoinBookingExplainModal } from '../components/AfcoinClientModals';
-import { BookingPaymentChoice, type BookingPayMethod } from '../components/BookingPaymentChoice';
+import { BookingPaymentChoice, type BookingCashPayment, type BookingPayMethod } from '../components/BookingPaymentChoice';
+import { AvailableSlotsPanel } from '../components/AvailableSlotsPanel';
+import { servicesForProfessional as slotServicesForProfessional } from '../utils/bookingSimpleEngine';
 import ReadMore from '../components/ReadMore';
 import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { useAuth } from '../context/AuthContext';
@@ -267,6 +269,11 @@ export default function BookingPage() {
   const [preferredPayMethod, setPreferredPayMethod] = useState<BookingPayMethod | null>(null);
   // 50%: quanto fica para pagar no local (só para mostrar na escolha)
   const [pendingRemainingLocal, setPendingRemainingLocal] = useState<number>(0);
+  // "👀 Ver vagas" (opcional: establishments.booking_chat_show_slots)
+  const [showSlotsPanel, setShowSlotsPanel] = useState(false);
+  const [slotSelection, setSlotSelection] = useState<{ professionalId: string; serviceName: string; date: string; time: string } | null>(null);
+  // "Pagar no dinheiro": valor cheio a pagar no local
+  const [pendingFullLocalAmount, setPendingFullLocalAmount] = useState<number>(0);
 
   const clientAfcoinsProgramActive = useMemo(
     () => isClientAfcoinsEnabledForEstablishment(establishment),
@@ -2602,6 +2609,7 @@ export default function BookingPage() {
         setPendingAppointmentId(inserted.id);
         setPendingPaymentAmount(cobrarTaxaCliente && valorAgendamento > 0 ? valorAgendamento + 1 : valorAgendamento);
         setPendingRemainingLocal(Math.max(0, Number(valorAgendamentoFull || 0) - Number(valorAgendamento || 0)));
+        setPendingFullLocalAmount(Math.max(0, Number(valorAgendamentoFull || 0)));
         setPendingCustomerData({
           name: appointmentData?.client_name || guestClientData?.name || 'Cliente',
           phone: appointmentData?.client_whatsapp || guestClientData?.phone,
@@ -2808,6 +2816,7 @@ export default function BookingPage() {
           setPendingAppointmentId(insertedAppointment?.id || null);
           setPendingPaymentAmount(cobrarTaxaCliente && valorAgendamento > 0 ? valorAgendamento + 1 : valorAgendamento);
         setPendingRemainingLocal(Math.max(0, Number(valorAgendamentoFull || 0) - Number(valorAgendamento || 0)));
+        setPendingFullLocalAmount(Math.max(0, Number(valorAgendamentoFull || 0)));
           setPendingCustomerData({
             name: appointmentData?.client_name || guestClientData?.name || 'Cliente',
             phone: appointmentData?.client_whatsapp || guestClientData?.phone,
@@ -2852,6 +2861,19 @@ export default function BookingPage() {
 
 
 
+  // Profissionais que aparecem no "Ver vagas": os do booking (sem ocultos; link exclusivo = só ele).
+  const slotPanelProfessionals = useMemo(() => {
+    const list = Array.isArray(establishment?.professionals)
+      ? (establishment.professionals as any[]).filter((p: any) => !p?.hidden_from_booking)
+      : [];
+    const exclusiveId = String(exclusiveProfessionalId || '').trim();
+    if (exclusiveId) {
+      const only = list.filter((p: any) => String(p?.id || '').trim() === exclusiveId);
+      if (only.length > 0) return only;
+    }
+    return list;
+  }, [establishment, exclusiveProfessionalId]);
+
   const handleAgendarClick = () => {
     const isChatEnabled = BOOKING_CHAT_ALWAYS_ON;
 
@@ -2895,6 +2917,31 @@ export default function BookingPage() {
         rule: 'name_phone_5',
         establishment,
       });
+    }
+  };
+
+  // 💵 "Pagar no dinheiro (papel)": o agendamento já está como pagar no local; só guarda o
+  // troco na observação do cliente para o barbeiro ver na agenda.
+  const handleCashLocalPay = async (cash: BookingCashPayment): Promise<boolean> => {
+    if (!pendingAppointmentId) return false;
+    try {
+      const { data: current } = await supabase
+        .from('appointments')
+        .select('observation')
+        .eq('id', pendingAppointmentId)
+        .maybeSingle();
+      const previous = String((current as any)?.observation || '').trim();
+      const observation = previous ? `${previous} • ${cash.note}` : cash.note;
+      const { error } = await supabase
+        .from('appointments')
+        .update({ observation } as any)
+        .eq('id', pendingAppointmentId);
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Erro ao salvar pagamento em dinheiro:', error);
+      toast.error('Não foi possível salvar agora. Tente de novo.');
+      return false;
     }
   };
 
@@ -3778,6 +3825,17 @@ export default function BookingPage() {
                       <span aria-hidden>✂️</span>
                       Reservar horário
                     </button>
+
+                    {(establishment as any)?.booking_chat_show_slots === true && slotPanelProfessionals.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowSlotsPanel(true)}
+                        className="w-full rounded-xl border border-green-500/60 bg-green-500/10 py-2.5 sm:py-3 px-4 sm:px-5 text-xs sm:text-sm font-extrabold uppercase tracking-wide text-green-300 transition-colors hover:bg-green-500/20 flex items-center justify-center gap-2"
+                      >
+                        <span aria-hidden>👀</span>
+                        Ver vagas
+                      </button>
+                    )}
 
                     <button
                       type="button"
@@ -4939,6 +4997,7 @@ export default function BookingPage() {
                   onGuestClientDataCollected={persistGuestClientData}
                   onOpenRenewSubscription={handleOpenRenewSubscription}
                   onCloseChat={() => {
+                    setSlotSelection(null);
                     setShowBookingForm(false);
                     safeSessionRemove(QUICK_BOOKING_FLOW_KEY);
                     safeSessionRemove(QUICK_BOOKING_DATA_KEY);
@@ -4957,6 +5016,7 @@ export default function BookingPage() {
                   subscriberExtraServiceCategories={subscriberExtraServiceCategories}
                   bookingHighlightedProducts={bookingHighlightedProducts}
                   exclusiveProfessionalId={exclusiveProfessionalId}
+                  initialSlotSelection={slotSelection}
                 />
               )}
             </div>
@@ -5953,6 +6013,29 @@ export default function BookingPage() {
           }}
           onPayLocal={() => void finishLocalPayWithAfcoins()}
           onExplainAfcoins={showAfcoinFeatures ? () => setShowAfcoinExplainModal(true) : undefined}
+          cashAmount={pendingFullLocalAmount || pendingPaymentAmount + pendingRemainingLocal}
+          onPayCash={handleCashLocalPay}
+          onCashDone={() => void finishLocalPayWithAfcoins()}
+        />
+      )}
+      {showSlotsPanel && establishment && (
+        <AvailableSlotsPanel
+          variant="modal"
+          establishment={establishment}
+          professionals={slotPanelProfessionals as any}
+          servicesForProfessional={(pro) => slotServicesForProfessional(establishment, pro)}
+          closedTimeEnabled={Boolean((establishment as any)?.closed_time_enabled)}
+          onClose={() => setShowSlotsPanel(false)}
+          onPick={(pick) => {
+            setSlotSelection({
+              professionalId: String(pick.professional.id),
+              serviceName: String(pick.service.name || ''),
+              date: pick.date,
+              time: pick.time,
+            });
+            setShowSlotsPanel(false);
+            handleAgendarClick();
+          }}
         />
       )}
       <AfcoinBookingExplainModal

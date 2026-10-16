@@ -49,6 +49,8 @@ type AutomationSettings = {
   reminderTemplate: string;
   greetingEnabled: boolean;
   greetingTemplate: string;
+  /** Saudação também quando o próprio estabelecimento agenda (Reservar Cliente). Padrão: desligado. */
+  greetingInternalEnabled: boolean;
 };
 
 const UUID_REGEX =
@@ -269,6 +271,7 @@ export class WhatsAppReminderScheduler {
       reminderTemplate: String(row?.reminder_template || '').trim() || DEFAULT_REMINDER_TEMPLATE,
       greetingEnabled: row?.greeting_enabled !== false,
       greetingTemplate: String(row?.greeting_template || '').trim() || DEFAULT_GREETING_TEMPLATE,
+      greetingInternalEnabled: row?.greeting_internal_enabled === true,
     };
   }
 
@@ -280,11 +283,24 @@ export class WhatsAppReminderScheduler {
 
     let normalized: AutomationSettings;
     try {
-      const { data, error } = await this.supabase
+      const baseColumns = 'reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template';
+      let { data, error } = await this.supabase
         .from('whatsapp_automation_settings')
-        .select('reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template')
+        .select(`${baseColumns},greeting_internal_enabled`)
         .eq('user_id', key)
         .maybeSingle();
+      if (error) {
+        const code = String((error as any)?.code || '').trim();
+        const msg = String((error as any)?.message || '').toLowerCase();
+        const missingColumn = code === '42703' || msg.includes('greeting_internal_enabled') || msg.includes('schema cache');
+        if (missingColumn) {
+          ({ data, error } = await this.supabase
+            .from('whatsapp_automation_settings')
+            .select(baseColumns)
+            .eq('user_id', key)
+            .maybeSingle());
+        }
+      }
       if (error) throw error;
       normalized = this.normalizeAutomationSettings(data);
     } catch (error) {
@@ -670,6 +686,48 @@ export class WhatsAppReminderScheduler {
     const clientId = String(appointment.client_id || '').trim();
     if (ownerId && clientId && clientId === ownerId) return true;
 
+    return false;
+  }
+
+  /**
+   * Reserva recorrente do "Reservar Cliente" cria vários agendamentos do mesmo cliente de uma vez.
+   * true = este NÃO é o primeiro horário do lote (ou já saiu saudação para o cliente há pouco).
+   */
+  private async isLaterSiblingOfInternalBatch(
+    appointment: AppointmentRow,
+    recipientPhone: string,
+    batch: AppointmentRow[]
+  ): Promise<boolean> {
+    const establishmentId = String(appointment.establishment_id || '').trim();
+    const createdAtMs = new Date(String(appointment.created_at || '')).getTime();
+    const appointmentAtMs = toDateTime(appointment.appointment_date, appointment.appointment_time)?.getTime() ?? 0;
+    for (const other of batch) {
+      if (String(other.id || '') === String(appointment.id || '')) continue;
+      if (String(other.establishment_id || '').trim() !== establishmentId) continue;
+      if (normalizePhone(String(other.client_whatsapp || '')) !== recipientPhone) continue;
+      if ((other as any).is_establishment_booking !== true) continue;
+      const otherCreatedMs = new Date(String(other.created_at || '')).getTime();
+      if (!Number.isFinite(otherCreatedMs) || !Number.isFinite(createdAtMs)) continue;
+      if (Math.abs(otherCreatedMs - createdAtMs) > 5 * 60_000) continue;
+      const otherAtMs = toDateTime(other.appointment_date, other.appointment_time)?.getTime() ?? 0;
+      if (otherAtMs < appointmentAtMs || (otherAtMs === appointmentAtMs && String(other.id) < String(appointment.id))) {
+        return true;
+      }
+    }
+    try {
+      const sinceIso = new Date(Date.now() - 10 * 60_000).toISOString();
+      const { data, error } = await this.supabase
+        .from('whatsapp_message_logs')
+        .select('id')
+        .eq('establishment_id', establishmentId)
+        .eq('recipient_phone', recipientPhone)
+        .eq('message_type', 'booking_confirmation')
+        .gte('created_at', sinceIso)
+        .limit(1);
+      if (!error && Array.isArray(data) && data.length > 0) return true;
+    } catch {
+      // na dúvida, segue (a deduplicação por agendamento continua valendo)
+    }
     return false;
   }
 
@@ -1215,14 +1273,33 @@ export class WhatsAppReminderScheduler {
         const confirmationKey = `${appointment.id}::booking_confirmation`;
         const guardedConfirmation = this.isGuarded(confirmationKey, now.getTime());
         const alreadyLoggedConfirmation = existingLogSet.has(confirmationKey);
+        // Reserva feita pelo estabelecimento (Reservar Cliente) só recebe a saudação se a barbearia
+        // ligou a opção. Encaixe e venda avulsa continuam sem mensagem.
+        let internalGreetingAllowed =
+          isInternalBooking &&
+          settings.greetingInternalEnabled &&
+          Boolean(hydratedAppointment.is_establishment_booking) &&
+          !Boolean(hydratedAppointment.is_avulso) &&
+          !Boolean(hydratedAppointment.is_squeeze);
+        if (
+          internalGreetingAllowed &&
+          settings.greetingEnabled &&
+          isRecentlyCreated &&
+          !guardedConfirmation &&
+          !alreadyLoggedConfirmation &&
+          (await this.isLaterSiblingOfInternalBatch(appointment, recipientPhone, scopedAppointments))
+        ) {
+          // Reserva recorrente cria vários horários de uma vez: só o primeiro manda a saudação.
+          internalGreetingAllowed = false;
+        }
         const shouldSendConfirmation =
           settings.greetingEnabled &&
           isRecentlyCreated &&
-          !isInternalBooking &&
+          (!isInternalBooking || internalGreetingAllowed) &&
           !guardedConfirmation &&
           !alreadyLoggedConfirmation;
 
-        if (isRecentlyCreated && isInternalBooking) {
+        if (isRecentlyCreated && isInternalBooking && !internalGreetingAllowed) {
           console.info('[whatsapp/scheduler] booking_confirmation_skipped_internal', {
             appointmentId: appointment.id,
             userId: senderUserId,
@@ -1292,7 +1369,7 @@ export class WhatsAppReminderScheduler {
             existingLogSet,
             now,
           });
-        } else if (isInternalBooking && isRecentlyCreated) {
+        } else if (isInternalBooking && isRecentlyCreated && !shouldSendConfirmation) {
           await this.scheduleDelayedReminderIfNeeded({
             appointment: hydratedAppointment,
             appointmentAt,

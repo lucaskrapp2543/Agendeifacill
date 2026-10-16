@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
-import { useClientBookingBlocked } from '../lib/clientBookingBlock';
+import { isClientBookingBlocked, useClientBookingBlocked } from '../lib/clientBookingBlock';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { checkWhatsAppSubscriber as checkNewSubscriber } from '../lib/subscriberSystem';
@@ -57,6 +57,8 @@ interface BookingChatFlowProps {
   }>;
   /** Link exclusivo: mostra e permite agendar só com este profissional. */
   exclusiveProfessionalId?: string | null;
+  /** "👀 Ver vagas": profissional, serviço, dia e horário já escolhidos na página. */
+  initialSlotSelection?: { professionalId: string; serviceName: string; date: string; time: string } | null;
 }
 
 const toMoney = (value: number): string => `R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`;
@@ -211,6 +213,7 @@ export function BookingChatFlow({
   subscriberExtraServiceCategories = [],
   bookingHighlightedProducts = [],
   exclusiveProfessionalId = null,
+  initialSlotSelection = null,
 }: BookingChatFlowProps) {
   const [step, setStep] = useState<ChatStep>('name');
   const [chatClientName, setChatClientName] = useState(String(guestClientData?.name || '').trim());
@@ -437,6 +440,32 @@ export function BookingChatFlow({
       return Number(a?.__source_index || 0) - Number(b?.__source_index || 0);
     });
   }, [establishment?.legacy_services_with_prices, establishment?.services_with_prices, selectedProfessional, selectedProfessionalId]);
+
+  // "👀 Ver vagas": aplica a vaga escolhida na página. O serviço é achado pelo NOME na lista
+  // deste fluxo (aqui os ids dos serviços específicos são diferentes).
+  const slotFirstRef = useRef(false);
+  const pendingSlotSelectionRef = useRef<BookingChatFlowProps['initialSlotSelection']>(null);
+  useEffect(() => {
+    if (!initialSlotSelection) return;
+    pendingSlotSelectionRef.current = initialSlotSelection;
+    slotFirstRef.current = true;
+    setSelectedProfessionalId(String(initialSlotSelection.professionalId));
+    setSelectedServiceIds([]);
+    setSelectedTime(initialSlotSelection.time);
+    onSelectDate(new Date(`${initialSlotSelection.date}T12:00:00`));
+    // só quando a seleção muda
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSlotSelection]);
+  useEffect(() => {
+    const pending = pendingSlotSelectionRef.current;
+    if (!pending) return;
+    if (String(selectedProfessionalId || '') !== String(pending.professionalId || '')) return;
+    const target = String(pending.serviceName || '').trim().toLowerCase();
+    const found = allServices.find((service: any) => String(service?.name || '').trim().toLowerCase() === target);
+    if (!found) return;
+    setSelectedServiceIds([String(found.id)]);
+    pendingSlotSelectionRef.current = null;
+  }, [allServices, selectedProfessionalId]);
 
   const groupedServices = useMemo(() => {
     const map = new Map<string, { id: string; name: string; services: any[] }>();
@@ -1325,6 +1354,18 @@ export function BookingChatFlow({
         });
       }
 
+      // "Ver vagas": cliente bloqueado pelo dono vê o horário como preenchido (sem falar de bloqueio).
+      if (
+        slotFirstRef.current &&
+        (await isClientBookingBlocked(String((establishment as any)?.id || (establishment as any)?.establishment_id || ''), nextPhone))
+      ) {
+        slotFirstRef.current = false;
+        setSelectedTime('');
+        setSelectedServiceIds([]);
+        setSelectedProfessionalId('');
+        toast.error('Poxa, esse horário acabou de ser preenchido 😕');
+      }
+
       setIsCheckingSubscriber(true);
       const resolved = await resolveSubscriberAfterPhone(nextPhone);
       setIsCheckingSubscriber(false);
@@ -1359,7 +1400,7 @@ export function BookingChatFlow({
           monthlyLimit: 'Ilimitado',
           remaining: null,
         });
-        setStep('professional');
+        setStep(stepAfterIdentificationForSlot() || 'professional');
       }
       setDraftInput('');
       return;
@@ -1369,6 +1410,17 @@ export function BookingChatFlow({
       setStep('datetime');
       return;
     }
+  };
+
+  /** "Ver vagas": depois do nome/WhatsApp, pula profissional/serviço/horário (mesmo fim do onTimeSelect). */
+  const stepAfterIdentificationForSlot = (): ChatStep | null => {
+    if (!slotFirstRef.current || !selectedProfessionalId || selectedServiceIds.length === 0 || !selectedTime) {
+      slotFirstRef.current = false;
+      return null;
+    }
+    if (hasBookingHighlightedProducts) return 'products';
+    markAfcoinScheduleMilestone();
+    return 'confirm';
   };
 
   const goBack = () => {
@@ -1942,6 +1994,12 @@ export function BookingChatFlow({
                 <button
                   type="button"
                   onClick={() => {
+                    if (slotFirstRef.current) {
+                      // Pela assinatura valem os serviços/dias do plano: segue o caminho de assinante.
+                      slotFirstRef.current = false;
+                      setSelectedTime('');
+                      setSelectedServiceIds([]);
+                    }
                     setIsSubscriberFlow(true);
                     setSelectedSubscriberServiceId('');
                     setSelectedSubscriberServiceIds([]);
@@ -1959,7 +2017,7 @@ export function BookingChatFlow({
                     setSelectedSubscriberServiceId('');
                     setSelectedSubscriberServiceIds([]);
                     setSelectedSubscriberExtraIds([]);
-                    setStep('professional');
+                    setStep(stepAfterIdentificationForSlot() || 'professional');
                   }}
                   className="px-3 py-2 rounded-lg border bg-white/10 border-white/20"
                 >
@@ -2006,7 +2064,7 @@ export function BookingChatFlow({
                     setSelectedSubscriberServiceId('');
                     setSelectedSubscriberServiceIds([]);
                     setSelectedSubscriberExtraIds([]);
-                    setStep('professional');
+                    setStep(stepAfterIdentificationForSlot() || 'professional');
                   }}
                   className="px-3 py-2 rounded-lg border bg-white/10 border-white/20"
                 >

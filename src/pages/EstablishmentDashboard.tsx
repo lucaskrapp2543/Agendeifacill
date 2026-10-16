@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as XLSX from 'xlsx';
 import AdditionalProductModal from '../components/AdditionalProductModal';
 import { FeatureRequestsPanel } from '../components/FeatureRequestsPanel';
+import { countUnreadFeatureRequestAnswers } from '../lib/featureRequests';
 import { ClientAfcoinBadge } from '../components/AfcoinClientModals';
 import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
 import { ChangeAppointmentServiceModal } from '../components/ChangeAppointmentServiceModal';
@@ -4439,6 +4440,60 @@ const EstablishmentDashboard = () => {
       hotToast.error(msg.includes('hide_client_phone_for_professionals') ? 'Ainda não disponível: falta liberar no sistema.' : 'Não foi possível salvar. Tente novamente.');
     } finally {
       setSavingHideClientPhone(false);
+    }
+  };
+  // "Fazer pedidos": respostas do suporte ainda não vistas → balão no menu (e aviso 1x por sessão).
+  const [unreadFeatureRequestAnswers, setUnreadFeatureRequestAnswers] = useState(0);
+  const markFeatureRequestAnswersSeenLocally = useCallback(() => setUnreadFeatureRequestAnswers(0), []);
+  useEffect(() => {
+    const establishmentId = String(establishment?.id || '').trim();
+    if (!establishmentId) return;
+    let cancelled = false;
+    const check = async () => {
+      const count = await countUnreadFeatureRequestAnswers(establishmentId);
+      if (cancelled) return;
+      setUnreadFeatureRequestAnswers(count);
+      if (count > 0 && !isCollaboratorRestrictedView) {
+        const sessionKey = `agendeifacil:feature-answer-toast:${establishmentId}`;
+        try {
+          if (!sessionStorage.getItem(sessionKey)) {
+            sessionStorage.setItem(sessionKey, '1');
+            hotToast.success('💬 O suporte respondeu seu pedido! Veja em "Fazer pedidos".', { duration: 6000 });
+          }
+        } catch {
+          // sem sessionStorage: só o balão do menu
+        }
+      }
+    };
+    void check();
+    const timer = window.setInterval(() => void check(), 5 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [establishment?.id, isCollaboratorRestrictedView]);
+
+  // "👀 Ver vagas" no agendamento por chat: o cliente vê os horários livres de cara. Desligado por padrão.
+  const bookingChatShowSlots = (establishment as any)?.booking_chat_show_slots === true;
+  const [savingBookingChatShowSlots, setSavingBookingChatShowSlots] = useState(false);
+  const handleToggleBookingChatShowSlots = async (next: boolean) => {
+    if (!establishment?.id || savingBookingChatShowSlots) return;
+    setSavingBookingChatShowSlots(true);
+    const anterior = bookingChatShowSlots;
+    setEstablishment((prev) => (prev ? ({ ...prev, booking_chat_show_slots: next } as any) : prev));
+    try {
+      const { error } = await supabase
+        .from('establishments')
+        .update({ booking_chat_show_slots: next } as any)
+        .eq('id', establishment.id);
+      if (error) throw error;
+      hotToast.success(next ? 'Pronto: o botão "Ver vagas" já aparece nas páginas de agendamento.' : 'O botão "Ver vagas" saiu das páginas de agendamento.');
+    } catch (err: any) {
+      setEstablishment((prev) => (prev ? ({ ...prev, booking_chat_show_slots: anterior } as any) : prev));
+      const msg = String(err?.message || '');
+      hotToast.error(msg.includes('booking_chat_show_slots') ? 'Ainda não disponível: falta liberar no sistema.' : 'Não foi possível salvar. Tente novamente.');
+    } finally {
+      setSavingBookingChatShowSlots(false);
     }
   };
   const collaboratorRestrictedProfessionalId = isCollaboratorRestrictedView
@@ -29057,6 +29112,7 @@ Estamos te aguardando!`;
           onTabChange={handleTabChange}
           onSignOut={signOut}
           unreadNotifications={unreadNotificationsCount}
+          unreadFeatureRequestAnswers={isCollaboratorRestrictedView ? 0 : unreadFeatureRequestAnswers}
           onNotificationsClick={() => setIsNotificationsPanelOpen((v) => !v)}
           onMonthlyGoalClick={() => setShowMonthlyGoalModal(true)}
           monthlyGoalPercent={monthlyGoalPercent}
@@ -31694,7 +31750,11 @@ Estamos te aguardando!`;
 
               {/* Fazer pedidos: o dono pede melhorias e vê a resposta do suporte */}
               {activeTab === 'feature-requests' && establishment?.id && (
-                <FeatureRequestsPanel establishmentId={establishment.id} toast={toast} />
+                <FeatureRequestsPanel
+                  establishmentId={establishment.id}
+                  toast={toast}
+                  onAnswersSeen={markFeatureRequestAnswersSeenLocally}
+                />
               )}
 
               {activeTab === 'reviews' && (
@@ -34844,6 +34904,29 @@ Estamos te aguardando!`;
 
                           {/* "Agendamento por chat" saiu daqui em 06/10/2026: o chat é sempre ativo.
                               O dono escolhe qual link vai para o cliente em "Lembretes para clientes". */}
+                        </div>
+
+                        {/* ── "Ver vagas" nas páginas de agendamento ── */}
+                        <div className="rounded-2xl border border-gray-700 bg-[#242628]/50 p-4 space-y-3">
+                          <h4 className="text-sm font-extrabold text-white">👀 Ver vagas</h4>
+                          <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-700 bg-[#242628] p-3">
+                            <div className="flex-1 min-w-0">
+                              <label htmlFor="bookingChatShowSlots" className="block text-sm font-bold text-white">👀 Mostrar botão "Ver vagas"</label>
+                              <p className="text-[10px] text-gray-400 mt-0.5">
+                                Em todas as páginas de agendamento (completa, chat e /af) aparece o botão "Ver vagas": o cliente vê na hora os horários
+                                livres de hoje (e dos próximos dias, tocando em "Ver amanhã"), toca no horário e depois escolhe o serviço e o profissional.
+                                Só mostra horários livres (sem nome de ninguém).
+                              </p>
+                            </div>
+                            <input
+                              type="checkbox"
+                              id="bookingChatShowSlots"
+                              checked={bookingChatShowSlots}
+                              disabled={savingBookingChatShowSlots}
+                              onChange={(e) => { void handleToggleBookingChatShowSlots(e.target.checked); }}
+                              className="form-checkbox h-5 w-5 text-primary bg-[#242628] border-gray-700 rounded shrink-0"
+                            />
+                          </div>
                         </div>
 
                         {/* ── Privacidade: número dos clientes ── */}

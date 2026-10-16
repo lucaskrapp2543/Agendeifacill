@@ -1,5 +1,5 @@
 import { addMonths, endOfMonth, format, isSameMonth, startOfMonth, subMonths } from 'date-fns';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AlertCircle, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Loader2, MapPin, ScissorsLineDashed, Sparkles, User, X } from 'lucide-react';
 import { PaymentModal } from '../components/PaymentModal';
@@ -9,7 +9,8 @@ import { SubscriptionPixModal } from '../components/SubscriptionPixModal';
 import { TimeSlotSelector } from '../components/TimeSlotSelector';
 import { useToast } from '../components/ui/Toaster';
 import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
-import { useClientBookingBlocked } from '../lib/clientBookingBlock';
+import { isClientBookingBlocked, useClientBookingBlocked } from '../lib/clientBookingBlock';
+import { AvailableSlotsPanel } from '../components/AvailableSlotsPanel';
 import { establishmentHasMercadoPago } from '../utils/establishmentPaymentFlags';
 import {
   isClientAfcoinsEnabledForEstablishment,
@@ -61,7 +62,7 @@ import {
  * para a lógica de agendamento copiada (não compartilhada) de lá.
  */
 
-type WizardStep = 'welcome' | 'name' | 'phone' | 'subscriber_choice' | 'expired_choice' | 'professional' | 'service' | 'datetime' | 'summary' | 'payment_mode' | 'payment' | 'success';
+type WizardStep = 'welcome' | 'slots' | 'name' | 'phone' | 'subscriber_choice' | 'expired_choice' | 'professional' | 'service' | 'datetime' | 'summary' | 'payment_mode' | 'payment' | 'success';
 
 const STEP_ORDER: WizardStep[] = ['welcome', 'name', 'phone', 'professional', 'service', 'datetime', 'summary'];
 
@@ -178,6 +179,10 @@ const BookingSimplePage = () => {
 
   const [step, setStep] = useState<WizardStep>('welcome');
   const [state, setState] = useState<WizardState>(INITIAL_STATE);
+  // "Pagar no dinheiro": frase do troco mostrada na tela de confirmado.
+  const [cashSummary, setCashSummary] = useState('');
+  // "👀 Ver vagas" (opcional: establishments.booking_chat_show_slots): horário escolhido antes do nome.
+  const slotFirstRef = useRef(false);
   // "Bloquear cliente": com o telefone informado, cliente bloqueado vê a agenda lotada.
   const clientBookingBlocked = useClientBookingBlocked(establishment?.id, state.clientWhatsapp);
   const [submitting, setSubmitting] = useState(false);
@@ -369,6 +374,14 @@ const BookingSimplePage = () => {
     if (!establishment?.id) return;
     setCheckingSubscriber(true);
     try {
+      // "Ver vagas": cliente bloqueado pelo dono vê o horário como preenchido (sem falar de bloqueio).
+      if (slotFirstRef.current && (await isClientBookingBlocked(String(establishment.id), state.clientWhatsapp))) {
+        slotFirstRef.current = false;
+        setState((s) => ({ ...s, professional: null, services: [], selectedDate: '', selectedTime: '' }));
+        toast.error('Poxa, esse horário acabou de ser preenchido 😕');
+        setStep('slots');
+        return;
+      }
       const resolved = await resolveSubscriberByPhone(establishment.id, state.clientWhatsapp);
       if (resolved.status === 'active' && resolved.data) {
         const options = await loadSubscriberPlanOptions(establishment.id, resolved.data);
@@ -412,7 +425,8 @@ const BookingSimplePage = () => {
       setSelectedSubscriberIds([]);
       setExpiredSubscriber(null);
       setRenewalPlan(null);
-      setStep('professional');
+      // "Ver vagas": profissional, serviço, dia e horário já escolhidos → direto para o resumo.
+      setStep(slotFirstRef.current ? 'summary' : 'professional');
     } finally {
       setCheckingSubscriber(false);
     }
@@ -530,6 +544,10 @@ const BookingSimplePage = () => {
   };
 
   const goBack = () => {
+    if (step === 'slots') {
+      setStep('welcome');
+      return;
+    }
     // Assinante detectado: o passo anterior ao profissional é a escolha da assinatura
     if (step === 'professional' && detectedSubscriber) {
       setStep('subscriber_choice');
@@ -671,9 +689,14 @@ const BookingSimplePage = () => {
   /** Campos de auditoria do cupom (nulos quando não há cupom). */
   const couponFieldsForPayload = () => buildCouponPayloadFields(totalPrice, cupomAtivo);
 
-  const doInsertAndSuccess = async (userId: string, paymentMethod: string) => {
+  const doInsertAndSuccess = async (userId: string, paymentMethod: string, extra?: { observation?: string }) => {
     const input = buildPayloadInput(userId);
-    const payload = { ...buildNormalPayload(input), ...couponFieldsForPayload(), payment_method: paymentMethod };
+    const payload = {
+      ...buildNormalPayload(input),
+      ...couponFieldsForPayload(),
+      payment_method: paymentMethod,
+      ...(extra?.observation ? { observation: extra.observation } : {}),
+    };
     const { data: inserted, error: insertError } = await withTimeout(
       supabase.from('appointments').insert([payload]).select('id').single(),
       20000, 'insert (normal)'
@@ -701,13 +724,13 @@ const BookingSimplePage = () => {
     setStep('success');
   };
 
-  const handlePayLocal = async () => {
+  const handlePayLocal = async (extra?: { observation?: string }) => {
     if (!establishment?.id || !state.professional || state.services.length === 0) return;
     setSubmitting(true);
     try {
       const { userId, error } = await ensureGuestSession(state.clientName.trim(), state.clientWhatsapp);
       if (error || !userId) { toast.error('Sessão expirada. Tente novamente.'); return; }
-      await doInsertAndSuccess(userId, 'pagar_local');
+      await doInsertAndSuccess(userId, 'pagar_local', extra);
     } catch (err: any) {
       toast.error(err?.message || 'Erro. Tente novamente.');
     } finally {
@@ -834,7 +857,7 @@ const BookingSimplePage = () => {
 
   const stepIndex = STEP_ORDER.indexOf(step);
   const showBackButton = stepIndex > 0 && step !== 'welcome';
-  const showProgressChrome = step !== 'payment' && step !== 'payment_mode' && step !== 'success';
+  const showProgressChrome = step !== 'payment' && step !== 'payment_mode' && step !== 'success' && step !== 'slots';
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#0f1011' }}>
@@ -883,9 +906,26 @@ const BookingSimplePage = () => {
               <h1 className="text-2xl font-extrabold text-white mb-2">Bem-vindo(a), {establishment?.name}!</h1>
               <p className="text-gray-400 text-lg">Vamos marcar seu horário em poucos passos simples.</p>
             </div>
-            <button type="button" className={PRIMARY_BUTTON} onClick={goNext}>
+            <button
+              type="button"
+              className={PRIMARY_BUTTON}
+              onClick={() => {
+                slotFirstRef.current = false;
+                goNext();
+              }}
+            >
               Começar agendamento
             </button>
+            {establishment?.booking_chat_show_slots === true && visibleProfessionals.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setStep('slots')}
+                className="-mt-2 w-full min-h-[52px] rounded-2xl border-2 border-green-500/60 bg-green-500/10 px-6 py-3 text-lg font-bold text-green-300 transition-colors hover:bg-green-500/20"
+              >
+                👀 Ver vagas
+                <span className="block text-xs font-medium text-green-200/70">horários livres a partir de hoje</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => { window.location.href = '/view-appointments'; }}
@@ -941,6 +981,30 @@ const BookingSimplePage = () => {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {step === 'slots' && establishment && (
+          <div className="flex-1">
+            <AvailableSlotsPanel
+              variant="inline"
+              establishment={establishment}
+              professionals={visibleProfessionals}
+              servicesForProfessional={(pro) => servicesForProfessional(establishment, pro)}
+              forceFullDay={clientBookingBlocked}
+              onClose={() => setStep('welcome')}
+              onPick={(pick) => {
+                slotFirstRef.current = true;
+                setState((s) => ({
+                  ...s,
+                  professional: pick.professional,
+                  services: [pick.service],
+                  selectedDate: pick.date,
+                  selectedTime: pick.time,
+                }));
+                setStep('name');
+              }}
+            />
           </div>
         )}
 
@@ -1014,6 +1078,7 @@ const BookingSimplePage = () => {
               type="button"
               className={PRIMARY_BUTTON}
               onClick={() => {
+                slotFirstRef.current = false;
                 setSubscriberFlow(true);
                 setState((s) => ({ ...s, services: [], selectedDate: '', selectedTime: '' }));
                 setStep('professional');
@@ -1026,7 +1091,7 @@ const BookingSimplePage = () => {
               onClick={() => {
                 setSubscriberFlow(false);
                 setSelectedSubscriberIds([]);
-                setStep('professional');
+                setStep(slotFirstRef.current ? 'summary' : 'professional');
               }}
               className="w-full min-h-[52px] rounded-2xl text-lg font-bold px-6 py-4 bg-transparent border-2 border-gray-600 text-gray-300 hover:border-gray-400 transition-colors"
             >
@@ -1070,7 +1135,7 @@ const BookingSimplePage = () => {
               onClick={() => {
                 setSubscriberFlow(false);
                 setSelectedSubscriberIds([]);
-                setStep('professional');
+                setStep(slotFirstRef.current ? 'summary' : 'professional');
               }}
               className="w-full min-h-[52px] rounded-2xl text-lg font-bold px-6 py-4 bg-transparent border-2 border-gray-600 text-gray-300 hover:border-gray-400 transition-colors"
             >
@@ -1516,6 +1581,11 @@ const BookingSimplePage = () => {
                 void handlePayOnline();
               }}
               onPayLocal={() => void handlePayLocal()}
+              cashAmount={precoFinalComDesconto}
+              onPayCash={async (cash) => {
+                setCashSummary(cash.summary);
+                await handlePayLocal({ observation: cash.note });
+              }}
             />
           </div>
         )}
@@ -1573,6 +1643,9 @@ const BookingSimplePage = () => {
               <p className="text-gray-400 text-lg">
                 {state.selectedDate.split('-').reverse().join('/')} às {state.selectedTime} com {state.professional?.name}.
               </p>
+              {cashSummary ? (
+                <p className="mt-3 text-base text-amber-200 font-semibold">💵 {cashSummary}</p>
+              ) : null}
               {buildWhatsappSuccessNote(waInfo) ? (
                 <p className="mt-3 text-base text-emerald-300 font-semibold">{buildWhatsappSuccessNote(waInfo)}</p>
               ) : null}

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
+import { FeatureRequestPhotos } from './FeatureRequestPhotos';
 import {
   adminAnswerFeatureRequest,
   FEATURE_REQUEST_STATUS_LABEL,
@@ -57,6 +58,7 @@ function RequestCard({ request, onAnswered }: { request: FeatureRequest; onAnswe
         <span className="text-[11px] text-gray-500">Enviado em {formatDateTime(request.created_at)}</span>
       </div>
       <p className="mt-2 whitespace-pre-wrap break-words text-sm text-gray-900">{request.message}</p>
+      <FeatureRequestPhotos paths={request.photo_paths} tone="light" />
 
       <label className="mt-3 block text-[11px] font-semibold text-gray-700">
         Mensagem para o estabelecimento (opcional — ele vê na tela "Fazer pedidos")

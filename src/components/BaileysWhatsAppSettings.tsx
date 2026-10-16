@@ -39,6 +39,8 @@ type AutomationSettings = {
   reminder_template: string;
   greeting_enabled: boolean;
   greeting_template: string;
+  /** Saudação também quando o próprio estabelecimento agenda (Reservar Cliente). Padrão: desligado. */
+  greeting_internal_enabled?: boolean;
   /** Mensagem de apresentação: responde sozinho com o link quando o cliente manda mensagem */
   presentation_enabled: boolean;
   presentation_link: PresentationLink;
@@ -159,6 +161,7 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
     reminder_template: DEFAULT_REMINDER_TEMPLATE,
     greeting_enabled: true,
     greeting_template: DEFAULT_GREETING_TEMPLATE,
+    greeting_internal_enabled: false,
     presentation_enabled: true,
     presentation_link: 'chat',
   });
@@ -592,6 +595,7 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
           reminder_template: payloadSettings.reminder_template,
           greeting_enabled: payloadSettings.greeting_enabled,
           greeting_template: payloadSettings.greeting_template,
+          greeting_internal_enabled: payloadSettings.greeting_internal_enabled === true,
           presentation_enabled: payloadSettings.presentation_enabled,
           presentation_link: payloadSettings.presentation_link,
         }),
@@ -638,6 +642,9 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
           reminder_template: nextSettings.reminder_template,
           greeting_enabled: nextSettings.greeting_enabled,
           greeting_template: nextSettings.greeting_template,
+          greeting_internal_enabled: nextSettings.greeting_internal_enabled === true,
+          presentation_enabled: nextSettings.presentation_enabled,
+          presentation_link: nextSettings.presentation_link,
         }),
       });
       const data = await parseApiResponse<AutomationSettingsResponse>(response);
@@ -1035,6 +1042,28 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
           Ativar mensagem de saudação automática
         </label>
 
+        {/* Também quando o próprio estabelecimento agenda (Reservar Cliente). Desligado por padrão. */}
+        <label className="mt-2 flex items-start gap-2 text-sm text-white">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={settings.greeting_internal_enabled === true}
+            disabled={savingSettings || !settings.greeting_enabled}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setSettings((prev) => ({ ...prev, greeting_internal_enabled: checked }));
+              void handleSaveAutomationSettings({ greeting_internal_enabled: checked });
+            }}
+          />
+          <span>
+            Mandar também quando <strong>EU</strong> agendo o cliente (Reservar Cliente)
+            <span className="block text-xs text-gray-400">
+              O cliente recebe a mesma mensagem de saudação com o resumo do agendamento. Encaixe e venda avulsa não
+              enviam. Na reserva recorrente do mês, vai uma mensagem só. Salva na hora.
+            </span>
+          </span>
+        </label>
+
         <div className="mt-4 flex items-center justify-between gap-2">
           <label className="block text-sm font-semibold text-white">Mensagem de saudação (editável)</label>
           <button
@@ -1074,7 +1103,7 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
 
         <button
           type="button"
-          onClick={handleSaveAutomationSettings}
+          onClick={() => void handleSaveAutomationSettings()}
           disabled={savingSettings}
           className="mt-4 rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-60"
         >

@@ -69,6 +69,8 @@ interface SidebarProps {
   onSignOut: () => void;
   unreadNotifications?: number;
   onNotificationsClick?: () => void;
+  /** "Fazer pedidos": respostas do suporte ainda não vistas (balão vermelho). */
+  unreadFeatureRequestAnswers?: number;
   /** 🏆 Meta Mensal — abre modal informativo (somente leitura, não altera cobrança). */
   onMonthlyGoalClick?: () => void;
   /** Percentual já conquistado no mês. null = ainda carregando ou indisponível. */
@@ -100,6 +102,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onTabChange,
   onSignOut,
   unreadNotifications = 0,
+  unreadFeatureRequestAnswers = 0,
   onNotificationsClick,
   onMonthlyGoalClick,
   monthlyGoalPercent = null,
@@ -636,6 +639,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       icon: Lightbulb,
       onClick: () => handleItemClick(() => onTabChange('feature-requests')),
       isActive: activeTab === 'feature-requests',
+      showBadge: unreadFeatureRequestAnswers > 0,
+      badgeCount: unreadFeatureRequestAnswers > 99 ? '99+' : unreadFeatureRequestAnswers,
       disabled: false
     },
     {
@@ -1216,10 +1221,10 @@ const Sidebar: React.FC<SidebarProps> = ({
       },
     ];
 
-    const mainMobileMenuActions: Array<{ id: string; label: string; icon: LucideIcon; onClick: () => void; tone?: 'danger'; isActive?: boolean }> = [
+    const mainMobileMenuActions: Array<{ id: string; label: string; icon: LucideIcon; onClick: () => void; tone?: 'danger'; isActive?: boolean; badge?: number }> = [
       { id: 'admin-menu', label: 'Menu Admin', icon: Settings, onClick: openAdminMenu, isActive: showAdminMenu || isAdminTabActive },
       { id: 'support', label: 'Falar com Suporte', icon: MessageSquare, onClick: () => executeMobileAction('support', () => onTabChange('support')) },
-      { id: 'feature-requests', label: 'Fazer pedidos', icon: Lightbulb, onClick: () => executeMobileAction('feature-requests', () => onTabChange('feature-requests')), isActive: activeTab === 'feature-requests' },
+      { id: 'feature-requests', label: 'Fazer pedidos', icon: Lightbulb, onClick: () => executeMobileAction('feature-requests', () => onTabChange('feature-requests')), isActive: activeTab === 'feature-requests', badge: unreadFeatureRequestAnswers },
       { id: 'passo-a-passo', label: 'Como funciona', icon: Rocket, onClick: () => executeMobileAction('passo-a-passo', () => onTabChange('passo-a-passo')) },
       { id: 'logout', label: 'Sair', icon: LogOut, onClick: onSignOut, tone: 'danger' },
     ];
@@ -1529,6 +1534,11 @@ const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <Icon className="h-5 w-5" />
                     <span className="flex-1 text-sm font-extrabold">{action.label}</span>
+                    {Number(action.badge || 0) > 0 && (
+                      <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">
+                        {Number(action.badge) > 99 ? '99+' : action.badge}
+                      </span>
+                    )}
                     <ChevronRight className="h-4 w-4 opacity-70" />
                   </button>
                 );

@@ -8,6 +8,8 @@ const REMINDER_OPTIONS_MINUTES = new Set([10, 30, 60, 180, 300, 720]);
 const PRESENTATION_LINK_OPTIONS = new Set(['completa', 'af', 'chat']);
 const AUTOMATION_SETTINGS_COLUMNS =
   'user_id,reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template,presentation_enabled,presentation_link';
+// + saudação quando o próprio estabelecimento agenda (migration 20261016); banco sem ela cai no conjunto acima
+const AUTOMATION_SETTINGS_COLUMNS_FULL = `${AUTOMATION_SETTINGS_COLUMNS},greeting_internal_enabled`;
 // Banco ainda sem a migration da apresentação: lê/grava só as colunas antigas
 const AUTOMATION_SETTINGS_COLUMNS_LEGACY =
   'user_id,reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template';
@@ -131,6 +133,7 @@ const normalizeAutomationSettings = (row: any, userId: string) => ({
   reminder_template: String(row?.reminder_template || '').trim() || DEFAULT_REMINDER_TEMPLATE,
   greeting_enabled: row?.greeting_enabled !== false,
   greeting_template: String(row?.greeting_template || '').trim() || DEFAULT_GREETING_TEMPLATE,
+  greeting_internal_enabled: row?.greeting_internal_enabled === true,
   presentation_enabled: row?.presentation_enabled !== false,
   presentation_link: PRESENTATION_LINK_OPTIONS.has(String(row?.presentation_link || '').trim().toLowerCase())
     ? String(row.presentation_link).trim().toLowerCase()
@@ -393,8 +396,8 @@ router.get('/automation-settings', async (req, res) => {
 
     let data: any = null;
     let error: any = null;
-    let columns = AUTOMATION_SETTINGS_COLUMNS;
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    let columns = AUTOMATION_SETTINGS_COLUMNS_FULL;
+    for (let attempt = 1; attempt <= 4; attempt++) {
       const response = await supabaseAdmin
         .from('whatsapp_automation_settings')
         .select(columns)
@@ -403,6 +406,10 @@ router.get('/automation-settings', async (req, res) => {
       data = response.data;
       error = response.error;
       if (!error) break;
+      if (isMissingColumnError(error) && columns === AUTOMATION_SETTINGS_COLUMNS_FULL) {
+        columns = AUTOMATION_SETTINGS_COLUMNS; // migration da saudação interna ainda não aplicada
+        continue;
+      }
       if (isMissingColumnError(error) && columns !== AUTOMATION_SETTINGS_COLUMNS_LEGACY) {
         columns = AUTOMATION_SETTINGS_COLUMNS_LEGACY; // migration da apresentação ainda não aplicada
         continue;
@@ -470,14 +477,17 @@ router.post('/automation-settings', async (req, res) => {
       greeting_template: normalizedGreetingTemplate,
       presentation_enabled: Boolean(presentationEnabled),
       presentation_link: presentationLink,
+      ...(typeof req.body?.greeting_internal_enabled === 'boolean'
+        ? { greeting_internal_enabled: req.body.greeting_internal_enabled }
+        : {}),
       updated_at: new Date().toISOString(),
     };
 
     let data: any = null;
     let error: any = null;
-    let columns = AUTOMATION_SETTINGS_COLUMNS;
+    let columns = AUTOMATION_SETTINGS_COLUMNS_FULL;
     let payloadToSave: Record<string, any> = payload;
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= 4; attempt++) {
       const response = await supabaseAdmin
         .from('whatsapp_automation_settings')
         .upsert(payloadToSave, { onConflict: 'user_id' })
@@ -486,10 +496,22 @@ router.post('/automation-settings', async (req, res) => {
       data = response.data;
       error = response.error;
       if (!error) break;
+      if (isMissingColumnError(error) && columns === AUTOMATION_SETTINGS_COLUMNS_FULL) {
+        // migration da saudação interna ainda não aplicada: salva sem o campo novo
+        columns = AUTOMATION_SETTINGS_COLUMNS;
+        const { greeting_internal_enabled: _gi, ...withoutInternal } = payload as Record<string, any>;
+        payloadToSave = withoutInternal;
+        continue;
+      }
       if (isMissingColumnError(error) && columns !== AUTOMATION_SETTINGS_COLUMNS_LEGACY) {
         // migration da apresentação ainda não aplicada: salva só o que existe
         columns = AUTOMATION_SETTINGS_COLUMNS_LEGACY;
-        const { presentation_enabled: _pe, presentation_link: _pl, ...legacyPayload } = payload;
+        const {
+          presentation_enabled: _pe,
+          presentation_link: _pl,
+          greeting_internal_enabled: _gi2,
+          ...legacyPayload
+        } = payload as Record<string, any>;
         payloadToSave = legacyPayload;
         continue;
       }

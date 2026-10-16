@@ -70,6 +70,11 @@ interface TimeSlotSelectorProps {
    * não sobra horário), sem dizer que o cliente foi bloqueado. Só as páginas públicas usam.
    */
   forceFullDay?: boolean;
+  /**
+   * "Ver vagas" do chat: devolve a lista de horários LIVRES (mesma conta da tela),
+   * para montar a grade de vagas sem duplicar regra. Só informa; não muda nada.
+   */
+  onAvailableTimesChange?: (times: string[]) => void;
 }
 
 export function TimeSlotSelector({
@@ -95,6 +100,7 @@ export function TimeSlotSelector({
   onVisibleSlotsChange,
   subscriptionPlansForDuration = [],
   forceFullDay = false,
+  onAvailableTimesChange,
 }: TimeSlotSelectorProps) {
   // Função para converter horário HH:mm para minutos totais
   const timeToMinutes = (time: string | null): number => {
@@ -669,6 +675,15 @@ export function TimeSlotSelector({
     if (!onVisibleSlotsChange) return;
     onVisibleSlotsChange(visibleTimeSlots.length);
   }, [onVisibleSlotsChange, visibleTimeSlots.length]);
+
+  const availableTimesKey = visibleTimeSlots
+    .filter((slot) => slot.isAvailable)
+    .map((slot) => slot.time)
+    .join(',');
+  useEffect(() => {
+    if (!onAvailableTimesChange) return;
+    onAvailableTimesChange(availableTimesKey ? availableTimesKey.split(',') : []);
+  }, [onAvailableTimesChange, availableTimesKey]);
 
   if (visibleTimeSlots.length === 0) {
     return (
