@@ -1,7 +1,7 @@
 import { addDays, format, isSameDay, parse, startOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
-import { Calendar, CheckCircle2, ChevronLeft, ChevronRight, Clock, Coins, Crown, Eye, EyeOff, Lock, Package, Phone, Plus, Trash2, User, UserPlus, Users, X } from 'lucide-react';
+import { ArrowRightLeft, Baby, Calendar, CheckCircle2, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, Clock, Coins, CreditCard, Crown, DollarSign, Eye, EyeOff, FileText, History, Hourglass, Lightbulb, Lock, MapPin, MoreVertical, Package, Pencil, Phone, Plus, PlusCircle, Scissors, StickyNote, Timer, Trash2, User, UserPlus, Users, UserX, Wallet, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -272,6 +272,48 @@ interface ProfessionalGoalMonthlyConfig {
   goalAmount: number;
   bonusPercentage: number;
   selectedServiceNames: string[];
+}
+
+/**
+ * Visual da linha do agendamento (estilo "lista"): cor da borda esquerda + selo de status.
+ * Só aparência — o status em si continua vindo de apt.status.
+ */
+const AGENDA_STATUS_PILL: Record<string, { label: string; pill: string; edge: string; fill: string }> = {
+  completed: { label: '✅ Realizado', pill: 'border-white/25 bg-black/30 text-white', edge: 'border-l-green-300', fill: 'bg-green-700 border-green-600' },
+  pending: { label: '⏳ Em espera', pill: 'border-white/25 bg-black/30 text-white', edge: 'border-l-yellow-300', fill: 'bg-yellow-600 border-yellow-500' },
+  confirmed: { label: '⏳ Em espera', pill: 'border-white/25 bg-black/30 text-white', edge: 'border-l-yellow-300', fill: 'bg-yellow-600 border-yellow-500' },
+  cancelled: { label: '❌ Cancelado', pill: 'border-white/25 bg-black/30 text-white', edge: 'border-l-red-300', fill: 'bg-red-800/90 border-red-700' },
+  pending_payment: { label: '💳 Aguard. pagamento', pill: 'border-white/25 bg-black/30 text-white', edge: 'border-l-purple-300', fill: 'bg-purple-700 border-purple-600' },
+};
+
+/** Clientes não têm foto: avatar com iniciais e cor fixa por nome. */
+const CLIENT_AVATAR_TONES = [
+  'bg-sky-500/25 text-sky-100',
+  'bg-emerald-500/25 text-emerald-100',
+  'bg-violet-500/25 text-violet-100',
+  'bg-rose-500/25 text-rose-100',
+  'bg-amber-500/25 text-amber-100',
+  'bg-teal-500/25 text-teal-100',
+  'bg-fuchsia-500/25 text-fuchsia-100',
+  'bg-indigo-500/25 text-indigo-100',
+];
+function getClientInitials(name: unknown): string {
+  const parts = String(name ?? '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+function getClientAvatarTone(name: unknown): string {
+  let hash = 0;
+  for (const ch of String(name ?? '')) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return CLIENT_AVATAR_TONES[hash % CLIENT_AVATAR_TONES.length];
+}
+function capitalizeFirst(value: string): string {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 }
 
 interface AllProfessionalsAppointmentsViewProps {
@@ -2537,12 +2579,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
           return <span className="text-white font-semibold">{displayName}</span>;
         }
         return (
-          <div className="text-white font-semibold text-sm mb-1 truncate">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="truncate">{displayName}</span>
-              {serviceLabelNodes}
-              {avulsoEditButton}
-            </div>
+          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+            <span className="truncate max-w-full text-sm font-bold text-white">{displayName}</span>
+            {serviceLabelNodes}
+            {avulsoEditButton}
           </div>
         );
       }
@@ -2605,7 +2645,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
         return goldNameStrip;
       }
 
-      return <div className="mb-1.5">{goldNameStrip}</div>;
+      // Linha compacta: a mesma faixa dourada (fica legível em cima da linha amarela/verde)
+      return goldNameStrip;
     };
 
     const handleOpenMonthPendingModal = async () => {
@@ -4854,56 +4895,6 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
     };
 
-    const getSlotColor = (slot: TimeSlot): string => {
-      if (slot.isEmpty) {
-        return 'bg-white border-gray-300';
-      }
-
-      const appointment = slot.appointment || slot.parentAppointment;
-      if (!appointment) return 'bg-gray-100 border-gray-300';
-
-      // Encaixe: cinza (status segue cor normal só fora do encaixe)
-      if (appointment.is_squeeze) {
-        if (slot.isOccupied) {
-          return 'bg-gray-700/60 border-gray-600';
-        }
-        return 'bg-gray-700 border-gray-600';
-      }
-
-      // Aguardando pagamento: roxo
-      if (appointment.status === 'pending_payment') {
-        return slot.isOccupied
-          ? 'bg-purple-700/60 border-purple-600'
-          : 'bg-purple-700 border-purple-600';
-      }
-
-      if (slot.isOccupied) {
-        switch (appointment.status) {
-          case 'cancelled':
-            return 'bg-red-800/60 border-red-700';
-          case 'completed':
-            return 'bg-green-700/90 border-green-800';
-          case 'pending':
-          case 'confirmed':
-            return 'bg-yellow-600/60 border-yellow-700';
-          default:
-            return 'bg-gray-600/60 border-gray-500';
-        }
-      }
-
-      switch (appointment.status) {
-        case 'cancelled':
-          return 'bg-red-800/90 border-red-700';
-        case 'completed':
-          return 'bg-green-700 border-green-800';
-        case 'pending':
-        case 'confirmed':
-          return 'bg-yellow-600 border-yellow-700';
-        default:
-          return 'bg-gray-600 border-gray-500';
-      }
-    };
-
     const getProfessionalName = (professionalId: string) => {
       return professionals.find(p => p.id === professionalId)?.name || 'Desconhecido';
     };
@@ -6096,8 +6087,55 @@ export const AllProfessionalsAppointmentsView: React.FC<
       );
     }
 
+    // Resumo do dia (só exibição): mesmos filtros das colunas, somando os profissionais visíveis.
+    const agendaDayStats = (() => {
+      const dateKey = format(selectedDate, 'yyyy-MM-dd');
+      let total = 0;
+      let completed = 0;
+      let pending = 0;
+      let cancelled = 0;
+      for (const apt of appointments) {
+        if (String(apt.appointment_date || '').slice(0, 10) !== dateKey) continue;
+        if (!visibleProfessionals.some((professional) => appointmentBelongsToProfessionalColumn(apt, professional))) continue;
+        const status = String(apt.status || '');
+        if (status === 'cancelled') {
+          cancelled += 1;
+          continue;
+        }
+        total += 1;
+        if (status === 'completed') completed += 1;
+        else if (status === 'pending' || status === 'confirmed') pending += 1;
+      }
+      return { total, completed, pending, cancelled };
+    })();
+    const agendaCountByProfessionalId = (() => {
+      const dateKey = format(selectedDate, 'yyyy-MM-dd');
+      const map: Record<string, number> = {};
+      for (const professional of professionals) {
+        map[String(professional.id)] = appointments.filter((apt) =>
+          appointmentBelongsToProfessionalColumn(apt, professional) &&
+          String(apt.appointment_date || '').slice(0, 10) === dateKey &&
+          apt.status !== 'cancelled'
+        ).length;
+      }
+      return map;
+    })();
+    const greetingProfessional = forceProfessionalId
+      ? professionals.find((professional) => String(professional.id) === String(forceProfessionalId))
+      : null;
+    const greetingName = String(greetingProfessional?.name || establishment?.name || '').trim();
+    const greetingDayLabel = isSelectedToday
+      ? 'de hoje'
+      : isSelectedYesterday
+        ? 'de ontem'
+        : isSelectedTomorrow
+          ? 'de amanhã'
+          : `de ${format(selectedDate, "EEEE, d 'de' MMMM", { locale: ptBR })}`;
+    const selectedDateTitle = capitalizeFirst(format(selectedDate, "EEEE, d 'de' MMMM", { locale: ptBR }));
+    const allSelectableVisible = visibleProfessionals.length >= getSelectableProfessionalIds().length;
+
     return (
-      <div className="space-y-2 md:space-y-4">
+      <div className="space-y-3 md:space-y-4">
         {/* Alerta: WhatsApp tinha sessão e caiu — acima da validade */}
         {whatsappAlert && (
           <div className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 ${realIsLight ? 'bg-red-50 border-red-300' : 'bg-red-500/10 border-red-500/40'}`}>
@@ -6134,9 +6172,54 @@ export const AllProfessionalsAppointmentsView: React.FC<
           <ValidityDisplay establishmentId={establishment.id} dark={!realIsLight} />
         )}
 
-        {/* Cabeçalho compacto clean — no modo escuro funde com o fundo (sem borda/sombra) */}
-        <div className={`sticky top-0 z-30 -mt-1 md:mt-0 mb-1 md:mb-2 rounded-xl backdrop-blur-md ${useLightLayout ? 'border border-white/10 bg-[#0b0b0c]/95 shadow-lg shadow-black/30' : 'bg-[#0b0b0c]'}`}>
-          <div className="px-2.5 py-2 md:px-3 md:py-2.5 space-y-1.5 md:space-y-2">
+        {/* Saudação + resumo do dia (só leitura; mesmos números das colunas) */}
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-xl md:text-2xl font-black text-white leading-tight break-words">
+              Olá{greetingName ? `, ${greetingName}` : ''}! 👋
+            </h2>
+            <p className="mt-0.5 text-xs md:text-sm text-white/55">
+              Aqui está sua agenda {greetingDayLabel}.{' '}
+              <span className="font-bold text-white/85">
+                {agendaDayStats.total} {agendaDayStats.total === 1 ? 'agendamento' : 'agendamentos'}.
+              </span>
+            </p>
+          </div>
+          <div className="grid grid-cols-4 gap-1.5 md:gap-2 lg:shrink-0">
+            <div className="rounded-xl border border-white/10 bg-white/[0.04] px-2 py-1.5 md:px-3 md:py-2 md:min-w-[120px]">
+              <div className="flex items-center gap-1.5 md:gap-2">
+                <span className="hidden md:flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white/80"><Calendar className="h-3.5 w-3.5" /></span>
+                <span className="text-lg md:text-xl font-black leading-none text-white">{agendaDayStats.total}</span>
+              </div>
+              <p className="mt-0.5 text-[9px] md:text-[11px] font-bold text-white/55 truncate"><span className="md:hidden">Total</span><span className="hidden md:inline">Agendamentos</span></p>
+            </div>
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-2 py-1.5 md:px-3 md:py-2 md:min-w-[120px]">
+              <div className="flex items-center gap-1.5 md:gap-2">
+                <span className="hidden md:flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" /></span>
+                <span className="text-lg md:text-xl font-black leading-none text-emerald-200">{agendaDayStats.completed}</span>
+              </div>
+              <p className="mt-0.5 text-[9px] md:text-[11px] font-bold text-emerald-200/70 truncate">Realizados</p>
+            </div>
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 md:px-3 md:py-2 md:min-w-[120px]">
+              <div className="flex items-center gap-1.5 md:gap-2">
+                <span className="hidden md:flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 text-amber-200"><Clock className="h-3.5 w-3.5" /></span>
+                <span className="text-lg md:text-xl font-black leading-none text-amber-200">{agendaDayStats.pending}</span>
+              </div>
+              <p className="mt-0.5 text-[9px] md:text-[11px] font-bold text-amber-200/70 truncate">Pendentes</p>
+            </div>
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-2 py-1.5 md:px-3 md:py-2 md:min-w-[120px]">
+              <div className="flex items-center gap-1.5 md:gap-2">
+                <span className="hidden md:flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-500/20 text-red-200"><X className="h-3.5 w-3.5" /></span>
+                <span className="text-lg md:text-xl font-black leading-none text-red-200">{agendaDayStats.cancelled}</span>
+              </div>
+              <p className="mt-0.5 text-[9px] md:text-[11px] font-bold text-red-200/70 truncate">Cancelados</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Cabeçalho fixo: data + profissionais + caixa (funde com o fundo escuro) */}
+        <div className={`sticky top-0 z-30 rounded-2xl backdrop-blur-md ${useLightLayout ? 'border border-white/10 bg-[#0b0b0c]/95 shadow-lg shadow-black/30' : 'bg-[#0b0b0c]/95'}`}>
+          <div className="py-2 md:py-2.5 space-y-2">
             {isCollaboratorView && isSecretaryModeActive && (
               <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5">
                 <p className="text-[11px] font-extrabold text-emerald-200">Modo secretaria ativo</p>
@@ -6146,43 +6229,43 @@ export const AllProfessionalsAppointmentsView: React.FC<
               </div>
             )}
 
-            {/* Linha 1: seta ← | data central | HOJE | seta → | calendário */}
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={handlePreviousDay}
-                className="shrink-0 p-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors border border-white/15"
-                aria-label="Dia anterior"
-              >
-                <ChevronLeft className="h-5 w-5" strokeWidth={3} />
-              </button>
-
-              <div className="flex-1 text-center leading-tight py-1">
-                <span className="block text-xs md:text-sm font-extrabold text-white">
-                  {isSelectedToday ? 'HOJE' : isSelectedYesterday ? 'ONTEM' : isSelectedTomorrow ? 'AMANHÃ' : format(selectedDate, 'dd/MM', { locale: ptBR })}
-                </span>
-                <span className="block text-[10px] md:text-[11px] font-bold text-white/50 uppercase">
-                  {format(selectedDate, 'EEEE', { locale: ptBR })}
-                </span>
-              </div>
-
-              {!isSelectedToday && (
+            {/* Linha 1: ‹ data › | Hoje | calendário */}
+            <div className="flex items-center gap-1.5 md:gap-2">
+              <div className="flex flex-1 md:flex-none md:min-w-[320px] items-center rounded-xl border border-white/10 bg-[#121419]">
                 <button
                   type="button"
-                  onClick={() => goToQuickDate('today')}
-                  className="shrink-0 px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-amber-200 text-[9px] md:text-[10px] font-bold border border-white/15 transition-colors whitespace-nowrap"
+                  onClick={handlePreviousDay}
+                  className="shrink-0 p-2.5 rounded-l-xl text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                  aria-label="Dia anterior"
                 >
-                  ← Voltar para hoje
+                  <ChevronLeft className="h-4 w-4" strokeWidth={3} />
                 </button>
-              )}
+                <div className="flex-1 text-center leading-tight py-1 min-w-0">
+                  <span className="block text-[13px] md:text-sm font-extrabold text-white truncate">{selectedDateTitle}</span>
+                  <span className={`block text-[10px] font-bold uppercase tracking-wide ${isSelectedToday ? 'text-emerald-300' : 'text-amber-200/80'}`}>
+                    {isSelectedToday ? 'Hoje' : isSelectedYesterday ? 'Ontem' : isSelectedTomorrow ? 'Amanhã' : format(selectedDate, 'dd/MM/yyyy')}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleNextDay}
+                  className="shrink-0 p-2.5 rounded-r-xl text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                  aria-label="Próximo dia"
+                >
+                  <ChevronRight className="h-4 w-4" strokeWidth={3} />
+                </button>
+              </div>
 
               <button
                 type="button"
-                onClick={handleNextDay}
-                className="shrink-0 p-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors border border-white/15"
-                aria-label="Próximo dia"
+                onClick={() => goToQuickDate('today')}
+                className={`shrink-0 rounded-xl border px-3 py-2.5 text-xs font-extrabold transition-colors whitespace-nowrap ${isSelectedToday
+                  ? 'border-white/10 bg-white/5 text-white/50'
+                  : 'border-amber-400/50 bg-amber-400/15 text-amber-100 hover:bg-amber-400/25'
+                  }`}
+                title={isSelectedToday ? 'Você já está em hoje' : 'Voltar para hoje'}
               >
-                <ChevronRight className="h-5 w-5" strokeWidth={3} />
+                Hoje
               </button>
 
               {/* Calendário picker */}
@@ -6190,12 +6273,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 <button
                   type="button"
                   onClick={() => setShowDatePicker((open) => !open)}
-                  className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-1.5 py-1.5 text-[10px] font-bold text-amber-200/90 hover:bg-white/10 whitespace-nowrap"
+                  className="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-[#121419] px-2.5 py-2.5 text-[11px] font-bold text-white/80 hover:bg-white/10 hover:text-white whitespace-nowrap"
                   aria-expanded={showDatePicker}
                   aria-haspopup="dialog"
+                  title="Escolher data"
                 >
-                  <Calendar className="h-3.5 w-3.5 shrink-0" />
-                  <span className="hidden sm:inline capitalize">{format(selectedDate, "dd/MM", { locale: ptBR })}</span>
+                  <Calendar className="h-4 w-4 shrink-0" />
+                  <span className="hidden sm:inline">{format(selectedDate, 'dd/MM', { locale: ptBR })}</span>
                 </button>
                 {showDatePicker && (
                   <div className="absolute right-0 top-[calc(100%+6px)] z-50 min-w-[200px] rounded-xl border border-white/15 bg-[#141516] p-3 shadow-2xl shadow-black/50">
@@ -6213,10 +6297,10 @@ export const AllProfessionalsAppointmentsView: React.FC<
               </div>
             </div>
 
-            {/* Linha 2: cards profissionais com foto + botão caixa */}
+            {/* Linha 2: chips dos profissionais (foto + nome + agendamentos) + valores + adicionar + caixa */}
             <div className="flex items-center gap-1.5 md:gap-2">
               <div className="flex-1 overflow-x-auto hide-scrollbar">
-                <div className="flex items-end gap-1.5 md:gap-2 pb-0.5">
+                <div className="flex items-stretch gap-1.5 md:gap-2 pb-0.5">
                   {professionals.length > 0 && (
                     <>
                       {isCollaboratorView && isSecretaryModeActive ? (
@@ -6224,20 +6308,21 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           visibleProfessionals.map((professional) => (
                             <div
                               key={`secretary-${professional.id}`}
-                              className="shrink-0 flex flex-col items-center gap-0.5"
+                              className="shrink-0 flex items-center gap-2 rounded-xl border border-emerald-400/50 bg-emerald-500/10 px-2 py-1.5 md:px-2.5"
                             >
-                              <div className="relative">
-                                <div className="w-10 h-10 md:w-12 md:h-12 rounded-full border-2 border-emerald-500/50 overflow-hidden bg-white/10">
-                                  <img
-                                    src={storagePublicUrlForBrowser(professional.photo_url, 'avatar') || '/fotopessoa.png'}
-                                    alt={professional.name}
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => { if (fallbackToOriginalStorageImage(e.currentTarget)) return; (e.target as HTMLImageElement).src = '/fotopessoa.png'; }}
-                                  />
-                                </div>
-                              </div>
-                              <span className="text-[9px] md:text-[10px] font-bold text-emerald-200 max-w-[52px] md:max-w-[64px] truncate text-center">
-                                {professional.name}
+                              <span className="block h-8 w-8 md:h-9 md:w-9 shrink-0 overflow-hidden rounded-full border-2 border-emerald-400 bg-white/10">
+                                <img
+                                  src={storagePublicUrlForBrowser(professional.photo_url, 'avatar') || '/fotopessoa.png'}
+                                  alt={professional.name}
+                                  className="h-full w-full object-cover"
+                                  onError={(e) => { if (fallbackToOriginalStorageImage(e.currentTarget)) return; (e.target as HTMLImageElement).src = '/fotopessoa.png'; }}
+                                />
+                              </span>
+                              <span className="min-w-0">
+                                <span className="block max-w-[96px] md:max-w-[130px] truncate text-xs md:text-[13px] font-extrabold text-white">{professional.name}</span>
+                                <span className="block whitespace-nowrap text-[10px] text-emerald-200/80">
+                                  {agendaCountByProfessionalId[String(professional.id)] || 0} agendamentos
+                                </span>
                               </span>
                             </div>
                           ))
@@ -6245,99 +6330,116 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           <p className="text-[10px] text-amber-200/90 py-2">Nenhuma agenda liberada.</p>
                         )
                       ) : (
-                        professionals.map((professional) => {
-                          const isVisible = visibleProfessionals.some((v) => v.id === professional.id);
-                          const isProtectedAndLocked =
-                            isProfessionalAppointmentsProtected(professional) &&
-                            !isProfessionalAppointmentsUnlocked(professional.id);
-                          return (
+                        <>
+                          {professionals.length > 1 && !isCollaboratorView && (
                             <button
-                              key={`pro-card-${professional.id}`}
                               type="button"
-                              onClick={() => toggleProfessionalVisibility(professional.id)}
-                              onDoubleClick={() => selectOnlyProfessional(professional.id)}
-                              title={
-                                isProtectedAndLocked
-                                  ? 'Agenda protegida. Clique para digitar a senha.'
-                                  : 'Clique para marcar/desmarcar. Dois cliques = só este.'
-                              }
-                              className="shrink-0 flex flex-col items-center gap-0.5 group"
+                              onClick={selectAllProfessionals}
+                              className={`shrink-0 flex items-center gap-2 rounded-xl border px-2 py-1.5 md:px-2.5 text-left transition-colors ${allSelectableVisible
+                                ? 'border-amber-400/60 bg-amber-400/10'
+                                : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.07]'
+                                }`}
+                              title="Mostrar todos os profissionais"
                             >
-                              <div className="relative">
-                                <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full border-2 overflow-hidden transition-all ${isVisible
-                                  ? 'border-emerald-400 shadow-md shadow-emerald-500/25'
-                                  : isProtectedAndLocked
-                                    ? 'border-amber-500/50 opacity-60'
-                                    : 'border-white/20 opacity-50 group-hover:opacity-75'
-                                }`}>
-                                  <img
-                                    src={storagePublicUrlForBrowser(professional.photo_url, 'avatar') || '/fotopessoa.png'}
-                                    alt={professional.name}
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => { if (fallbackToOriginalStorageImage(e.currentTarget)) return; (e.target as HTMLImageElement).src = '/fotopessoa.png'; }}
-                                  />
-                                </div>
-                                {isVisible ? (
-                                  <div className="absolute -top-0.5 -right-0.5 w-4 h-4 md:w-4.5 md:h-4.5 rounded-full bg-red-500 border border-[#0b0b0c] flex items-center justify-center cursor-pointer">
-                                    <X className="w-2.5 h-2.5 text-white" strokeWidth={3} />
-                                  </div>
-                                ) : isProtectedAndLocked ? (
-                                  <div className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-amber-500 border border-[#0b0b0c] flex items-center justify-center">
-                                    <Lock className="w-2 h-2 text-black" strokeWidth={3} />
-                                  </div>
-                                ) : (
-                                  <div className="absolute -top-0.5 -right-0.5 w-4 h-4 md:w-4.5 md:h-4.5 rounded-full bg-emerald-500 border border-[#0b0b0c] flex items-center justify-center">
-                                    <Plus className="w-2.5 h-2.5 text-white" strokeWidth={3} />
-                                  </div>
-                                )}
-                              </div>
-                              <span className={`text-[9px] md:text-[10px] font-bold max-w-[52px] md:max-w-[64px] truncate text-center leading-tight ${isVisible
-                                ? 'text-emerald-200'
-                                : isProtectedAndLocked
-                                  ? 'text-amber-200/70'
-                                  : 'text-white/45 group-hover:text-white/65'
-                              }`}>
-                                {professional.name}
+                              <span className={`flex h-8 w-8 md:h-9 md:w-9 shrink-0 items-center justify-center rounded-full border-2 ${allSelectableVisible ? 'border-amber-400 bg-amber-400/15 text-amber-200' : 'border-dashed border-white/25 bg-white/5 text-white/60'}`}>
+                                <Users className="h-4 w-4" />
+                              </span>
+                              <span className="min-w-0">
+                                <span className={`block text-xs md:text-[13px] font-extrabold ${allSelectableVisible ? 'text-white' : 'text-white/70'}`}>Todos</span>
+                                <span className="block whitespace-nowrap text-[10px] text-white/50">{agendaDayStats.total} agendamentos</span>
                               </span>
                             </button>
-                          );
-                        })
-                      )}
-                      {professionals.length > 1 && !isCollaboratorView && (
-                        <button
-                          type="button"
-                          onClick={selectAllProfessionals}
-                          className="shrink-0 flex flex-col items-center gap-0.5 group"
-                        >
-                          <div className="w-10 h-10 md:w-12 md:h-12 rounded-full border-2 border-dashed border-amber-400/40 bg-white/5 flex items-center justify-center group-hover:bg-white/10 transition-colors">
-                            <Users className="w-4 h-4 md:w-5 md:h-5 text-amber-300/70 group-hover:text-amber-200" />
-                          </div>
-                          <span className="text-[9px] md:text-[10px] font-bold text-amber-300/70 group-hover:text-amber-200">
-                            Todos
-                          </span>
-                        </button>
+                          )}
+                          {professionals.map((professional) => {
+                            const isVisible = visibleProfessionals.some((v) => v.id === professional.id);
+                            const isProtectedAndLocked =
+                              isProfessionalAppointmentsProtected(professional) &&
+                              !isProfessionalAppointmentsUnlocked(professional.id);
+                            return (
+                              <button
+                                key={`pro-card-${professional.id}`}
+                                type="button"
+                                onClick={() => toggleProfessionalVisibility(professional.id)}
+                                onDoubleClick={() => selectOnlyProfessional(professional.id)}
+                                title={
+                                  isProtectedAndLocked
+                                    ? 'Agenda protegida. Clique para digitar a senha.'
+                                    : 'Clique para marcar/desmarcar. Dois cliques = só este.'
+                                }
+                                className={`shrink-0 flex items-center gap-2 rounded-xl border px-2 py-1.5 md:px-2.5 text-left transition-all group ${isVisible
+                                  ? 'border-emerald-400/60 bg-emerald-500/10 shadow-md shadow-emerald-900/20'
+                                  : isProtectedAndLocked
+                                    ? 'border-amber-500/40 bg-white/[0.03] opacity-80 hover:opacity-100'
+                                    : 'border-white/10 bg-white/[0.03] opacity-60 hover:opacity-90'
+                                  }`}
+                              >
+                                <span className="relative shrink-0">
+                                  <span className={`block h-8 w-8 md:h-9 md:w-9 overflow-hidden rounded-full border-2 bg-white/10 ${isVisible ? 'border-emerald-400' : isProtectedAndLocked ? 'border-amber-500/60' : 'border-white/20'}`}>
+                                    <img
+                                      src={storagePublicUrlForBrowser(professional.photo_url, 'avatar') || '/fotopessoa.png'}
+                                      alt={professional.name}
+                                      className="h-full w-full object-cover"
+                                      onError={(e) => { if (fallbackToOriginalStorageImage(e.currentTarget)) return; (e.target as HTMLImageElement).src = '/fotopessoa.png'; }}
+                                    />
+                                  </span>
+                                  {isVisible ? (
+                                    <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-[#0b0b0c] bg-emerald-500">
+                                      <CheckCircle2 className="h-2.5 w-2.5 text-white" strokeWidth={3} />
+                                    </span>
+                                  ) : isProtectedAndLocked ? (
+                                    <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-[#0b0b0c] bg-amber-500">
+                                      <Lock className="h-2 w-2 text-black" strokeWidth={3} />
+                                    </span>
+                                  ) : (
+                                    <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-[#0b0b0c] bg-white/30">
+                                      <Plus className="h-2.5 w-2.5 text-white" strokeWidth={3} />
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="min-w-0">
+                                  <span className={`block max-w-[96px] md:max-w-[130px] truncate text-xs md:text-[13px] font-extrabold ${isVisible ? 'text-white' : isProtectedAndLocked ? 'text-amber-100/80' : 'text-white/70'}`}>
+                                    {professional.name}
+                                  </span>
+                                  <span className={`block whitespace-nowrap text-[10px] ${isVisible ? 'text-emerald-200/80' : 'text-white/45'}`}>
+                                    {isProtectedAndLocked ? '🔒 agenda protegida' : `${agendaCountByProfessionalId[String(professional.id)] || 0} agendamentos`}
+                                  </span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </>
                       )}
                       {/* 👁️ Ocultar valores dos cards (privacidade p/ gravar tela) */}
                       <button
                         type="button"
                         onClick={toggleHideCardValues}
-                        className="shrink-0 flex flex-col items-center gap-0.5 group"
+                        className={`shrink-0 flex items-center gap-2 rounded-xl border px-2 py-1.5 md:px-2.5 text-left transition-colors ${hideCardValues
+                          ? 'border-violet-400/60 bg-violet-500/15'
+                          : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.07]'
+                          }`}
                         title={hideCardValues ? 'Valores ocultos — toque para mostrar' : 'Ocultar os valores dos agendamentos (privacidade para gravar a tela)'}
                       >
-                        <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full border-2 flex items-center justify-center transition-colors ${hideCardValues
-                          ? 'border-violet-400 bg-violet-500/20'
-                          : 'border-dashed border-white/25 bg-white/5 group-hover:bg-white/10'
-                        }`}>
-                          {hideCardValues ? (
-                            <EyeOff className="w-4 h-4 md:w-5 md:h-5 text-violet-200" />
-                          ) : (
-                            <Eye className="w-4 h-4 md:w-5 md:h-5 text-white/60 group-hover:text-white/85" />
-                          )}
-                        </div>
-                        <span className={`text-[9px] md:text-[10px] font-bold ${hideCardValues ? 'text-violet-200' : 'text-white/45 group-hover:text-white/65'}`}>
-                          {hideCardValues ? 'Ocultos' : 'Valores'}
+                        <span className={`flex h-8 w-8 md:h-9 md:w-9 shrink-0 items-center justify-center rounded-full border-2 ${hideCardValues ? 'border-violet-400 bg-violet-500/20 text-violet-100' : 'border-dashed border-white/25 bg-white/5 text-white/60'}`}>
+                          {hideCardValues ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </span>
+                        <span className="min-w-0">
+                          <span className={`block text-xs md:text-[13px] font-extrabold ${hideCardValues ? 'text-violet-100' : 'text-white/70'}`}>{hideCardValues ? 'Ocultos' : 'Valores'}</span>
+                          <span className="block whitespace-nowrap text-[10px] text-white/45">{hideCardValues ? 'toque p/ mostrar' : 'toque p/ ocultar'}</span>
                         </span>
                       </button>
+                      {!isCollaboratorView && onGoToProfessionalConfig && (
+                        <button
+                          type="button"
+                          onClick={() => onGoToProfessionalConfig('')}
+                          className="shrink-0 flex items-center gap-2 rounded-xl border border-dashed border-white/20 bg-white/[0.02] px-2 py-1.5 md:px-2.5 text-left transition-colors hover:bg-white/[0.07]"
+                          title="Cadastrar um novo profissional (abre Meus Profissionais)"
+                        >
+                          <span className="flex h-8 w-8 md:h-9 md:w-9 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-white/25 text-white/60">
+                            <Plus className="h-4 w-4" />
+                          </span>
+                          <span className="block whitespace-nowrap text-xs md:text-[13px] font-bold text-white/60">Adicionar</span>
+                        </button>
+                      )}
                     </>
                   )}
                 </div>
@@ -6349,9 +6451,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                 onClick={handleOpenBarbershopCash}
                 data-tutorial-id="appointments-caixa"
                 disabled={isLoadingBarbershopCashOpening}
-                className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-emerald-500/35 bg-emerald-600/20 px-2 py-1 text-[10px] font-extrabold text-emerald-100 hover:bg-emerald-600/30 disabled:opacity-60 transition-colors whitespace-nowrap"
+                className="shrink-0 inline-flex items-center gap-1 rounded-xl border border-emerald-500/35 bg-emerald-600/20 px-2.5 py-2.5 text-[11px] font-extrabold text-emerald-100 hover:bg-emerald-600/30 disabled:opacity-60 transition-colors whitespace-nowrap"
               >
-                💰 Caixa {format(selectedDate, 'dd/MM')}
+                💰 Caixa <span className="hidden sm:inline">{format(selectedDate, 'dd/MM')}</span>
               </button>
             </div>
 
@@ -7122,8 +7224,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
             <div
               className="grid gap-3 w-full"
               style={{
-                gridTemplateColumns: `repeat(${Math.max(visibleProfessionals.length, 1)}, minmax(280px, 1fr))`,
+                gridTemplateColumns: `repeat(${Math.max(visibleProfessionals.length, 1)}, minmax(280px, 460px))`,
                 minWidth: `${Math.max(visibleProfessionals.length, 1) * 292}px`,
+                justifyContent: 'center',
               }}
             >
               {visibleProfessionals.map((professional, index) => {
@@ -7221,13 +7324,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
                   setAvailabilitySlots(timeSlots);
                   setShowAvailabilityModal(true);
                 };
-                const sideActionButtonClass = useLightLayout
-                  ? 'w-full min-h-[64px] md:min-h-[40px] px-2.5 py-2 md:py-1 text-xs font-bold rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10'
-                  : 'w-full min-h-[64px] md:min-h-[40px] px-2.5 py-2 md:py-1 text-xs font-bold rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10';
-                const actionCardButtonClass = useLightLayout
-                  ? 'w-full min-h-[64px] md:min-h-[40px] px-3 py-2 md:py-1 rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10 active:scale-[0.98]'
-                  : 'w-full min-h-[64px] md:min-h-[40px] px-3 py-2 md:py-1 rounded-xl transition-colors text-white bg-[#17191f] hover:bg-[#1f222a] border border-white/10 active:scale-[0.98]';
-                const statusCardButtonClass = 'w-full min-h-[44px] md:min-h-[30px] px-2 py-1.5 md:py-1 rounded-xl border text-white transition-colors';
+                const primaryActionButtonClass = 'w-full min-h-[42px] md:min-h-[38px] px-2.5 py-2 rounded-xl text-xs font-extrabold text-white bg-sky-600 hover:bg-sky-500 border border-sky-400/40 transition-colors active:scale-[0.98] disabled:opacity-60';
+                const sideActionButtonClass = 'w-full min-h-[42px] md:min-h-[38px] px-2.5 py-2 rounded-xl text-xs font-bold text-white bg-[#1a1d24] hover:bg-[#232732] border border-white/10 transition-colors active:scale-[0.98] disabled:opacity-60';
+                const actionCardButtonClass = 'w-full min-h-[42px] md:min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold text-left text-white bg-[#1a1d24] hover:bg-[#232732] border border-white/10 transition-colors active:scale-[0.98] disabled:opacity-60';
+                const tileActionButtonClass = 'w-full min-h-[58px] px-1 py-1.5 rounded-xl text-[10px] md:text-[11px] font-bold leading-tight text-white/90 bg-[#1a1d24] hover:bg-[#232732] border border-white/10 transition-colors active:scale-[0.98] disabled:opacity-60';
+                const statusCardButtonClass = 'w-full min-h-[46px] px-2 py-1.5 rounded-xl border text-left text-white transition-colors';
+                const modalActionButtonClass = 'flex min-h-[48px] items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-extrabold text-white transition-colors active:scale-[0.99]';
 
                 const hiddenOpen =
                   hiddenAppointments.length > 0 &&
@@ -7241,12 +7343,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     className="px-1.5 pb-3 min-w-0"
                   >
                     {/* Cabeçalho do Profissional + opções individuais */}
-                    <div className={`p-1.5 md:p-2 sticky top-0 z-10 ${useLightLayout
-                      ? 'bg-white border border-gray-300 border-b-0 rounded-t-xl'
-                      : 'bg-[#121419] border border-white/10 border-b-0 rounded-t-xl'
+                    <div className={`p-2 md:p-2.5 sticky top-0 z-10 rounded-t-2xl border border-b-0 ${useLightLayout
+                      ? 'bg-white border-gray-300'
+                      : 'bg-[#121419] border-white/10'
                       }`}>
-                      <div className="flex flex-col items-center w-full">
-                        <div className="w-full flex items-center gap-2 md:gap-3">
+                      <div className="flex flex-col w-full">
+                        <div className="w-full flex items-center gap-2.5">
                           <button
                             onClick={() => setSelectedProfessionalForPhotoModal(professional.id)}
                             className="group relative shrink-0"
@@ -7257,54 +7359,63 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 src={storagePublicUrlForBrowser(professional.photo_url, 'avatar')}
                                 alt={professional.name}
                                 onError={(e) => { fallbackToOriginalStorageImage(e.currentTarget); }}
-                                className={`w-10 h-10 md:w-14 md:h-14 rounded-full object-cover border-2 group-hover:scale-105 transition-transform cursor-pointer ${useLightLayout ? 'border-gray-300' : 'border-slate-500'
+                                className={`w-11 h-11 md:w-12 md:h-12 rounded-full object-cover border-2 group-hover:scale-105 transition-transform cursor-pointer ${useLightLayout ? 'border-gray-300' : 'border-emerald-400/70'
                                   }`}
                               />
                             ) : (
-                              <div className={`w-10 h-10 md:w-14 md:h-14 rounded-full bg-white flex items-center justify-center text-xl md:text-2xl border-2 group-hover:scale-105 transition-transform cursor-pointer ${useLightLayout ? 'border-gray-300' : 'border-slate-500'
+                              <div className={`w-11 h-11 md:w-12 md:h-12 rounded-full bg-white/10 flex items-center justify-center text-xl border-2 group-hover:scale-105 transition-transform cursor-pointer ${useLightLayout ? 'border-gray-300' : 'border-white/20'
                                 }`}>
                                 👤
                               </div>
                             )}
+                            <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#121419] bg-emerald-400" aria-hidden />
                             <div className={`absolute inset-0 rounded-full transition-colors flex items-center justify-center ${useLightLayout
                               ? 'bg-black/0 group-hover:bg-gray-300/20'
                               : 'bg-black/0 group-hover:bg-white/20'
                               }`}>
-                              <span className={`opacity-0 group-hover:opacity-100 transition-opacity text-xs font-semibold ${useLightLayout ? 'text-gray-900' : 'text-white'
+                              <span className={`opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-semibold ${useLightLayout ? 'text-gray-900' : 'text-white'
                                 }`}>
                                 abrir
                               </span>
                             </div>
                           </button>
-                          <div className="flex-1 px-1 md:px-3 py-1 md:py-2 text-center min-w-0">
-                            <h3 className={`font-bold text-sm md:text-base leading-tight truncate ${useLightLayout ? 'text-gray-900' : 'text-white'}`}>
+                          <div className="flex-1 min-w-0">
+                            <h3 className={`font-extrabold text-sm md:text-base leading-tight truncate ${useLightLayout ? 'text-gray-900' : 'text-white'}`}>
                               {professional.name}
                             </h3>
-                            <p className={`text-[11px] md:text-xs mt-0.5 md:mt-1 ${useLightLayout ? 'text-gray-600' : 'text-gray-300'}`}>
+                            <button
+                              type="button"
+                              onClick={() => toggleProfessionalMenu(professional.id)}
+                              className={`mt-0.5 inline-flex items-center gap-1 text-[11px] md:text-xs font-semibold transition-colors ${useLightLayout ? 'text-gray-600 hover:text-gray-900' : 'text-gray-300 hover:text-white'}`}
+                              title={collapsedMenuProfessionals.has(professional.id) ? 'Abrir opções deste profissional' : 'Recolher opções deste profissional'}
+                            >
                               {appointmentsLocked ? 'agenda protegida' : `${professionalAppointmentsCount} agendamentos`}
-                            </p>
+                              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${collapsedMenuProfessionals.has(professional.id) ? '' : 'rotate-180'}`} />
+                            </button>
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => toggleProfessionalMenu(professional.id)}
+                            className="shrink-0 flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white transition-colors"
+                            title={collapsedMenuProfessionals.has(professional.id) ? 'Abrir menu' : 'Recolher menu'}
+                            aria-label={collapsedMenuProfessionals.has(professional.id) ? 'Abrir menu' : 'Recolher menu'}
+                          >
+                            <ChevronDown className={`h-4 w-4 transition-transform ${collapsedMenuProfessionals.has(professional.id) ? '' : 'rotate-180'}`} />
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => toggleProfessionalMenu(professional.id)}
-                          className="w-full mt-1 mb-1 text-[11px] font-semibold text-gray-400 hover:text-gray-200 transition-colors py-1 border border-gray-700/50 rounded-lg"
-                        >
-                          {collapsedMenuProfessionals.has(professional.id) ? '▼ Abrir menu' : '▲ Recolher menu'}
-                        </button>
                         {!collapsedMenuProfessionals.has(professional.id) && (
                         <>
-                        <div className="w-full grid grid-cols-2 gap-2 mt-2">
+                        <div className="w-full grid grid-cols-2 gap-1.5 mt-2.5">
                           {onGoToClients && (
                             <button
                               onClick={() => onGoToClients(professional.id)}
                               data-tutorial-id="appointments-criar-reserva"
-                              className={sideActionButtonClass}
+                              className={primaryActionButtonClass}
                               title="Ir para Meus Clientes"
                             >
-                              <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
-                                <UserPlus className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
-                                <span className="text-xs font-bold mt-1 md:mt-0">Agendar cliente</span>
+                              <span className="flex items-center justify-center gap-1.5 leading-tight">
+                                <UserPlus className="w-4 h-4 shrink-0" />
+                                <span>Agendar cliente</span>
                               </span>
                             </button>
                           )}
@@ -7322,31 +7433,29 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             title="Criar Encaixe"
                             disabled={appointmentsLocked}
                           >
-                            <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
+                            <span className="flex items-center justify-center gap-1.5 leading-tight">
                               {appointmentsLocked ? (
-                                <Lock className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
+                                <Lock className="w-4 h-4 shrink-0 text-white/90" />
                               ) : (
-                                <Plus className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
+                                <Plus className="w-4 h-4 shrink-0 text-white/90" />
                               )}
-                              <span className="text-xs font-bold mt-1 md:mt-0">
-                                {appointmentsLocked ? 'Agenda protegida' : 'Criar encaixe'}
-                              </span>
+                              <span>{appointmentsLocked ? 'Agenda protegida' : 'Encaixe'}</span>
                             </span>
                           </button>
+                        </div>
 
+                        <div className="w-full grid grid-cols-4 gap-1.5 mt-1.5">
                           {onOpenBlockHoursModal && (
                             <button
                               onClick={() => onOpenBlockHoursModal(professional.id)}
                               data-tutorial-id="appointments-bloquear-horarios"
-                              className={`${actionCardButtonClass}`}
+                              className={tileActionButtonClass}
                               title="Bloquear horários deste profissional"
                               disabled={appointmentsLocked}
                             >
-                              <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
-                                <Lock className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
-                                <span className="text-xs font-bold mt-1 md:mt-0">
-                                  {appointmentsLocked ? 'Agenda protegida' : 'Bloquear horários'}
-                                </span>
+                              <span className="flex flex-col items-center justify-center gap-1 text-center">
+                                <Lock className="w-4 h-4 shrink-0 text-white/80" />
+                                <span>{appointmentsLocked ? 'Agenda protegida' : 'Bloquear horário'}</span>
                               </span>
                             </button>
                           )}
@@ -7354,19 +7463,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
                             <button
                               onClick={() => onOpenAbsenceModal(professional.id)}
                               data-tutorial-id="appointments-ausencia"
-                              className={`${actionCardButtonClass}`}
-                              title="Configurar dias de ausência deste profissional"
+                              className={tileActionButtonClass}
+                              title="Configurar dias de ausência deste profissional (bloquear o dia inteiro)"
                               disabled={appointmentsLocked}
                             >
-                              <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
-                                <Calendar className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
-                                <span className="text-xs font-bold mt-1 md:mt-0">
-                                  {appointmentsLocked ? 'Agenda protegida' : 'Bloquear dia inteiro'}
-                                </span>
+                              <span className="flex flex-col items-center justify-center gap-1 text-center">
+                                <Calendar className="w-4 h-4 shrink-0 text-white/80" />
+                                <span>{appointmentsLocked ? 'Agenda protegida' : 'Bloqueio dia'}</span>
                               </span>
                             </button>
                           )}
-
                           {onOpenQuickSubscriberModal && (
                             <button
                               onClick={() => {
@@ -7376,74 +7482,69 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 }
                                 onOpenQuickSubscriberModal(professional.id);
                               }}
-                              className={`${actionCardButtonClass}`}
+                              className={tileActionButtonClass}
                               title="Cadastrar Assinante"
                               disabled={appointmentsLocked}
                             >
-                              <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
+                              <span className="flex flex-col items-center justify-center gap-1 text-center">
                                 {appointmentsLocked ? (
-                                  <Lock className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
+                                  <Lock className="w-4 h-4 shrink-0 text-white/80" />
                                 ) : (
-                                  <Users className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
+                                  <Users className="w-4 h-4 shrink-0 text-white/80" />
                                 )}
-                                <span className="text-xs font-bold mt-1 md:mt-0">
-                                  {appointmentsLocked ? 'Agenda protegida' : 'Cadastrar assinante'}
-                                </span>
+                                <span>{appointmentsLocked ? 'Agenda protegida' : 'Cadastrar assinante'}</span>
                               </span>
                             </button>
                           )}
-
                           <button
                             onClick={openAvailabilityModal}
-                            className={`${actionCardButtonClass}`}
+                            className={tileActionButtonClass}
                             title="Ver horários disponíveis (somente visualização)"
                             disabled={appointmentsLocked}
                           >
-                            <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
-                              <Calendar className="w-4 h-4 md:w-3 md:h-3 text-white/90" />
-                              <span className="text-xs font-bold mt-1 md:mt-0">
-                                {appointmentsLocked ? 'Agenda protegida' : 'Horários disponíveis'}
-                              </span>
+                            <span className="flex flex-col items-center justify-center gap-1 text-center">
+                              <Clock className="w-4 h-4 shrink-0 text-white/80" />
+                              <span>{appointmentsLocked ? 'Agenda protegida' : 'Horários dispon.'}</span>
                             </span>
                           </button>
-
-                          <button
-                            onClick={openFinancialModal}
-                            data-tutorial-id="appointments-financeiro"
-                            className={`${actionCardButtonClass} col-span-2`}
-                            title="Abrir financeiro do profissional"
-                          >
-                            <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
-                              <Coins className="w-4 h-4 md:w-3 md:h-3 mb-1 md:mb-0 text-white/90" />
-                              <span>Financeiro / desempenho</span>
-                              {financialLocked && <span className="text-[10px] opacity-90">desbloquear</span>}
-                            </span>
-                          </button>
-
-                          {onOpenSellProduct && (
-                            <button
-                              onClick={() => {
-                                if (appointmentsLocked) {
-                                  onRequestAppointmentsUnlock?.(professional.id);
-                                  return;
-                                }
-                                onOpenSellProduct(String(professional.id), String(professional.name || ''));
-                              }}
-                              className={`${actionCardButtonClass} col-span-2`}
-                              title="Vender produto avulso (sem agendamento) para este profissional"
-                              disabled={appointmentsLocked}
-                            >
-                              <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
-                                {appointmentsLocked ? (
-                                  <Lock className="w-4 h-4 md:w-3 md:h-3 mb-1 md:mb-0 text-white/90" />
-                                ) : (
-                                  <Package className="w-4 h-4 md:w-3 md:h-3 mb-1 md:mb-0 text-white/90" />
-                                )}
-                                <span>{appointmentsLocked ? 'Agenda protegida' : 'Vender produto'}</span>
-                              </span>
-                            </button>
-                          )}
                         </div>
+
+                        <button
+                          onClick={openFinancialModal}
+                          data-tutorial-id="appointments-financeiro"
+                          className={`${actionCardButtonClass} mt-1.5`}
+                          title="Abrir financeiro do profissional"
+                        >
+                          <span className="flex items-center gap-2 leading-tight">
+                            <Coins className="w-4 h-4 shrink-0 text-white/80" />
+                            <span>Financeiro / desempenho</span>
+                            {financialLocked && <span className="text-[10px] opacity-90">(desbloquear)</span>}
+                          </span>
+                        </button>
+
+                        {onOpenSellProduct && (
+                          <button
+                            onClick={() => {
+                              if (appointmentsLocked) {
+                                onRequestAppointmentsUnlock?.(professional.id);
+                                return;
+                              }
+                              onOpenSellProduct(String(professional.id), String(professional.name || ''));
+                            }}
+                            className={`${actionCardButtonClass} mt-1.5`}
+                            title="Vender produto avulso (sem agendamento) para este profissional"
+                            disabled={appointmentsLocked}
+                          >
+                            <span className="flex items-center gap-2 leading-tight">
+                              {appointmentsLocked ? (
+                                <Lock className="w-4 h-4 shrink-0 text-white/80" />
+                              ) : (
+                                <Package className="w-4 h-4 shrink-0 text-white/80" />
+                              )}
+                              <span>{appointmentsLocked ? 'Agenda protegida' : 'Vender produto'}</span>
+                            </span>
+                          </button>
+                        )}
 
                         {isExclusiveBookingLinkEnabledForProfessional(professional) && (
                           <button
@@ -7457,7 +7558,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                         )}
 
                         {/* Contadores de Status por Profissional */}
-                        <div className="mt-2 md:mt-1.5 grid grid-cols-3 gap-1.5 md:gap-1.5 text-xs w-full">
+                        <div className="mt-2 grid grid-cols-3 gap-1.5 w-full">
                           <button
                             type="button"
                             onClick={() => {
@@ -7470,18 +7571,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               setCancelledHistoryDate(selectedDateStr);
                               setShowCancelledHistoryModal(true);
                             }}
-                            className={`${statusCardButtonClass} bg-red-700/90 border-red-800 hover:bg-red-700`}
+                            className={`${statusCardButtonClass} border-red-500 bg-red-600 hover:bg-red-500`}
                             title="Ver histórico de cancelados deste profissional no dia"
                           >
-                            <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
-                              {appointmentsLocked ? (
-                                <Lock className="w-4 h-4 md:w-3 md:h-3 text-white/95" />
-                              ) : (
-                                <X className="w-4 h-4 md:w-3 md:h-3 text-white/95" />
-                              )}
-                              <span className="text-[11px] font-bold mt-0.5 md:mt-0">{appointmentsLocked ? '-' : cancelledCount}</span>
-                              <span className="text-[10px] opacity-90">Cancelados</span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-white">
+                                {appointmentsLocked ? <Lock className="w-3 h-3" /> : <X className="w-3 h-3" strokeWidth={3} />}
+                              </span>
+                              <span className="text-sm font-black leading-none text-white">{appointmentsLocked ? '-' : cancelledCount}</span>
                             </span>
+                            <span className="mt-1 block text-[10px] font-bold text-white/90">Cancelados</span>
                           </button>
                           <button
                             type="button"
@@ -7496,18 +7595,16 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               setStatusDetailsDate(selectedDateStr);
                               setShowStatusDetailsModal(true);
                             }}
-                            className={`${statusCardButtonClass} bg-yellow-700/90 border-yellow-800 hover:bg-yellow-700`}
+                            className={`${statusCardButtonClass} border-amber-500 bg-amber-600 hover:bg-amber-500`}
                             title="Ver agendamentos pendentes deste profissional no dia"
                           >
-                            <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
-                              {appointmentsLocked ? (
-                                <Lock className="w-4 h-4 md:w-3 md:h-3 text-white/95" />
-                              ) : (
-                                <Clock className="w-4 h-4 md:w-3 md:h-3 text-white/95" />
-                              )}
-                              <span className="text-[11px] font-bold mt-0.5 md:mt-0">{appointmentsLocked ? '-' : pendingCount}</span>
-                              <span className="text-[10px] opacity-90">Pendentes</span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-white">
+                                {appointmentsLocked ? <Lock className="w-3 h-3" /> : <Clock className="w-3 h-3" strokeWidth={3} />}
+                              </span>
+                              <span className="text-sm font-black leading-none text-white">{appointmentsLocked ? '-' : pendingCount}</span>
                             </span>
+                            <span className="mt-1 block text-[10px] font-bold text-white/90">Pendentes</span>
                           </button>
                           <button
                             type="button"
@@ -7522,32 +7619,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               setStatusDetailsDate(selectedDateStr);
                               setShowStatusDetailsModal(true);
                             }}
-                            className={`${statusCardButtonClass} bg-green-700/90 border-green-800 hover:bg-green-700`}
+                            className={`${statusCardButtonClass} border-green-500 bg-green-600 hover:bg-green-500`}
                             title="Ver agendamentos concluídos deste profissional no dia"
                           >
-                            <span className="flex flex-col md:flex-row items-center justify-center md:gap-1.5 leading-tight">
-                              {appointmentsLocked ? (
-                                <Lock className="w-4 h-4 md:w-3 md:h-3 text-white/95" />
-                              ) : (
-                                <CheckCircle2 className="w-4 h-4 md:w-3 md:h-3 text-white/95" />
-                              )}
-                              <span className="text-[11px] font-bold mt-0.5 md:mt-0">{appointmentsLocked ? '-' : completedCount}</span>
-                              <span className="text-[10px] opacity-90">Realizados</span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-white">
+                                {appointmentsLocked ? <Lock className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" strokeWidth={3} />}
+                              </span>
+                              <span className="text-sm font-black leading-none text-white">{appointmentsLocked ? '-' : completedCount}</span>
                             </span>
+                            <span className="mt-1 block text-[10px] font-bold text-white/90">Realizados</span>
                           </button>
-                        </div>
-                        <div className={`mt-2 w-full rounded-lg border px-3 py-1.5 text-center ${useLightLayout ? 'bg-gray-100 border-gray-300 text-gray-700' : 'bg-white/5 border-white/10 text-white/75'}`}>
-                          <p className="text-[11px] font-semibold">
-                            Clique no horário desejado, para interagir.
-                          </p>
                         </div>
                         </> )} {/* fim do bloco recolhível */}
 
                         {/* Meta do Profissional */}
                         {professional.goal && professional.goal > 0 && (
-                          <div className={`mt-2 px-2 py-1 rounded text-xs text-center ${useLightLayout
-                            ? 'bg-gray-200 text-gray-900 border border-gray-300'
-                            : 'bg-gray-800 text-white border border-gray-600'
+                          <div className={`mt-2 px-2 py-1 rounded-lg text-xs text-center border ${useLightLayout
+                            ? 'bg-gray-200 text-gray-900 border-gray-300'
+                            : 'bg-white/5 text-white/80 border-white/10'
                             }`}>
                             🎯 Meta: {formatCurrency(professional.goal)}
                           </div>
@@ -7556,53 +7646,52 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     </div>
 
                     {/* Todos os Horários (Livres e Ocupados) */}
-                    <div className={`p-1.5 md:p-2 min-h-0 md:min-h-[500px] rounded-b-xl border border-t-0 ${useLightLayout ? 'bg-gray-100 border-gray-300' : 'bg-[#121419] border-white/10'
+                    <div className={`p-1.5 md:p-2 min-h-0 md:min-h-[500px] rounded-b-2xl border border-t-0 ${useLightLayout ? 'bg-gray-100 border-gray-300' : 'bg-[#121419] border-white/10'
                       }`}>
                       {appointmentsLocked ? (
-                        <div className="rounded-lg border-2 border-amber-500/60 bg-amber-100 p-3 mb-2">
-                          <p className="text-sm font-semibold text-amber-800 text-center">
+                        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 mb-2">
+                          <p className="text-sm font-bold text-amber-100 text-center">
                             Agenda protegida por senha do profissional.
                           </p>
-                          <p className="text-xs text-amber-700 text-center mt-1">
+                          <p className="text-xs text-amber-200/80 text-center mt-1">
                             Desbloqueie para ver, transferir ou cancelar agendamentos deste profissional.
                           </p>
                           <button
                             type="button"
                             onClick={() => onRequestAppointmentsUnlock?.(professional.id)}
-                            className="mt-3 w-full px-3 py-2 rounded-md bg-black text-white text-xs font-semibold hover:bg-gray-800 transition-colors"
+                            className="mt-3 w-full px-3 py-2 rounded-xl bg-amber-400 text-black text-xs font-extrabold hover:bg-amber-300 transition-colors"
                           >
                             Desbloquear agenda
                           </button>
                         </div>
                       ) : null}
-                      <div className={`space-y-1 ${appointmentsLocked ? 'hidden' : ''}`}>
+                      <div className={`space-y-1.5 ${appointmentsLocked ? 'hidden' : ''}`}>
                         {timeSlots.length > 0 ? (
                           timeSlots.map((slot, slotIndex) => {
-                            const slotColor = getSlotColor(slot);
-
                             if (slot.isBlocked) {
                               const blockBusy =
                                 slotBlockBusyKey === `${professional.id}__${slot.time}`;
                               return (
                                 <div
                                   key={`${slot.time}-${slotIndex}`}
-                                  className="rounded-xl border-2 shadow-sm overflow-hidden bg-red-700/90 border-red-800"
+                                  className="rounded-xl border border-red-500/40 bg-red-500/10 overflow-hidden"
                                 >
-                                  <div className="flex items-stretch gap-0 min-h-[48px]">
-                                    <div className="flex-1 flex flex-col justify-center px-3 py-2.5 min-w-0">
-                                      <span className="text-white font-extrabold text-base tracking-tight">
-                                        {slot.time}
-                                      </span>
-                                      <span className="text-white/90 text-[11px] font-semibold mt-0.5">
-                                        🔒 Bloqueado para clientes
-                                      </span>
-                                    </div>
+                                  <div className="flex items-center gap-2 md:gap-2.5 min-h-[44px] px-2.5 py-1.5">
+                                    <span className="w-10 md:w-11 shrink-0 text-sm font-extrabold text-red-100 tabular-nums">
+                                      {slot.time}
+                                    </span>
+                                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-red-200">
+                                      <Lock className="h-3.5 w-3.5" />
+                                    </span>
+                                    <span className="flex-1 min-w-0 text-xs font-bold text-red-100">
+                                      Bloqueado para clientes
+                                    </span>
                                     {onToggleProfessionalSlotBlocked ? (
                                       <button
                                         type="button"
                                         disabled={!!slotBlockBusyKey}
                                         onClick={() => runToggleSlotBlock(professional.id, slot.time, false)}
-                                        className="shrink-0 px-3 py-2 text-xs font-bold text-white border-l border-white/25 transition-colors disabled:opacity-50 bg-red-700 hover:bg-red-800"
+                                        className="shrink-0 rounded-lg border border-red-300/40 bg-red-500/30 px-2.5 py-1.5 text-[11px] font-extrabold text-white hover:bg-red-500/45 transition-colors disabled:opacity-50"
                                       >
                                         {blockBusy ? '…' : 'Desbloquear'}
                                       </button>
@@ -7650,49 +7739,39 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         isPast: Boolean(isPastSlot),
                                       });
                                     }}
-                                    className={`rounded-xl border shadow-sm overflow-hidden flex items-stretch ${isPastSlot
-                                      ? 'min-h-[36px] md:min-h-[26px] border-gray-300 bg-gray-200/80'
+                                    className={`rounded-xl overflow-hidden flex items-center gap-2 md:gap-2.5 px-2.5 transition-colors shadow-sm ${isPastSlot
+                                      ? 'min-h-[34px] md:min-h-[30px] py-1 border border-gray-300 bg-gray-200/80 hover:bg-gray-200'
                                       : isAbsentSlot
-                                        ? 'min-h-[44px] md:min-h-[38px] border-2 border-amber-400 bg-gradient-to-br from-amber-50 to-amber-100/90'
-                                        : 'min-h-[44px] md:min-h-[38px] border-2 border-emerald-300 bg-emerald-50'
+                                        ? 'min-h-[44px] md:min-h-[40px] py-1.5 border-2 border-amber-400 bg-gradient-to-br from-amber-50 to-amber-100/90'
+                                        : 'min-h-[44px] md:min-h-[40px] py-1.5 border-2 border-emerald-300 bg-emerald-50 hover:bg-emerald-100'
                                       } ${canOpenQuickAction ? 'cursor-pointer' : ''}`}
                                   >
-                                    <div className={`flex-1 min-w-0 ${isPastSlot
-                                      ? 'flex items-center gap-2 px-3 py-1 md:py-0.5 md:px-2'
-                                      : 'flex flex-col items-center justify-center text-center px-3 py-2.5 md:py-1 md:px-2'
-                                    }`}>
-                                      {isAbsentSlot ? (
-                                        <>
-                                          <span className="font-extrabold text-base md:text-[13px] tracking-tight text-amber-900">
-                                            {slot.time}
-                                          </span>
-                                          <span className="text-[11px] md:text-[10px] font-bold mt-0.5 text-amber-800">
-                                            📅 Ausência neste dia
-                                          </span>
-                                        </>
-                                      ) : isPastSlot ? (
-                                        <>
-                                          <span className="font-bold text-xs md:text-[11px] text-gray-600 shrink-0">
-                                            {slot.time}
-                                          </span>
-                                          <span className="text-[10px] md:text-[9px] text-gray-500">
-                                            Já passou
-                                          </span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <span className="font-extrabold text-base md:text-[14px] leading-tight tracking-tight text-emerald-800">
-                                            {slot.time}
-                                          </span>
-                                          <span className="text-[11px] md:text-[10px] font-extrabold mt-0.5 text-emerald-800 uppercase">
-                                            HORARIO LIVRE
-                                          </span>
-                                          <span className="text-[10px] font-semibold mt-0.5 text-emerald-700/80 md:hidden">
-                                            Clique aqui
-                                          </span>
-                                        </>
-                                      )}
-                                    </div>
+                                    <span className={`w-10 md:w-11 shrink-0 font-extrabold tabular-nums ${isPastSlot
+                                      ? 'text-xs text-gray-600'
+                                      : isAbsentSlot
+                                        ? 'text-sm text-amber-900'
+                                        : 'text-sm text-emerald-800'
+                                      }`}>
+                                      {slot.time}
+                                    </span>
+                                    {isAbsentSlot ? (
+                                      <>
+                                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-200/80 text-base">📅</span>
+                                        <span className="flex-1 min-w-0 text-xs font-bold text-amber-900">Ausência neste dia</span>
+                                      </>
+                                    ) : isPastSlot ? (
+                                      <span className="flex-1 min-w-0 text-[11px] text-gray-500">Já passou</span>
+                                    ) : (
+                                      <>
+                                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-emerald-400 bg-white text-emerald-600 shadow-sm">
+                                          <Plus className="h-4 w-4" strokeWidth={3} />
+                                        </span>
+                                        <span className="flex-1 min-w-0">
+                                          <span className="block text-xs font-extrabold uppercase tracking-wide text-emerald-800">Horário livre</span>
+                                          <span className="block text-[10px] font-semibold text-emerald-700/75">Reservar • Bloquear • Encaixe</span>
+                                        </span>
+                                      </>
+                                    )}
                                   </div>
                                   {/* Exibir encaixes abaixo do horário */}
                                   {squeezes.map((squeeze: Appointment) => {
@@ -7700,28 +7779,31 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                     return (
                                       <div
                                         key={squeeze.id}
-                                        className="bg-gray-700 border-2 border-gray-600 rounded-lg mt-1 overflow-hidden"
+                                        className="mt-1.5 rounded-xl border border-l-4 border-gray-600 border-l-violet-400 bg-gray-700 overflow-hidden"
                                       >
-                                        <div className="px-3 py-2 md:py-1.5 md:px-2.5">
-                                          <div
-                                            onClick={() => toggleAppointmentExpansion(squeeze.id)}
-                                            className="cursor-pointer"
-                                          >
-                                            <div className="flex items-center justify-between mb-1 md:mb-0.5">
-                                              <span className="text-white font-bold text-sm md:text-xs">
-                                                {squeeze.appointment_time} 🟣 {isAgendaSubscriberAppointment(squeeze) ? 'ENCAIXE ASSINANTE' : 'ENCAIXE'}
-                                              </span>
-                                              <span className="text-white text-xs font-bold">
-                                                {displayCardMoney(calculateTotalPrice(squeeze))}
-                                              </span>
-                                            </div>
-                                            <div className="text-white font-semibold text-sm md:text-xs mb-1 md:mb-0.5 truncate">
+                                        <div
+                                          onClick={() => toggleAppointmentExpansion(squeeze.id)}
+                                          className="cursor-pointer flex items-center gap-2 md:gap-2.5 px-2.5 py-2"
+                                        >
+                                          <span className="w-10 md:w-11 shrink-0 text-sm font-extrabold text-white tabular-nums leading-tight">
+                                            {squeeze.appointment_time}
+                                          </span>
+                                          <span className="flex h-8 w-8 md:h-9 md:w-9 shrink-0 items-center justify-center rounded-full bg-violet-500/25 text-base ring-2 ring-violet-400/50">✂️</span>
+                                          <span className="flex-1 min-w-0">
+                                            <span className="block text-sm font-bold text-white truncate">
+                                              {isAgendaSubscriberAppointment(squeeze) ? 'ENCAIXE ASSINANTE' : 'ENCAIXE'}
+                                            </span>
+                                            <span className="block text-[11px] text-white/85 truncate">
                                               {squeeze.service}
-                                            </div>
-                                            <div className="text-white/70 text-xs mt-1 md:mt-0">
-                                              {getDuracaoTotalAgendamento(squeeze, intervaloAgendaMinutos)} min • Ver detalhes
-                                            </div>
-                                          </div>
+                                              <span className="text-white/65"> • {getDuracaoTotalAgendamento(squeeze, intervaloAgendaMinutos)} min • Ver detalhes</span>
+                                            </span>
+                                          </span>
+                                          <span className="shrink-0 flex flex-col items-end gap-1">
+                                            <span className="rounded-full border border-white/25 bg-black/30 px-2 py-0.5 text-[10px] font-extrabold text-white whitespace-nowrap">✂️ Encaixe</span>
+                                            <span className="text-[11px] font-extrabold text-white">
+                                              {displayCardMoney(calculateTotalPrice(squeeze))}
+                                            </span>
+                                          </span>
                                         </div>
                                         {/* Versão expandida do encaixe */}
                                         {isExpanded && (
@@ -7797,71 +7879,107 @@ export const AllProfessionalsAppointmentsView: React.FC<
                               const contactOverride = appointmentContactById[apt.id] || {};
                               const displayedCpf = String(contactOverride.cpf || apt.client_cpf || '').replace(/\D/g, '');
                               const displayedStreet = String(contactOverride.street || (apt as any).client_street || '').trim();
+                              // Visual da linha: selo + borda esquerda pela cor do status (o status em si não muda).
+                              const statusPill = AGENDA_STATUS_PILL[String(apt.status || '')] || AGENDA_STATUS_PILL.pending;
+                              const isSqueezeRow = Boolean(apt.is_squeeze);
+                              const isSubscriberRow = isAgendaSubscriberAppointment(apt);
+                              const rawClientName = getDisplayedClientName(apt);
+                              const isCancelledRow = apt.status === 'cancelled';
 
                               return (
                                 <div
                                   key={apt.id}
-                                  className={`${slotColor} border rounded-lg overflow-hidden`}
+                                  className={`rounded-xl border border-l-4 ${isSqueezeRow ? 'bg-gray-700 border-gray-600 border-l-violet-400' : `${statusPill.fill} ${statusPill.edge}`} overflow-hidden ${isCancelledRow ? 'opacity-80' : ''}`}
                                 >
                                   {/* Versão Compacta - Sempre visível */}
-                                  <div className={(apt.status === 'completed' || apt.status === 'pending' || apt.status === 'confirmed') ? 'flex items-stretch' : ''}>
-                                    {/* Faixa lateral esquerda de status (concluído / pendente) — conteúdo fica espremido à direita */}
-                                    {(apt.status === 'completed' || apt.status === 'pending' || apt.status === 'confirmed') && (
-                                      <div className="shrink-0 w-20 md:w-24 bg-black/25 border-r-2 border-dashed border-white/30 flex flex-col items-center justify-center gap-0.5 px-1.5 text-center select-none leading-tight">
-                                        <span className="text-[11px] md:text-xs font-extrabold text-white">Serviço</span>
-                                        <span className="text-[11px] md:text-xs font-extrabold text-white">{apt.status === 'completed' ? 'concluído' : 'em espera'}</span>
-                                        <span className="text-xl md:text-2xl leading-none mt-0.5">{apt.status === 'completed' ? '✅' : '⏳'}</span>
-                                      </div>
-                                    )}
-                                    <div className="px-2.5 py-2 md:py-1.5 flex-1 min-w-0">
+                                  <div className="px-2.5 py-2">
                                     <div
                                       onClick={() => toggleAppointmentExpansion(apt.id)}
                                       data-tutorial-id="appointments-detalhes-agendamento"
                                       className="cursor-pointer"
                                     >
-                                      <div className="flex items-center justify-between mb-1 md:mb-0.5">
-                                        <span className="text-white font-bold text-sm md:text-xs">
-                                          {apt.is_squeeze ? apt.appointment_time : slot.time}{' '}
-                                          {apt.is_squeeze && '🟣'}
-                                          {apt.is_squeeze && apt.status === 'completed' && (
-                                            <span className="ml-1" title="Encaixe concluído">
-                                              ✅
+                                      <div className="flex items-center gap-2 md:gap-2.5">
+                                        <span className="w-10 md:w-11 shrink-0 text-sm font-extrabold text-white tabular-nums leading-tight">
+                                          {apt.is_squeeze ? apt.appointment_time : slot.time}
+                                          {apt.is_squeeze && (
+                                            <span
+                                              className="block text-[9px] font-bold text-violet-200"
+                                              title={apt.status === 'completed' ? 'Encaixe concluído' : 'Encaixe'}
+                                            >
+                                              ENCAIXE{apt.status === 'completed' ? ' ✅' : ''}
                                             </span>
                                           )}
                                         </span>
-                                        <span className="text-white text-xs font-bold">
-                                          {displayCardMoney(calculateTotalPrice(apt))}
+                                        {/* Avatar: iniciais do cliente (cliente não tem foto) */}
+                                        <span
+                                          className={`flex h-8 w-8 md:h-9 md:w-9 shrink-0 items-center justify-center rounded-full text-[11px] md:text-xs font-black ring-2 ${isSubscriberRow
+                                            ? 'ring-amber-400'
+                                            : isSqueezeRow
+                                              ? 'ring-violet-400/50'
+                                              : 'ring-white/30'
+                                            } ${isSqueezeRow ? 'bg-violet-500/25 text-violet-100' : getClientAvatarTone(rawClientName)}`}
+                                          title={isSubscriberRow ? 'Assinante' : undefined}
+                                        >
+                                          {isSqueezeRow ? '✂️' : getClientInitials(rawClientName)}
+                                        </span>
+                                        <span className="flex-1 min-w-0">
+                                          {renderAppointmentClientNameRow(apt, serviceLabels, { variant: 'compact' })}
+                                          <span className="mt-0.5 block text-[11px] text-white/85 truncate">
+                                            {subscriptionLabelColor && (
+                                              <span
+                                                className="inline-block h-2.5 w-2.5 rounded-full mr-1.5 align-middle border border-white/70"
+                                                style={{ backgroundColor: subscriptionLabelColor }}
+                                                title="Etiqueta da assinatura"
+                                              />
+                                            )}
+                                            {getDisplayedService(apt)}
+                                            <span className="text-white/65"> • {getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos)} min</span>
+                                          </span>
+                                          {/* Celular: selo e valor embaixo do nome (não cabe ao lado) */}
+                                          <span className="mt-1 flex flex-wrap items-center gap-1.5 md:hidden">
+                                            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-extrabold whitespace-nowrap ${statusPill.pill}`}>
+                                              {statusPill.label}
+                                            </span>
+                                            <span className="text-[11px] font-extrabold text-white">
+                                              {displayCardMoney(calculateTotalPrice(apt))}
+                                            </span>
+                                            <span className="ml-auto text-[10px] text-white/75 whitespace-nowrap">Detalhes ›</span>
+                                          </span>
+                                        </span>
+                                        <span className="hidden md:flex shrink-0 flex-col items-end gap-1">
+                                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-extrabold whitespace-nowrap ${statusPill.pill}`}>
+                                            {statusPill.label}
+                                          </span>
+                                          <span className="text-[11px] font-extrabold text-white">
+                                            {displayCardMoney(calculateTotalPrice(apt))}
+                                          </span>
+                                        </span>
+                                        <span
+                                          className="hidden md:flex shrink-0 h-8 w-8 items-center justify-center rounded-lg text-white/75 hover:bg-black/30 hover:text-white transition-colors"
+                                          title="Ver detalhes"
+                                        >
+                                          <MoreVertical className="h-4 w-4" />
                                         </span>
                                       </div>
-                                      {renderAppointmentClientNameRow(apt, serviceLabels, { variant: 'compact' })}
+
+                                      {/* Selos: primeiro agendamento / pago online / falta no local */}
                                       {(() => {
-                                        if (!returningClientPhones) return null; // ainda carregando
-                                        if (apt.status === 'cancelled') return null;
-                                        if (isAgendaSubscriberAppointment(apt)) return null;
-                                        let phone = String(apt.client_whatsapp || '').replace(/\D/g, '');
-                                        if (!phone) return null;
-                                        while (phone.startsWith('55') && phone.length > 11) phone = phone.slice(2);
-                                        if (returningClientPhones.has(phone) || returningClientPhones.has('55' + phone)) return null;
-                                        return (
-                                          <div className="mb-1">
-                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-500 text-white">
-                                              🆕 PRIMEIRO AGENDAMENTO
-                                            </span>
-                                          </div>
-                                        );
-                                      })()}
-                                      <div className="text-white/90 text-xs truncate">
-                                        {subscriptionLabelColor && (
-                                          <span
-                                            className="inline-block h-2.5 w-2.5 rounded-full mr-1.5 align-middle border border-white/70"
-                                            style={{ backgroundColor: subscriptionLabelColor }}
-                                            title="Etiqueta da assinatura"
-                                          />
-                                        )}
-                                        {getDisplayedService(apt)}
-                                      </div>
-                                      {/* Breakdown de pagamento online — só mostra quando houve pagamento online com 50% */}
-                                      {(() => {
+                                        const chips: React.ReactNode[] = [];
+
+                                        // 🆕 Primeiro agendamento (telefone ainda não tem atendimento concluído)
+                                        if (returningClientPhones && apt.status !== 'cancelled' && !isAgendaSubscriberAppointment(apt)) {
+                                          let phone = String(apt.client_whatsapp || '').replace(/\D/g, '');
+                                          while (phone.startsWith('55') && phone.length > 11) phone = phone.slice(2);
+                                          if (phone && !returningClientPhones.has(phone) && !returningClientPhones.has('55' + phone)) {
+                                            chips.push(
+                                              <span key="first" className="inline-flex items-center gap-1 rounded-md bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                                🆕 PRIMEIRO AGENDAMENTO
+                                              </span>
+                                            );
+                                          }
+                                        }
+
+                                        // Breakdown de pagamento online — só mostra quando houve pagamento online com 50%
                                         const pm = String(apt.payment_method || '').toLowerCase();
                                         const isOnlineMethod = pm === 'pix' || pm === 'credito' || pm === 'debito';
                                         // Evidência REAL de pagamento online (como o webhook grava ao aprovar):
@@ -7882,50 +8000,41 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         if (isPaidOnline && apt.status !== 'cancelled') {
                                           const paidOnline = is50 ? Math.round(totalPrice * 0.5) : totalPrice;
                                           const remaining = totalPrice - paidOnline;
-                                          // Faixa DESTACADA (verde, texto preto): o barbeiro precisa bater o olho e
-                                          // saber que esse cliente já pagou. Cores explícitas: o card muda de cor por
-                                          // status e o texto herdado ficava invisível.
-                                          return (
-                                            <div className="mt-1.5 md:mt-1 flex flex-col gap-0.5">
-                                              <span
-                                                className="inline-flex items-center justify-center gap-1 w-full px-2 py-1 md:py-0.5 rounded-md text-[11px] md:text-[10px] font-extrabold uppercase tracking-wide bg-emerald-400 text-black shadow-sm"
-                                                title={remaining > 0 ? 'Cliente pagou metade online' : 'Cliente já pagou tudo online'}
-                                              >
-                                                ✅ {remaining > 0 ? 'Pagou 50% online' : 'Pago online'} · {displayCardMoney(paidOnline)}
-                                              </span>
-                                              {remaining > 0 && (
-                                                <span className="inline-flex items-center justify-center gap-1 w-full px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-400 text-black">
-                                                  🏪 Falta no local: {displayCardMoney(remaining)}
-                                                </span>
-                                              )}
-                                            </div>
+                                          // Selo DESTACADO (verde, texto preto): o barbeiro precisa bater o olho e
+                                          // saber que esse cliente já pagou.
+                                          chips.push(
+                                            <span
+                                              key="paid"
+                                              className="inline-flex items-center gap-1 rounded-md bg-emerald-400 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-black shadow-sm"
+                                              title={remaining > 0 ? 'Cliente pagou metade online' : 'Cliente já pagou tudo online'}
+                                            >
+                                              ✅ {remaining > 0 ? 'Pagou 50% online' : 'Pago online'} · {displayCardMoney(paidOnline)}
+                                            </span>
                                           );
+                                          if (remaining > 0) {
+                                            chips.push(
+                                              <span key="remaining" className="inline-flex items-center gap-1 rounded-md bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-black">
+                                                🏪 Falta no local: {displayCardMoney(remaining)}
+                                              </span>
+                                            );
+                                          }
                                         }
-                                        return null;
-                                      })()}
 
-                                      <div className="text-white/70 text-xs mt-1 md:mt-0.5 flex items-center justify-between gap-1">
-                                        <span>{getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos)} min • Ver detalhes</span>
-                                        {/* Concluído e Pendente agora são a faixa lateral esquerda do card (não mais selo aqui dentro) */}
-                                        {apt.status === 'pending_payment' && (
-                                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/40 text-purple-100 shrink-0">
-                                            💳 AGUARDANDO PAGAMENTO
-                                          </span>
-                                        )}
-                                        {apt.status === 'cancelled' && (
-                                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-black/40 text-white shrink-0">
-                                            ❌ CANCELADO
-                                          </span>
-                                        )}
-                                      </div>
+                                        if (chips.length === 0) return null;
+                                        return (
+                                          <div className="mt-1.5 flex flex-wrap items-center gap-1 pl-[3.25rem] md:pl-[3.75rem]">
+                                            {chips}
+                                          </div>
+                                        );
+                                      })()}
                                     </div>
 
                                     {/* 💳 COBRAR CLIENTE — PIX de balcão, só para atendimento
                                         SEM pagamento online. Não altera o agendamento. */}
                                     {!isExpanded && apt.status !== 'cancelled' && canChargeAppointmentLocally?.(apt) && (
-                                      <div className="mt-2 pt-2 md:mt-1 md:pt-1 border-t border-white/20">
+                                      <div className="mt-2 pt-2 border-t border-white/20">
                                         {localChargesByAppointment?.[apt.id]?.status === 'paid' ? (
-                                          <div className="w-full px-2 py-1.5 md:py-1 text-[11px] font-bold rounded bg-emerald-600 text-white text-center leading-tight">
+                                          <div className="w-full rounded-lg bg-emerald-600 px-2 py-1.5 text-center text-[11px] font-bold text-white leading-tight">
                                             ✅ Pago no local via PIX
                                           </div>
                                         ) : (
@@ -7934,7 +8043,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               e.stopPropagation();
                                               onChargeClient?.(apt);
                                             }}
-                                            className="w-full px-2 py-1.5 md:py-1 text-[11px] font-extrabold rounded transition-colors bg-emerald-500 text-black hover:bg-emerald-400 leading-tight"
+                                            className="w-full rounded-lg bg-emerald-500 px-2 py-1.5 text-[11px] font-extrabold text-black hover:bg-emerald-400 transition-colors leading-tight"
                                             title="Gerar um PIX na hora para o cliente pagar"
                                           >
                                             💳 COBRAR CLIENTE
@@ -7945,13 +8054,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
                                     {/* Botão Enviar Lembrete - Aparece quando NÃO expandido */}
                                     {!isExpanded && apt.status !== 'cancelled' && (
-                                      <div className="mt-2 pt-2 md:mt-1 md:pt-1 border-t border-white/20 grid grid-cols-2 gap-1.5 md:gap-1">
+                                      <div className="mt-2 pt-2 border-t border-white/20 grid grid-cols-2 gap-1.5">
                                         <button
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             if (onOpenReminderModal) onOpenReminderModal(apt);
                                           }}
-                                          className="px-1.5 py-1.5 md:py-0.5 text-[10px] font-medium rounded transition-colors bg-black text-white hover:bg-gray-800 leading-tight"
+                                          className="rounded-lg border border-black/20 bg-black/40 px-1.5 py-1.5 text-[10px] font-bold text-white hover:bg-black/55 transition-colors leading-tight"
                                           title="Enviar lembrete via WhatsApp"
                                         >
                                           📱 Enviar lembrete
@@ -7961,86 +8070,93 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             e.stopPropagation();
                                             if (onSendThankYou) onSendThankYou(apt);
                                           }}
-                                          className="px-1.5 py-1.5 md:py-0.5 text-[10px] font-medium rounded transition-colors bg-[#E6C78B] text-black hover:bg-[#f3e7c7] leading-tight"
+                                          className="rounded-lg border border-[#E6C78B] bg-[#E6C78B] px-1.5 py-1.5 text-[10px] font-bold text-black hover:bg-[#f3e7c7] transition-colors leading-tight"
                                           title="Enviar agradecimento e pedir avaliação via WhatsApp"
                                         >
                                           ⭐ Enviar agradecimento
                                         </button>
                                       </div>
                                     )}
-                                    </div>
                                   </div>
 
                                   {/* Versão Expandida - Popup modal centrado */}
                                   {isExpanded && (
-                                    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70" onClick={(e) => { if (e.target === e.currentTarget) setModalAptId(null); }}>
-                                      <div className="relative w-full max-w-lg max-h-[88vh] overflow-y-auto rounded-2xl shadow-2xl bg-[#1a1b1c] p-4" onClick={(e) => e.stopPropagation()}>
-                                        <button onClick={() => setModalAptId(null)} className="absolute top-3 right-3 z-10 bg-white/10 hover:bg-white/20 text-white rounded-full w-8 h-8 flex items-center justify-center text-xl font-bold">×</button>
-                                      {/* Cliente Info */}
-                                      <div className="mb-3">
-                                        <div className="flex items-center gap-2 mb-2">
-                                          <User className="w-4 h-4 text-white shrink-0" />
-                                          {renderAppointmentClientNameRow(apt, serviceLabels, { variant: 'expanded' })}
-                                          {isAvulsoLike(apt) && !apt.is_squeeze && editingAvulsoNameId !== apt.id && (
+                                    <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/75 backdrop-blur-sm" onClick={(e) => { if (e.target === e.currentTarget) setModalAptId(null); }}>
+                                      <div className="relative w-full max-w-xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl shadow-2xl border border-white/10 bg-[#0f1318] p-4 sm:p-5 text-white" onClick={(e) => e.stopPropagation()}>
+                                        {/* Cabeçalho: avatar + nome + fechar */}
+                                        <div className="flex items-start gap-3 pr-10">
+                                          <span className={`flex h-12 w-12 sm:h-14 sm:w-14 shrink-0 items-center justify-center rounded-full text-base font-black ring-2 ${isSubscriberRow ? 'ring-amber-400' : 'ring-white/15'} ${isSqueezeRow ? 'bg-violet-500/25 text-violet-100' : getClientAvatarTone(rawClientName)}`}>
+                                            {isSqueezeRow ? '✂️' : getClientInitials(rawClientName)}
+                                          </span>
+                                          <div className="min-w-0 flex-1 pt-1">
+                                            <div className="flex flex-wrap items-center gap-2 text-lg sm:text-xl font-black leading-tight">
+                                              {renderAppointmentClientNameRow(apt, serviceLabels, { variant: 'expanded' })}
+                                              {isAvulsoLike(apt) && !apt.is_squeeze && editingAvulsoNameId !== apt.id && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => startEditAvulsoName(apt)}
+                                                  className="text-amber-300 hover:text-amber-200"
+                                                  title="Editar nome do cliente avulso"
+                                                >
+                                                  <Pencil className="h-4 w-4" />
+                                                </button>
+                                              )}
+                                              {apt.is_premium && !apt.is_subscriber && <Crown className="w-4 h-4 text-gray-300" />}
+                                              {apt.is_loyalty_reward && (
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold border border-violet-300 bg-violet-900/40 text-violet-100">
+                                                  FIDELIDADE
+                                                </span>
+                                              )}
+                                              {apt.is_squeeze && (
+                                                <span className="rounded-full border border-violet-400/40 bg-violet-500/20 px-2 py-0.5 text-[10px] font-extrabold text-violet-100">✂️ Encaixe</span>
+                                              )}
+                                            </div>
+                                            <p className="mt-0.5 text-xs text-white/55 truncate">{getDisplayedService(apt)}</p>
+                                          </div>
+                                        </div>
+                                        <button
+                                          onClick={() => setModalAptId(null)}
+                                          className="absolute top-4 right-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+                                          title="Fechar"
+                                          aria-label="Fechar"
+                                        >
+                                          <X className="h-5 w-5" />
+                                        </button>
+
+                                        {isAvulsoLike(apt) && !apt.is_squeeze && editingAvulsoNameId === apt.id && (
+                                          <div className="mt-3 flex items-center gap-2">
+                                            <input
+                                              type="text"
+                                              value={editingAvulsoNameValue}
+                                              onChange={(e) => setEditingAvulsoNameValue(e.target.value)}
+                                              placeholder="Nome do cliente (ex.: Ricardo)"
+                                              className="flex-1 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-amber-400"
+                                              autoFocus
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') saveAvulsoName(apt);
+                                                if (e.key === 'Escape') cancelEditAvulsoName();
+                                              }}
+                                            />
                                             <button
                                               type="button"
-                                              onClick={() => startEditAvulsoName(apt)}
-                                              className="text-white/80 hover:text-white text-xs"
-                                              title="Editar nome do cliente avulso"
+                                              onClick={() => saveAvulsoName(apt)}
+                                              className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-500"
+                                              title="Salvar"
                                             >
-                                              ✏️
+                                              ✓
                                             </button>
-                                          )}
-                                          {apt.is_premium && !apt.is_subscriber && <Crown className="w-4 h-4 text-gray-300" />}
-                                          {apt.is_loyalty_reward && (
-                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold border border-violet-300 bg-violet-900/40 text-violet-100">
-                                              FIDELIDADE
-                                            </span>
-                                          )}
-                                          {apt.is_squeeze && <span className="text-gray-300 text-xs">🟣</span>}
-                                        </div>
-                                        {isAvulsoLike(apt) && !apt.is_squeeze && (
-                                          <>
-                                            {editingAvulsoNameId === apt.id ? (
-                                              <div className="mb-2 flex items-center gap-2">
-                                                <input
-                                                  type="text"
-                                                  value={editingAvulsoNameValue}
-                                                  onChange={(e) => setEditingAvulsoNameValue(e.target.value)}
-                                                  placeholder="Nome do cliente (ex.: Ricardo)"
-                                                  className="flex-1 px-2 py-1 text-sm bg-white/20 border border-white/30 rounded text-white placeholder-gray-300"
-                                                  autoFocus
-                                                  onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') saveAvulsoName(apt);
-                                                    if (e.key === 'Escape') cancelEditAvulsoName();
-                                                  }}
-                                                />
-                                                <button
-                                                  type="button"
-                                                  onClick={() => saveAvulsoName(apt)}
-                                                  className="text-white text-xs px-2 py-1 bg-gray-700 rounded hover:bg-gray-600"
-                                                  title="Salvar"
-                                                >
-                                                  ✓
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  onClick={cancelEditAvulsoName}
-                                                  className="text-white text-xs px-2 py-1 bg-gray-800 rounded hover:bg-gray-700"
-                                                  title="Cancelar"
-                                                >
-                                                  ✕
-                                                </button>
-                                              </div>
-                                            ) : (
-                                              <div className="text-white/80 text-[11px] mb-2">
-                                                Dica: clique no ✏️ para trocar “CLIENTE AVULSO” pelo nome do cliente.
-                                              </div>
-                                            )}
-                                          </>
+                                            <button
+                                              type="button"
+                                              onClick={cancelEditAvulsoName}
+                                              className="rounded-xl bg-white/10 px-3 py-2 text-sm font-bold text-white hover:bg-white/20"
+                                              title="Cancelar"
+                                            >
+                                              ✕
+                                            </button>
+                                          </div>
                                         )}
                                         {apt.is_squeeze && (
-                                          <div className="mb-2">
+                                          <div className="mt-3">
                                             <input
                                               type="text"
                                               value={getSqueezeInputValue(apt)}
@@ -8065,574 +8181,605 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 }
                                               }}
                                               placeholder="Nome do cliente (opcional)"
-                                              className="w-full px-2 py-1 text-sm bg-white/20 border border-white/30 rounded text-white placeholder-gray-400"
+                                              className="w-full rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-amber-400"
                                             />
                                           </div>
                                         )}
-                                        {apt.client_whatsapp && (
-                                          <div className="text-white/90 text-xs flex items-center gap-2">
-                                            {/* Número como TEXTO (não clicável) — evita abrir WhatsApp sem querer ao tentar fechar a comanda */}
-                                            <span className="flex items-center gap-1">
-                                              <Phone className="w-3 h-3" />
-                                              {maskClientPhones ? '********' : apt.client_whatsapp}
-                                            </span>
-                                            {!maskClientPhones && (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                const phoneNumber = `55${String(apt.client_whatsapp || '').replace(/\D/g, '')}`;
-                                                openWhatsAppWithBusinessPriority(phoneNumber, '');
-                                              }}
-                                              className="shrink-0 inline-flex items-center gap-1 rounded-md bg-emerald-600/80 hover:bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5 transition-colors"
-                                              title="Abrir conversa no WhatsApp"
-                                            >
-                                              💬 WhatsApp
-                                            </button>
+
+                                        {/* Cliente Info + Data/Hora */}
+                                        <div className="mt-3 flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3 sm:flex-row sm:items-start">
+                                          <div className="min-w-0 flex-1 space-y-1.5 text-xs text-white/85">
+                                            {isAvulsoLike(apt) && !apt.is_squeeze && editingAvulsoNameId !== apt.id && (
+                                              <div className="flex items-start gap-2">
+                                                <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                                                <span>Dica: clique no <Pencil className="inline h-3 w-3 text-amber-300" /> para trocar “CLIENTE AVULSO” pelo nome do cliente.</span>
+                                              </div>
                                             )}
-                                          </div>
-                                        )}
-                                        <div className="text-white/80 text-xs mt-1">
-                                          CPF: {displayedCpf ? formatCpfDisplay(displayedCpf) : 'Não informado'}
-                                        </div>
-                                        <div className="text-white/80 text-xs mt-1">
-                                          Endereço: {displayedStreet || 'Não informado'}
-                                        </div>
-                                        {editingContactAppointmentId === apt.id ? (
-                                          <div className="mt-2 space-y-2">
-                                            <input
-                                              type="text"
-                                              value={editingContactCpf}
-                                              onChange={(e) => setEditingContactCpf(e.target.value)}
-                                              placeholder="CPF (opcional)"
-                                              className="w-full px-2 py-1 text-xs bg-white border border-gray-300 rounded text-gray-900 placeholder-gray-500"
-                                            />
-                                            <input
-                                              type="text"
-                                              value={editingContactStreet}
-                                              onChange={(e) => setEditingContactStreet(e.target.value)}
-                                              placeholder="Rua / Endereço (opcional)"
-                                              className="w-full px-2 py-1 text-xs bg-white border border-gray-300 rounded text-gray-900 placeholder-gray-500"
-                                            />
-                                            <div className="flex items-center gap-2">
-                                              <button
-                                                type="button"
-                                                disabled={isSavingAppointmentContact}
-                                                onClick={() => void handleSaveAppointmentContact(apt)}
-                                                className="text-white text-xs px-2 py-1 bg-green-600 rounded hover:bg-green-500 disabled:opacity-60"
-                                              >
-                                                Salvar contato
-                                              </button>
-                                              <button
-                                                type="button"
-                                                disabled={isSavingAppointmentContact}
-                                                onClick={() => {
-                                                  setEditingContactAppointmentId(null);
-                                                  setEditingContactCpf('');
-                                                  setEditingContactStreet('');
-                                                }}
-                                                className="text-white text-xs px-2 py-1 bg-gray-700 rounded hover:bg-gray-600"
-                                              >
-                                                Cancelar
-                                              </button>
-                                            </div>
-                                          </div>
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            onClick={() => handleStartEditAppointmentContact(apt)}
-                                            className="text-white/90 text-[11px] underline mt-1"
-                                          >
-                                            {displayedCpf || displayedStreet ? 'Editar CPF/endereço' : 'Adicionar CPF/endereço'}
-                                          </button>
-                                        )}
-                                      </div>
-
-                                      {/* Serviço e Data */}
-                                      <div className="mb-3 text-xs text-white/90 space-y-1">
-                                        <div className="flex items-center gap-1">
-                                          <Calendar className="w-3 h-3" />
-                                          {formatDateSafe(apt.appointment_date)}
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                          <Clock className="w-3 h-3" />
-                                          {apt.appointment_time} • {formatDuration(getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos))}
-                                        </div>
-                                      </div>
-
-                                      {/* Valores */}
-                                      <div className="bg-white/10 rounded p-2 mb-3">
-                                        <div className="text-xs text-white/80 mb-1">Valor base:</div>
-                                        <div className="flex items-center gap-2">
-                                          {editingAppointmentValue === apt.id ? (
-                                            <>
-                                              <input
-                                                type="text"
-                                                value={editingValue}
-                                                onChange={(e) => setEditingValue(e.target.value)}
-                                                className="px-2 py-1 text-xs bg-white/20 border border-white/30 rounded text-white w-20"
-                                                placeholder="0,00"
-                                              />
-                                              <button
-                                                onClick={() => handleSaveAppointmentValue(apt.id)}
-                                                className="text-white hover:text-gray-200 text-xs px-2 py-1 bg-gray-700 rounded"
-                                                title="Salvar"
-                                              >
-                                                ✓
-                                              </button>
-                                              <button
-                                                onClick={handleCancelEditValue}
-                                                className="text-white hover:text-gray-200 text-xs px-2 py-1 bg-gray-800 rounded"
-                                                title="Cancelar"
-                                              >
-                                                ✕
-                                              </button>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <div className="text-white font-bold">{formatCurrency(apt.price)}</div>
-                                              {!apt.is_subscriber && (
+                                            {apt.client_whatsapp && (
+                                              <div className="flex items-center gap-2">
+                                                {/* Número como TEXTO (não clicável) — evita abrir WhatsApp sem querer ao tentar fechar a comanda */}
+                                                <Phone className="h-4 w-4 shrink-0 text-amber-300" />
+                                                <span>{maskClientPhones ? '********' : apt.client_whatsapp}</span>
+                                                {!maskClientPhones && (
                                                 <button
-                                                  onClick={() => handleEditAppointmentValue(apt.id, apt.price || 0)}
-                                                  className="text-gray-300 hover:text-white text-xs"
-                                                  title="Editar valor"
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    const phoneNumber = `55${String(apt.client_whatsapp || '').replace(/\D/g, '')}`;
+                                                    openWhatsAppWithBusinessPriority(phoneNumber, '');
+                                                  }}
+                                                  className="shrink-0 inline-flex items-center gap-1 rounded-md bg-emerald-600/80 hover:bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5 transition-colors"
+                                                  title="Abrir conversa no WhatsApp"
                                                 >
-                                                  ✏️
+                                                  💬 WhatsApp
                                                 </button>
-                                              )}
-                                            </>
-                                          )}
-                                        </div>
-
-                                        {apt.additional_products && apt.additional_products.length > 0 && (
-                                          <div className="mt-2">
-                                            <div className="text-xs text-white/80 mb-1">Serviços Extras:</div>
-                                            <div className="flex flex-wrap gap-1">
-                                              {apt.additional_products.map((prod, idx) => (
-                                                <div key={idx} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white/10 text-white rounded group">
-                                                  <span>
-                                                    {prod.name}: {formatCurrency(prod.price)}
-                                                    {Number(prod.duration) > 0 ? ` • +${prod.duration}min` : ''}
-                                                  </span>
-                                                  <button
-                                                    onClick={() => handleRemoveAdditionalProduct(apt.id, idx)}
-                                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300"
-                                                    title="Remover"
-                                                  >
-                                                    <X className="h-3 w-3" />
-                                                  </button>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          </div>
-                                        )}
-
-                                        {apt.sold_products && apt.sold_products.length > 0 && (
-                                          <div className="mt-2">
-                                            <div className="text-xs text-white/80 mb-1">Produtos:</div>
-                                            <div className="flex flex-wrap gap-1">
-                                              {apt.sold_products.map((prod) => (
-                                                <div key={prod.id} className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-gray-800/50 text-white rounded border border-gray-600 group">
-                                                  <Package className="h-3 w-3" />
-                                                  <span>{prod.name} ({prod.quantity}x): {formatCurrency(prod.total)}</span>
-                                                  <button
-                                                    onClick={() => handleRemoveProductFromAppointment(apt.id, prod.product_id, prod.name)}
-                                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-300 hover:text-white"
-                                                    title="Remover produto"
-                                                  >
-                                                    <X className="h-3 w-3" />
-                                                  </button>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          </div>
-                                        )}
-
-                                        <div className="mt-2 pt-2 border-t border-white/20">
-                                          <div className="space-y-1">
-                                            <div className="text-sm font-bold text-white">
-                                              Cobrar do cliente: {formatCurrency(calculateTotalPrice(apt))}
-                                            </div>
-                                            <div className="text-xs text-white/80">
-                                              Valor do serviço (financeiro): {formatCurrency(calculateServiceTotal(apt))}
-                                            </div>
-                                            {getProfessionalTipAmount(apt) > 0 && (
-                                              <div className="text-xs text-amber-200 font-semibold mt-0.5">
-                                                Gorjeta (100% profissional): {formatCurrency(getProfessionalTipAmount(apt))}
+                                                )}
                                               </div>
                                             )}
+                                            <div className="flex items-center gap-2">
+                                              <CreditCard className="h-4 w-4 shrink-0 text-amber-300" />
+                                              <span>CPF: {displayedCpf ? formatCpfDisplay(displayedCpf) : 'Não informado'}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              <MapPin className="h-4 w-4 shrink-0 text-amber-300" />
+                                              <span className="truncate">Endereço: {displayedStreet || 'Não informado'}</span>
+                                            </div>
+                                            {editingContactAppointmentId === apt.id ? (
+                                              <div className="mt-2 space-y-2">
+                                                <input
+                                                  type="text"
+                                                  value={editingContactCpf}
+                                                  onChange={(e) => setEditingContactCpf(e.target.value)}
+                                                  placeholder="CPF (opcional)"
+                                                  className="w-full rounded-lg border border-white/20 bg-white/10 px-2 py-1.5 text-xs text-white placeholder-gray-400 focus:outline-none focus:border-amber-400"
+                                                />
+                                                <input
+                                                  type="text"
+                                                  value={editingContactStreet}
+                                                  onChange={(e) => setEditingContactStreet(e.target.value)}
+                                                  placeholder="Rua / Endereço (opcional)"
+                                                  className="w-full rounded-lg border border-white/20 bg-white/10 px-2 py-1.5 text-xs text-white placeholder-gray-400 focus:outline-none focus:border-amber-400"
+                                                />
+                                                <div className="flex items-center gap-2">
+                                                  <button
+                                                    type="button"
+                                                    disabled={isSavingAppointmentContact}
+                                                    onClick={() => void handleSaveAppointmentContact(apt)}
+                                                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-60"
+                                                  >
+                                                    Salvar contato
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    disabled={isSavingAppointmentContact}
+                                                    onClick={() => {
+                                                      setEditingContactAppointmentId(null);
+                                                      setEditingContactCpf('');
+                                                      setEditingContactStreet('');
+                                                    }}
+                                                    className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/20"
+                                                  >
+                                                    Cancelar
+                                                  </button>
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleStartEditAppointmentContact(apt)}
+                                                className="inline-flex items-center gap-2 text-[12px] font-semibold text-sky-300 underline underline-offset-2 hover:text-sky-200"
+                                              >
+                                                <PlusCircle className="h-4 w-4 shrink-0 text-amber-300" />
+                                                {displayedCpf || displayedStreet ? 'Editar CPF/endereço' : 'Adicionar CPF/endereço'}
+                                              </button>
+                                            )}
+                                          </div>
+
+                                          {/* Serviço e Data */}
+                                          <div className="shrink-0 space-y-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-white sm:min-w-[180px]">
+                                            <div className="flex items-center gap-2">
+                                              <Calendar className="h-4 w-4 shrink-0 text-white/70" />
+                                              <span className="font-semibold">{formatDateSafe(apt.appointment_date)}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              <Clock className="h-4 w-4 shrink-0 text-white/70" />
+                                              <span className="font-semibold">{apt.appointment_time}</span>
+                                              <span className="text-white/50">•</span>
+                                              <span className="font-semibold underline decoration-white/40 underline-offset-2">{formatDuration(getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos))}</span>
+                                            </div>
                                           </div>
                                         </div>
-                                      </div>
 
-                                      {/* Forma de Pagamento */}
-                                      {apt.status !== 'cancelled' && (
-                                        <div className="mb-3">
-                                          <select
-                                            value={apt.payment_method || 'pendente'}
-                                            onChange={(e) => {
-                                              if (e.target.value === 'multi') setModalAptId(null);
-                                              handlePaymentMethodChange(apt, e.target.value);
-                                            }}
-                                            className="w-full bg-white/20 text-white text-xs rounded px-2 py-1 border border-white/30"
-                                          >
-                                            <option value="pendente" className="bg-gray-800">Forma de Pagamento</option>
-                                            <option value="multi" className="bg-gray-800">Várias formas de PG</option>
-                                            <option value="pix" className="bg-gray-800">PIX</option>
-                                            <option value="credito" className="bg-gray-800">Cartão de Crédito</option>
-                                            <option value="debito" className="bg-gray-800">Cartão de Débito</option>
-                                            <option value="dinheiro" className="bg-gray-800">Dinheiro</option>
-                                            <option value="pagar_local" className="bg-gray-800">Pagar no Local</option>
-                                            {getCustomPaymentMethods().map((custom) => (
-                                              <option key={custom} value={custom} className="bg-gray-800">
-                                                ⭐ {custom}
-                                              </option>
-                                            ))}
-                                          </select>
-
-                                          {(apt.payment_method === 'credito' || apt.payment_method === 'debito') && (
-                                            <select
-                                              value={apt.card_brand || 'bandeira'}
-                                              onChange={(e) => handleCardBrandChange(apt.id, e.target.value)}
-                                              className="w-full mt-1 bg-white/20 text-white text-xs rounded px-2 py-1 border border-white/30"
-                                            >
-                                              <option value="bandeira" className="bg-gray-800">Bandeira</option>
-                                              <option value="visa" className="bg-gray-800">Visa</option>
-                                              <option value="mastercard" className="bg-gray-800">Mastercard</option>
-                                              <option value="elo" className="bg-gray-800">Elo</option>
-                                            </select>
-                                          )}
-
-                                          {parsePaymentSplitDetails(apt).length > 0 && (
-                                            <div className="mt-1 rounded border border-white/20 bg-black/25 p-2">
-                                              <div className="text-[10px] text-white/70 mb-1">Histórico formas de PG:</div>
-                                              <div className="space-y-0.5">
-                                                {parsePaymentSplitDetails(apt).map((row, idx) => (
-                                                  <div key={`${apt.id}-split-${idx}`} className="text-[10px] text-white/90 flex items-center justify-between">
-                                                    <span>
-                                                      {row.method}
-                                                      {(row.method === 'credito' || row.method === 'debito') && row.card_brand
-                                                        ? ` (${row.card_brand})`
-                                                        : ''}
-                                                    </span>
-                                                    <strong>{formatCurrency(row.amount)}</strong>
-                                                  </div>
-                                                ))}
-                                              </div>
-                                            </div>
-                                          )}
-                                        </div>
-                                      )}
-
-                                      {/* Observações */}
-                                      {apt.observation && (
-                                        <div className="bg-gray-800/50 rounded p-2 mb-2 border border-gray-600">
-                                          <div className="text-xs text-white/80 mb-1">Obs. Cliente:</div>
-                                          <div className="text-xs text-white">{apt.observation}</div>
-                                        </div>
-                                      )}
-
-                                      {apt.establishment_observation && (
-                                        <div className="bg-gray-700/50 rounded p-2 mb-2 border border-gray-500">
-                                          <div className="text-xs text-white/80 mb-1">Minhas Obs.:</div>
-                                          <div className="text-xs text-white">{apt.establishment_observation}</div>
-                                        </div>
-                                      )}
-
-                                      {/* Botões de Ação */}
-                                      {apt.status !== 'cancelled' ? (
-                                        <div className="space-y-2.5">
-                                          {/* Botões principais */}
-                                          <div className="grid grid-cols-2 gap-2">
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                void logAppointmentCardActionClick(apt, 'produto_v2', 'Clique em Adicionar Produto.');
-                                                setModalAptId(null);
-                                                if (onOpenProductV2Modal) onOpenProductV2Modal(apt.id);
-                                              }}
-                                              data-tutorial-id="appointments-detalhes-produto"
-                                              className="px-2 py-3 text-sm bg-black text-white rounded hover:bg-gray-800 flex items-center justify-center gap-1"
-                                            >
-                                              <Package className="w-3 h-3" />
-                                              Adicionar Produto
-                                            </button>
-
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                void logAppointmentCardActionClick(apt, 'servico_extra', 'Clique em Serviço Extra.');
-                                                setModalAptId(null);
-                                                if (onOpenAdditionalProductModal) onOpenAdditionalProductModal(apt.id);
-                                              }}
-                                              data-tutorial-id="appointments-detalhes-servico-extra"
-                                              className="px-2 py-3 text-sm bg-white/20 text-white rounded hover:bg-white/30 flex items-center justify-center gap-1"
-                                            >
-                                              <Plus className="w-3 h-3" />
-                                              Serviço Extra
-                                            </button>
-
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                void logAppointmentCardActionClick(apt, 'status_completed_click', 'Clique em Concluído.');
-                                                handleUpdateAppointmentStatus(apt.id, 'completed');
-                                              }}
-                                              data-tutorial-id="appointments-detalhes-concluido"
-                                              className={`px-2 py-3 text-sm text-white rounded transition-colors ${apt.is_squeeze ? 'bg-gray-700 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'
-                                                }`}
-                                            >
-                                              {apt.is_squeeze ? (
+                                        {/* Valores */}
+                                        <div className="mt-3 flex gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                                          <span className="flex h-12 w-12 sm:h-14 sm:w-14 shrink-0 items-center justify-center rounded-full border-2 border-white/15 bg-white/5 text-white">
+                                            <DollarSign className="h-6 w-6" />
+                                          </span>
+                                          <div className="min-w-0 flex-1">
+                                            <div className="text-xs text-white/60">Valor base:</div>
+                                            <div className="mt-0.5 flex items-center gap-2">
+                                              {editingAppointmentValue === apt.id ? (
                                                 <>
-                                                  {apt.status === 'completed' ? '✅ ' : ''}
-                                                  CONCLUÍDO
+                                                  <input
+                                                    type="text"
+                                                    value={editingValue}
+                                                    onChange={(e) => setEditingValue(e.target.value)}
+                                                    className="w-28 rounded-lg border border-white/20 bg-white/10 px-2 py-1.5 text-base font-bold text-white focus:outline-none focus:border-amber-400"
+                                                    placeholder="0,00"
+                                                  />
+                                                  <button
+                                                    onClick={() => handleSaveAppointmentValue(apt.id)}
+                                                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-emerald-500"
+                                                    title="Salvar"
+                                                  >
+                                                    ✓
+                                                  </button>
+                                                  <button
+                                                    onClick={handleCancelEditValue}
+                                                    className="rounded-lg bg-white/10 px-3 py-1.5 text-sm font-bold text-white hover:bg-white/20"
+                                                    title="Cancelar"
+                                                  >
+                                                    ✕
+                                                  </button>
                                                 </>
                                               ) : (
-                                                '✅ CONCLUÍDO'
+                                                <>
+                                                  <div className="text-2xl sm:text-3xl font-black text-white leading-none">{formatCurrency(apt.price)}</div>
+                                                  {!apt.is_subscriber && (
+                                                    <button
+                                                      onClick={() => handleEditAppointmentValue(apt.id, apt.price || 0)}
+                                                      className="text-amber-300 hover:text-amber-200"
+                                                      title="Editar valor"
+                                                    >
+                                                      <Pencil className="h-4 w-4" />
+                                                    </button>
+                                                  )}
+                                                </>
                                               )}
-                                            </button>
+                                            </div>
 
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                void logAppointmentCardActionClick(apt, 'status_pending_click', 'Clique em Pendente.');
-                                                handleUpdateAppointmentStatus(apt.id, 'pending');
-                                              }}
-                                              data-tutorial-id="appointments-detalhes-pendente"
-                                              className="px-2 py-3 text-sm bg-yellow-600 text-white rounded hover:bg-yellow-700"
-                                            >
-                                              ⏳ PENDENTE
-                                            </button>
-
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                void logAppointmentCardActionClick(apt, 'transferir_click', 'Clique em Transferir.');
-                                                setModalAptId(null);
-                                                if (onOpenTransferModal) onOpenTransferModal(apt);
-                                              }}
-                                              data-tutorial-id="appointments-detalhes-transferir"
-                                              className="px-2 py-3 text-sm bg-black text-white rounded hover:bg-gray-800"
-                                            >
-                                              🔄 TRANSFERIR
-                                            </button>
-
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                void logAppointmentCardActionClick(apt, 'terminei_antes_click', 'Clique em Terminei Antes.');
-                                                setModalAptId(null);
-                                                if (onOpenFinishEarlyModal) onOpenFinishEarlyModal(apt);
-                                              }}
-                                              data-tutorial-id="appointments-detalhes-terminei-antes"
-                                              className="px-2 py-3 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-                                              title="Terminei antes do tempo planejado"
-                                            >
-                                              ⏱️ Terminei Antes
-                                            </button>
-
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                void logAppointmentCardActionClick(apt, 'cancelar_click', 'Clique em Cancelar.');
-                                                setModalAptId(null);
-                                                if (onCancelAppointment) {
-                                                  onCancelAppointment(apt.id);
-                                                } else {
-                                                  handleUpdateAppointmentStatus(apt.id, 'cancelled');
-                                                }
-                                              }}
-                                              data-tutorial-id="appointments-detalhes-cancelar"
-                                              className="px-2 py-3 text-sm bg-red-700 text-white rounded hover:bg-red-800"
-                                            >
-                                              ❌ CANCELAR
-                                            </button>
-
-                                            {/* Imprevisto abre o WhatsApp do cliente: some quando o número está oculto para profissionais */}
-                                            {!maskClientPhones && (
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                const establishmentCode = establishment?.code || 'codigo';
-                                                const message = `Desculpa, houve um imprevisto, não irei conseguir atender você. Acesse agendeifacil.com/booking/${establishmentCode} para agendar novamente.`;
-                                                let phoneNumber = (apt.client_whatsapp || '').replace(/\D/g, '');
-                                                const countryCodes = [
-                                                  { code: '351', minLength: 12 },
-                                                  { code: '244', minLength: 12 },
-                                                  { code: '54', minLength: 12 },
-                                                  { code: '56', minLength: 11 },
-                                                  { code: '55', minLength: 12 },
-                                                  { code: '34', minLength: 11 },
-                                                  { code: '1', minLength: 11 }
-                                                ];
-                                                const hasCountryCode = countryCodes.some(({ code, minLength }) =>
-                                                  phoneNumber.startsWith(code) && phoneNumber.length >= minLength
-                                                );
-                                                if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
-                                                  phoneNumber = '55' + phoneNumber;
-                                                }
-                                                void logAppointmentCardActionClick(apt, 'imprevisto_click', 'Clique em Imprevisto (envio WhatsApp).', {
-                                                  whatsapp_target: phoneNumber,
-                                                });
-                                                openWhatsAppWithBusinessPriority(phoneNumber, message);
-                                              }}
-                                              data-tutorial-id="appointments-detalhes-imprevisto"
-                                              className="px-2 py-3 text-sm bg-gray-800 text-white rounded hover:bg-gray-700"
-                                              title="Enviar mensagem de imprevisto"
-                                            >
-                                              IMPREVISTO
-                                            </button>
+                                            {apt.additional_products && apt.additional_products.length > 0 && (
+                                              <div className="mt-2">
+                                                <div className="text-xs text-white/60 mb-1">Serviços Extras:</div>
+                                                <div className="flex flex-wrap gap-1">
+                                                  {apt.additional_products.map((prod, idx) => (
+                                                    <div key={idx} className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/10 px-2 py-1 text-xs text-white group">
+                                                      <span>
+                                                        {prod.name}: {formatCurrency(prod.price)}
+                                                        {Number(prod.duration) > 0 ? ` • +${prod.duration}min` : ''}
+                                                      </span>
+                                                      <button
+                                                        onClick={() => handleRemoveAdditionalProduct(apt.id, idx)}
+                                                        className="opacity-60 group-hover:opacity-100 transition-opacity text-red-300 hover:text-red-200"
+                                                        title="Remover"
+                                                      >
+                                                        <X className="h-3 w-3" />
+                                                      </button>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              </div>
                                             )}
 
-                                            {onGenerateNF && (
+                                            {apt.sold_products && apt.sold_products.length > 0 && (
+                                              <div className="mt-2">
+                                                <div className="text-xs text-white/60 mb-1">Produtos:</div>
+                                                <div className="flex flex-wrap gap-1">
+                                                  {apt.sold_products.map((prod) => (
+                                                    <div key={prod.id} className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/10 px-2 py-1 text-xs text-white group">
+                                                      <Package className="h-3 w-3" />
+                                                      <span>{prod.name} ({prod.quantity}x): {formatCurrency(prod.total)}</span>
+                                                      <button
+                                                        onClick={() => handleRemoveProductFromAppointment(apt.id, prod.product_id, prod.name)}
+                                                        className="opacity-60 group-hover:opacity-100 transition-opacity text-red-300 hover:text-red-200"
+                                                        title="Remover produto"
+                                                      >
+                                                        <X className="h-3 w-3" />
+                                                      </button>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            )}
+
+                                            <div className="mt-3 border-t border-white/10 pt-2.5 space-y-1">
+                                              <div className="text-sm font-bold text-white">
+                                                Cobrar do cliente: {formatCurrency(calculateTotalPrice(apt))}
+                                              </div>
+                                              <div className="text-xs text-white/65">
+                                                Valor do serviço (financeiro): {formatCurrency(calculateServiceTotal(apt))}
+                                              </div>
+                                              {getProfessionalTipAmount(apt) > 0 && (
+                                                <div className="text-xs text-amber-200 font-semibold">
+                                                  Gorjeta (100% profissional): {formatCurrency(getProfessionalTipAmount(apt))}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {/* Forma de Pagamento */}
+                                        {apt.status !== 'cancelled' && (
+                                          <div className="mt-3 space-y-2">
+                                            <div className="relative">
+                                              <Wallet className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/70" />
+                                              <select
+                                                value={apt.payment_method || 'pendente'}
+                                                onChange={(e) => {
+                                                  if (e.target.value === 'multi') setModalAptId(null);
+                                                  handlePaymentMethodChange(apt, e.target.value);
+                                                }}
+                                                className="w-full appearance-none rounded-xl border border-white/15 bg-[#161b22] py-3 pl-10 pr-10 text-sm font-semibold text-white focus:outline-none focus:border-amber-400"
+                                              >
+                                                <option value="pendente" className="bg-gray-800">Forma de Pagamento</option>
+                                                <option value="multi" className="bg-gray-800">Várias formas de PG</option>
+                                                <option value="pix" className="bg-gray-800">PIX</option>
+                                                <option value="credito" className="bg-gray-800">Cartão de Crédito</option>
+                                                <option value="debito" className="bg-gray-800">Cartão de Débito</option>
+                                                <option value="dinheiro" className="bg-gray-800">Dinheiro</option>
+                                                <option value="pagar_local" className="bg-gray-800">Pagar no Local</option>
+                                                {getCustomPaymentMethods().map((custom) => (
+                                                  <option key={custom} value={custom} className="bg-gray-800">
+                                                    ⭐ {custom}
+                                                  </option>
+                                                ))}
+                                              </select>
+                                              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/70" />
+                                            </div>
+
+                                            {(apt.payment_method === 'credito' || apt.payment_method === 'debito') && (
+                                              <div className="relative">
+                                                <CreditCard className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/70" />
+                                                <select
+                                                  value={apt.card_brand || 'bandeira'}
+                                                  onChange={(e) => handleCardBrandChange(apt.id, e.target.value)}
+                                                  className="w-full appearance-none rounded-xl border border-white/15 bg-[#161b22] py-3 pl-10 pr-10 text-sm font-semibold text-white focus:outline-none focus:border-amber-400"
+                                                >
+                                                  <option value="bandeira" className="bg-gray-800">Bandeira</option>
+                                                  <option value="visa" className="bg-gray-800">Visa</option>
+                                                  <option value="mastercard" className="bg-gray-800">Mastercard</option>
+                                                  <option value="elo" className="bg-gray-800">Elo</option>
+                                                </select>
+                                                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/70" />
+                                              </div>
+                                            )}
+
+                                            {parsePaymentSplitDetails(apt).length > 0 && (
+                                              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-2.5">
+                                                <div className="text-[10px] text-white/60 mb-1">Histórico formas de PG:</div>
+                                                <div className="space-y-0.5">
+                                                  {parsePaymentSplitDetails(apt).map((row, idx) => (
+                                                    <div key={`${apt.id}-split-${idx}`} className="text-[11px] text-white/90 flex items-center justify-between">
+                                                      <span>
+                                                        {row.method}
+                                                        {(row.method === 'credito' || row.method === 'debito') && row.card_brand
+                                                          ? ` (${row.card_brand})`
+                                                          : ''}
+                                                      </span>
+                                                      <strong>{formatCurrency(row.amount)}</strong>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        {/* Observações */}
+                                        {apt.observation && (
+                                          <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                                            <div className="text-xs text-white/60 mb-1">Obs. Cliente:</div>
+                                            <div className="text-sm text-white">{apt.observation}</div>
+                                          </div>
+                                        )}
+
+                                        {apt.establishment_observation && (
+                                          <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-500/10 p-3">
+                                            <div className="text-xs text-amber-200/80 mb-1">Minhas Obs.:</div>
+                                            <div className="text-sm text-white">{apt.establishment_observation}</div>
+                                          </div>
+                                        )}
+
+                                        {/* Botões de Ação */}
+                                        {apt.status !== 'cancelled' ? (
+                                          <div className="mt-3 space-y-2">
+                                            {/* Botões principais */}
+                                            <div className="grid grid-cols-2 gap-2">
                                               <button
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  void logAppointmentCardActionClick(apt, 'baixar_nf_click', 'Clique em Baixar NF.');
+                                                  void logAppointmentCardActionClick(apt, 'produto_v2', 'Clique em Adicionar Produto.');
                                                   setModalAptId(null);
-                                                  onGenerateNF({
-                                                    ...apt,
-                                                    client_cpf: displayedCpf || apt.client_cpf,
-                                                    client_street: displayedStreet || (apt as any).client_street,
-                                                  });
+                                                  if (onOpenProductV2Modal) onOpenProductV2Modal(apt.id);
                                                 }}
-                                                data-tutorial-id="appointments-detalhes-baixar-nf"
-                                                className="col-span-2 px-2 py-3 text-sm bg-emerald-700 text-white rounded hover:bg-emerald-800 font-extrabold"
-                                                title="Baixar nota fiscal do atendimento"
+                                                data-tutorial-id="appointments-detalhes-produto"
+                                                className={modalActionButtonClass + ' border border-white/15 bg-[#161b22] hover:bg-[#1f2630]'}
                                               >
-                                                🧾 BAIXAR NF
+                                                <Package className="h-4 w-4 shrink-0" />
+                                                Adicionar Produto
                                               </button>
-                                            )}
 
-                                            <div
-                                              className={
-                                                onClientNoShow ? 'col-span-2 grid grid-cols-2 gap-1' : 'col-span-2'
-                                              }
-                                            >
-                                              {onClientNoShow && (
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  void logAppointmentCardActionClick(apt, 'servico_extra', 'Clique em Serviço Extra.');
+                                                  setModalAptId(null);
+                                                  if (onOpenAdditionalProductModal) onOpenAdditionalProductModal(apt.id);
+                                                }}
+                                                data-tutorial-id="appointments-detalhes-servico-extra"
+                                                className={modalActionButtonClass + ' border border-white/15 bg-[#161b22] hover:bg-[#1f2630]'}
+                                              >
+                                                <Plus className="h-4 w-4 shrink-0" />
+                                                Serviço Extra
+                                              </button>
+
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  void logAppointmentCardActionClick(apt, 'status_completed_click', 'Clique em Concluído.');
+                                                  handleUpdateAppointmentStatus(apt.id, 'completed');
+                                                }}
+                                                data-tutorial-id="appointments-detalhes-concluido"
+                                                className={`${modalActionButtonClass} ${apt.is_squeeze ? 'bg-gray-700 hover:bg-gray-600' : 'bg-emerald-600 hover:bg-emerald-500'}`}
+                                              >
+                                                <CheckSquare className="h-4 w-4 shrink-0" />
+                                                {apt.is_squeeze && apt.status === 'completed' ? '✅ CONCLUÍDO' : 'CONCLUÍDO'}
+                                              </button>
+
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  void logAppointmentCardActionClick(apt, 'status_pending_click', 'Clique em Pendente.');
+                                                  handleUpdateAppointmentStatus(apt.id, 'pending');
+                                                }}
+                                                data-tutorial-id="appointments-detalhes-pendente"
+                                                className={modalActionButtonClass + ' bg-amber-600 hover:bg-amber-500'}
+                                              >
+                                                <Hourglass className="h-4 w-4 shrink-0" />
+                                                PENDENTE
+                                              </button>
+
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  void logAppointmentCardActionClick(apt, 'transferir_click', 'Clique em Transferir.');
+                                                  setModalAptId(null);
+                                                  if (onOpenTransferModal) onOpenTransferModal(apt);
+                                                }}
+                                                data-tutorial-id="appointments-detalhes-transferir"
+                                                className={modalActionButtonClass + ' bg-[#0f2a52] hover:bg-[#143a6e] border border-blue-400/20'}
+                                              >
+                                                <ArrowRightLeft className="h-4 w-4 shrink-0 text-sky-300" />
+                                                TRANSFERIR
+                                              </button>
+
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  void logAppointmentCardActionClick(apt, 'terminei_antes_click', 'Clique em Terminei Antes.');
+                                                  setModalAptId(null);
+                                                  if (onOpenFinishEarlyModal) onOpenFinishEarlyModal(apt);
+                                                }}
+                                                data-tutorial-id="appointments-detalhes-terminei-antes"
+                                                className={modalActionButtonClass + ' bg-blue-600 hover:bg-blue-500'}
+                                                title="Terminei antes do tempo planejado"
+                                              >
+                                                <Timer className="h-4 w-4 shrink-0" />
+                                                Terminei Antes
+                                              </button>
+
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  void logAppointmentCardActionClick(apt, 'cancelar_click', 'Clique em Cancelar.');
+                                                  setModalAptId(null);
+                                                  if (onCancelAppointment) {
+                                                    onCancelAppointment(apt.id);
+                                                  } else {
+                                                    handleUpdateAppointmentStatus(apt.id, 'cancelled');
+                                                  }
+                                                }}
+                                                data-tutorial-id="appointments-detalhes-cancelar"
+                                                className={modalActionButtonClass + ' bg-red-600 hover:bg-red-500'}
+                                              >
+                                                <X className="h-4 w-4 shrink-0" strokeWidth={3} />
+                                                CANCELAR
+                                              </button>
+
+                                              {/* Imprevisto abre o WhatsApp do cliente: some quando o número está oculto para profissionais */}
+                                              {!maskClientPhones && (
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  const establishmentCode = establishment?.code || 'codigo';
+                                                  const message = `Desculpa, houve um imprevisto, não irei conseguir atender você. Acesse agendeifacil.com/booking/${establishmentCode} para agendar novamente.`;
+                                                  let phoneNumber = (apt.client_whatsapp || '').replace(/\D/g, '');
+                                                  const countryCodes = [
+                                                    { code: '351', minLength: 12 },
+                                                    { code: '244', minLength: 12 },
+                                                    { code: '54', minLength: 12 },
+                                                    { code: '56', minLength: 11 },
+                                                    { code: '55', minLength: 12 },
+                                                    { code: '34', minLength: 11 },
+                                                    { code: '1', minLength: 11 }
+                                                  ];
+                                                  const hasCountryCode = countryCodes.some(({ code, minLength }) =>
+                                                    phoneNumber.startsWith(code) && phoneNumber.length >= minLength
+                                                  );
+                                                  if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) {
+                                                    phoneNumber = '55' + phoneNumber;
+                                                  }
+                                                  void logAppointmentCardActionClick(apt, 'imprevisto_click', 'Clique em Imprevisto (envio WhatsApp).', {
+                                                    whatsapp_target: phoneNumber,
+                                                  });
+                                                  openWhatsAppWithBusinessPriority(phoneNumber, message);
+                                                }}
+                                                data-tutorial-id="appointments-detalhes-imprevisto"
+                                                className={modalActionButtonClass + ' bg-slate-700 hover:bg-slate-600 border border-white/10'}
+                                                title="Enviar mensagem de imprevisto"
+                                              >
+                                                <Calendar className="h-4 w-4 shrink-0" />
+                                                IMPREVISTO
+                                              </button>
+                                              )}
+
+                                              {onGenerateNF && (
                                                 <button
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    const clientName = apt.client_name || 'este cliente';
-                                                    if (!window.confirm(`Tem certeza que deseja marcar que ${clientName} faltou? O agendamento será cancelado.`)) return;
-                                                    void logAppointmentCardActionClick(apt, 'cliente_faltou_click', 'Clique em Cliente Faltou.');
+                                                    void logAppointmentCardActionClick(apt, 'baixar_nf_click', 'Clique em Baixar NF.');
                                                     setModalAptId(null);
-                                                    onClientNoShow(apt);
+                                                    onGenerateNF({
+                                                      ...apt,
+                                                      client_cpf: displayedCpf || apt.client_cpf,
+                                                      client_street: displayedStreet || (apt as any).client_street,
+                                                    });
                                                   }}
-                                                  data-tutorial-id="appointments-detalhes-cliente-faltou"
-                                                  className="px-2 py-3 text-sm bg-orange-700 text-white rounded hover:bg-orange-800"
-                                                  title="Registrar que o cliente faltou (mesma função de Meus clientes)"
+                                                  data-tutorial-id="appointments-detalhes-baixar-nf"
+                                                  className={modalActionButtonClass + ' col-span-2 bg-teal-700 hover:bg-teal-600'}
+                                                  title="Baixar nota fiscal do atendimento"
                                                 >
-                                                  Cliente Faltou
+                                                  <FileText className="h-4 w-4 shrink-0" />
+                                                  BAIXAR NF
                                                 </button>
                                               )}
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  void logAppointmentCardActionClick(apt, 'gorjeta_click', 'Clique em Gorjeta.');
-                                                  setModalAptId(null);
-                                                  setTipModalAppointment(apt);
-                                                  const cur = getProfessionalTipAmount(apt);
-                                                  setTipModalInput(cur > 0 ? String(cur).replace('.', ',') : '');
-                                                }}
-                                                data-tutorial-id="appointments-detalhes-gorjeta"
-                                                className={`px-2 py-3 text-sm bg-amber-600 text-white rounded hover:bg-amber-700 font-semibold flex items-center justify-center gap-1 ${onClientNoShow ? '' : 'w-full'}`}
-                                                title="Gorjeta: 100% para o profissional, fora da % sobre o serviço"
+
+                                              <div
+                                                className={
+                                                  onClientNoShow ? 'col-span-2 grid grid-cols-2 gap-2' : 'col-span-2'
+                                                }
                                               >
-                                                <Coins className="h-3.5 w-3.5 shrink-0" />
-                                                Gorjeta
-                                              </button>
+                                                {onClientNoShow && (
+                                                  <button
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      const clientName = apt.client_name || 'este cliente';
+                                                      if (!window.confirm(`Tem certeza que deseja marcar que ${clientName} faltou? O agendamento será cancelado.`)) return;
+                                                      void logAppointmentCardActionClick(apt, 'cliente_faltou_click', 'Clique em Cliente Faltou.');
+                                                      setModalAptId(null);
+                                                      onClientNoShow(apt);
+                                                    }}
+                                                    data-tutorial-id="appointments-detalhes-cliente-faltou"
+                                                    className={modalActionButtonClass + ' bg-red-700 hover:bg-red-600'}
+                                                    title="Registrar que o cliente faltou (mesma função de Meus clientes)"
+                                                  >
+                                                    <UserX className="h-4 w-4 shrink-0" />
+                                                    Cliente Faltou
+                                                  </button>
+                                                )}
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    void logAppointmentCardActionClick(apt, 'gorjeta_click', 'Clique em Gorjeta.');
+                                                    setModalAptId(null);
+                                                    setTipModalAppointment(apt);
+                                                    const cur = getProfessionalTipAmount(apt);
+                                                    setTipModalInput(cur > 0 ? String(cur).replace('.', ',') : '');
+                                                  }}
+                                                  data-tutorial-id="appointments-detalhes-gorjeta"
+                                                  className={`${modalActionButtonClass} bg-orange-600 hover:bg-orange-500 ${onClientNoShow ? '' : 'w-full'}`}
+                                                  title="Gorjeta: 100% para o profissional, fora da % sobre o serviço"
+                                                >
+                                                  <Coins className="h-4 w-4 shrink-0" />
+                                                  Gorjeta
+                                                </button>
+                                              </div>
                                             </div>
+
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                void logAppointmentCardActionClick(apt, 'trocar_horario_click', 'Clique em Trocar horário.');
+                                                setModalAptId(null);
+                                                handleOpenRescheduleModal(apt);
+                                              }}
+                                              data-tutorial-id="appointments-detalhes-trocar-horario"
+                                              className={modalActionButtonClass + ' w-full bg-violet-600 hover:bg-violet-500'}
+                                              title="Trocar a data/horário deste agendamento"
+                                            >
+                                              <Clock className="h-4 w-4 shrink-0" />
+                                              Trocar horário
+                                            </button>
+
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                void logAppointmentCardActionClick(apt, 'trocar_servico_click', 'Clique em Trocar serviço.');
+                                                setModalAptId(null);
+                                                handleOpenChangeServiceModal(apt);
+                                              }}
+                                              data-tutorial-id="appointments-detalhes-trocar-servico"
+                                              className={modalActionButtonClass + ' w-full border border-white/15 bg-[#161b22] hover:bg-[#1f2630]'}
+                                              title="Trocar o serviço (altera valor e duração)"
+                                            >
+                                              <Scissors className="h-4 w-4 shrink-0" />
+                                              Trocar serviço
+                                            </button>
+
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                void logAppointmentCardActionClick(apt, 'minhas_observacoes_click', 'Clique em Minhas Observações.');
+                                                setModalAptId(null);
+                                                if (onOpenObservationModal) onOpenObservationModal(apt.id, apt.establishment_observation);
+                                              }}
+                                              data-tutorial-id="appointments-detalhes-observacoes"
+                                              className={modalActionButtonClass + ' w-full border border-white/15 bg-[#161b22] hover:bg-[#1f2630]'}
+                                            >
+                                              <StickyNote className="h-4 w-4 shrink-0" />
+                                              Minhas Observações
+                                            </button>
+
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setModalAptId(null);
+                                                void handleOpenAppointmentHistoryModal(apt);
+                                              }}
+                                              className={modalActionButtonClass + ' w-full bg-amber-800 hover:bg-amber-700'}
+                                              title="Ver histórico de alterações desse agendamento"
+                                            >
+                                              <History className="h-4 w-4 shrink-0" />
+                                              Ver histórico
+                                            </button>
+
+                                            {apt.is_child_service !== undefined && (
+                                              <div className="pt-1 text-center">
+                                                <span className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-white">
+                                                  {apt.is_child_service ? <Baby className="h-4 w-4 text-white/70" /> : <User className="h-4 w-4 text-white/70" />}
+                                                  {apt.is_child_service ? 'Infantil' : 'Adulto'}
+                                                </span>
+                                              </div>
+                                            )}
                                           </div>
-
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              void logAppointmentCardActionClick(apt, 'trocar_horario_click', 'Clique em Trocar horário.');
-                                              setModalAptId(null);
-                                              handleOpenRescheduleModal(apt);
-                                            }}
-                                            data-tutorial-id="appointments-detalhes-trocar-horario"
-                                            className="w-full px-2 py-3 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 font-extrabold"
-                                            title="Trocar a data/horário deste agendamento"
-                                          >
-                                            🕒 Trocar horário
-                                          </button>
-
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              void logAppointmentCardActionClick(apt, 'trocar_servico_click', 'Clique em Trocar serviço.');
-                                              setModalAptId(null);
-                                              handleOpenChangeServiceModal(apt);
-                                            }}
-                                            data-tutorial-id="appointments-detalhes-trocar-servico"
-                                            className="w-full px-2 py-3 text-sm bg-black text-white rounded hover:bg-gray-800 font-extrabold"
-                                            title="Trocar o serviço (altera valor e duração)"
-                                          >
-                                            ✂️ Trocar serviço
-                                          </button>
-
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              void logAppointmentCardActionClick(apt, 'minhas_observacoes_click', 'Clique em Minhas Observações.');
-                                              setModalAptId(null);
-                                              if (onOpenObservationModal) onOpenObservationModal(apt.id, apt.establishment_observation);
-                                            }}
-                                            data-tutorial-id="appointments-detalhes-observacoes"
-                                            className="w-full px-2 py-3 text-sm bg-gray-700 text-white rounded hover:bg-gray-600"
-                                          >
-                                            📝 Minhas Observações
-                                          </button>
-
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setModalAptId(null);
-                                              void handleOpenAppointmentHistoryModal(apt);
-                                            }}
-                                            className="w-full px-2 py-3 text-sm bg-amber-700 text-white rounded hover:bg-amber-800"
-                                            title="Ver histórico de alterações desse agendamento"
-                                          >
-                                            📜 Ver histórico
-                                          </button>
-
-                                          {apt.is_child_service !== undefined && (
-                                            <div className="text-center">
-                                              <span className={`inline-block px-2 py-1 text-xs rounded ${apt.is_child_service ? 'bg-gray-700' : 'bg-gray-600'} text-white border border-gray-500`}>
-                                                {apt.is_child_service ? '👶 Infantil' : '👤 Adulto'}
-                                              </span>
+                                        ) : (
+                                          <div className="mt-3 space-y-2">
+                                            <div className="rounded-xl border border-red-400/30 bg-red-500/10 py-2 text-center text-sm font-bold text-red-200">
+                                              ❌ CANCELADO
                                             </div>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        <div className="space-y-2">
-                                          <div className="text-center text-white/70 text-xs py-2">
-                                            ❌ CANCELADO
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleRestoreCancelledAppointment(apt);
+                                              }}
+                                              className={modalActionButtonClass + ' w-full bg-emerald-600 hover:bg-emerald-500'}
+                                            >
+                                              <History className="h-4 w-4 shrink-0" />
+                                              Restabelecer agendamento
+                                            </button>
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDeleteAppointment(apt.id);
+                                              }}
+                                              className={modalActionButtonClass + ' w-full border border-white/15 bg-[#161b22] hover:bg-red-900/60'}
+                                            >
+                                              <Trash2 className="h-4 w-4 shrink-0" />
+                                              EXCLUIR
+                                            </button>
                                           </div>
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handleRestoreCancelledAppointment(apt);
-                                            }}
-                                            className="w-full px-2 py-3 text-sm bg-emerald-700 text-white rounded hover:bg-emerald-800 flex items-center justify-center gap-1"
-                                          >
-                                            ↩️ Restabelecer agendamento
-                                          </button>
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handleDeleteAppointment(apt.id);
-                                            }}
-                                            className="w-full px-2 py-3 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 flex items-center justify-center gap-1"
-                                          >
-                                            <Trash2 className="w-3 h-3" />
-                                            🗑️ EXCLUIR
-                                          </button>
-                                        </div>
-                                      )}
+                                        )}
                                       </div>
                                     </div>
                                   )}
@@ -8644,14 +8791,14 @@ export const AllProfessionalsAppointmentsView: React.FC<
                           })
                         ) : (
                           <div className="text-center py-8">
-                            <Calendar className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-                            <p className="text-gray-500 text-sm">Sem horário de trabalho hoje</p>
+                            <Calendar className="w-12 h-12 mx-auto mb-2 text-white/20" />
+                            <p className="text-white/50 text-sm">Sem horário de trabalho hoje</p>
                           </div>
                         )}
 
                         {/* ✅ Agendamentos picados (fora da grade padrão) */}
                         {hiddenAppointments.length > 0 && (
-                          <div className="mt-2 pt-2 border-t border-black/10">
+                          <div className="mt-2 pt-2 border-t border-white/10">
                             <button
                               type="button"
                               onClick={() =>
@@ -8660,13 +8807,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                   [professional.id]: !Boolean(prev[professional.id]),
                                 }))
                               }
-                              className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 hover:bg-amber-100 transition-colors"
+                              className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-400/40 hover:bg-amber-500/20 transition-colors"
                               title="Agendamentos com horário picado (ex: 12:05), fora da grade padrão"
                             >
-                              <span className="text-xs font-extrabold text-amber-900">
+                              <span className="text-xs font-extrabold text-amber-100">
                                 Horários picados ({hiddenAppointments.length})
                               </span>
-                              <span className="text-xs text-amber-800 font-semibold">
+                              <span className="text-xs text-amber-200/80 font-semibold">
                                 {hiddenOpen ? 'Ocultar' : 'Ver'}
                               </span>
                             </button>
@@ -8679,19 +8826,19 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                   return (
                                     <div
                                       key={`hidden-${apt.id}`}
-                                      className="rounded-lg border border-amber-200 bg-amber-50 p-3"
+                                      className="rounded-xl border border-l-4 border-white/10 border-l-amber-400 bg-[#15171c] p-3"
                                     >
                                       <div className="flex items-center justify-between gap-2">
                                         <div className="min-w-0">
-                                          <div className="text-xs font-extrabold text-amber-900">
+                                          <div className="text-xs font-extrabold text-amber-100">
                                             ⛔ {apt.appointment_time} • {apt.is_squeeze
                                               ? (isAgendaSubscriberAppointment(apt) ? 'ENCAIXE ASSINANTE' : 'ENCAIXE')
                                               : (getDisplayedClientNameWithSubscriberLabel(apt) || 'Cliente')}
                                           </div>
-                                          <div className="text-[11px] text-amber-900/90 truncate">
+                                          <div className="text-[11px] text-white/70 truncate">
                                             {hiddenSubscriptionLabelColor && (
                                               <span
-                                                className="inline-block h-2.5 w-2.5 rounded-full mr-1.5 align-middle border border-amber-900/30"
+                                                className="inline-block h-2.5 w-2.5 rounded-full mr-1.5 align-middle border border-white/40"
                                                 style={{ backgroundColor: hiddenSubscriptionLabelColor }}
                                                 title="Etiqueta da assinatura"
                                               />
@@ -8703,7 +8850,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               {hiddenServiceLabels.map((label) => (
                                                 <span
                                                   key={`hidden-${apt.id}-${label.name}-${label.color}`}
-                                                  className="px-2 py-0.5 rounded-full text-[10px] font-extrabold border border-amber-900/20"
+                                                  className="px-2 py-0.5 rounded-full text-[10px] font-extrabold border border-white/20"
                                                   style={{ backgroundColor: label.color, color: getLabelTextColor(label.color) }}
                                                   title={`Etiqueta: ${label.name}`}
                                                 >
@@ -8712,12 +8859,12 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                               ))}
                                             </div>
                                           )}
-                                          <div className="mt-2 space-y-1 text-[10px] text-amber-900/90">
+                                          <div className="mt-2 space-y-1 text-[10px] text-white/60">
                                             <div>
-                                              <span className="font-bold">Origem:</span> {getAppointmentOriginLabel(apt)}
+                                              <span className="font-bold text-white/80">Origem:</span> {getAppointmentOriginLabel(apt)}
                                             </div>
                                             <div>
-                                              <span className="font-bold">Quem criou:</span>{' '}
+                                              <span className="font-bold text-white/80">Quem criou:</span>{' '}
                                               {Boolean((apt as any)?.is_establishment_booking === true)
                                                 ? 'Equipe/Barbearia (interno)'
                                                 : String(apt.client_id || '').trim()
@@ -8725,25 +8872,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                   : 'Não identificado (legado)'}
                                             </div>
                                             <div>
-                                              <span className="font-bold">Status:</span> {String(apt.status || 'indefinido').toUpperCase()}
+                                              <span className="font-bold text-white/80">Status:</span> {String(apt.status || 'indefinido').toUpperCase()}
                                               {apt.payment_method ? (
                                                 <>
-                                                  {' '}• <span className="font-bold">PG:</span> {String(apt.payment_method)}
+                                                  {' '}• <span className="font-bold text-white/80">PG:</span> {String(apt.payment_method)}
                                                 </>
                                               ) : null}
                                             </div>
                                             {String(apt.client_whatsapp || '').trim() && (
                                               <div>
-                                                <span className="font-bold">WhatsApp:</span> {maskClientPhones ? '********' : String(apt.client_whatsapp || '').trim()}
+                                                <span className="font-bold text-white/80">WhatsApp:</span> {maskClientPhones ? '********' : String(apt.client_whatsapp || '').trim()}
                                               </div>
                                             )}
                                             <div>
-                                              <span className="font-bold">Criado em:</span>{' '}
+                                              <span className="font-bold text-white/80">Criado em:</span>{' '}
                                               {formatDateTimeSafe((apt as any)?.created_at)}
                                             </div>
                                           </div>
                                         </div>
-                                        <div className="shrink-0 text-[11px] font-extrabold text-amber-900">
+                                        <div className="shrink-0 text-[11px] font-extrabold text-white">
                                           {formatCurrency(calculateTotalPrice(apt))}
                                         </div>
                                       </div>
@@ -8752,20 +8899,20 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                         <button
                                           type="button"
                                           onClick={() => handleOpenRescheduleModal(apt)}
-                                          className="flex-1 px-3 py-2 rounded bg-black text-white text-xs font-semibold hover:bg-gray-800 transition-colors"
+                                          className="flex-1 px-3 py-2 rounded-lg bg-white/10 border border-white/10 text-white text-xs font-semibold hover:bg-white/15 transition-colors"
                                         >
                                           🕒 Trocar horário
                                         </button>
                                         <button
                                           type="button"
                                           onClick={() => { void handleOpenAppointmentHistoryModal(apt); }}
-                                          className="px-3 py-2 rounded bg-amber-700 text-white text-xs font-semibold hover:bg-amber-800 transition-colors"
+                                          className="px-3 py-2 rounded-lg bg-amber-500/20 border border-amber-400/40 text-amber-100 text-xs font-semibold hover:bg-amber-500/30 transition-colors"
                                           title="Ver histórico completo desse agendamento"
                                         >
                                           📜 Histórico
                                         </button>
                                       </div>
-                                      <div className="mt-2 text-[10px] text-amber-900/80">
+                                      <div className="mt-2 text-[10px] text-white/45">
                                         Esse agendamento está fora do intervalo configurado da agenda e por isso não aparece nos horários normais.
                                       </div>
                                     </div>
@@ -10038,80 +10185,48 @@ export const AllProfessionalsAppointmentsView: React.FC<
         )}
 
         {/* Card de Legenda de Cores - MOVIDO PARA BAIXO */}
-        <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
-          <p className="text-xs text-white mb-3 text-center">Clique na cor para ver o significado</p>
+        <div className="rounded-2xl border border-white/10 bg-[#121419] p-3">
+          <p className="text-[11px] text-white/55 mb-2.5 text-center">Toque na cor para ver o significado</p>
 
-          {/* Layout para mobile - 3 colunas */}
-          <div className="grid grid-cols-2 gap-2 sm:hidden">
+          <div className="flex flex-wrap justify-center gap-1.5 sm:gap-2">
             <button
               onClick={() => setShowColorLegend('red')}
-              className="px-2 py-2 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-full border border-red-400/40 bg-red-500/15 px-3 py-1.5 text-xs font-bold text-red-200 hover:bg-red-500/25 transition-colors"
             >
-              Cancelado
+              <span className="h-2 w-2 rounded-full bg-red-400" /> Cancelado
             </button>
             <button
               onClick={() => setShowColorLegend('yellow')}
-              className="px-2 py-2 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs font-bold text-amber-200 hover:bg-amber-500/25 transition-colors"
             >
-              Pendente
+              <span className="h-2 w-2 rounded-full bg-amber-400" /> Pendente
             </button>
             <button
               onClick={() => setShowColorLegend('green')}
-              className="px-2 py-2 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:bg-emerald-500/25 transition-colors"
             >
-              Concluído
+              <span className="h-2 w-2 rounded-full bg-emerald-400" /> Concluído
             </button>
             <button
               onClick={() => setShowColorLegend('gold')}
-              className="px-2 py-2 bg-gradient-to-r from-amber-500 to-yellow-600 text-white text-xs rounded hover:from-amber-600 hover:to-yellow-700 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/50 bg-gradient-to-r from-amber-500/25 to-yellow-600/25 px-3 py-1.5 text-xs font-bold text-amber-100 hover:from-amber-500/35 hover:to-yellow-600/35 transition-colors"
             >
               👑 Faixa assinante
             </button>
           </div>
 
-          {/* Layout para desktop - horizontal */}
-          <div className="hidden sm:flex justify-center gap-4 flex-wrap">
-            <button
-              onClick={() => setShowColorLegend('red')}
-              className="px-4 py-2 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
-            >
-              ❌ Cancelado
-            </button>
-            <button
-              onClick={() => setShowColorLegend('yellow')}
-              className="px-4 py-2 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors"
-            >
-              ⏳ Pendente
-            </button>
-            <button
-              onClick={() => setShowColorLegend('green')}
-              className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
-            >
-              ✅ Concluído
-            </button>
-            <button
-              onClick={() => setShowColorLegend('gold')}
-              className="px-4 py-2 bg-gradient-to-r from-amber-500 to-yellow-600 text-white text-sm rounded hover:from-amber-600 hover:to-yellow-700 transition-colors"
-            >
-              👑 Faixa assinante
-            </button>
-          </div>
-
-          {/* Botão de lembrete para clientes */}
-          <div className="mt-3 flex justify-center">
+          {/* Botão de lembrete para clientes + pendentes do mês */}
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
             <button
               onClick={() => setShowReminderInfo(true)}
-              className="px-3 py-2 text-xs font-medium rounded transition-colors bg-black text-white hover:bg-gray-800"
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white hover:bg-white/10 transition-colors"
               title="Dicas sobre envio de lembretes"
             >
               📬 Enviar lembrete para clientes
             </button>
-          </div>
-
-          <div className="mt-2 flex justify-center">
             <button
               onClick={() => void handleOpenMonthPendingModal()}
-              className="px-3 py-2 text-xs font-medium rounded transition-colors bg-yellow-700 text-white hover:bg-yellow-800"
+              className="rounded-lg border border-amber-400/40 bg-amber-500/15 px-3 py-2 text-xs font-bold text-amber-100 hover:bg-amber-500/25 transition-colors"
               title="Listar todos os pendentes do mês selecionado"
             >
               ⏳ Pendentes do mês
@@ -10120,15 +10235,15 @@ export const AllProfessionalsAppointmentsView: React.FC<
         </div>
 
         {/* Alerta sobre valores pendentes - MOVIDO PARA BAIXO */}
-        <div className="bg-gray-100 border-l-4 border-gray-600 rounded-r-lg p-3">
+        <div className="rounded-xl border border-amber-400/30 border-l-4 border-l-amber-400 bg-amber-500/10 p-3">
           <div className="flex items-start gap-2">
-            <span className="text-gray-700 text-lg flex-shrink-0 mt-0.5">⚠️</span>
+            <span className="text-amber-200 text-lg flex-shrink-0 mt-0.5">⚠️</span>
             <div className="flex-1">
               <button
                 onClick={() => setShowPendingWarning(true)}
-                className="text-orange-800 text-sm font-bold text-left hover:underline"
+                className="text-amber-100 text-sm font-bold text-left hover:underline"
               >
-                Agendamento pendente não conta valor no dashboard - <span className="text-orange-600">clique para entender</span>
+                Agendamento pendente não conta valor no dashboard - <span className="text-amber-300">clique para entender</span>
               </button>
             </div>
           </div>
