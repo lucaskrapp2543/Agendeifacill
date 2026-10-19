@@ -2,12 +2,16 @@ import { AlertTriangle, Calendar, Clock } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { EstablishmentBillingPaymentModal } from './EstablishmentBillingPaymentModal';
+import { EarlyPaymentDiscountBanner } from './EarlyPaymentDiscountBanner';
+import { getDaysUntilDue, getLocalTodayParts, isEarlyPaymentWindow } from '../lib/earlyPaymentDiscount';
 
 interface EstablishmentValidity {
   payment_due_date: string;
   payment_status: 'paid' | 'unpaid' | 'expired';
   plan_type: 'monthly' | 'annual' | 'trial';
   name?: string;
+  /** Valor da mensalidade (R$) — usado só para mostrar o preço com desconto na faixa. */
+  mercadopago_billing_amount?: number | null;
 }
 
 interface ValidityHeaderProps {
@@ -38,7 +42,7 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId,
       );
       const fetchPromise = supabase
         .from('establishments')
-        .select('payment_due_date, payment_status, plan_type, name')
+        .select('payment_due_date, payment_status, plan_type, name, mercadopago_billing_amount')
         .eq('id', establishmentId)
         .single();
 
@@ -176,6 +180,33 @@ export const ValidityHeader: React.FC<ValidityHeaderProps> = ({ establishmentId,
         <Calendar className="h-4 w-4 shrink-0" />
         <span>Carregando validade...</span>
       </div>
+    );
+  }
+
+  // 🔥 De 3 a 1 dia antes do vencimento: faixa "Pague adiantado e ganhe 15%" (mesma regra do topo da agenda).
+  const earlyDaysUntilDue = getDaysUntilDue(validity.payment_due_date, getLocalTodayParts());
+  if (earlyDaysUntilDue !== null && isEarlyPaymentWindow(earlyDaysUntilDue, validity.payment_status)) {
+    return (
+      <>
+        <EarlyPaymentDiscountBanner
+          compact
+          amountBrl={Number(validity.mercadopago_billing_amount || 0)}
+          dueDateRaw={validity.payment_due_date}
+          daysUntilDue={earlyDaysUntilDue}
+          onPay={() => setShowBillingPaymentModal(true)}
+        />
+        <EstablishmentBillingPaymentModal
+          isOpen={showBillingPaymentModal}
+          onClose={() => setShowBillingPaymentModal(false)}
+          establishmentId={String(establishmentId || '')}
+          establishmentName={String(validity?.name || 'Estabelecimento')}
+          preferEarlyPaymentDiscount
+          onPaid={async () => {
+            setShowBillingPaymentModal(false);
+            await fetchValidity();
+          }}
+        />
+      </>
     );
   }
 

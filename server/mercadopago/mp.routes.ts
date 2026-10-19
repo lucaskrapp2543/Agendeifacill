@@ -14,6 +14,14 @@ import { recordAdminMpCommission } from '../../src/lib/mercadopago/adminMpCommis
 import { confirmPendingAppointmentFromMpPaymentMetadata } from '../../src/lib/mercadopago/confirmAppointmentFromMpPayment';
 import { reconcilePendingMercadoPagoAppointments } from '../../src/lib/mercadopago/reconcilePendingAppointmentsMp';
 import { checkMPPaymentStatus, createMPPayment, CreateMPPaymentRequest } from '../../src/lib/mercadopago/mp-service';
+import {
+  EARLY_PAYMENT_DISCOUNT_PERCENT,
+  EARLY_PAYMENT_WINDOW_DAYS,
+  computeEarlyPaymentDiscount,
+  getBrazilTodayParts,
+  getDaysUntilDue,
+  isEarlyPaymentWindow,
+} from '../../src/lib/earlyPaymentDiscount';
 import { convertSiteRegistrationCheckoutIfPaid } from '../../src/lib/siteRegistrationCheckoutConversion';
 import {
   buildSiteRegistrationCheckoutPartnerColumns,
@@ -909,7 +917,7 @@ router.post('/create-establishment-billing', async (req: Request, res: Response)
 
     const { data: estWithAmount, error: estWithAmountError } = await supabaseAdmin
       .from('establishments')
-        .select('id, name, plan_type, mercadopago_billing_amount')
+        .select('id, name, plan_type, payment_due_date, payment_status, mercadopago_billing_amount')
       .eq('id', String(establishmentId))
       .single();
 
@@ -920,7 +928,7 @@ router.post('/create-establishment-billing', async (req: Request, res: Response)
     } else {
       const { data: estFallback, error: estFallbackError } = await supabaseAdmin
         .from('establishments')
-        .select('id, name, plan_type')
+        .select('id, name, plan_type, payment_due_date, payment_status')
         .eq('id', String(establishmentId))
         .single();
 
@@ -969,6 +977,38 @@ router.post('/create-establishment-billing', async (req: Request, res: Response)
       source: 'establishment_dashboard',
       created_at: new Date().toISOString(),
     };
+
+    // -------------------------------------------------------------------------
+    // 🔥 CUPOM DE ADIANTAMENTO — 15% SÓ no PIX, de 3 a 1 dia ANTES do vencimento.
+    // Mesma filosofia do Meta Mensal: o navegador só diz "quero usar"; a janela e o
+    // percentual são conferidos AQUI, lendo o vencimento direto do banco. Não acumula
+    // com o Meta Mensal. Regra completa em src/lib/earlyPaymentDiscount.ts.
+    // -------------------------------------------------------------------------
+    const wantsEarlyDiscount = body?.use_early_payment_discount === true;
+    const amountCentsBeforeEarlyDiscount = amountCents;
+    let earlyDiscountApplied = false;
+    let earlyDiscountCents = 0;
+    let earlyDaysBeforeDue = 0;
+    if (wantsEarlyDiscount && !isCard) {
+      const daysUntilDue = getDaysUntilDue((establishment as any)?.payment_due_date, getBrazilTodayParts());
+      if (!isEarlyPaymentWindow(daysUntilDue, (establishment as any)?.payment_status)) {
+        // Fora da janela: NÃO gera cobrança — o barbeiro escolhe pagar o valor normal.
+        return res.status(409).json({
+          ok: false,
+          early_payment_discount_applied: false,
+          early_payment_discount_reason: 'fora_da_janela',
+          error: 'Cupom de adiantamento fora do prazo',
+          userMessage: `O cupom de adiantamento vale só de ${EARLY_PAYMENT_WINDOW_DAYS} a 1 dia antes do vencimento. Gere o PIX sem o cupom para pagar o valor normal.`,
+        });
+      }
+      const discount = computeEarlyPaymentDiscount(amountCents);
+      if (discount.discountCents > 0 && discount.finalCents > 0) {
+        earlyDiscountApplied = true;
+        earlyDiscountCents = discount.discountCents;
+        earlyDaysBeforeDue = Number(daysUntilDue);
+        amountCents = discount.finalCents;
+      }
+    }
 
     if (isCard && shouldCreateRecurringSubscription) {
       const payerCard = body?.payer || {};
@@ -1167,6 +1207,17 @@ router.post('/create-establishment-billing', async (req: Request, res: Response)
             type: 'establishment_billing',
             establishment_id: String(establishmentId),
             ...(isCard ? { payment_method: 'credit_card' } : { payment_method: 'pix' }),
+            // Auditoria do cupom de adiantamento: valor antes, desconto e vencimento na hora da cobrança.
+            ...(earlyDiscountApplied
+              ? {
+                early_payment_discount_applied: true,
+                early_payment_discount_percent: EARLY_PAYMENT_DISCOUNT_PERCENT,
+                early_payment_discount_cents: earlyDiscountCents,
+                early_payment_amount_before_cents: amountCentsBeforeEarlyDiscount,
+                early_payment_days_before_due: earlyDaysBeforeDue,
+                early_payment_due_date_at_charge: String((establishment as any)?.payment_due_date || '').slice(0, 10) || null,
+              }
+              : {}),
           },
           paid_at: normalizedStatus === 'paid' ? new Date().toISOString() : null,
           updated_at: new Date().toISOString(),
@@ -1267,6 +1318,10 @@ router.post('/create-establishment-billing', async (req: Request, res: Response)
       amount_brl_used: amountCents / 100,
       recurrence_created: recurrenceCreated,
       preapproval_id: preapprovalId || null,
+      early_payment_discount_applied: earlyDiscountApplied,
+      early_payment_discount_percent: earlyDiscountApplied ? EARLY_PAYMENT_DISCOUNT_PERCENT : 0,
+      early_payment_discount_cents: earlyDiscountCents,
+      amount_cents_before_early_discount: amountCentsBeforeEarlyDiscount,
     });
   } catch (error: any) {
     return res.status(500).json({

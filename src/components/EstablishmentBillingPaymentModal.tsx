@@ -10,6 +10,17 @@ import {
   formatReferenceMonthLabel,
   type MonthlyGoalView,
 } from '../utils/monthlyGoal';
+import {
+  EARLY_PAYMENT_DISCOUNT_PERCENT,
+  computeDueDateAfterEarlyPayment,
+  computeEarlyPaymentDiscount,
+  formatDateOnlyBR,
+  getDaysUntilDue,
+  getEarlyPaymentDeadline,
+  getLocalTodayParts,
+  isEarlyPaymentWindow,
+  parseDateOnlyParts,
+} from '../lib/earlyPaymentDiscount';
 
 type BillingMethod = 'pix' | 'credit_card' | null;
 
@@ -19,6 +30,8 @@ interface EstablishmentBillingPaymentModalProps {
   establishmentId: string;
   establishmentName: string;
   onPaid?: () => Promise<void> | void;
+  /** Aberto pela faixa "Pague adiantado": já entra com o cupom marcado e PIX escolhido (se estiver na janela). */
+  preferEarlyPaymentDiscount?: boolean;
 }
 
 const formatBRL = (value: number) =>
@@ -32,6 +45,7 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
   establishmentId,
   establishmentName,
   onPaid,
+  preferEarlyPaymentDiscount = false,
 }) => {
   const [selectedMethod, setSelectedMethod] = useState<BillingMethod>('credit_card');
   const [billingAmount, setBillingAmount] = useState<number>(0);
@@ -43,6 +57,10 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
   // o cartão recorrente não pode ter o valor alterado (ver a função Netlify).
   const [goalCredit, setGoalCredit] = useState<MonthlyGoalCredit | null>(null);
   const [useGoalCredit, setUseGoalCredit] = useState(false);
+  // 🔥 Cupom de adiantamento (15% no PIX, de 3 a 1 dia antes do vencimento).
+  // Igual ao Meta Mensal: aqui só "pedimos"; quem confere a janela e aplica é o servidor.
+  const [useEarlyDiscount, setUseEarlyDiscount] = useState(false);
+  const [billingDueInfo, setBillingDueInfo] = useState<{ dueDate: string; status: string; planType: string } | null>(null);
   const [isLoadingAmount, setIsLoadingAmount] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCreatingSubscription, setIsCreatingSubscription] = useState(false);
@@ -90,6 +108,8 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
     setShowGoalPanel(false);
     setGoalCredit(null);
     setUseGoalCredit(false);
+    setUseEarlyDiscount(false);
+    setBillingDueInfo(null);
   }, [isOpen]);
 
   useEffect(() => {
@@ -110,9 +130,16 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
       try {
         const { data: est } = await supabase
           .from('establishments')
-          .select('mercadopago_billing_amount')
+          .select('mercadopago_billing_amount, payment_due_date, payment_status, plan_type')
           .eq('id', establishmentId)
           .maybeSingle();
+        if (est) {
+          setBillingDueInfo({
+            dueDate: String((est as any)?.payment_due_date || ''),
+            status: String((est as any)?.payment_status || ''),
+            planType: String((est as any)?.plan_type || 'monthly'),
+          });
+        }
         let v = Number((est as any)?.mercadopago_billing_amount ?? 0);
         if (!Number.isFinite(v) || v <= 0) {
           const { data: admin } = await supabase.from('admin_billing_links').select('mercadopago_billing_amount').eq('id', 'global').maybeSingle();
@@ -172,6 +199,17 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
     };
   }, [isOpen]);
 
+  // Aberto pela faixa "Pague adiantado": já entra com o cupom marcado e PIX escolhido.
+  useEffect(() => {
+    if (!isOpen || !preferEarlyPaymentDiscount || !billingDueInfo) return;
+    const days = getDaysUntilDue(billingDueInfo.dueDate, getLocalTodayParts());
+    if (isEarlyPaymentWindow(days, billingDueInfo.status)) {
+      setUseEarlyDiscount(true);
+      setUseGoalCredit(false);
+      setSelectedMethod('pix');
+    }
+  }, [isOpen, preferEarlyPaymentDiscount, billingDueInfo]);
+
   useEffect(() => {
     if (!isOpen || !paymentId) return;
 
@@ -210,6 +248,20 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
     return () => window.clearInterval(interval);
   }, [isOpen, paymentId, establishmentId, onPaid]);
 
+  // 🔥 Prévia do cupom de adiantamento. Só exibição — o servidor recalcula tudo.
+  const earlyDaysUntilDue = billingDueInfo ? getDaysUntilDue(billingDueInfo.dueDate, getLocalTodayParts()) : null;
+  const earlyEligible = Boolean(billingDueInfo) && isEarlyPaymentWindow(earlyDaysUntilDue, billingDueInfo?.status);
+  const earlyPreviewCents = Math.round(Math.max(0, billingAmount) * 100);
+  const earlyPreview = earlyEligible && earlyPreviewCents > 0 ? computeEarlyPaymentDiscount(earlyPreviewCents) : null;
+  // Só vale no PIX: no cartão (assinatura com valor fixo) o cupom some da tela.
+  const isEarlyActive = Boolean(useEarlyDiscount && earlyPreview && selectedMethod === 'pix');
+  const earlyDeadlineLabel = formatDateOnlyBR(getEarlyPaymentDeadline(billingDueInfo?.dueDate));
+  const earlyNextDueLabel = billingDueInfo
+    ? formatDateOnlyBR(
+      parseDateOnlyParts(computeDueDateAfterEarlyPayment(billingDueInfo.dueDate, billingDueInfo.planType, getLocalTodayParts()))
+    )
+    : '';
+
   const handleGeneratePix = async () => {
     setIsGenerating(true);
     setStatusMessage('');
@@ -229,13 +281,17 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
           },
           // Apenas sinaliza a intenção. O percentual é resolvido no servidor,
           // direto no banco — nada de valor vindo do navegador.
-          ...(useGoalCredit && goalCredit?.available ? { use_monthly_goal_credit: true } : {}),
+          ...(useGoalCredit && goalCredit?.available && !isEarlyActive ? { use_monthly_goal_credit: true } : {}),
+          // 🔥 Cupom de adiantamento: também só a intenção; o servidor confere a janela e o valor.
+          ...(isEarlyActive ? { use_early_payment_discount: true } : {}),
         }),
       });
 
       const payload = await response.json();
       if (!response.ok) {
         const message = String(payload?.userMessage || payload?.error || `Erro ${response.status}`);
+        // Cupom fora da janela: desmarca para o próximo "Gerar PIX" sair no valor normal.
+        if ((payload as any)?.early_payment_discount_reason) setUseEarlyDiscount(false);
         setConfigError(message);
         throw new Error(message);
       }
@@ -269,6 +325,13 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
         setUseGoalCredit(false);
         setStatusMessage(
           `🏆 Desconto de ${pct}% aplicado! Você economizou ${formatCentsBRL(saved)}. Após o pagamento, o sistema regulariza automaticamente.`
+        );
+      } else if ((payload as any)?.early_payment_discount_applied === true) {
+        const saved = Number((payload as any)?.early_payment_discount_cents || 0);
+        // O valor na tela já é o com desconto (amount_brl_used): tira a prévia para não descontar duas vezes.
+        setUseEarlyDiscount(false);
+        setStatusMessage(
+          `🔥 Cupom de adiantamento aplicado! Você economizou ${formatCentsBRL(saved)}.${earlyNextDueLabel ? ` Após o pagamento, seu próximo vencimento será ${earlyNextDueLabel} — você não perde nenhum dia.` : ''}`
         );
       } else {
         setStatusMessage('PIX gerado! Após o pagamento, o sistema regulariza automaticamente.');
@@ -473,12 +536,54 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
                   <span className="text-gray-500 line-through mr-1.5">{formatBRL(billingAmount)}</span>
                   <span className="text-emerald-300 font-bold">{formatCentsBRL(creditPreview.finalCents)}</span>
                 </>
+              ) : isEarlyActive && earlyPreview ? (
+                <>
+                  <span className="text-gray-500 line-through mr-1.5">{formatBRL(billingAmount)}</span>
+                  <span className="text-emerald-300 font-bold">{formatCentsBRL(earlyPreview.finalCents)}</span>
+                </>
               ) : (
                 <span className="text-emerald-300 font-bold">
                   {billingAmount > 0 ? formatBRL(billingAmount) : isLoadingAmount ? '…' : 'Definido no Admin'}
                 </span>
               )}
             </p>
+
+            {/* 🔥 Cupom de adiantamento: 15% SÓ no PIX, de 3 a 1 dia antes do vencimento.
+                Quem aplica de verdade é o servidor; aqui é só a escolha do barbeiro. */}
+            {earlyPreview && !pixCode && (
+              isEarlyActive ? (
+                <div className="mt-2 rounded-lg border border-amber-400/50 bg-amber-500/10 p-2.5">
+                  <p className="text-sm font-bold text-amber-200">
+                    🔥 Cupom de adiantamento aplicado — {EARLY_PAYMENT_DISCOUNT_PERCENT}% de desconto, você economiza{' '}
+                    {formatCentsBRL(earlyPreview.discountCents)}
+                  </p>
+                  <p className="text-[11px] text-amber-100/80 mt-0.5">
+                    Vale até {earlyDaysUntilDue === 1 ? 'hoje' : earlyDeadlineLabel} e só no PIX.
+                    {earlyNextDueLabel ? ` Pagando agora, seu próximo vencimento será ${earlyNextDueLabel} — você não perde nenhum dia.` : ''}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setUseEarlyDiscount(false)}
+                    className="mt-1.5 text-[11px] text-gray-400 underline hover:text-gray-200"
+                  >
+                    Remover cupom
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUseEarlyDiscount(true);
+                    setUseGoalCredit(false);
+                    setSelectedMethod('pix');
+                  }}
+                  className="mt-2 w-full rounded-lg bg-gradient-to-r from-amber-400 to-orange-500 px-3 py-2.5 text-sm font-extrabold text-black hover:from-amber-300 hover:to-orange-400 transition-colors"
+                >
+                  🔥 Aplicar cupom de adiantamento ({EARLY_PAYMENT_DISCOUNT_PERCENT}% OFF) — pagar{' '}
+                  {formatCentsBRL(earlyPreview.finalCents)}
+                </button>
+              )
+            )}
 
             {/* 🏆 Crédito conquistado num mês já fechado. Vale UMA vez e SÓ no PIX:
                 a assinatura no cartão tem valor fixo no Mercado Pago e não pode
@@ -507,6 +612,7 @@ export const EstablishmentBillingPaymentModal: React.FC<EstablishmentBillingPaym
                   type="button"
                   onClick={() => {
                     setUseGoalCredit(true);
+                    setUseEarlyDiscount(false);
                     setSelectedMethod('pix');
                   }}
                   className="mt-2 w-full rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 px-3 py-2.5 text-sm font-extrabold text-black hover:from-emerald-400 hover:to-green-400 transition-colors"

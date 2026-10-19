@@ -2,6 +2,8 @@ import { AlertTriangle, Calendar, Clock } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { EstablishmentBillingPaymentModal } from './EstablishmentBillingPaymentModal';
+import { EarlyPaymentDiscountBanner } from './EarlyPaymentDiscountBanner';
+import { getDaysUntilDue, getLocalTodayParts, isEarlyPaymentWindow } from '../lib/earlyPaymentDiscount';
 
 interface ValidityDisplayProps {
   establishmentId: string;
@@ -13,6 +15,8 @@ interface EstablishmentValidity {
   payment_status: 'paid' | 'unpaid' | 'expired';
   plan_type: 'monthly' | 'annual' | 'trial';
   name?: string;
+  /** Valor da mensalidade (R$) — usado só para mostrar o preço com desconto na faixa. */
+  mercadopago_billing_amount?: number | null;
 }
 
 export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentId, dark = false }) => {
@@ -35,7 +39,7 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
     try {
       const { data, error } = await supabase
         .from('establishments')
-        .select('payment_due_date, payment_status, plan_type, name')
+        .select('payment_due_date, payment_status, plan_type, name, mercadopago_billing_amount')
         .eq('id', establishmentId)
         .single();
 
@@ -133,6 +137,33 @@ export const ValidityDisplay: React.FC<ValidityDisplayProps> = ({ establishmentI
 
   if (!validity) {
     return null;
+  }
+
+  // 🔥 De 3 a 1 dia antes do vencimento: faixa "Pague adiantado e ganhe 15%".
+  // No dia do vencimento (e depois) não aparece — volta o aviso vermelho de sempre.
+  const earlyDaysUntilDue = getDaysUntilDue(validity.payment_due_date, getLocalTodayParts());
+  if (earlyDaysUntilDue !== null && isEarlyPaymentWindow(earlyDaysUntilDue, validity.payment_status)) {
+    return (
+      <>
+        <EarlyPaymentDiscountBanner
+          amountBrl={Number(validity.mercadopago_billing_amount || 0)}
+          dueDateRaw={validity.payment_due_date}
+          daysUntilDue={earlyDaysUntilDue}
+          onPay={() => setShowBillingPaymentModal(true)}
+        />
+        <EstablishmentBillingPaymentModal
+          isOpen={showBillingPaymentModal}
+          onClose={() => setShowBillingPaymentModal(false)}
+          establishmentId={String(establishmentId || '')}
+          establishmentName={String(validity?.name || 'Estabelecimento')}
+          preferEarlyPaymentDiscount
+          onPaid={async () => {
+            setShowBillingPaymentModal(false);
+            await fetchValidityData();
+          }}
+        />
+      </>
+    );
   }
 
   // Verifica se está em dia (mais de 1 dia restante e não está vencido)

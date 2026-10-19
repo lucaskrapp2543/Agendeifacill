@@ -14,6 +14,7 @@ import {
 import { createPartnerReferralAfterConversion, ensurePartnerReferralLinkForConvertedCheckout } from '../../src/lib/partnerReferralCheckout';
 import { getValidMercadoPagoAccessToken } from './mercadopago-create-payment';
 import { json, parseJsonBody } from './_utils';
+import { computeDueDateAfterEarlyPayment, getBrazilTodayParts } from '../../src/lib/earlyPaymentDiscount';
 
 // Supabase Admin (bypass RLS)
 const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
@@ -1243,7 +1244,7 @@ export const handler: Handler = async (event) => {
         if (billingStatus === 'paid') {
           const { data: estData, error: estDataError } = await supabaseAdmin
             .from('establishments')
-            .select('id, plan_type')
+            .select('id, plan_type, payment_due_date')
             .eq('id', String(billing.establishment_id))
             .single();
 
@@ -1251,6 +1252,18 @@ export const handler: Handler = async (event) => {
             console.error('❌ [MP Webhook] Erro ao buscar estabelecimento para regularização:', estDataError);
             return json(500, { error: 'Erro ao buscar estabelecimento para regularização' });
           }
+
+          // 🔥 Cupom de adiantamento: quem pagou antes NÃO perde dias — o vencimento novo
+          // conta a partir do vencimento atual (regra em src/lib/earlyPaymentDiscount.ts).
+          // Sem cupom, continua como sempre: hoje + 1 mês.
+          const earlyDiscountUsed = (billing as any)?.metadata?.early_payment_discount_applied === true;
+          const nextDueDate = earlyDiscountUsed
+            ? computeDueDateAfterEarlyPayment(
+              (estData as any)?.payment_due_date,
+              (estData as any)?.plan_type,
+              getBrazilTodayParts()
+            )
+            : getNextDueDate((estData as any)?.plan_type);
 
           const { error: estUpdateError } = await supabaseAdmin
             .from('establishments')
@@ -1260,7 +1273,7 @@ export const handler: Handler = async (event) => {
               is_deleted: false,
               payment_alert_enabled: false,
               payment_paid_at: nowIso,
-              payment_due_date: getNextDueDate((estData as any)?.plan_type),
+              payment_due_date: nextDueDate,
             } as any)
             .eq('id', String((estData as any).id));
 
