@@ -33,6 +33,7 @@ import {
 } from '../utils/exclusiveProfessionalBookingLink';
 import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
 import { resolveAuditActorName } from '../lib/appointmentAuditLog';
+import { computeEstablishmentNoShowBaseline, computeNoShowProbability, describeNoShowHistory, findClientAttendance, type ClientAttendanceStats } from '../utils/noShowProbability';
 import { isServicePaymentSource } from '../lib/professionalPaymentSources';
 import { AppointmentAuditTimeline } from './AppointmentAuditTimeline';
 import { ChangeAppointmentServiceModal } from './ChangeAppointmentServiceModal';
@@ -41,6 +42,7 @@ import { RescheduleAppointmentModal } from './RescheduleAppointmentModal';
 import { SqueezeServicePickerModal } from './SqueezeServicePickerModal';
 import { useToast } from './ui/Toaster';
 import { ValidityDisplay } from './ValidityDisplay';
+import { StoryGeneratorModal } from './StoryGeneratorModal';
 
 interface Professional {
   id: string;
@@ -324,6 +326,8 @@ interface AllProfessionalsAppointmentsViewProps {
   monthlyAppointments: Appointment[];
   /** Telefones normalizados de clientes recorrentes (≥1 concluído). null = ainda carregando. */
   returningClientPhones?: Set<string> | null;
+  /** Histórico por telefone (realizados + faltas) para a "Probabilidade de falta". null = carregando. */
+  clientAttendanceByPhone?: Map<string, ClientAttendanceStats> | null;
   selectedDate: Date;
   professionalPins?: ProfessionalPin[];
   businessHours: {
@@ -433,6 +437,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
   appointments,
   monthlyAppointments,
   returningClientPhones,
+  clientAttendanceByPhone,
   selectedDate,
   professionalPins = [],
   businessHours,
@@ -703,6 +708,24 @@ export const AllProfessionalsAppointmentsView: React.FC<
     const professionalVisibilityLoadedKeyRef = useRef('');
     const datePickerContainerRef = useRef<HTMLDivElement>(null);
     const datePickerInputRef = useRef<HTMLInputElement>(null);
+    // Largura real da área das colunas: define se a linha do agendamento usa o layout
+    // empilhado (coluna estreita) ou o layout largo (selo e valor à direita).
+    const columnsGridRef = useRef<HTMLDivElement>(null);
+    const [columnsAreaWidth, setColumnsAreaWidth] = useState(0);
+    useEffect(() => {
+      const grid = columnsGridRef.current;
+      const area = grid?.parentElement;
+      if (!area) return;
+      const update = () => setColumnsAreaWidth(area.clientWidth || 0);
+      update();
+      if (typeof ResizeObserver === 'undefined') {
+        window.addEventListener('resize', update);
+        return () => window.removeEventListener('resize', update);
+      }
+      const observer = new ResizeObserver(update);
+      observer.observe(area);
+      return () => observer.disconnect();
+    }, []);
     const [showDatePicker, setShowDatePicker] = useState(false);
     const hasOwnerConfigPin = Boolean(
       establishment?.pin_password &&
@@ -2953,6 +2976,8 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
     // Modal: Horários disponíveis (somente visualização, para print)
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
+    // 📸 Story dos horários livres (imagem pronta pro Instagram)
+    const [showStoryModal, setShowStoryModal] = useState(false);
     const [availabilityProfessionalId, setAvailabilityProfessionalId] = useState<string | null>(null);
     const [availabilityProfessionalName, setAvailabilityProfessionalName] = useState<string>('');
     const [availabilitySlots, setAvailabilitySlots] = useState<TimeSlot[]>([]);
@@ -4895,6 +4920,93 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
     };
 
+    /**
+     * "Probabilidade de falta": só em agendamento EM ESPERA (pending/confirmed) com telefone.
+     * Concluído, cancelado e aguardando pagamento não mostram. Sem histórico carregado: nada.
+     */
+    // Média da barbearia (calculada uma vez por carga do histórico).
+    const noShowBaseline = useMemo(() => computeEstablishmentNoShowBaseline(clientAttendanceByPhone), [clientAttendanceByPhone]);
+    const getNoShowForAppointment = (apt: Appointment) => {
+      const status = String(apt?.status || '');
+      if (status !== 'pending' && status !== 'confirmed') return null;
+      if (!clientAttendanceByPhone) return null;
+      const phone = String(apt?.client_whatsapp || '').replace(/\D/g, '');
+      if (!phone) return null;
+      return computeNoShowProbability(findClientAttendance(clientAttendanceByPhone, phone), noShowBaseline);
+    };
+    const noShowChipClass = (level: 'bom' | 'medio' | 'risco' | null) =>
+      level === 'risco'
+        ? 'bg-red-600 text-white border-red-300/60'
+        : level === 'medio'
+          ? 'bg-amber-400 text-black border-amber-200/70'
+          : level === 'bom'
+            ? 'bg-emerald-500 text-black border-emerald-200/70'
+            : 'bg-slate-700 text-white border-white/25';
+    const noShowChipIcon = (level: 'bom' | 'medio' | 'risco' | null) =>
+      level === 'risco' ? '⚠️' : level === 'medio' ? '👀' : level === 'bom' ? '✅' : '🆕';
+    /** Agendamento em espera cujo horário de início já passou (hoje ou antes). */
+    const hasAppointmentStartPassed = (apt: Appointment): boolean => {
+      const dateRaw = String(apt?.appointment_date || '').slice(0, 10);
+      const timeRaw = String(apt?.appointment_time || '').trim();
+      if (!dateRaw || !timeRaw) return false;
+      const start = new Date(`${dateRaw}T${timeRaw.length === 5 ? `${timeRaw}:00` : timeRaw}`);
+      return !Number.isNaN(start.getTime()) && Date.now() >= start.getTime();
+    };
+
+    /**
+     * 📲 "Pedir confirmação": botão MANUAL (igual ao Enviar lembrete) que abre o WhatsApp com a
+     * mensagem pronta. Só aparece em agendamento em espera com probabilidade de falta acima de 30%.
+     * Nada automático, nada gravado: o barbeiro vê se o cliente veio ou não.
+     */
+    const PRESENCE_CONFIRMATION_MIN_PERCENT = 30;
+    const canRequestPresenceConfirmation = (apt: Appointment): boolean => {
+      if (maskClientPhones) return false;
+      const status = String(apt?.status || '');
+      if (status !== 'pending' && status !== 'confirmed') return false;
+      if (!String(apt?.client_whatsapp || '').replace(/\D/g, '')) return false;
+      const noShow = getNoShowForAppointment(apt);
+      return Boolean(noShow && noShow.percent !== null && noShow.percent > PRESENCE_CONFIRMATION_MIN_PERCENT);
+    };
+    const buildPresenceConfirmationMessage = (apt: Appointment): string => {
+      const rawName = String(getDisplayedClientName(apt) || '').trim();
+      const firstName = /cliente\s+avulso/i.test(rawName) ? '' : rawName.split(/\s+/)[0] || '';
+      const dateKey = String(apt?.appointment_date || '').slice(0, 10);
+      const dateParts = dateKey.split('-');
+      const ddmm = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}` : dateKey;
+      const todayKey = format(new Date(), 'yyyy-MM-dd');
+      const tomorrowKey = format(addDays(new Date(), 1), 'yyyy-MM-dd');
+      const when = dateKey === todayKey ? `hoje (${ddmm})` : dateKey === tomorrowKey ? `amanhã (${ddmm})` : `dia ${ddmm}`;
+      const hora = String(apt?.appointment_time || '').slice(0, 5);
+      const profRaw = String(resolveAppointmentProfessionalName(apt) || '').trim();
+      // Sem cadastro correspondente o resolvedor devolve o id cru: nesse caso a mensagem vai sem o nome.
+      const prof = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(profRaw) ? '' : profRaw;
+      return (
+        `Fala${firstName ? ` ${firstName}` : ''}! 👋 Tá tudo certo pro seu horário ${when} às ${hora}${prof ? ` com ${prof}` : ''}? ` +
+        `${prof ? `${prof} já está te esperando. ` : 'Já está tudo reservado te esperando. '}` +
+        'Manda um SIM pra confirmar! 💈'
+      );
+    };
+    const openPresenceConfirmationWhatsApp = (apt: Appointment) => {
+      // Mesma normalização de número do botão IMPREVISTO.
+      let phoneNumber = String(apt.client_whatsapp || '').replace(/\D/g, '');
+      const countryCodes = [
+        { code: '351', minLength: 12 },
+        { code: '244', minLength: 12 },
+        { code: '54', minLength: 12 },
+        { code: '56', minLength: 11 },
+        { code: '55', minLength: 12 },
+        { code: '34', minLength: 11 },
+        { code: '1', minLength: 11 },
+      ];
+      const hasCountryCode = countryCodes.some(({ code, minLength }) => phoneNumber.startsWith(code) && phoneNumber.length >= minLength);
+      if (!hasCountryCode && phoneNumber.length >= 10 && phoneNumber.length <= 11) phoneNumber = '55' + phoneNumber;
+      void logAppointmentCardActionClick(apt, 'pedir_confirmacao_click', 'Clique em Pedir confirmação (WhatsApp manual).', {
+        whatsapp_target: phoneNumber,
+      });
+      // preserveEmojis: mesmo que o "Enviar lembrete" do painel — sem isso o abridor tira 👋 e 💈.
+      openWhatsAppWithBusinessPriority(phoneNumber, buildPresenceConfirmationMessage(apt), { preserveEmojis: true });
+    };
+
     const getProfessionalName = (professionalId: string) => {
       return professionals.find(p => p.id === professionalId)?.name || 'Desconhecido';
     };
@@ -6120,6 +6232,13 @@ export const AllProfessionalsAppointmentsView: React.FC<
       }
       return map;
     })();
+    // Coluna estreita = layout empilhado. Cada coluna tem no mínimo 280px e no máximo 460px.
+    const visibleColumnCount = Math.max(visibleProfessionals.length, 1);
+    const estimatedColumnWidth = columnsAreaWidth > 0
+      ? Math.min(460, Math.max(280, (columnsAreaWidth - 12 * (visibleColumnCount - 1)) / visibleColumnCount))
+      : (typeof window !== 'undefined' && window.innerWidth < 768 ? 280 : 460);
+    const compactRows = estimatedColumnWidth < 400;
+
     const greetingProfessional = forceProfessionalId
       ? professionals.find((professional) => String(professional.id) === String(forceProfessionalId))
       : null;
@@ -6216,6 +6335,25 @@ export const AllProfessionalsAppointmentsView: React.FC<
             </div>
           </div>
         </div>
+
+        {/* 📸 Postar story — bem visível, entre os números do dia e a data */}
+        <button
+          type="button"
+          onClick={() => setShowStoryModal(true)}
+          className="w-full flex items-center justify-between gap-3 rounded-2xl border border-pink-400/40 bg-gradient-to-r from-pink-600/30 via-fuchsia-600/25 to-violet-600/30 px-3 py-2.5 md:px-4 md:py-3 text-left shadow-lg shadow-pink-900/20 hover:border-pink-300/60 hover:from-pink-600/40 hover:via-fuchsia-600/35 hover:to-violet-600/40 transition-colors"
+          title="Gerar imagem pro story com os horários livres do dia"
+        >
+          <span className="flex items-center gap-2.5 min-w-0">
+            <span className="flex h-9 w-9 md:h-10 md:w-10 shrink-0 items-center justify-center rounded-xl bg-pink-500/25 text-lg md:text-xl">📸</span>
+            <span className="min-w-0">
+              <span className="block text-[13px] md:text-sm font-black text-white leading-tight">Postar story com os horários livres</span>
+              <span className="block text-[10px] md:text-[11px] text-pink-100/75 truncate">
+                Imagem pronta pro Instagram e WhatsApp · {isSelectedToday ? 'hoje' : format(selectedDate, "EEEE, dd/MM", { locale: ptBR })}
+              </span>
+            </span>
+          </span>
+          <span className="shrink-0 rounded-lg bg-white/15 px-2.5 py-1.5 text-[10px] md:text-[11px] font-extrabold uppercase tracking-wide text-white">Gerar</span>
+        </button>
 
         {/* Cabeçalho fixo: data + profissionais + caixa (funde com o fundo escuro) */}
         <div className={`sticky top-0 z-30 rounded-2xl backdrop-blur-md ${useLightLayout ? 'border border-white/10 bg-[#0b0b0c]/95 shadow-lg shadow-black/30' : 'bg-[#0b0b0c]/95'}`}>
@@ -7222,6 +7360,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
         <div className={`rounded-lg overflow-hidden md:mt-0 ${useLightLayout ? 'bg-white border border-gray-200' : 'bg-transparent'}`}>
           <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
             <div
+              ref={columnsGridRef}
               className="grid gap-3 w-full"
               style={{
                 gridTemplateColumns: `repeat(${Math.max(visibleProfessionals.length, 1)}, minmax(280px, 460px))`,
@@ -7936,7 +8075,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <span className="text-white/65"> • {getDuracaoTotalAgendamento(apt, intervaloAgendaMinutos)} min</span>
                                           </span>
                                           {/* Celular: selo e valor embaixo do nome (não cabe ao lado) */}
-                                          <span className="mt-1 flex flex-wrap items-center gap-1.5 md:hidden">
+                                          <span className={`mt-1 flex-wrap items-center gap-1.5 ${compactRows ? 'flex' : 'hidden'}`}>
                                             <span className={`rounded-full border px-2 py-0.5 text-[10px] font-extrabold whitespace-nowrap ${statusPill.pill}`}>
                                               {statusPill.label}
                                             </span>
@@ -7946,7 +8085,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             <span className="ml-auto text-[10px] text-white/75 whitespace-nowrap">Detalhes ›</span>
                                           </span>
                                         </span>
-                                        <span className="hidden md:flex shrink-0 flex-col items-end gap-1">
+                                        <span className={`shrink-0 flex-col items-end gap-1 ${compactRows ? 'hidden' : 'flex'}`}>
                                           <span className={`rounded-full border px-2 py-0.5 text-[10px] font-extrabold whitespace-nowrap ${statusPill.pill}`}>
                                             {statusPill.label}
                                           </span>
@@ -7955,7 +8094,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           </span>
                                         </span>
                                         <span
-                                          className="hidden md:flex shrink-0 h-8 w-8 items-center justify-center rounded-lg text-white/75 hover:bg-black/30 hover:text-white transition-colors"
+                                          className={`shrink-0 h-8 w-8 items-center justify-center rounded-lg text-white/75 hover:bg-black/30 hover:text-white transition-colors ${compactRows ? 'hidden' : 'flex'}`}
                                           title="Ver detalhes"
                                         >
                                           <MoreVertical className="h-4 w-4" />
@@ -7965,6 +8104,32 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                       {/* Selos: primeiro agendamento / pago online / falta no local */}
                                       {(() => {
                                         const chips: React.ReactNode[] = [];
+
+                                        // ⚠️ Probabilidade de falta (só em espera; histórico por telefone)
+                                        const noShow = getNoShowForAppointment(apt);
+                                        if (noShow) {
+                                          chips.push(
+                                            <span
+                                              key="no-show"
+                                              className={`flex rounded-md border px-2 text-[10px] font-extrabold shadow-sm ${compactRows ? 'w-full flex-col gap-0.5 py-1' : 'w-auto flex-row items-center gap-1 py-0.5'} ${noShowChipClass(noShow.level)}`}
+                                              title={`Histórico neste estabelecimento: ${describeNoShowHistory(noShow)}`}
+                                            >
+                                              {/* Linha 1 nunca quebra; no celular o histórico vai para a linha 2 */}
+                                              <span className="whitespace-nowrap">
+                                                {noShowChipIcon(noShow.level)}{' '}
+                                                {noShow.percent === null
+                                                  ? 'Cliente novo · sem histórico aqui'
+                                                  : `Probabilidade de falta: ${noShow.percent}%`}
+                                              </span>
+                                              {noShow.percent !== null && (
+                                                <>
+                                                  {!compactRows && <span className="opacity-70">·</span>}
+                                                  <span className="font-semibold leading-tight opacity-80">{describeNoShowHistory(noShow)}</span>
+                                                </>
+                                              )}
+                                            </span>
+                                          );
+                                        }
 
                                         // 🆕 Primeiro agendamento (telefone ainda não tem atendimento concluído)
                                         if (returningClientPhones && apt.status !== 'cancelled' && !isAgendaSubscriberAppointment(apt)) {
@@ -8022,7 +8187,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
                                         if (chips.length === 0) return null;
                                         return (
-                                          <div className="mt-1.5 flex flex-wrap items-center gap-1 pl-[3.25rem] md:pl-[3.75rem]">
+                                          <div className="mt-1.5 flex flex-wrap items-center gap-1 pl-[3.25rem]">
                                             {chips}
                                           </div>
                                         );
@@ -8054,7 +8219,38 @@ export const AllProfessionalsAppointmentsView: React.FC<
 
                                     {/* Botão Enviar Lembrete - Aparece quando NÃO expandido */}
                                     {!isExpanded && apt.status !== 'cancelled' && (
-                                      <div className="mt-2 pt-2 border-t border-white/20 grid grid-cols-2 gap-1.5">
+                                      <div className="mt-2 pt-2 border-t border-white/20 flex flex-wrap gap-1.5 [&>button]:flex-1 [&>button]:basis-[calc(50%-0.375rem)]">
+                                        {/* 📲 Pedir confirmação — manual, só acima de 30% de probabilidade de falta */}
+                                        {canRequestPresenceConfirmation(apt) && (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openPresenceConfirmationWhatsApp(apt);
+                                            }}
+                                            className="rounded-lg border border-orange-300/60 bg-orange-500 px-1.5 py-1.5 text-[10px] font-extrabold text-white hover:bg-orange-400 transition-colors leading-tight shadow-sm"
+                                            title="Abre o WhatsApp com a mensagem pedindo que o cliente confirme o horário (respondendo SIM)"
+                                          >
+                                            📲 Pedir confirmação
+                                          </button>
+                                        )}
+                                        {/* 🚫 Faltou: atalho da mesma ação "Cliente Faltou" do modal, só quando o
+                                            horário já passou e o agendamento continua em espera. É isso que alimenta
+                                            a "Probabilidade de falta" — sem marcar, a falta não conta. */}
+                                        {onClientNoShow && (apt.status === 'pending' || apt.status === 'confirmed') && hasAppointmentStartPassed(apt) && (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const clientName = apt.client_name || 'este cliente';
+                                              if (!window.confirm(`Tem certeza que deseja marcar que ${clientName} faltou? O agendamento será cancelado.`)) return;
+                                              void logAppointmentCardActionClick(apt, 'cliente_faltou_click', 'Clique em Faltou (atalho da linha).');
+                                              onClientNoShow(apt);
+                                            }}
+                                            className="rounded-lg border border-red-300/40 bg-red-700 px-1.5 py-1.5 text-[10px] font-extrabold text-white hover:bg-red-600 transition-colors leading-tight"
+                                            title="Registrar que o cliente faltou (mesma função do modal e de Meus Clientes)"
+                                          >
+                                            🚫 Faltou
+                                          </button>
+                                        )}
                                         <button
                                           onClick={(e) => {
                                             e.stopPropagation();
@@ -8195,6 +8391,19 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                                 <span>Dica: clique no <Pencil className="inline h-3 w-3 text-amber-300" /> para trocar “CLIENTE AVULSO” pelo nome do cliente.</span>
                                               </div>
                                             )}
+                                            {(() => {
+                                              const noShow = getNoShowForAppointment(apt);
+                                              if (!noShow) return null;
+                                              return (
+                                                <div className="flex items-center gap-2">
+                                                  <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-extrabold ${noShowChipClass(noShow.level)}`}>
+                                                    {noShowChipIcon(noShow.level)}{' '}
+                                                    {noShow.percent === null ? 'Cliente novo' : `Probabilidade de falta: ${noShow.percent}%`}
+                                                  </span>
+                                                  <span className="text-[11px] text-white/60">{describeNoShowHistory(noShow)}</span>
+                                                </div>
+                                              );
+                                            })()}
                                             {apt.client_whatsapp && (
                                               <div className="flex items-center gap-2">
                                                 {/* Número como TEXTO (não clicável) — evita abrir WhatsApp sem querer ao tentar fechar a comanda */}
@@ -8485,6 +8694,19 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                           <div className="mt-3 space-y-2">
                                             {/* Botões principais */}
                                             <div className="grid grid-cols-2 gap-2">
+                                              {canRequestPresenceConfirmation(apt) && (
+                                                <button
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openPresenceConfirmationWhatsApp(apt);
+                                                  }}
+                                                  className={modalActionButtonClass + ' col-span-2 bg-orange-500 hover:bg-orange-400'}
+                                                  title="Abre o WhatsApp com a mensagem pedindo que o cliente confirme o horário (respondendo SIM)"
+                                                >
+                                                  <Phone className="h-4 w-4 shrink-0" />
+                                                  Pedir confirmação no WhatsApp
+                                                </button>
+                                              )}
                                               <button
                                                 onClick={(e) => {
                                                   e.stopPropagation();
@@ -9016,6 +9238,31 @@ export const AllProfessionalsAppointmentsView: React.FC<
               </div>
             </div>
           </div>
+        )}
+
+        {/* 📸 Modal: Story dos horários livres (só leitura dos horários já calculados) */}
+        {showStoryModal && (
+          <StoryGeneratorModal
+            isOpen={showStoryModal}
+            onClose={() => setShowStoryModal(false)}
+            establishmentName={String(establishment?.name || 'Barbearia')}
+            establishmentCode={String(establishment?.code || '')}
+            logoUrl={storagePublicUrlForBrowser(
+              String((establishment as any)?.logo_url || establishment?.profile_image_url || '').trim(),
+              'card'
+            )}
+            dateLabel={`${isSelectedToday ? 'HOJE' : format(selectedDate, 'EEEE', { locale: ptBR }).toUpperCase()} · ${format(selectedDate, 'dd/MM')}`}
+            professionals={visibleProfessionals.map((professional) => {
+              const dateKey = format(selectedDate, 'yyyy-MM-dd');
+              const absent = (((professional as any)?.absences || []) as string[]).includes(dateKey);
+              const freeTimes = absent
+                ? []
+                : generateTimeSlotsWithAppointments(professional)
+                  .filter((slot) => slot.isEmpty && !slot.isBlocked && !slot.isPast)
+                  .map((slot) => slot.time);
+              return { id: String(professional.id), name: String(professional.name || ''), freeTimes };
+            })}
+          />
         )}
 
         {/* Modal: Horários disponíveis (somente leitura) */}

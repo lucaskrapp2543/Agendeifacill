@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:api\" \"npm run dev:vite\"",
     "dev:vite": "vite --host",
+    "dev:https": "vite --host --config vite.https.config.ts",
     "dev:api": "tsx watch server/api-server.ts",
     "dev:wa-worker": "tsx watch server/whatsapp-worker.ts",
     "dev-nocache": "vite --host --config vite.config.dev.ts",

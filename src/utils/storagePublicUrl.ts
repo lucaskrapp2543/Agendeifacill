@@ -38,7 +38,12 @@ export function storagePublicUrlForBrowser(url: string | null | undefined, size?
     // Em dev local não existe o proxy do Netlify em /storage/v1/* — reescrever pro
     // host atual (localhost) sempre daria 404. Mantém a URL original (domínio real),
     // que funciona normalmente via rede.
-    const isLocalDev = here === 'localhost' || here === '127.0.0.1' || here === '0.0.0.0';
+    const isLocalDev =
+      here === 'localhost' ||
+      here === '127.0.0.1' ||
+      here === '0.0.0.0' ||
+      // IP privado (teste no celular pela rede Wi-Fi apontando pro PC)
+      /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(here);
     const isSupabaseStorageHost = h === 'api.agendeifacil.com' || h.endsWith('.supabase.co');
     const isSameHost = h === here;
 

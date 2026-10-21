@@ -83,8 +83,37 @@ const isInternalEstablishmentAppointment = (
   return false;
 };
 
+/**
+ * "Mandar também quando EU agendo o cliente" (whatsapp_automation_settings.greeting_internal_enabled).
+ * Lê primeiro o usuário que vai enviar (sessão), depois o dono. Coluna ausente ou erro = false
+ * (mantém o comportamento antigo: reserva interna sem saudação).
+ */
+const isInternalGreetingEnabledFor = async (userIds: string[]): Promise<boolean> => {
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) return false;
+  const ids = Array.from(new Set(userIds.map((id) => String(id || '').trim()).filter(Boolean)));
+  if (ids.length === 0) return false;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('whatsapp_automation_settings')
+      .select('user_id,greeting_internal_enabled')
+      .in('user_id', ids);
+    if (error) return false;
+    const rows = (data || []) as Array<{ user_id?: string; greeting_internal_enabled?: boolean | null }>;
+    // Prioridade: a ordem de userIds (remetente antes do dono).
+    for (const id of ids) {
+      const row = rows.find((r) => String(r?.user_id || '').trim() === id);
+      if (row) return row.greeting_internal_enabled === true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+};
+
 const shouldSkipAutomationSend = async (
-  log: { appointmentId: string; messageType: string } | undefined
+  log: { appointmentId: string; messageType: string } | undefined,
+  senderUserId?: string
 ): Promise<string | null> => {
   if (!log?.appointmentId || !log?.messageType) return null;
   if (!isScheduleSensitiveMessageType(log.messageType)) return null;
@@ -142,7 +171,18 @@ const shouldSkipAutomationSend = async (
         .maybeSingle();
       const ownerId = String((establishmentData as any)?.owner_id || '').trim();
       if (isInternalEstablishmentAppointment(appointment, ownerId)) {
-        return `Envio automático ignorado: agendamento ${appointmentId} foi criado dentro da barbearia (sem saudação).`;
+        // Reserva feita pelo estabelecimento ("Reservar Cliente") recebe a saudação se a barbearia
+        // ligou "Mandar também quando EU agendo". Encaixe e venda avulsa continuam sem mensagem.
+        // Antes esta trava barrava tudo e a opção nova nunca chegava a enviar (log "failed").
+        const isReservarCliente =
+          appointment.is_establishment_booking === true &&
+          !Boolean(appointment.is_avulso) &&
+          !Boolean(appointment.is_squeeze);
+        const allowInternalGreeting =
+          isReservarCliente && (await isInternalGreetingEnabledFor([String(senderUserId || ''), ownerId]));
+        if (!allowInternalGreeting) {
+          return `Envio automático ignorado: agendamento ${appointmentId} foi criado dentro da barbearia (sem saudação).`;
+        }
       }
     }
   }
@@ -190,7 +230,7 @@ const manager = new WhatsAppManager({
 });
 
 const queue = new WhatsAppMessageQueue(async (job) => {
-  const skipReason = await shouldSkipAutomationSend(job.automationLog);
+  const skipReason = await shouldSkipAutomationSend(job.automationLog, job.userId);
   if (skipReason) {
     const skippedResult: SendMessageResult = {
       ok: false,

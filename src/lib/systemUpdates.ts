@@ -28,6 +28,117 @@ export const SYSTEM_UPDATE_KIND_LABEL: Record<SystemUpdateKind, string> = {
 
 export const SYSTEM_UPDATES: SystemUpdate[] = [
   {
+    id: 21,
+    date: '20/10/2026',
+    kind: 'novidade',
+    title: '📸 Story pronto com os horários livres do dia',
+    summary: 'Um toque e o sistema monta a imagem do story (com sua logo, os horários livres e o link de agendamento) pronta para postar no Instagram ou no status do WhatsApp.',
+    details: [
+      {
+        title: 'Onde fica',
+        text: 'Em Meus Agendamentos, logo acima da data, tem o botão "📸 Postar story com os horários livres". Ele pega os horários que ainda estão livres no dia que você está vendo.',
+      },
+      {
+        title: 'Como usar',
+        text: 'Escolha o modelo (Clássico, Dourado ou Neon), se vai todos os profissionais ou um só, e qual link vai na imagem (página completa ou chat). A prévia aparece na hora.',
+      },
+      {
+        title: 'Para postar',
+        text: 'No celular, toque em "Compartilhar" e, no menu que abre, escolha Instagram → Stories ou WhatsApp → Meu status. Depois cole o link no sticker de link do story (ou deixe na bio). No computador, o botão baixa a imagem.',
+      },
+      { text: 'Dia lotado? A imagem sai escrita "AGENDA CHEIA 🔥", boa para postar do mesmo jeito.' },
+    ],
+  },
+  {
+    id: 20,
+    date: '20/10/2026',
+    kind: 'novidade',
+    title: '🎯 Probabilidade de falta em cada agendamento',
+    summary: 'Cada agendamento pendente mostra um selo com a chance de o cliente faltar, calculada pelo histórico dele na sua barbearia. Só você vê; o cliente nunca vê.',
+    details: [
+      {
+        title: 'Como funciona',
+        text: 'O sistema olha quantas vezes aquele número de WhatsApp já veio e quantas vezes faltou na sua barbearia. Verde é risco baixo, amarelo é médio e vermelho é alto. Cliente novo usa a média da sua própria barbearia.',
+      },
+      {
+        title: 'Para o selo ficar cada vez mais certeiro',
+        text: 'Marque quem não veio: depois do horário passar, aparece o botão "🚫 Faltou" no agendamento (ou use "Cliente Faltou" dentro dele). É isso que alimenta o cálculo.',
+      },
+      { text: 'O selo só aparece em agendamento pendente ou confirmado. Quando o atendimento é concluído, ele some.' },
+    ],
+  },
+  {
+    id: 19,
+    date: '20/10/2026',
+    kind: 'novidade',
+    title: '📲 Pedir confirmação pelo WhatsApp (quando o risco de falta é alto)',
+    summary: 'Quando a chance de falta passa de 30%, aparece o botão "Pedir confirmação": abre o WhatsApp com a mensagem pronta pedindo um SIM do cliente.',
+    details: [
+      {
+        title: 'Como funciona',
+        text: 'Toque em "📲 Pedir confirmação" no agendamento (ou no botão dentro dele). O WhatsApp abre com a mensagem pronta, do tipo: "Fala João! 👋 Tá tudo certo pro seu horário amanhã às 10:00 com o Raul? Manda um SIM pra confirmar! 💈". Você só aperta enviar.',
+      },
+      { text: 'Nada é automático: você escolhe quando mandar, igual ao "Enviar lembrete". O cliente responde direto no seu WhatsApp.' },
+    ],
+  },
+  {
+    id: 18,
+    date: '20/10/2026',
+    kind: 'novidade',
+    title: '🔥 Cupom de adiantamento: 15% de desconto pagando antes de vencer',
+    summary: 'De 3 dias até 1 dia antes do vencimento do seu plano, aparece a faixa "Pague adiantado e ganhe 15% de desconto". Vale só no PIX.',
+    details: [
+      {
+        title: 'Como funciona',
+        text: 'Quando faltam 3, 2 ou 1 dia para vencer, a faixa aparece no topo do painel com o valor já com desconto. Toque em "Pagar agora com 15% OFF", pague no PIX e pronto: o cupom já vem aplicado.',
+      },
+      {
+        title: 'Você não perde dias',
+        text: 'Pagando adiantado, o próximo vencimento conta a partir do vencimento atual (não a partir do dia do pagamento). Pagou no dia 18 com vencimento no dia 21? O próximo vencimento vai para o dia 21 do mês seguinte.',
+      },
+      { text: 'No dia do vencimento o valor volta ao normal. Cartão não entra na promoção.' },
+    ],
+  },
+  {
+    id: 17,
+    date: '20/10/2026',
+    kind: 'melhoria',
+    title: '✨ Agenda nova: Meus Agendamentos com cara de painel',
+    summary: 'Saudação com os números do dia, barra de data, profissionais em chips, menu de cada coluna reorganizado e a janela do agendamento redesenhada. Nada foi tirado.',
+    details: [
+      {
+        title: 'O que mudou',
+        text: 'No topo: "Olá!" com total, realizados, pendentes e cancelados do dia. Abaixo, a data com setas e o botão Hoje. Cada profissional vira um chip com foto e quantidade; toque para mostrar ou esconder a coluna.',
+      },
+      {
+        title: 'Menu da coluna',
+        text: 'Agendar cliente e Encaixe em destaque, depois Bloquear horário, Bloqueio dia, Cadastrar assinante e Horários disponíveis. Financeiro, Vender produto, link exclusivo, contadores e meta continuam ali.',
+      },
+      {
+        title: 'Agendamentos',
+        text: 'Pendente fica amarelo com "⏳ Em espera", realizado fica verde com "✅ Realizado". Horário livre ficou claro, com o (+) para reservar, bloquear ou encaixar. Ao tocar no agendamento, a janela mostra cliente, horário, valor, pagamento e todos os botões de sempre.',
+      },
+    ],
+  },
+  {
+    id: 16,
+    date: '20/10/2026',
+    kind: 'correcao',
+    fromClientRequest: true,
+    title: '🛠️ Mensagem de confirmação não chegava quando a barbearia agendava',
+    summary: 'Com a opção "Mandar também quando EU agendo o cliente" ligada, a mensagem de saudação não estava saindo. Corrigido.',
+    details: [
+      {
+        title: 'O que acontecia',
+        text: 'Uma trava antiga do WhatsApp bloqueava toda mensagem de agendamento feito dentro da barbearia, mesmo com a opção ligada. O cliente não recebia o resumo do horário.',
+      },
+      {
+        title: 'Como conferir',
+        text: 'Menu Admin → Lembretes para Clientes → "Mandar também quando EU agendo o cliente (Reservar Cliente)" marcado. Faça um Reservar Cliente com o número de um cliente e a mensagem chega. Encaixe e venda avulsa continuam sem mensagem.',
+      },
+    ],
+  },
+  {
     id: 15,
     date: '16/10/2026',
     kind: 'novidade',

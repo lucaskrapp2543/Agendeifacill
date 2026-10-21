@@ -52,6 +52,7 @@ import { establishmentHasMercadoPago, establishmentMercadoPagoNeedsReconnect, is
 import { PlatformWalletCard } from '../components/PlatformWalletCard';
 import { NoShowPolicyCard } from '../components/NoShowPolicyCard';
 import { DEFAULT_NO_SHOW_POLICY, isNoShowPolicy } from '../lib/noShowPolicy';
+import { normalizePhoneForAttendance, type ClientAttendanceStats } from '../utils/noShowProbability';
 import { PartnerReferralPanel } from '../components/PartnerReferralPanel';
 import { fetchPartnerReferralCodeForEstablishment } from '../lib/partnerReferral';
 import { RecebaNaHoraPageLayout } from '../components/RecebaNaHoraPageLayout';
@@ -20771,6 +20772,29 @@ Estamos te aguardando!`;
   // 2. `appointments` + `monthlyAppointments` — agendamentos já carregados, atualizados
   //    automaticamente sempre que o status muda (concluir/cancelar/etc.)
   // null = nenhuma fonte disponível ainda → nenhuma tag aparece.
+  // Histórico por telefone para a "Probabilidade de falta" da agenda (só leitura).
+  // Vem da mesma lista de clientes já carregada: realizados (completedCount) e faltas
+  // ("Cliente faltou" → client_no_shows). null = ainda carregando → a agenda não mostra nada.
+  const clientAttendanceByPhone = useMemo((): Map<string, ClientAttendanceStats> | null => {
+    if (!clients || clients.length === 0) return null;
+    const map = new Map<string, ClientAttendanceStats>();
+    clients.forEach((c) => {
+      const phone = normalizePhoneForAttendance(c.whatsapp);
+      if (!phone) return;
+      const completed = Math.max(0, Number(c.completedCount || 0));
+      const faltas = Math.max(0, Number(c.faltas || 0));
+      const prev = map.get(phone);
+      // O mesmo telefone pode aparecer mais de uma vez (cliente manual + agendamentos): soma o maior.
+      const merged = {
+        completed: Math.max(prev?.completed || 0, completed),
+        faltas: Math.max(prev?.faltas || 0, faltas),
+      };
+      map.set(phone, merged);
+      map.set('55' + phone, merged);
+    });
+    return map;
+  }, [clients]);
+
   const returningClientPhones = useMemo((): Set<string> | null => {
     const set = new Set<string>();
     let hasAnySource = false;
@@ -29590,6 +29614,7 @@ Estamos te aguardando!`;
                       appointments={appointments}
                       monthlyAppointments={monthlyAppointments}
                       returningClientPhones={returningClientPhones}
+                      clientAttendanceByPhone={clientAttendanceByPhone}
                       establishmentProducts={products}
                       /* Líquido de produtos por profissional (mapa nome -> valor).
                          Passado JÁ CALCULADO de propósito: é exatamente o mesmo número
