@@ -28,6 +28,64 @@ export const SYSTEM_UPDATE_KIND_LABEL: Record<SystemUpdateKind, string> = {
 
 export const SYSTEM_UPDATES: SystemUpdate[] = [
   {
+    id: 24,
+    date: '22/10/2026',
+    kind: 'novidade',
+    fromClientRequest: true,
+    title: '🔁 Lembrete de retorno: o sistema chama de volta o cliente sumido',
+    summary: 'Cliente fez o último atendimento há 15, 20 ou 30 dias (você escolhe) e não marcou de novo? O WhatsApp manda sozinho a mensagem que você escreveu: "e aí, bora cortar?".',
+    details: [
+      {
+        title: 'Como ativar',
+        text: 'Menu Admin → Lembretes para Clientes → "🔁 Lembrete de retorno (cliente sumido)". Marque "Ativar", escolha 15, 20 ou 30 dias, escreva a mensagem e clique em "Salvar automações de WhatsApp". Precisa do WhatsApp conectado.',
+      },
+      {
+        title: 'A mensagem',
+        text: 'Você escreve do seu jeito. Só não apague {{cliente_nome}}: é ali que o sistema coloca o nome salvo do cliente. Também dá pra usar {{barbearia_nome}}, {{dias_sem_vir}} e {{link_agendamento}}.',
+      },
+      {
+        title: 'Regras pra não virar spam',
+        text: 'Cada cliente recebe uma mensagem só por "último atendimento". Quem já marcou de novo (ou tem horário futuro) não recebe. Cliente bloqueado não recebe. Só sai entre 9h e 19h, no máximo 30 por dia.',
+      },
+    ],
+  },
+  {
+    id: 23,
+    date: '22/10/2026',
+    kind: 'melhoria',
+    fromClientRequest: true,
+    title: '📅 Faturamento da semana já somado no Financeiro',
+    summary: 'Em "Ver atendimentos detalhado por profissional" agora aparece o total do período (bruto e o que fica na barbearia) e botões Esta semana, Últimos 7 dias e Este mês.',
+    details: [
+      {
+        title: 'Onde fica',
+        text: 'Financeiro → "Ver atendimentos detalhado por profissional". Logo ao lado das datas De/Até aparece "Total do período" com o bruto somado de todos os profissionais e quanto fica na barbearia (bruto menos o repasse dos profissionais que não são donos).',
+      },
+      {
+        title: 'Atalhos',
+        text: 'Os botões "Esta semana" (segunda a domingo), "Últimos 7 dias" e "Este mês" preenchem as datas sozinhos. Você também pode digitar qualquer período, como antes.',
+      },
+    ],
+  },
+  {
+    id: 22,
+    date: '22/10/2026',
+    kind: 'correcao',
+    fromClientRequest: true,
+    title: '🛠️ Reservar Cliente usava o tempo do serviço geral, não o do profissional',
+    summary: 'Se um profissional tem um serviço específico com o mesmo nome de um serviço geral (ex.: "Corte e barba" em 30 min pra um e 1 hora pra outro), o balcão pegava o geral. Agora vale o do profissional.',
+    details: [
+      {
+        title: 'O que acontecia',
+        text: 'Pelo link de agendamento já valia o serviço específico do profissional. Mas no Reservar Cliente, quando o nome era igual ao do serviço geral, o sistema usava o tempo e o preço do geral. Quem tem dois barbeiros com tempos diferentes pro mesmo serviço via a agenda marcar errado.',
+      },
+      {
+        title: 'Como ficou',
+        text: 'No Reservar Cliente, ao escolher o profissional, o serviço de mesmo nome passa a usar o tempo e o preço cadastrados em Profissionais → serviços específicos. Os AFCoins do serviço continuam os mesmos. Não precisa mais mudar o serviço geral pra "enganar" o sistema.',
+      },
+    ],
+  },
+  {
     id: 21,
     date: '20/10/2026',
     kind: 'novidade',

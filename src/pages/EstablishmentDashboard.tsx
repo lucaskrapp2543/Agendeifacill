@@ -26511,6 +26511,20 @@ Estamos te aguardando!`;
     return new Date(startDt.getFullYear(), startDt.getMonth(), 1);
   };
 
+  // "no mês" só quando as datas De/Até são o mês inteiro; senão é um período escolhido.
+  const professionalRevenuePeriodWord: string = (() => {
+    const startRaw = String(professionalRevenueRangeStart || '').trim();
+    const endRaw = String(professionalRevenueRangeEnd || '').trim();
+    if (!startRaw || !endRaw) return 'no mês';
+    const startDt = new Date(`${startRaw}T12:00:00`);
+    if (Number.isNaN(startDt.getTime())) return 'no período';
+    const isFullMonth =
+      startRaw === format(startOfMonth(startDt), 'yyyy-MM-dd') && endRaw === format(endOfMonth(startDt), 'yyyy-MM-dd');
+    return isFullMonth ? 'no mês' : 'no período';
+  })();
+  const professionalRevenueAcertoLabel = (month: Date): string =>
+    `Acerto de ${month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`;
+
   const paymentBelongsToSelectedMonth = (payment: any, monthReference: Date = selectedMonth): boolean => {
     const monthKey = `${monthReference.getFullYear()}-${String(monthReference.getMonth() + 1).padStart(2, '0')}`;
     if (payment?.for_month != null && String(payment.for_month).trim() !== '') {
@@ -28701,6 +28715,12 @@ Estamos te aguardando!`;
 
     const unmatchedRows = rows.filter((apt) => !matchedKeys.has(getAptKey(apt)));
     const unmatchedGross = unmatchedRows.reduce((sum, apt) => sum + getAppointmentRevenueBase(apt), 0);
+    // Total do período (pedido 2603): bruto de todos os atendimentos concluídos do período e
+    // quanto fica na barbearia (bruto menos o repasse dos profissionais que não são donos),
+    // mesma base das linhas por profissional. Nenhuma consulta nova.
+    const totalGross = rows.reduce((sum, apt) => sum + getAppointmentRevenueBase(apt), 0);
+    const nonOwnerProfessionalsLiquid = calculateTotalNonOwnerProfessionalsLiquid(professionalRevenueAppointments);
+    const establishmentLiquid = Math.max(0, Math.round((totalGross - nonOwnerProfessionalsLiquid) * 100) / 100);
     const unmatchedPreview = unmatchedRows
       .slice(0, 5)
       .map((apt) => String((apt as any)?.professional_name || apt.professional || 'Profissional não informado').trim())
@@ -28712,6 +28732,8 @@ Estamos te aguardando!`;
       unmatchedCount: unmatchedRows.length,
       unmatchedGross,
       unmatchedPreview,
+      totalGross,
+      establishmentLiquid,
     };
   })();
 
@@ -37943,6 +37965,46 @@ Estamos te aguardando!`;
                             onChange={(e) => setProfessionalRevenueRangeEnd(e.target.value)}
                             className="px-3 py-1.5 text-xs border border-gray-600 rounded-lg bg-[#0b0e13] text-gray-100"
                           />
+                          {/* Atalhos de período (pedido 2603): preenchem De/Até */}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {[
+                              {
+                                label: 'Esta semana',
+                                range: (): [Date, Date] => {
+                                  const today = new Date();
+                                  const monday = subDays(today, (today.getDay() + 6) % 7);
+                                  return [monday, addDays(monday, 6)];
+                                },
+                              },
+                              {
+                                label: 'Últimos 7 dias',
+                                range: (): [Date, Date] => {
+                                  const today = new Date();
+                                  return [subDays(today, 6), today];
+                                },
+                              },
+                              {
+                                label: 'Este mês',
+                                range: (): [Date, Date] => {
+                                  const today = new Date();
+                                  return [startOfMonth(today), endOfMonth(today)];
+                                },
+                              },
+                            ].map((quick) => (
+                              <button
+                                key={quick.label}
+                                type="button"
+                                onClick={() => {
+                                  const [from, to] = quick.range();
+                                  setProfessionalRevenueRangeStart(format(from, 'yyyy-MM-dd'));
+                                  setProfessionalRevenueRangeEnd(format(to, 'yyyy-MM-dd'));
+                                }}
+                                className="px-2.5 py-1.5 text-[11px] font-bold rounded-lg border border-indigo-500/50 bg-indigo-600/20 text-indigo-100 hover:bg-indigo-600/35 transition-colors"
+                              >
+                                {quick.label}
+                              </button>
+                            ))}
+                          </div>
                           <span className="text-[11px] text-gray-400">
                             {isLoadingProfessionalRevenueAppointments
                               ? 'Carregando período...'
@@ -37957,6 +38019,21 @@ Estamos te aguardando!`;
                             <span className="text-[11px] text-amber-300">
                               {professionalRevenueDiagnostics.unmatchedCount} sem profissional mapeado
                             </span>
+                          )}
+                          {/* Total do período já somado (pedido 2603) */}
+                          {!isLoadingProfessionalRevenueAppointments && !professionalRevenueRangeError && (
+                            <div className="basis-full flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
+                              <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-200/80">Total do período</span>
+                              <span className="text-sm text-gray-100">
+                                Bruto: <strong className="text-emerald-300">{formatCurrency(professionalRevenueDiagnostics.totalGross)}</strong>
+                              </span>
+                              <span className="text-sm text-gray-100">
+                                Fica na barbearia: <strong className="text-emerald-300">{formatCurrency(professionalRevenueDiagnostics.establishmentLiquid)}</strong>
+                              </span>
+                              <span className="text-[11px] text-gray-400">
+                                {professionalRevenueDiagnostics.totalCount} atendimento(s) · bruto menos o repasse dos profissionais que não são donos
+                              </span>
+                            </div>
                           )}
                         </div>
                       ) : (
@@ -38087,7 +38164,7 @@ Estamos te aguardando!`;
                                 <div className="text-sm text-gray-300 mt-1 bg-[#0b0e13]/80 border border-gray-700 rounded-lg px-3 py-2 inline-block">
                                   <p className="flex items-center gap-2 flex-wrap">
                                     <span className="font-semibold text-white">
-                                      {totalAtendimentosMes} atendimento(s) no mês
+                                      {totalAtendimentosMes} atendimento(s) {professionalRevenuePeriodWord}
                                     </span>
                                     <span className="text-gray-500">•</span>
                                     {isOwnerProfessional(professional) ? (
@@ -38167,32 +38244,32 @@ Estamos te aguardando!`;
                                 </div>
                               </div>
 
-                              {/* Valores - Layout Mobile */}
-                              <div className="text-right sm:text-right bg-gradient-to-br from-[#0b0e13] to-[#121722] rounded-lg p-4 border border-gray-700/70">
-                                <p className="text-2xl font-bold text-emerald-300 mb-1">
-                                  {formatCurrency(professionalRevenue)}
-                                </p>
-                                <div className="text-sm text-cyan-300 font-medium">
-                                  {isOwnerProfessional(professional) ? (
-                                    <span>Líquido: <span className="font-bold">{formatCurrency(monthlyProfessionalLiquid)}</span></span>
-                                  ) : (
-                                    <span>Líquido apurado: <span className="font-bold">{formatCurrency(reconciledProfessionalLiquid)}</span></span>
-                                  )}
+                              {/* Números do período com nome claro (sem "líquido" solto). Mesmos valores de antes. */}
+                              <div className="grid grid-cols-2 gap-2 sm:min-w-[320px]">
+                                <div className="rounded-lg border border-gray-700/70 bg-gradient-to-br from-[#0b0e13] to-[#121722] p-3">
+                                  <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Produziu {professionalRevenuePeriodWord}</p>
+                                  <p className="mt-1 text-xl font-extrabold text-emerald-300">{formatCurrency(professionalRevenue)}</p>
+                                  <p className="text-[11px] text-gray-500">bruto dos serviços</p>
                                 </div>
-                                {!isOwnerProfessional(professional) && Math.abs(monthlyProfessionalLiquid - reconciledProfessionalLiquid) > 0.01 && (
-                                  <div className="mt-1 text-[11px] text-gray-400">
-                                    Líquido do mês (total): {formatCurrency(monthlyProfessionalLiquid)}
+                                {isOwnerProfessional(professional) ? (
+                                  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                                    <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-200/80">Fica na barbearia</p>
+                                    <p className="mt-1 text-xl font-extrabold text-emerald-300">{formatCurrency(monthlyProfessionalLiquid)}</p>
+                                    <p className="text-[11px] text-emerald-200/60">dono, 100%</p>
+                                  </div>
+                                ) : (
+                                  <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3">
+                                    <p className="text-[10px] font-bold uppercase tracking-wide text-cyan-200/80">
+                                      Parte dele ({normalizeProfessionalPercentage(professional?.percentage)}%)
+                                    </p>
+                                    <p className="mt-1 text-xl font-extrabold text-cyan-300">{formatCurrency(monthlyProfessionalLiquid)}</p>
+                                    <p className="text-[11px] text-cyan-200/60">comissão {professionalRevenuePeriodWord}</p>
                                   </div>
                                 )}
                                 {(subscriberProfessionalFinancial.totalAccumulated > 0 || subscriberProfessionalFinancial.totalPaid > 0) && (
-                                  <div className="mt-2 text-xs text-purple-300 font-medium">
-                                    Assinaturas (pendente): <span className="font-bold">{formatCurrency(subscriberProfessionalFinancial.pending)}</span>
-                                  </div>
-                                )}
-                                {(subscriberProfessionalFinancial.totalAccumulated > 0 || subscriberProfessionalFinancial.totalPaid > 0) && (
-                                  <div className="mt-1 text-xs text-gray-400">
-                                    Total no financeiro do profissional (serviços + assinaturas pendentes):{' '}
-                                    <span className="font-bold text-gray-200">{formatCurrency(totalProfessionalLiquidWithSubscribers)}</span>
+                                  <div className="col-span-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-xs text-purple-200">
+                                    Assinaturas pendentes: <span className="font-bold">{formatCurrency(subscriberProfessionalFinancial.pending)}</span>
+                                    <span className="text-purple-200/70"> · total no financeiro dele (serviços + assinaturas): {formatCurrency(totalProfessionalLiquidWithSubscribers)}</span>
                                   </div>
                                 )}
                               </div>
@@ -38202,9 +38279,16 @@ Estamos te aguardando!`;
                             <div className="border-t border-gray-700 pt-4 mt-5 bg-gradient-to-r from-[#0b0e13]/40 to-[#121722]/40 rounded-lg p-3 -mx-3 -mb-3">
                               {isOwnerProfessional(professional) ? (
                                 <p className="text-sm text-gray-300 italic">
-                                  Dono (100%): este valor já está incluído no <strong>Líquido Estabelecimento</strong> acima. Não é necessário registrar pagamento para si mesmo.
+                                  Dono (100%): a parte dele já está em <strong>Fica na barbearia</strong>. Não precisa registrar pagamento pra si mesmo.
                                 </p>
                               ) : (
+                                <>
+                                <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                                  {professionalRevenueAcertoLabel(professionalRevenuePaymentMonth)}
+                                  <span className="ml-2 font-normal normal-case tracking-normal text-gray-500">
+                                    o acerto com o profissional é por mês, mesmo que as datas acima sejam outras
+                                  </span>
+                                </p>
                                 <ProfessionalPaymentControl
                                   establishmentId={establishment?.id || ''}
                                   professionalId={professional.id}
@@ -38223,6 +38307,7 @@ Estamos te aguardando!`;
                                     void loadProfessionalPayments(true);
                                   }}
                                 />
+                                </>
                               )}
                             </div>
                             {/* Mostrar detalhamento dos serviços */}

@@ -44,6 +44,10 @@ type AutomationSettings = {
   /** Mensagem de apresentação: responde sozinho com o link quando o cliente manda mensagem */
   presentation_enabled: boolean;
   presentation_link: PresentationLink;
+  /** Lembrete de retorno (cliente sumido): manda sozinho X dias depois do último atendimento. Padrão: desligado. */
+  return_reminder_enabled?: boolean;
+  return_reminder_days?: number;
+  return_reminder_template?: string;
 };
 
 type AutomationSettingsResponse = {
@@ -100,6 +104,16 @@ const DEFAULT_GREETING_TEMPLATE =
   '⏰ Horário: {{horario}}\n' +
   '💈 Profissional: {{profissional_nome}}\n\n' +
   'Qualquer dúvida, estamos por aqui no WhatsApp 💬';
+const RETURN_REMINDER_DAYS_OPTIONS = [
+  { label: '15 dias', value: 15 },
+  { label: '20 dias', value: 20 },
+  { label: '30 dias', value: 30 },
+];
+const DEFAULT_RETURN_REMINDER_TEMPLATE =
+  'Opa, {{cliente_nome}}! 👋\n' +
+  'Já faz {{dias_sem_vir}} dias desde seu último corte na {{barbearia_nome}}. Bora dar um trato no visual? 💈\n\n' +
+  'É só agendar aqui: {{link_agendamento}}';
+const REQUIRED_RETURN_REMINDER_TOKENS = ['cliente_nome'];
 const REQUIRED_REMINDER_TOKENS = [
   'cliente_nome',
   'barbearia_nome',
@@ -124,6 +138,53 @@ async function buildAuthHeaders() {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
   };
+}
+
+// ── Prévia "como o cliente vai ver no WhatsApp" ────────────────────────────────
+// Troca as variáveis conhecidas por valores de exemplo; variável desconhecida fica como
+// está, para o barbeiro perceber que digitou errado.
+const fillPreviewTemplate = (template: string, vars: Record<string, string>): string =>
+  String(template || '').replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, key: string) =>
+    Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : match
+  );
+
+function WhatsAppPreview({
+  establishmentName,
+  text,
+  note,
+}: {
+  establishmentName: string;
+  text: string;
+  note: string;
+}) {
+  return (
+    <div className="mt-4">
+      <p className="mb-2 text-xs font-semibold text-gray-300">
+        👀 Como o cliente vai ver no WhatsApp (exemplo com um cliente chamado João)
+      </p>
+      <div className="rounded-xl border border-white/10 p-3" style={{ background: '#0b141a' }}>
+        <div className="flex items-center gap-2 border-b border-white/10 pb-2">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">
+            {establishmentName.slice(0, 2).toUpperCase()}
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-white">{establishmentName}</p>
+            <p className="text-[11px] text-gray-400">online</p>
+          </div>
+        </div>
+        <div className="mt-3 flex justify-start">
+          <div
+            className="max-w-[85%] rounded-lg rounded-tl-none px-3 py-2 text-sm text-gray-100 shadow"
+            style={{ background: '#202c33' }}
+          >
+            <p className="whitespace-pre-wrap break-words">{text || '(mensagem vazia)'}</p>
+            <p className="mt-1 text-right text-[10px] text-gray-400">10:32</p>
+          </div>
+        </div>
+      </div>
+      <p className="mt-1 text-[11px] text-gray-500">{note}</p>
+    </div>
+  );
 }
 
 export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: Props) {
@@ -164,10 +225,14 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
     greeting_internal_enabled: false,
     presentation_enabled: true,
     presentation_link: 'chat',
+    return_reminder_enabled: false,
+    return_reminder_days: 20,
+    return_reminder_template: DEFAULT_RETURN_REMINDER_TEMPLATE,
   });
   // Código e páginas ativas do estabelecimento (para mostrar os links da apresentação)
   const [presentationEstablishment, setPresentationEstablishment] = useState<{
     code: string;
+    name: string;
     chatEnabled: boolean;
     simpleEnabled: boolean;
   } | null>(null);
@@ -178,7 +243,7 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
       try {
         const { data } = await supabase
           .from('establishments')
-          .select('code,booking_chat_enabled,booking_simple_page_enabled,created_at')
+          .select('code,name,booking_chat_enabled,booking_simple_page_enabled,created_at')
           .eq('owner_id', userId)
           .or('is_deleted.is.null,is_deleted.eq.false')
           .order('created_at', { ascending: true })
@@ -187,6 +252,7 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
         if (cancelled || !data) return;
         setPresentationEstablishment({
           code: String((data as any).code || ''),
+          name: String((data as any).name || '').trim(),
           chatEnabled: (data as any).booking_chat_enabled !== false,
           simpleEnabled: (data as any).booking_simple_page_enabled === true,
         });
@@ -221,6 +287,20 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
     if (current === 'error') return '❌ Erro';
     return current || 'Desconectado';
   }, [status]);
+
+  // Exemplo para as prévias "como o cliente vai ver" (nada disso é enviado; só ilustra).
+  const previewEstablishmentName = presentationEstablishment?.name || 'Sua Barbearia';
+  const previewVars: Record<string, string> = {
+    cliente_nome: 'João',
+    barbearia_nome: previewEstablishmentName,
+    data: new Date().toLocaleDateString('pt-BR'),
+    horario: '14:30',
+    profissional_nome: 'Raul',
+    tempo_lembrete:
+      REMINDER_OPTIONS.find((opt) => opt.value === settings.reminder_offset_minutes)?.label || '1 hora',
+    dias_sem_vir: String(settings.return_reminder_days || 20),
+    link_agendamento: `https://agendeifacil.com/booking/${presentationEstablishment?.code || 'SEU-CÓDIGO'}`,
+  };
 
   const findMissingTokens = (template: string, requiredTokens: string[]) =>
     requiredTokens.filter((token) => !String(template || '').includes(`{{${token}}}`));
@@ -582,6 +662,17 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
             .join(', ')}`
         );
       }
+      const missingReturnTokens = findMissingTokens(
+        String(payloadSettings.return_reminder_template || ''),
+        REQUIRED_RETURN_REMINDER_TOKENS
+      );
+      if (missingReturnTokens.length > 0) {
+        throw new Error(
+          `A mensagem de retorno precisa manter: ${missingReturnTokens
+            .map((token) => `{{${token}}}`)
+            .join(', ')}`
+        );
+      }
 
       const headers = await buildAuthHeaders();
       if (!headers) throw new Error('Sessão expirada. Faça login novamente.');
@@ -598,6 +689,9 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
           greeting_internal_enabled: payloadSettings.greeting_internal_enabled === true,
           presentation_enabled: payloadSettings.presentation_enabled,
           presentation_link: payloadSettings.presentation_link,
+          return_reminder_enabled: payloadSettings.return_reminder_enabled === true,
+          return_reminder_days: payloadSettings.return_reminder_days || 20,
+          return_reminder_template: payloadSettings.return_reminder_template || DEFAULT_RETURN_REMINDER_TEMPLATE,
         }),
       });
       const data = await parseApiResponse<AutomationSettingsResponse>(response);
@@ -645,6 +739,9 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
           greeting_internal_enabled: nextSettings.greeting_internal_enabled === true,
           presentation_enabled: nextSettings.presentation_enabled,
           presentation_link: nextSettings.presentation_link,
+          return_reminder_enabled: nextSettings.return_reminder_enabled === true,
+          return_reminder_days: nextSettings.return_reminder_days || 20,
+          return_reminder_template: nextSettings.return_reminder_template || DEFAULT_RETURN_REMINDER_TEMPLATE,
         }),
       });
       const data = await parseApiResponse<AutomationSettingsResponse>(response);
@@ -694,199 +791,232 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
     return `${raw.slice(0, 4)}-${raw.slice(4)}`;
   };
 
+  // Classes compartilhadas do layout (só visual).
+  const cardClass = 'rounded-2xl border border-gray-700 bg-[#101112] p-4 sm:p-5';
+  const editorSummaryClass =
+    'list-none cursor-pointer flex items-center justify-between gap-2 rounded-lg border border-gray-700 bg-black/30 px-3 py-2 text-sm font-semibold text-white hover:bg-black/40';
+  const textareaClass =
+    'mt-2 w-full rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white disabled:opacity-50';
+  const restoreButtonClass =
+    'rounded-md border border-amber-400/50 px-3 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-500/10';
+
   return (
-    <div className="rounded-xl border border-gray-700 bg-[#101112] p-4">
+    <div className="space-y-4">
       {isPlanPrataActive ? (
-        <div className="mb-3 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+        <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
           WhatsApp conectado ao sistema é exclusivo do <strong>Plano Diamante</strong>. Você pode ver esta área, mas para conectar por QR ou código precisa subir de plano.
         </div>
       ) : null}
       {apiUnavailable ? (
-        <div className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+        <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200">
           API de WhatsApp indisponível neste deploy. {apiUnavailableMessage || 'As rotas /api/whatsapp não responderam JSON.'}
         </div>
       ) : null}
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-bold text-white">WhatsApp (Baileys - QR ou código)</h3>
-          <p className="text-sm text-gray-300">
-            Status: <span className="font-semibold text-white">{statusLabel}</span>
-          </p>
-          {status?.phone ? (
-            <p className="text-xs text-emerald-300 mt-1">Número conectado: {status.phone}</p>
-          ) : null}
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={handleConnect}
-            disabled={loading}
-            className={`px-3 py-2 rounded-md text-white text-sm font-semibold disabled:opacity-60 ${isPlanPrataActive ? 'bg-gray-700 hover:bg-gray-600' : 'bg-emerald-600 hover:bg-emerald-500'}`}
-          >
-            Conectar por QR
-          </button>
-          <button
-            type="button"
-            onClick={handleDisconnect}
-            disabled={loading}
-            className="px-3 py-2 rounded-md bg-gray-700 text-white text-sm font-semibold hover:bg-gray-600 disabled:opacity-60"
-          >
-            Desconectar
-          </button>
-        </div>
-      </div>
 
-      {/* Saída para quem está preso: WhatsApp fora do ar e o sistema não deixa
-          reconectar. Só aparece quando NÃO há conexão ativa, para ninguém
-          derrubar sem querer um WhatsApp que está funcionando. */}
-      {!status?.connected ? (
-        <div className="mt-3 rounded-lg border border-orange-500/30 bg-orange-500/10 p-3">
-          <p className="text-sm font-semibold text-orange-200">WhatsApp não conecta de jeito nenhum?</p>
-          <p className="mt-1 text-xs text-orange-100/80">
-            Se o QR não aparece ou o código não gera, a conexão anterior pode ter travado.
-            Limpe e comece do zero — só esta barbearia é afetada.
-          </p>
-          <button
-            type="button"
-            onClick={handleResetConnection}
-            disabled={loading}
-            className="mt-2 px-3 py-2 rounded-md bg-orange-600 text-white text-sm font-semibold hover:bg-orange-500 disabled:opacity-60"
-          >
-            Limpar conexão e começar do zero
-          </button>
-        </div>
-      ) : null}
-
-      {qrDataUrl ? (
-        <div className="mt-4 rounded-lg border border-amber-500/30 bg-black/30 p-3">
-          <p className="text-sm text-amber-200 font-semibold mb-2">Escaneie o QR no WhatsApp:</p>
-          <p className="text-xs text-gray-300 mb-3">
-            WhatsApp {'>'} Aparelhos conectados {'>'} Conectar dispositivo
-          </p>
-          <img src={qrDataUrl} alt="QR Code WhatsApp Baileys" className="w-64 h-64 bg-white rounded-md p-2" />
-        </div>
-      ) : null}
-
-      {!status?.connected ? (
-        <div className="mt-4 rounded-lg border border-cyan-500/30 bg-black/20 p-3">
-          <p className="text-sm font-semibold text-cyan-200">Conectar com número (código)</p>
-          <p className="mt-1 text-xs text-gray-300">
-            No WhatsApp: Aparelhos conectados {'>'} Conectar aparelho {'>'} Conectar com número de telefone.
-          </p>
-          <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[240px_auto]">
-            <input
-              type="text"
-              value={pairingPhone}
-              onChange={(e) => setPairingPhone(e.target.value)}
-              placeholder="Número com DDD (ex: 11999999999)"
-              className="rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
-            />
+      {/* ───────────────── PASSO 1: CONEXÃO ───────────────── */}
+      <section className={cardClass}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">Passo 1</p>
+            <h3 className="text-lg font-bold text-white">📱 Conexão do WhatsApp</h3>
+            <p className="mt-1 text-sm text-gray-300">
+              Status: <span className="font-semibold text-white">{statusLabel}</span>
+            </p>
+            {status?.phone ? (
+              <p className="mt-1 text-xs text-emerald-300">Número conectado: {status.phone}</p>
+            ) : null}
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
             <button
               type="button"
-              onClick={handleRequestPairingCode}
-              disabled={generatingPairingCode || loading}
-              className={`px-3 py-2 rounded-md text-white text-sm font-semibold disabled:opacity-60 ${isPlanPrataActive ? 'bg-gray-700 hover:bg-gray-600' : 'bg-cyan-700 hover:bg-cyan-600'}`}
+              onClick={handleConnect}
+              disabled={loading}
+              className={`px-3 py-2 rounded-md text-white text-sm font-semibold disabled:opacity-60 ${isPlanPrataActive ? 'bg-gray-700 hover:bg-gray-600' : 'bg-emerald-600 hover:bg-emerald-500'}`}
             >
-              {generatingPairingCode ? 'Gerando...' : 'Gerar código'}
+              Conectar por QR
+            </button>
+            <button
+              type="button"
+              onClick={handleDisconnect}
+              disabled={loading}
+              className="px-3 py-2 rounded-md bg-gray-700 text-white text-sm font-semibold hover:bg-gray-600 disabled:opacity-60"
+            >
+              Desconectar
             </button>
           </div>
-          {pairingCode ? (
-            <div className="mt-3 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2">
-              <p className="text-xs text-emerald-200">Digite este código no WhatsApp:</p>
-              <p className="mt-1 text-2xl font-extrabold tracking-[0.18em] text-white">{formatPairingCode(pairingCode)}</p>
-            </div>
-          ) : null}
         </div>
-      ) : null}
 
-      <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-[220px_1fr_auto]">
-        <input
-          type="text"
-          value={manualPhone}
-          onChange={(e) => setManualPhone(e.target.value)}
-          placeholder="Telefone teste (com DDD)"
-          className="rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
-        />
-        <input
-          type="text"
-          value={manualMessage}
-          onChange={(e) => setManualMessage(e.target.value)}
-          placeholder="Mensagem de teste"
-          className="rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
-        />
-        <button
-          type="button"
-          onClick={handleSendTest}
-          disabled={sendingTest}
-          className="px-3 py-2 rounded-md bg-cyan-700 text-white text-sm font-semibold hover:bg-cyan-600 disabled:opacity-60"
-        >
-          Enviar teste
-        </button>
-      </div>
-
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={toggleLogs}
-          disabled={loadingLogs}
-          className="rounded-md border border-cyan-400/50 px-3 py-2 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/10 disabled:opacity-60"
-        >
-          {showLogs ? 'Ocultar envios' : 'Ver envios'}
-        </button>
-        {showLogs ? (
-          <button
-            type="button"
-            onClick={loadMessageLogs}
-            disabled={loadingLogs}
-            className="rounded-md border border-gray-600 px-3 py-2 text-xs font-semibold text-gray-200 hover:bg-gray-700/40 disabled:opacity-60"
-          >
-            {loadingLogs ? 'Atualizando...' : 'Atualizar'}
-          </button>
+        {/* Saída para quem está preso: WhatsApp fora do ar e o sistema não deixa
+            reconectar. Só aparece quando NÃO há conexão ativa, para ninguém
+            derrubar sem querer um WhatsApp que está funcionando. */}
+        {!status?.connected ? (
+          <div className="mt-4 rounded-lg border border-orange-500/30 bg-orange-500/10 p-3">
+            <p className="text-sm font-semibold text-orange-200">WhatsApp não conecta de jeito nenhum?</p>
+            <p className="mt-1 text-xs text-orange-100/80">
+              Se o QR não aparece ou o código não gera, a conexão anterior pode ter travado.
+              Limpe e comece do zero — só esta barbearia é afetada.
+            </p>
+            <button
+              type="button"
+              onClick={handleResetConnection}
+              disabled={loading}
+              className="mt-2 w-full sm:w-auto px-3 py-2 rounded-md bg-orange-600 text-white text-sm font-semibold hover:bg-orange-500 disabled:opacity-60"
+            >
+              Limpar conexão e começar do zero
+            </button>
+          </div>
         ) : null}
-      </div>
 
-      {showLogs ? (
-        <div className="mt-3 rounded-lg border border-gray-700 bg-black/20 p-3">
-          <p className="text-sm font-semibold text-white">Últimos envios (fila / enviado / aceito sem ACK / falhou)</p>
-          {messageLogs.length === 0 ? (
-            <p className="mt-2 text-xs text-gray-300">Nenhum envio encontrado para este usuário.</p>
-          ) : (
-            <div className="mt-2 max-h-72 overflow-auto">
-              <table className="w-full text-left text-xs text-gray-200">
-                <thead className="text-gray-400">
-                  <tr>
-                    <th className="px-2 py-1">Quando</th>
-                    <th className="px-2 py-1">Tipo</th>
-                    <th className="px-2 py-1">Status</th>
-                    <th className="px-2 py-1">Telefone</th>
-                    <th className="px-2 py-1">Erro</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {messageLogs.map((log) => (
-                    <tr key={log.id} className="border-t border-gray-800">
-                      <td className="px-2 py-1 whitespace-nowrap">
-                        {formatLogDateTime(log.sent_at || log.created_at)}
-                      </td>
-                      <td className="px-2 py-1">{String(log.message_type || '-')}</td>
-                      <td className="px-2 py-1">{formatLogStatus(log.status)}</td>
-                      <td className="px-2 py-1">{String(log.recipient_phone || '-')}</td>
-                      <td className="px-2 py-1">{String(log.error || '-')}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {qrDataUrl ? (
+          <div className="mt-4 rounded-lg border border-amber-500/30 bg-black/30 p-3">
+            <p className="text-sm text-amber-200 font-semibold mb-2">Escaneie o QR no WhatsApp:</p>
+            <p className="text-xs text-gray-300 mb-3">
+              WhatsApp {'>'} Aparelhos conectados {'>'} Conectar dispositivo
+            </p>
+            <img src={qrDataUrl} alt="QR Code WhatsApp Baileys" className="w-64 h-64 max-w-full bg-white rounded-md p-2" />
+          </div>
+        ) : null}
+
+        {!status?.connected ? (
+          <div className="mt-4 rounded-lg border border-cyan-500/30 bg-black/20 p-3">
+            <p className="text-sm font-semibold text-cyan-200">Ou conectar com número (código)</p>
+            <p className="mt-1 text-xs text-gray-300">
+              No WhatsApp: Aparelhos conectados {'>'} Conectar aparelho {'>'} Conectar com número de telefone.
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[240px_auto]">
+              <input
+                type="text"
+                value={pairingPhone}
+                onChange={(e) => setPairingPhone(e.target.value)}
+                placeholder="Número com DDD (ex: 11999999999)"
+                className="rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
+              />
+              <button
+                type="button"
+                onClick={handleRequestPairingCode}
+                disabled={generatingPairingCode || loading}
+                className={`px-3 py-2 rounded-md text-white text-sm font-semibold disabled:opacity-60 ${isPlanPrataActive ? 'bg-gray-700 hover:bg-gray-600' : 'bg-cyan-700 hover:bg-cyan-600'}`}
+              >
+                {generatingPairingCode ? 'Gerando...' : 'Gerar código'}
+              </button>
             </div>
-          )}
-        </div>
-      ) : null}
+            {pairingCode ? (
+              <div className="mt-3 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2">
+                <p className="text-xs text-emerald-200">Digite este código no WhatsApp:</p>
+                <p className="mt-1 text-2xl font-extrabold tracking-[0.18em] text-white">{formatPairingCode(pairingCode)}</p>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* Teste e histórico ficam recolhidos: são de uso eventual e poluíam a tela no celular. */}
+        <details className="group mt-4">
+          <summary className={editorSummaryClass}>
+            <span>🧪 Testar envio e ver últimos envios</span>
+            <span className="text-xs transition-transform group-open:rotate-180">▼</span>
+          </summary>
+          <div className="mt-3 space-y-3">
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-[220px_1fr_auto]">
+              <input
+                type="text"
+                value={manualPhone}
+                onChange={(e) => setManualPhone(e.target.value)}
+                placeholder="Telefone teste (com DDD)"
+                className="rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
+              />
+              <input
+                type="text"
+                value={manualMessage}
+                onChange={(e) => setManualMessage(e.target.value)}
+                placeholder="Mensagem de teste"
+                className="rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
+              />
+              <button
+                type="button"
+                onClick={handleSendTest}
+                disabled={sendingTest}
+                className="px-3 py-2 rounded-md bg-cyan-700 text-white text-sm font-semibold hover:bg-cyan-600 disabled:opacity-60"
+              >
+                Enviar teste
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleLogs}
+                disabled={loadingLogs}
+                className="rounded-md border border-cyan-400/50 px-3 py-2 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/10 disabled:opacity-60"
+              >
+                {showLogs ? 'Ocultar envios' : 'Ver envios'}
+              </button>
+              {showLogs ? (
+                <button
+                  type="button"
+                  onClick={loadMessageLogs}
+                  disabled={loadingLogs}
+                  className="rounded-md border border-gray-600 px-3 py-2 text-xs font-semibold text-gray-200 hover:bg-gray-700/40 disabled:opacity-60"
+                >
+                  {loadingLogs ? 'Atualizando...' : 'Atualizar'}
+                </button>
+              ) : null}
+            </div>
+
+            {showLogs ? (
+              <div className="rounded-lg border border-gray-700 bg-black/20 p-3">
+                <p className="text-sm font-semibold text-white">Últimos envios (fila / enviado / aceito sem ACK / falhou)</p>
+                {messageLogs.length === 0 ? (
+                  <p className="mt-2 text-xs text-gray-300">Nenhum envio encontrado para este usuário.</p>
+                ) : (
+                  <div className="mt-2 max-h-72 overflow-auto">
+                    <table className="w-full text-left text-xs text-gray-200">
+                      <thead className="text-gray-400">
+                        <tr>
+                          <th className="px-2 py-1">Quando</th>
+                          <th className="px-2 py-1">Tipo</th>
+                          <th className="px-2 py-1">Status</th>
+                          <th className="px-2 py-1">Telefone</th>
+                          <th className="px-2 py-1">Erro</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {messageLogs.map((log) => (
+                          <tr key={log.id} className="border-t border-gray-800">
+                            <td className="px-2 py-1 whitespace-nowrap">
+                              {formatLogDateTime(log.sent_at || log.created_at)}
+                            </td>
+                            <td className="px-2 py-1">{String(log.message_type || '-')}</td>
+                            <td className="px-2 py-1">{formatLogStatus(log.status)}</td>
+                            <td className="px-2 py-1">{String(log.recipient_phone || '-')}</td>
+                            <td className="px-2 py-1">{String(log.error || '-')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+        </details>
+      </section>
+
+      {/* ───────────────── PASSO 2: AUTOMAÇÕES ───────────────── */}
+      <div className="px-1 pt-1">
+        <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">Passo 2</p>
+        <h3 className="text-lg font-bold text-white">🤖 Mensagens automáticas</h3>
+        <p className="mt-1 text-xs text-gray-400">
+          Cada bloco abaixo é uma automação. Ligue, veja a prévia de como o cliente recebe e, se quiser, abra
+          "Editar mensagem". Apresentação salva na hora; lembrete, saudação e retorno salvam no botão laranja no final.
+        </p>
+      </div>
 
       {/* Mensagem de apresentação: cliente manda mensagem -> recebe o link de agendamento */}
-      <div className="mt-5 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-4">
+      <section className="rounded-2xl border border-emerald-500/40 bg-emerald-500/5 p-4 sm:p-5">
         <label className="flex items-start gap-3 cursor-pointer">
           <input
             type="checkbox"
-            className="mt-1 h-5 w-5"
+            className="mt-1 h-5 w-5 shrink-0"
             checked={settings.presentation_enabled}
             disabled={savingSettings}
             onChange={(e) => {
@@ -895,12 +1025,12 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
               void handleSaveAutomationSettings({ presentation_enabled: next }, { silent: true });
             }}
           />
-          <span>
-            <span className="block text-base font-semibold text-white">Mensagem de apresentação</span>
+          <span className="min-w-0">
+            <span className="block text-base font-bold text-white">💬 Mensagem de apresentação</span>
             <span className="mt-1 block text-xs text-gray-300">
               Com essa opção ativada, a cada mensagem que você receber o WhatsApp envia sozinho uma mensagem para o
               cliente com seu link de agendamento. O mesmo cliente só recebe de novo depois de 12 horas, e o sistema
-              nunca responde grupos, status nem você mesmo.
+              nunca responde grupos, status nem você mesmo. Salva na hora.
             </span>
           </span>
         </label>
@@ -947,34 +1077,38 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
                 );
               })}
             </div>
-            <div className="mt-3 rounded-md border border-gray-700 bg-black/30 p-3 text-xs text-gray-300 whitespace-pre-line">
+            <p className="mt-3 text-xs font-semibold text-gray-300">Texto que o cliente recebe:</p>
+            <div className="mt-1 rounded-md border border-gray-700 bg-black/30 p-3 text-xs text-gray-300 whitespace-pre-line">
               {`Olá! 👋 Bem-vindo(a) à *${'Nome do estabelecimento'}*!\nAgende seu horário pelo nosso link, é rápido: você escolhe o profissional, o serviço e o horário, e já fica confirmado:\nagendeifacil.com/booking/${presentationEstablishment?.code || 'SEU-CÓDIGO'}${settings.presentation_link === 'chat' ? '/chat' : settings.presentation_link === 'af' ? '/af' : ''}\nQualquer dúvida é só chamar por aqui. 😊`}
             </div>
           </div>
         ) : null}
-      </div>
+      </section>
 
-      <div className="mt-5 rounded-lg border border-gray-700 bg-black/20 p-4">
-        <h4 className="text-base font-semibold text-white">Lembrete automático para cliente</h4>
-        <p className="mt-1 text-xs text-gray-300">
-          Defina em quanto tempo antes do agendamento o sistema envia o lembrete no WhatsApp.
-        </p>
+      {/* ⏰ Lembrete antes do horário */}
+      <section className={cardClass}>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-1 h-5 w-5 shrink-0"
+            checked={settings.reminder_enabled}
+            onChange={(e) =>
+              setSettings((prev) => ({
+                ...prev,
+                reminder_enabled: e.target.checked,
+              }))
+            }
+          />
+          <span className="min-w-0">
+            <span className="block text-base font-bold text-white">⏰ Lembrete antes do horário</span>
+            <span className="mt-1 block text-xs text-gray-300">
+              Defina em quanto tempo antes do agendamento o sistema envia o lembrete no WhatsApp.
+            </span>
+          </span>
+        </label>
 
-        <div className="mt-3 flex flex-wrap items-center gap-4">
-          <label className="flex items-center gap-2 text-sm text-white">
-            <input
-              type="checkbox"
-              checked={settings.reminder_enabled}
-              onChange={(e) =>
-                setSettings((prev) => ({
-                  ...prev,
-                  reminder_enabled: e.target.checked,
-                }))
-              }
-            />
-            Ativar lembrete automático
-          </label>
-
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-white">
+          <span>Enviar</span>
           <select
             value={settings.reminder_offset_minutes}
             onChange={(e) => {
@@ -988,49 +1122,63 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
               </option>
             ))}
           </select>
+          <span>antes do horário</span>
         </div>
 
-        <div className="mt-4 flex items-center justify-between gap-2">
-          <label className="block text-sm font-semibold text-white">Mensagem de lembrete (editável)</label>
-          <button
-            type="button"
-            onClick={() =>
-              setSettings((prev) => ({
-                ...prev,
-                reminder_template: DEFAULT_REMINDER_TEMPLATE,
-              }))
-            }
-            className="rounded-md border border-amber-400/50 px-3 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-500/10"
-          >
-            Restaurar padrão (lembrete)
-          </button>
-        </div>
-        <textarea
-          value={settings.reminder_template}
-          onChange={(e) =>
-            setSettings((prev) => ({
-              ...prev,
-              reminder_template: e.target.value,
-            }))
-          }
-          rows={6}
-          className="mt-2 w-full rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
+        <WhatsAppPreview
+          establishmentName={previewEstablishmentName}
+          text={fillPreviewTemplate(settings.reminder_template, previewVars)}
+          note="No cliente de verdade entram o nome dele, a data, o horário e o profissional do agendamento. A prévia muda enquanto você edita."
         />
-        <p className="mt-2 text-xs text-amber-300">
-          Obrigatório manter: {'{{cliente_nome}}'}, {'{{barbearia_nome}}'}, {'{{tempo_lembrete}}'}, {'{{data}}'}, {'{{horario}}'}, {'{{profissional_nome}}'}.
-        </p>
-        <p className="mt-1 text-xs text-gray-400">
-          Esses campos são preenchidos automaticamente pelo sistema: {'{{cliente_nome}}'} (nome do cliente), {'{{barbearia_nome}}'} (nome do estabelecimento), {'{{tempo_lembrete}}'} (antecedência escolhida), {'{{data}}'} e {'{{horario}}'} (dados do agendamento), {'{{profissional_nome}}'} (barbeiro/profissional).
-        </p>
 
-        <h4 className="mt-5 text-base font-semibold text-white">Mensagem de saudação pós-agendamento</h4>
-        <p className="mt-1 text-xs text-gray-300">
-          Sempre que o cliente agenda, ele recebe esta confirmação no WhatsApp.
-        </p>
+        <details className="group mt-3">
+          <summary className={editorSummaryClass}>
+            <span>✏️ Editar mensagem do lembrete</span>
+            <span className="text-xs transition-transform group-open:rotate-180">▼</span>
+          </summary>
+          <div className="mt-3">
+            <div className="flex items-center justify-between gap-2">
+              <label className="block text-sm font-semibold text-white">Mensagem de lembrete (editável)</label>
+              <button
+                type="button"
+                onClick={() =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    reminder_template: DEFAULT_REMINDER_TEMPLATE,
+                  }))
+                }
+                className={restoreButtonClass}
+              >
+                Restaurar padrão
+              </button>
+            </div>
+            <textarea
+              value={settings.reminder_template}
+              onChange={(e) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  reminder_template: e.target.value,
+                }))
+              }
+              rows={6}
+              className={textareaClass}
+            />
+            <p className="mt-2 text-xs text-amber-300">
+              Obrigatório manter: {'{{cliente_nome}}'}, {'{{barbearia_nome}}'}, {'{{tempo_lembrete}}'}, {'{{data}}'}, {'{{horario}}'}, {'{{profissional_nome}}'}.
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              Esses campos são preenchidos automaticamente pelo sistema: {'{{cliente_nome}}'} (nome do cliente), {'{{barbearia_nome}}'} (nome do estabelecimento), {'{{tempo_lembrete}}'} (antecedência escolhida), {'{{data}}'} e {'{{horario}}'} (dados do agendamento), {'{{profissional_nome}}'} (barbeiro/profissional).
+            </p>
+          </div>
+        </details>
+      </section>
 
-        <label className="mt-3 flex items-center gap-2 text-sm text-white">
+      {/* 👋 Saudação pós-agendamento */}
+      <section className={cardClass}>
+        <label className="flex items-start gap-3 cursor-pointer">
           <input
             type="checkbox"
+            className="mt-1 h-5 w-5 shrink-0"
             checked={settings.greeting_enabled}
             onChange={(e) =>
               setSettings((prev) => ({
@@ -1039,14 +1187,19 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
               }))
             }
           />
-          Ativar mensagem de saudação automática
+          <span className="min-w-0">
+            <span className="block text-base font-bold text-white">👋 Saudação pós-agendamento</span>
+            <span className="mt-1 block text-xs text-gray-300">
+              Sempre que o cliente agenda, ele recebe esta confirmação no WhatsApp.
+            </span>
+          </span>
         </label>
 
         {/* Também quando o próprio estabelecimento agenda (Reservar Cliente). Desligado por padrão. */}
-        <label className="mt-2 flex items-start gap-2 text-sm text-white">
+        <label className="mt-3 flex items-start gap-3 rounded-lg border border-gray-700 bg-black/20 p-3 text-sm text-white">
           <input
             type="checkbox"
-            className="mt-0.5"
+            className="mt-0.5 h-5 w-5 shrink-0"
             checked={settings.greeting_internal_enabled === true}
             disabled={savingSettings || !settings.greeting_enabled}
             onChange={(e) => {
@@ -1055,7 +1208,7 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
               void handleSaveAutomationSettings({ greeting_internal_enabled: checked });
             }}
           />
-          <span>
+          <span className="min-w-0">
             Mandar também quando <strong>EU</strong> agendo o cliente (Reservar Cliente)
             <span className="block text-xs text-gray-400">
               O cliente recebe a mesma mensagem de saudação com o resumo do agendamento. Encaixe e venda avulsa não
@@ -1064,54 +1217,168 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
           </span>
         </label>
 
-        <div className="mt-4 flex items-center justify-between gap-2">
-          <label className="block text-sm font-semibold text-white">Mensagem de saudação (editável)</label>
-          <button
-            type="button"
-            onClick={() =>
+        <WhatsAppPreview
+          establishmentName={previewEstablishmentName}
+          text={fillPreviewTemplate(settings.greeting_template, previewVars)}
+          note="No cliente de verdade entram o nome dele, a data, o horário e o profissional do agendamento. A prévia muda enquanto você edita."
+        />
+
+        <details className="group mt-3">
+          <summary className={editorSummaryClass}>
+            <span>✏️ Editar mensagem de saudação</span>
+            <span className="text-xs transition-transform group-open:rotate-180">▼</span>
+          </summary>
+          <div className="mt-3">
+            <div className="flex items-center justify-between gap-2">
+              <label className="block text-sm font-semibold text-white">Mensagem de saudação (editável)</label>
+              <button
+                type="button"
+                onClick={() =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    greeting_template: DEFAULT_GREETING_TEMPLATE,
+                  }))
+                }
+                className={restoreButtonClass}
+              >
+                Restaurar padrão
+              </button>
+            </div>
+            <textarea
+              value={settings.greeting_template}
+              onChange={(e) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  greeting_template: e.target.value,
+                }))
+              }
+              rows={6}
+              className={textareaClass}
+            />
+            <p className="mt-2 text-xs text-amber-300">
+              Obrigatório manter: {'{{cliente_nome}}'}, {'{{barbearia_nome}}'}, {'{{data}}'}, {'{{horario}}'}, {'{{profissional_nome}}'}.
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              Sem esses campos o sistema não consegue montar a saudação com os dados corretos de cliente e agendamento.
+            </p>
+            <p className="mt-2 text-xs text-gray-400">
+              Variáveis disponíveis: {'{{cliente_nome}}'}, {'{{barbearia_nome}}'}, {'{{data}}'}, {'{{horario}}'}, {'{{profissional_nome}}'}, {'{{tempo_lembrete}}'}.
+            </p>
+          </div>
+        </details>
+      </section>
+
+      {/* 🔁 Lembrete de retorno (cliente sumido) — pedido 1637 */}
+      <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 sm:p-5">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-1 h-5 w-5 shrink-0"
+            checked={settings.return_reminder_enabled === true}
+            onChange={(e) =>
               setSettings((prev) => ({
                 ...prev,
-                greeting_template: DEFAULT_GREETING_TEMPLATE,
+                return_reminder_enabled: e.target.checked,
               }))
             }
-            className="rounded-md border border-amber-400/50 px-3 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-500/10"
+          />
+          <span className="min-w-0">
+            <span className="block text-base font-bold text-white">🔁 Lembrete de retorno (cliente sumido)</span>
+            <span className="mt-1 block text-xs text-gray-300">
+              O sistema manda sozinho uma mensagem pro cliente que fez o último atendimento há X dias e não marcou de
+              novo. Uma mensagem por cliente, só entre 9h e 19h, no máximo 30 por dia. Quem já tem horário marcado não
+              recebe.
+            </span>
+          </span>
+        </label>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-white">
+          <span>Mandar</span>
+          <select
+            value={settings.return_reminder_days || 20}
+            disabled={settings.return_reminder_enabled !== true}
+            onChange={(e) =>
+              setSettings((prev) => ({
+                ...prev,
+                return_reminder_days: Number(e.target.value),
+              }))
+            }
+            className="rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white disabled:opacity-50"
           >
-            Restaurar padrão (saudação)
+            {RETURN_REMINDER_DAYS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <span>depois do último atendimento</span>
+        </div>
+
+        <WhatsAppPreview
+          establishmentName={previewEstablishmentName}
+          text={fillPreviewTemplate(settings.return_reminder_template || '', previewVars)}
+          note="No cliente de verdade entra o nome salvo dele; os dias e o link são os da sua barbearia. A prévia muda enquanto você edita a mensagem."
+        />
+
+        <details className="group mt-3">
+          <summary className={editorSummaryClass}>
+            <span>✏️ Editar mensagem de retorno</span>
+            <span className="text-xs transition-transform group-open:rotate-180">▼</span>
+          </summary>
+          <div className="mt-3">
+            <div className="flex items-center justify-between gap-2">
+              <label className="block text-sm font-semibold text-white">Mensagem de retorno (editável)</label>
+              <button
+                type="button"
+                onClick={() =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    return_reminder_template: DEFAULT_RETURN_REMINDER_TEMPLATE,
+                  }))
+                }
+                className={restoreButtonClass}
+              >
+                Restaurar padrão
+              </button>
+            </div>
+            <textarea
+              value={settings.return_reminder_template || ''}
+              disabled={settings.return_reminder_enabled !== true}
+              onChange={(e) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  return_reminder_template: e.target.value,
+                }))
+              }
+              rows={5}
+              className={textareaClass}
+            />
+            <p className="mt-2 text-xs text-amber-300">
+              Obrigatório manter: {'{{cliente_nome}}'} (é por ele que o sistema coloca o nome salvo do cliente).
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              Variáveis disponíveis: {'{{cliente_nome}}'}, {'{{barbearia_nome}}'}, {'{{dias_sem_vir}}'}, {'{{link_agendamento}}'}.
+            </p>
+          </div>
+        </details>
+      </section>
+
+      {/* Salvar: fica grudado embaixo para não se perder na rolagem do celular. */}
+      <div className="sticky bottom-2 z-10 rounded-xl border border-amber-500/40 bg-[#101112]/95 p-3 backdrop-blur">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-gray-300">
+            Lembrete, saudação e retorno só valem depois de salvar.
+          </p>
+          <button
+            type="button"
+            onClick={() => void handleSaveAutomationSettings()}
+            disabled={savingSettings}
+            className="w-full sm:w-auto rounded-md bg-amber-500 px-4 py-2.5 text-sm font-bold text-black hover:bg-amber-400 disabled:opacity-60"
+          >
+            {savingSettings ? 'Salvando...' : '💾 Salvar automações de WhatsApp'}
           </button>
         </div>
-        <textarea
-          value={settings.greeting_template}
-          onChange={(e) =>
-            setSettings((prev) => ({
-              ...prev,
-              greeting_template: e.target.value,
-            }))
-          }
-          rows={6}
-          className="mt-2 w-full rounded-md border border-gray-700 bg-black/30 px-3 py-2 text-sm text-white"
-        />
-        <p className="mt-2 text-xs text-amber-300">
-          Obrigatório manter: {'{{cliente_nome}}'}, {'{{barbearia_nome}}'}, {'{{data}}'}, {'{{horario}}'}, {'{{profissional_nome}}'}.
-        </p>
-        <p className="mt-1 text-xs text-gray-400">
-          Sem esses campos o sistema não consegue montar a saudação com os dados corretos de cliente e agendamento.
-        </p>
-
-        <p className="mt-3 text-xs text-gray-400">
-          Variáveis disponíveis: {'{{cliente_nome}}'}, {'{{barbearia_nome}}'}, {'{{data}}'}, {'{{horario}}'}, {'{{profissional_nome}}'}, {'{{tempo_lembrete}}'}.
-        </p>
-
-        <button
-          type="button"
-          onClick={() => void handleSaveAutomationSettings()}
-          disabled={savingSettings}
-          className="mt-4 rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-60"
-        >
-          {savingSettings ? 'Salvando...' : 'Salvar automações de WhatsApp'}
-        </button>
       </div>
     </div>
   );
 }
-
-

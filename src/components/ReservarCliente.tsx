@@ -6,6 +6,7 @@ import { isDateInsidePaidSubscription } from '../lib/subscriberAppointmentFlags'
 import { syncSubscribersToManualClients } from '../lib/manualClientsSync';
 import { checkWhatsAppSubscriber, supabase } from '../lib/supabase';
 import { getScheduleIntervalMinutes } from '../utils/scheduleGrid';
+import { applySpecificServiceOverride, findSpecificServiceByName, mergeSpecificServices } from '../utils/specificServiceOverride';
 import { PaymentModal } from './PaymentModal';
 import {
   ReservarChoiceCard,
@@ -390,6 +391,21 @@ export default function ReservarCliente({
       duration: Number.isFinite(duration) && duration > 0 ? duration : 30,
       loyalty_points: Math.max(0, Math.floor(Number(raw?.loyalty_points ?? 0))),
     };
+  };
+
+  // Serviços específicos do profissional escolhido, já normalizados (tempo em minutos).
+  const getSelectedProfessionalSpecificServices = (): Service[] => {
+    const raw = Array.isArray((selectedProfessional as any)?.specific_services)
+      ? (selectedProfessional as any).specific_services
+      : [];
+    return raw
+      .map((item: any, index: number) =>
+        normalizeSpecificService(
+          item,
+          `${String(selectedProfessional?.id || 'prof')}-${index}-${String(item?.name || item?.service_name || '')}`
+        )
+      )
+      .filter(Boolean) as Service[];
   };
 
   const isCategoryBlockedForProfessional = (category: any, professionalId?: string | null): boolean => {
@@ -926,7 +942,15 @@ export default function ReservarCliente({
 
         if (subcategoriesError) throw subcategoriesError;
 
-        setServiceSubcategories(subcategories || []);
+        // O que aparece na lista da categoria tem que ser o que vai ser salvo: se o
+        // profissional tem um específico de mesmo nome, mostra o tempo e o preço dele.
+        const specificForProfessional = getSelectedProfessionalSpecificServices();
+        setServiceSubcategories(
+          (subcategories || []).map((sub: any) => {
+            const match = findSpecificServiceByName(specificForProfessional, sub?.name);
+            return match ? { ...sub, duration: match.duration, price: match.price } : sub;
+          })
+        );
       } catch (error) {
         console.error('Erro ao carregar subcategorias:', error);
       }
@@ -955,19 +979,10 @@ export default function ReservarCliente({
           )
           .filter(Boolean) as Service[];
 
-        const normalizeNameKey = (name: any) =>
-          String(name || '')
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .trim();
-
-        const mergeSpecific = (base: Service[]) => {
-          if (!formattedSpecific.length) return base;
-          const existingNames = new Set(base.map((s) => normalizeNameKey(s.name)));
-          const toAdd = formattedSpecific.filter((s) => !existingNames.has(normalizeNameKey(s.name)));
-          return [...base, ...toAdd];
-        };
+        // Serviço específico do profissional vence o geral de MESMO NOME (tempo e preço),
+        // igual ao link. Antes o geral escondia o específico e o balcão marcava errado
+        // (caso 3337: "Corte e barba" 60 min geral x 30 min do profissional).
+        const mergeSpecific = (base: Service[]) => mergeSpecificServices(base, formattedSpecific);
 
         // 1) Preferir o sistema novo (categorias/subcategorias)
         const { data: subcats, error: subErr } = await supabase
@@ -1815,14 +1830,19 @@ export default function ReservarCliente({
     setSelectedSubcategory(subcategory);
     setSelectedSubscription(null);
     setSelectedSubscriberPlanMeta(null);
-    // Converter subcategoria para formato de serviço
-    const serviceFromSubcategory: Service = {
-      id: subcategory.id,
-      name: subcategory.name,
-      price: subcategory.price,
-      duration: subcategory.duration,
-      loyalty_points: Math.max(0, Math.floor(Number((subcategory as any).loyalty_points ?? 0))),
-    };
+    // Converter subcategoria para formato de serviço. Se o profissional escolhido tem um
+    // serviço específico com o mesmo nome, valem o tempo e o preço dele (igual ao link).
+    const specificForProfessional = getSelectedProfessionalSpecificServices();
+    const serviceFromSubcategory: Service = applySpecificServiceOverride(
+      {
+        id: subcategory.id,
+        name: subcategory.name,
+        price: subcategory.price,
+        duration: subcategory.duration,
+        loyalty_points: Math.max(0, Math.floor(Number((subcategory as any).loyalty_points ?? 0))),
+      },
+      specificForProfessional
+    );
     const total = parseDurationMinutes(serviceFromSubcategory.duration);
     if (!validateSlotDurationMinutes(total)) return;
     setSelectedService(serviceFromSubcategory);

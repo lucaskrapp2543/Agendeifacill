@@ -137,6 +137,40 @@ const formatTemplate = (
   });
 };
 
+// ── Lembrete de retorno (cliente sumido) — pedido 1637 (22/10/2026) ──────────────
+// Barbearia liga em "Lembretes para Clientes"; X dias (15/20/30) depois do ÚLTIMO
+// agendamento não cancelado, se o cliente não marcou nada depois, recebe UMA mensagem.
+const RETURN_REMINDER_TYPE = 'return_reminder';
+const ALLOWED_RETURN_REMINDER_DAYS = new Set([15, 20, 30]);
+const RETURN_REMINDER_MAX_PER_DAY = 30; // por barbearia por dia (anti-spam / anti-ban)
+const RETURN_REMINDER_GAP_MS = 20_000; // espaço entre uma mensagem e outra
+const DEFAULT_RETURN_REMINDER_TEMPLATE =
+  'Opa, {{cliente_nome}}! 👋\n' +
+  'Já faz {{dias_sem_vir}} dias desde seu último corte na {{barbearia_nome}}. Bora dar um trato no visual? 💈\n\n' +
+  'É só agendar aqui: {{link_agendamento}}';
+let returnReminderLastRunMs = 0;
+const returnReminderDoneByEstablishment = new Map<string, string>(); // establishmentId → 'yyyy-mm-dd'
+
+// Data/hora de Brasília (o Render roda em UTC).
+const brazilNowParts = (): { date: string; hour: number } => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || '';
+  const hour = Number(get('hour')) % 24;
+  return { date: `${get('year')}-${get('month')}-${get('day')}`, hour: Number.isFinite(hour) ? hour : 12 };
+};
+
+const shiftDateOnly = (dateOnly: string, days: number): string => {
+  const [y, m, d] = String(dateOnly || '').split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+};
+
 const isMissingAutomationSettingsTable = (error: any) => {
   const code = String(error?.code || '').trim().toUpperCase();
   const msg = String(error?.message || '').toLowerCase();
@@ -1060,6 +1094,7 @@ export class WhatsAppReminderScheduler {
     this.running = true;
     try {
       this.settingsCache.clear();
+      await this.runReturnReminders();
       this.cleanupGuard(Date.now());
       const now = new Date();
       const today = new Date(now);
@@ -1520,6 +1555,181 @@ export class WhatsAppReminderScheduler {
       console.error('❌ Erro no scheduler de WhatsApp (Baileys):', error);
     } finally {
       this.running = false;
+    }
+  }
+
+  // ── Lembrete de retorno (cliente sumido) ─────────────────────────────────────
+  // Roda no máximo a cada 30 min, só entre 9h e 19h (Brasília), 1x por dia por barbearia.
+  // Candidato = cliente cujo último agendamento não cancelado foi há exatamente N dias e
+  // que não tem nada marcado depois (nem futuro). Controle de "já mandei" é o
+  // whatsapp_message_logs (type return_reminder, um por agendamento). Nunca lança erro:
+  // qualquer falha vira log, para não derrubar lembretes e saudações.
+  private async runReturnReminders() {
+    try {
+      const nowMs = Date.now();
+      if (nowMs - returnReminderLastRunMs < 30 * 60_000) return;
+      const { date: today, hour } = brazilNowParts();
+      if (hour < 9 || hour >= 19) return;
+      returnReminderLastRunMs = nowMs;
+
+      const { data: settingsRows, error: settingsError } = await this.supabase
+        .from('whatsapp_automation_settings')
+        .select('user_id,return_reminder_days,return_reminder_template')
+        .eq('return_reminder_enabled', true);
+      if (settingsError) {
+        const code = String((settingsError as any)?.code || '').trim();
+        const msg = String((settingsError as any)?.message || '').toLowerCase();
+        // Migration do lembrete de retorno ainda não aplicada: fica quieto.
+        if (code === '42703' || msg.includes('return_reminder') || isMissingAutomationSettingsTable(settingsError)) return;
+        console.warn('[whatsapp/scheduler] return_reminder: falha ao ler configurações:', settingsError);
+        return;
+      }
+      const settingsByOwner = new Map<string, { days: number; template: string }>();
+      (settingsRows || []).forEach((row: any) => {
+        const userId = String(row?.user_id || '').trim();
+        if (!userId) return;
+        const daysRaw = Number(row?.return_reminder_days || 20);
+        settingsByOwner.set(userId, {
+          days: ALLOWED_RETURN_REMINDER_DAYS.has(daysRaw) ? daysRaw : 20,
+          template: String(row?.return_reminder_template || '').trim() || DEFAULT_RETURN_REMINDER_TEMPLATE,
+        });
+      });
+      if (settingsByOwner.size === 0) return;
+
+      const ownerIds = Array.from(settingsByOwner.keys());
+      const [establishmentsRes, sessionsRes] = await Promise.all([
+        this.supabase.from('establishments').select('id,owner_id,name,code,whatsapp').in('owner_id', ownerIds),
+        this.supabase.from('whatsapp_sessions').select('user_id,status').in('user_id', ownerIds),
+      ]);
+      if (establishmentsRes.error) {
+        console.warn('[whatsapp/scheduler] return_reminder: falha ao ler estabelecimentos:', establishmentsRes.error);
+        return;
+      }
+      const connectedOwners = new Set(
+        ((sessionsRes.data || []) as any[])
+          .filter((row) => String(row?.status || '').toLowerCase() === 'connected')
+          .map((row) => String(row?.user_id || '').trim())
+      );
+
+      for (const est of (establishmentsRes.data || []) as any[]) {
+        const establishmentId = String(est?.id || '').trim();
+        const ownerId = String(est?.owner_id || '').trim();
+        if (!establishmentId || !ownerId) continue;
+        if (!this.belongsToThisWorker(establishmentId)) continue;
+        if (returnReminderDoneByEstablishment.get(establishmentId) === today) continue;
+        // Sem WhatsApp conectado agora: tenta de novo no próximo ciclo (não marca como feito).
+        if (!connectedOwners.has(ownerId)) continue;
+        const setting = settingsByOwner.get(ownerId);
+        if (!setting) continue;
+
+        const cutoff = shiftDateOnly(today, -setting.days);
+        const { data: dayRows, error: dayError } = await this.supabase
+          .from('appointments')
+          .select('id,client_name,client_whatsapp,status')
+          .eq('establishment_id', establishmentId)
+          .eq('appointment_date', cutoff)
+          .limit(500);
+        if (dayError) {
+          console.warn('[whatsapp/scheduler] return_reminder: falha ao ler agendamentos do dia de corte:', dayError);
+          continue;
+        }
+        const candidates = new Map<string, { appointmentId: string; clientName: string }>();
+        ((dayRows || []) as any[]).forEach((row) => {
+          const status = String(row?.status || '').trim().toLowerCase();
+          if (status === 'cancelled' || status === 'no_show' || status === 'pending_payment') return;
+          const phone = normalizePhone(String(row?.client_whatsapp || ''));
+          if (!phone || phone.length < 12) return;
+          if (!candidates.has(phone)) {
+            candidates.set(phone, {
+              appointmentId: String(row?.id || '').trim(),
+              clientName: String(row?.client_name || '').trim() || 'Cliente',
+            });
+          }
+        });
+        if (candidates.size === 0) {
+          returnReminderDoneByEstablishment.set(establishmentId, today);
+          continue;
+        }
+
+        // Quem marcou qualquer coisa depois do corte (inclusive no futuro) não recebe.
+        const { data: laterRows, error: laterError } = await this.supabase
+          .from('appointments')
+          .select('client_whatsapp,status')
+          .eq('establishment_id', establishmentId)
+          .gt('appointment_date', cutoff)
+          .neq('status', 'cancelled')
+          .limit(3000);
+        if (laterError) {
+          console.warn('[whatsapp/scheduler] return_reminder: falha ao ler agendamentos posteriores:', laterError);
+          continue;
+        }
+        ((laterRows || []) as any[]).forEach((row) => {
+          const phone = normalizePhone(String(row?.client_whatsapp || ''));
+          if (phone) candidates.delete(phone);
+        });
+
+        const establishmentPhone = normalizePhone(String(est?.whatsapp || ''));
+        const establishmentName = String(est?.name || '').trim() || 'nossa barbearia';
+        const code = String(est?.code || '').trim();
+        const bookingLink = code ? `https://agendeifacil.com/booking/${code}` : 'https://agendeifacil.com';
+        let sent = 0;
+        for (const [phone, candidate] of candidates.entries()) {
+          if (sent >= RETURN_REMINDER_MAX_PER_DAY) break;
+          if (!candidate.appointmentId) continue;
+          if (establishmentPhone && phone === establishmentPhone) continue;
+          // Cliente bloqueado pela barbearia ("Bloquear cliente") não recebe.
+          try {
+            const { data: blocked } = await this.supabase.rpc('public_is_client_booking_blocked', {
+              p_establishment_id: establishmentId,
+              p_phone: phone,
+            });
+            if (blocked === true) continue;
+          } catch {
+            // na dúvida, segue
+          }
+          const reserved = await this.reserveMessageLog({
+            appointmentId: candidate.appointmentId,
+            establishmentId,
+            senderUserId: ownerId,
+            recipientPhone: phone,
+            messageType: RETURN_REMINDER_TYPE,
+          });
+          if (!reserved) continue; // já mandou para esse último atendimento
+          const message = formatTemplate(setting.template, {
+            cliente_nome: candidate.clientName,
+            barbearia_nome: establishmentName,
+            dias_sem_vir: String(setting.days),
+            link_agendamento: bookingLink,
+          });
+          const res = await this.deps.enqueueOrSend({
+            userId: ownerId,
+            phone,
+            message,
+            delayMs: sent * RETURN_REMINDER_GAP_MS,
+            idempotencyKey: `${RETURN_REMINDER_TYPE}:${candidate.appointmentId}`,
+            automationLog: { appointmentId: candidate.appointmentId, messageType: RETURN_REMINDER_TYPE },
+          });
+          await this.updateMessageLogStatus({
+            appointmentId: candidate.appointmentId,
+            messageType: RETURN_REMINDER_TYPE,
+            status: resolveLogStatus(res),
+            error: res.error || null,
+          });
+          sent += 1;
+          console.info('[whatsapp/scheduler] return_reminder', {
+            establishmentId,
+            appointmentId: candidate.appointmentId,
+            phone,
+            days: setting.days,
+            ok: res.ok,
+            deliveryMode: res.deliveryMode || 'direct',
+            error: res.error || null,
+          });
+        }
+        returnReminderDoneByEstablishment.set(establishmentId, today);
+      }
+    } catch (error) {
+      console.error('[whatsapp/scheduler] return_reminder: erro inesperado (ignorado):', error);
     }
   }
 }

@@ -2016,7 +2016,7 @@ router.get('/recent-establishment-billing-payments', async (req: Request, res: R
 
     const { data, error } = await supabaseAdmin
       .from('establishment_billing_payments')
-      .select('establishment_id, paid_at, updated_at, status, payment_provider, metadata')
+      .select('establishment_id, amount_cents, paid_at, updated_at, status, payment_provider, metadata')
       .eq('status', 'paid')
       .order('updated_at', { ascending: false })
       .limit(1000);
@@ -2028,7 +2028,18 @@ router.get('/recent-establishment-billing-payments', async (req: Request, res: R
       });
     }
 
-    const latestByEstablishment = new Map<string, { establishment_id: string; paid_at: string | null; updated_at: string | null; payment_provider: string; payment_method: string }>();
+    // Mesmos campos da função do Netlify (produção): o admin mostra "Líquido pra você" com eles.
+    type RecentBillingItem = {
+      establishment_id: string;
+      paid_at: string | null;
+      updated_at: string | null;
+      payment_provider: string;
+      payment_method: string;
+      amount_cents: number | null;
+      net_received_amount: number | null;
+      mp_fee_amount: number | null;
+    };
+    const latestByEstablishment = new Map<string, RecentBillingItem>();
     (data || []).forEach((row: any) => {
       const establishmentId = String(row?.establishment_id || '').trim();
       if (!establishmentId) return;
@@ -2039,12 +2050,18 @@ router.get('/recent-establishment-billing-payments', async (req: Request, res: R
       const current = latestByEstablishment.get(establishmentId);
       const currentTs = current ? new Date(String(current.paid_at || current.updated_at || '')).getTime() : NaN;
       if (!current || !Number.isFinite(currentTs) || ts > currentTs) {
+        const amountCents = Number(row?.amount_cents);
+        const net = Number(row?.metadata?.net_received_amount);
+        const fee = Number(row?.metadata?.mp_fee_amount);
         latestByEstablishment.set(establishmentId, {
           establishment_id: establishmentId,
           paid_at: row?.paid_at ? String(row.paid_at) : null,
           updated_at: row?.updated_at ? String(row.updated_at) : null,
           payment_provider: String(row?.payment_provider || 'mercadopago'),
           payment_method: String(row?.metadata?.payment_method || ''),
+          amount_cents: Number.isFinite(amountCents) && amountCents > 0 ? amountCents : null,
+          net_received_amount: Number.isFinite(net) && net > 0 ? net : null,
+          mp_fee_amount: Number.isFinite(fee) && fee >= 0 ? fee : null,
         });
       }
     });

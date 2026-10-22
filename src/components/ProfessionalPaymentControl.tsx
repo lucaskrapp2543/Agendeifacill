@@ -461,7 +461,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
 
     if (amount > currentLiquidDisplay) {
       toast.error(
-        `Ele produziu ${formatCurrency(totalLiquidValue)} e já saiu ${formatCurrency(totalPaidEffective + Math.max(0, totalWithdrawn))}. ` +
+        `A parte dele é ${formatCurrency(totalLiquidValue)} e já saiu ${formatCurrency(totalPaidEffective + Math.max(0, totalWithdrawn))}. ` +
         `Só é possível retirar até ${formatCurrency(currentLiquidDisplay)}.`
       );
       return;
@@ -482,7 +482,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
       const sobra = Math.max(0, totalLiquidValue - saiUTotal);
       const okRetirar = window.confirm(
         `Confirmar retirada de ${formatCurrency(amount)} de ${professionalName}?\n\n` +
-        `Ele produziu no período: ${formatCurrency(totalLiquidValue)}\n` +
+        `Parte dele no período: ${formatCurrency(totalLiquidValue)}\n` +
         `Já saiu do caixa: ${formatCurrency(jaSaiu)}\n` +
         `Com esta retirada sai: ${formatCurrency(saiUTotal)}\n\n` +
         `Vai sobrar ${formatCurrency(sobra)} para ele receber no acerto.`
@@ -680,7 +680,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                   De onde vem esse valor
                 </div>
                 <div className="flex items-center justify-between gap-2 text-[12px]">
-                  <span className="text-gray-300">Ele produziu no mês</span>
+                  <span className="text-gray-300">Parte dele no mês</span>
                   <span className="font-semibold text-gray-100">{formatCurrency(totalLiquidValue)}</span>
                 </div>
                 {totalPaidEffective > 0.009 && (
@@ -725,7 +725,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                 para a pessoa não ficar só com um número solto na tela. */}
             {!breakdownFecha && totalLiquidValue > 0.009 && (
               <div className="mt-2 border-t border-gray-700 pt-2 text-[11px] text-gray-400">
-                Ele produziu {formatCurrency(totalLiquidValue)} no mês
+                Parte dele no mês: {formatCurrency(totalLiquidValue)}
                 {totalPaidEffective > 0.009 && <> • já pago {formatCurrency(totalPaidEffective)}</>}
                 {totalWithdrawn > 0.009 && <> • já retirou {formatCurrency(totalWithdrawn)}</>}
               </div>
@@ -762,10 +762,17 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
               </div>
             </div>
           )}
-          {/* Detalhes operacionais: úteis em casos específicos, mas secundários —
-              ficam discretos para não competir com a conta principal. A legenda
-              "Pago = total válido no mês • Total = líquido apurado..." saiu: ninguém
-              entendia, e a conta acima já responde a mesma pergunta. */}
+          {/* Detalhes do acerto: ficam recolhidos para não competir com a conta principal
+              (o barbeiro reclamava de "muito número repetido"). Nada de cálculo muda. */}
+          {(operationalNewSales !== null ||
+            (pendingFromPriorServices !== null && pendingFromPriorServices > 0.009) ||
+            (typeof validatedPaidAmount === 'number' && typeof validatedPendingAmount === 'number')) && (
+            <details className="group mt-1 rounded-lg border border-gray-800 bg-[#0b0e13]/60 px-2 py-1.5">
+              <summary className="list-none cursor-pointer flex items-center justify-between text-[11px] font-semibold text-gray-400 hover:text-gray-200">
+                <span>Ver detalhes do acerto</span>
+                <span className="text-[10px] transition-transform group-open:rotate-180">▼</span>
+              </summary>
+              <div className="mt-2 space-y-2">
           {(operationalNewSales !== null ||
             (pendingFromPriorServices !== null && pendingFromPriorServices > 0.009)) && (
             <div className="space-y-0.5 px-1">
@@ -789,7 +796,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
           {typeof validatedPaidAmount === 'number' && typeof validatedPendingAmount === 'number' && (
             <div className="mt-2 border-t border-gray-700 pt-2 space-y-0.5">
               <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
-                O que o profissional vê
+                O que aparece pra ele no acesso dele
               </div>
               <div className="flex items-center justify-between gap-2 text-[11px]">
                 <span className="text-gray-400">Já recebeu</span>
@@ -808,6 +815,9 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                 <span className="font-semibold text-cyan-300">{formatCurrency(pendingToPay)}</span>
               </div>
             </div>
+          )}
+              </div>
+            </details>
           )}
         </div>
 
@@ -1114,7 +1124,7 @@ export const ProfessionalPaymentControl: React.FC<ProfessionalPaymentControlProp
                   sem deixar claro quanto o profissional realmente tinha gerado. */}
               <div className="bg-gray-50 rounded-lg p-3 space-y-1">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Ele produziu no período</span>
+                  <span className="text-gray-600">Parte dele no período</span>
                   <span className="font-semibold text-gray-900">{formatCurrency(totalLiquidValue)}</span>
                 </div>
                 {totalPaidEffective > 0.009 && (

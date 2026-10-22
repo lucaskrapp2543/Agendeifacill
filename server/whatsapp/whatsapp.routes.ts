@@ -10,6 +10,15 @@ const AUTOMATION_SETTINGS_COLUMNS =
   'user_id,reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template,presentation_enabled,presentation_link';
 // + saudação quando o próprio estabelecimento agenda (migration 20261016); banco sem ela cai no conjunto acima
 const AUTOMATION_SETTINGS_COLUMNS_FULL = `${AUTOMATION_SETTINGS_COLUMNS},greeting_internal_enabled`;
+// Lembrete de retorno (cliente sumido) — migration 20261022_lembrete_retorno_cliente.sql
+const AUTOMATION_SETTINGS_COLUMNS_FULL2 =
+  `${AUTOMATION_SETTINGS_COLUMNS_FULL},return_reminder_enabled,return_reminder_days,return_reminder_template`;
+const RETURN_REMINDER_DAYS_OPTIONS = new Set([15, 20, 30]);
+const REQUIRED_RETURN_REMINDER_TOKENS = ['cliente_nome'];
+const DEFAULT_RETURN_REMINDER_TEMPLATE =
+  'Opa, {{cliente_nome}}! 👋\n' +
+  'Já faz {{dias_sem_vir}} dias desde seu último corte na {{barbearia_nome}}. Bora dar um trato no visual? 💈\n\n' +
+  'É só agendar aqui: {{link_agendamento}}';
 // Banco ainda sem a migration da apresentação: lê/grava só as colunas antigas
 const AUTOMATION_SETTINGS_COLUMNS_LEGACY =
   'user_id,reminder_enabled,reminder_offset_minutes,reminder_template,greeting_enabled,greeting_template';
@@ -134,6 +143,11 @@ const normalizeAutomationSettings = (row: any, userId: string) => ({
   greeting_enabled: row?.greeting_enabled !== false,
   greeting_template: String(row?.greeting_template || '').trim() || DEFAULT_GREETING_TEMPLATE,
   greeting_internal_enabled: row?.greeting_internal_enabled === true,
+  return_reminder_enabled: row?.return_reminder_enabled === true,
+  return_reminder_days: RETURN_REMINDER_DAYS_OPTIONS.has(Number(row?.return_reminder_days))
+    ? Number(row?.return_reminder_days)
+    : 20,
+  return_reminder_template: String(row?.return_reminder_template || '').trim() || DEFAULT_RETURN_REMINDER_TEMPLATE,
   presentation_enabled: row?.presentation_enabled !== false,
   presentation_link: PRESENTATION_LINK_OPTIONS.has(String(row?.presentation_link || '').trim().toLowerCase())
     ? String(row.presentation_link).trim().toLowerCase()
@@ -164,7 +178,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const normalizeTemplateWithRequiredTokens = (
   template: string,
   tokens: string[],
-  _contextLabel: 'lembrete' | 'saudação'
+  _contextLabel: 'lembrete' | 'saudação' | 'retorno'
 ) => {
   let text = String(template || '');
   for (const token of tokens) {
@@ -396,8 +410,8 @@ router.get('/automation-settings', async (req, res) => {
 
     let data: any = null;
     let error: any = null;
-    let columns = AUTOMATION_SETTINGS_COLUMNS_FULL;
-    for (let attempt = 1; attempt <= 4; attempt++) {
+    let columns = AUTOMATION_SETTINGS_COLUMNS_FULL2;
+    for (let attempt = 1; attempt <= 5; attempt++) {
       const response = await supabaseAdmin
         .from('whatsapp_automation_settings')
         .select(columns)
@@ -406,6 +420,10 @@ router.get('/automation-settings', async (req, res) => {
       data = response.data;
       error = response.error;
       if (!error) break;
+      if (isMissingColumnError(error) && columns === AUTOMATION_SETTINGS_COLUMNS_FULL2) {
+        columns = AUTOMATION_SETTINGS_COLUMNS_FULL; // migration do lembrete de retorno ainda não aplicada
+        continue;
+      }
       if (isMissingColumnError(error) && columns === AUTOMATION_SETTINGS_COLUMNS_FULL) {
         columns = AUTOMATION_SETTINGS_COLUMNS; // migration da saudação interna ainda não aplicada
         continue;
@@ -467,6 +485,19 @@ router.post('/automation-settings', async (req, res) => {
       REQUIRED_GREETING_TOKENS,
       'saudação'
     );
+    // Lembrete de retorno: só entra no payload se a tela mandou (clientes antigos não zeram nada).
+    const hasReturnReminder = typeof req.body?.return_reminder_enabled === 'boolean';
+    const returnReminderDays = Number(req.body?.return_reminder_days ?? 20);
+    if (hasReturnReminder && !RETURN_REMINDER_DAYS_OPTIONS.has(returnReminderDays)) {
+      throw new Error('Dias do lembrete de retorno inválidos. Use 15, 20 ou 30.');
+    }
+    const normalizedReturnReminderTemplate = hasReturnReminder
+      ? normalizeTemplateWithRequiredTokens(
+          String(req.body?.return_reminder_template || '').trim() || DEFAULT_RETURN_REMINDER_TEMPLATE,
+          REQUIRED_RETURN_REMINDER_TOKENS,
+          'retorno'
+        )
+      : '';
 
     const payload = {
       user_id: userId,
@@ -480,14 +511,21 @@ router.post('/automation-settings', async (req, res) => {
       ...(typeof req.body?.greeting_internal_enabled === 'boolean'
         ? { greeting_internal_enabled: req.body.greeting_internal_enabled }
         : {}),
+      ...(hasReturnReminder
+        ? {
+            return_reminder_enabled: req.body.return_reminder_enabled === true,
+            return_reminder_days: returnReminderDays,
+            return_reminder_template: normalizedReturnReminderTemplate,
+          }
+        : {}),
       updated_at: new Date().toISOString(),
     };
 
     let data: any = null;
     let error: any = null;
-    let columns = AUTOMATION_SETTINGS_COLUMNS_FULL;
+    let columns = AUTOMATION_SETTINGS_COLUMNS_FULL2;
     let payloadToSave: Record<string, any> = payload;
-    for (let attempt = 1; attempt <= 4; attempt++) {
+    for (let attempt = 1; attempt <= 5; attempt++) {
       const response = await supabaseAdmin
         .from('whatsapp_automation_settings')
         .upsert(payloadToSave, { onConflict: 'user_id' })
@@ -496,10 +534,22 @@ router.post('/automation-settings', async (req, res) => {
       data = response.data;
       error = response.error;
       if (!error) break;
+      if (isMissingColumnError(error) && columns === AUTOMATION_SETTINGS_COLUMNS_FULL2) {
+        // migration do lembrete de retorno ainda não aplicada: salva sem esses campos
+        columns = AUTOMATION_SETTINGS_COLUMNS_FULL;
+        const {
+          return_reminder_enabled: _rre,
+          return_reminder_days: _rrd,
+          return_reminder_template: _rrt,
+          ...withoutReturn
+        } = payloadToSave as Record<string, any>;
+        payloadToSave = withoutReturn;
+        continue;
+      }
       if (isMissingColumnError(error) && columns === AUTOMATION_SETTINGS_COLUMNS_FULL) {
         // migration da saudação interna ainda não aplicada: salva sem o campo novo
         columns = AUTOMATION_SETTINGS_COLUMNS;
-        const { greeting_internal_enabled: _gi, ...withoutInternal } = payload as Record<string, any>;
+        const { greeting_internal_enabled: _gi, ...withoutInternal } = payloadToSave as Record<string, any>;
         payloadToSave = withoutInternal;
         continue;
       }
@@ -510,6 +560,9 @@ router.post('/automation-settings', async (req, res) => {
           presentation_enabled: _pe,
           presentation_link: _pl,
           greeting_internal_enabled: _gi2,
+          return_reminder_enabled: _rre2,
+          return_reminder_days: _rrd2,
+          return_reminder_template: _rrt2,
           ...legacyPayload
         } = payload as Record<string, any>;
         payloadToSave = legacyPayload;

@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getEstablishmentPaymentState, isEstablishmentPaymentEmDia } from '../utils/establishmentPaymentState';
+import { computeEstablishmentPaymentProbability, type PaymentHeat } from '../utils/establishmentPaymentProbability';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { AdminEstablishmentWhatsappReminders } from '../../modules/whatsapp-reminders/ui/AdminEstablishmentWhatsappReminders';
@@ -212,6 +213,9 @@ const AdminDashboard = () => {
   const [showFuturePaymentsModal, setShowFuturePaymentsModal] = useState(false);
   const [futurePaymentsStart, setFuturePaymentsStart] = useState('');
   const [futurePaymentsEnd, setFuturePaymentsEnd] = useState('');
+  // Pagamentos futuros: incluir inativos (sem agendar há mais de 5 dias) e ordenar pelos mais frios
+  const [futurePaymentsIncludeInactive, setFuturePaymentsIncludeInactive] = useState(false);
+  const [futurePaymentsSort, setFuturePaymentsSort] = useState<'vencimento' | 'risco'>('vencimento');
   const [showAfBookingModal, setShowAfBookingModal] = useState(false);
   const [afBookingRows, setAfBookingRows] = useState<{ establishment_code: string; establishment_id: string; name: string; count: number }[]>([]);
   const [afBookingTotal, setAfBookingTotal] = useState(0);
@@ -4517,25 +4521,66 @@ const AdminDashboard = () => {
   // (acessaram nos últimos 5 dias) e soma a cobrança de quem vence no período.
   // Inativo fica de fora de propósito: quem sumiu há mais de 5 dias não é receita
   // que dá para contar como certa.
+  type FuturePaymentRow = {
+    est: Establishment;
+    due: string;
+    value: number;
+    prob: ReturnType<typeof computeEstablishmentPaymentProbability>;
+  };
   const futurePaymentsRows = useMemo(() => {
     const start = String(futurePaymentsStart || '').trim();
     const end = String(futurePaymentsEnd || '').trim();
-    if (!start || !end) return [] as { est: Establishment; due: string; value: number }[];
+    if (!start || !end) return [] as FuturePaymentRow[];
 
-    return baseFilteredEstablishments
-      .filter((est) => isActiveEstablishment(est))
+    const rows: FuturePaymentRow[] = baseFilteredEstablishments
+      .filter((est) => futurePaymentsIncludeInactive || isActiveEstablishment(est))
       .map((est) => {
         const due = String((est as any)?.payment_due_date || '').slice(0, 10);
-        return { est, due, value: getPlanBillingValue(est) };
+        // Chance de pagar: só com o que já está na tela (último agendamento = "último acesso",
+        // situação do pagamento, plano, bloqueio, idade da conta). Nenhuma consulta nova.
+        const prob = computeEstablishmentPaymentProbability({
+          lastAppointmentAt: (est as any)?.last_access ?? null,
+          paymentStatus: est.payment_status ?? null,
+          paymentPaidAt: est.payment_paid_at ?? null,
+          planType: est.plan_type ?? null,
+          isBlocked: Boolean(est.is_blocked),
+          createdAt: est.created_at ?? null,
+        });
+        return { est, due, value: getPlanBillingValue(est), prob };
       })
-      .filter((row) => row.due && row.due >= start && row.due <= end)
-      .sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : 0));
-  }, [baseFilteredEstablishments, futurePaymentsStart, futurePaymentsEnd]);
+      .filter((row) => row.due && row.due >= start && row.due <= end);
+
+    rows.sort((a, b) => {
+      if (futurePaymentsSort === 'risco' && a.prob.percent !== b.prob.percent) return a.prob.percent - b.prob.percent;
+      return a.due < b.due ? -1 : a.due > b.due ? 1 : 0;
+    });
+    return rows;
+  }, [baseFilteredEstablishments, futurePaymentsStart, futurePaymentsEnd, futurePaymentsIncludeInactive, futurePaymentsSort]);
 
   const futurePaymentsTotal = futurePaymentsRows.reduce(
     (acc, row) => acc + (Number.isFinite(row.value) ? row.value : 0),
     0
   );
+  // Quanto deve entrar de verdade: cada cobrança pesada pela chance de pagar.
+  const futurePaymentsExpected = futurePaymentsRows.reduce(
+    (acc, row) => acc + (Number.isFinite(row.value) ? row.value * (row.prob.percent / 100) : 0),
+    0
+  );
+  const futurePaymentsRiskRows = futurePaymentsRows.filter((row) => row.prob.heat === 'frio');
+  const futurePaymentsRiskTotal = futurePaymentsRiskRows.reduce(
+    (acc, row) => acc + (Number.isFinite(row.value) ? row.value : 0),
+    0
+  );
+  const futurePaymentsHeatClass: Record<PaymentHeat, string> = {
+    quente: 'border-emerald-300 bg-emerald-100 text-emerald-800',
+    morno: 'border-amber-300 bg-amber-100 text-amber-800',
+    frio: 'border-red-300 bg-red-100 text-red-800',
+  };
+  const futurePaymentsHeatLabel: Record<PaymentHeat, string> = {
+    quente: '🔥 Quente',
+    morno: '🌤️ Morno',
+    frio: '🧊 Frio',
+  };
   const isWhatsappConnectedEstablishment = (establishment: Establishment) =>
     whatsappConnectedOwnerIds.has(String(establishment.owner_id || '').trim());
   const isMercadoPagoConnectedEstablishment = (establishment: Establishment) =>
@@ -8143,7 +8188,7 @@ const AdminDashboard = () => {
                       <div>
                         <div className="text-sm font-bold text-gray-900">Pagamentos futuros</div>
                         <div className="text-xs text-gray-600">
-                          Quanto entra no período, contando só os ativos que estão nesta tela
+                          Quanto vence no período e a chance de cada barbearia pagar (pela atividade dela)
                         </div>
                       </div>
                       <button
@@ -8155,7 +8200,7 @@ const AdminDashboard = () => {
                       </button>
                     </div>
 
-                    <div className="px-4 py-3 border-b bg-gray-50 flex flex-col sm:flex-row sm:items-end gap-3">
+                    <div className="px-4 py-3 border-b bg-gray-50 flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-3">
                       <div>
                         <label className="block text-[11px] text-gray-600 mb-1">De</label>
                         <input
@@ -8174,13 +8219,43 @@ const AdminDashboard = () => {
                           className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
                         />
                       </div>
-                      <div className="sm:ml-auto text-right">
-                        <div className="text-[11px] text-gray-600">Vou receber</div>
-                        <div className="text-2xl font-extrabold text-emerald-700">
-                          {fmtBRL(futurePaymentsTotal)}
+                      <div className="flex flex-col gap-1.5 text-xs text-gray-700">
+                        <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={futurePaymentsIncludeInactive}
+                            onChange={(e) => setFuturePaymentsIncludeInactive(e.target.checked)}
+                            className="h-3.5 w-3.5"
+                          />
+                          Incluir inativos (sem agendar há mais de 5 dias)
+                        </label>
+                        <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={futurePaymentsSort === 'risco'}
+                            onChange={(e) => setFuturePaymentsSort(e.target.checked ? 'risco' : 'vencimento')}
+                            className="h-3.5 w-3.5"
+                          />
+                          Mais frios primeiro
+                        </label>
+                      </div>
+                      <div className="sm:ml-auto flex flex-wrap gap-2 sm:justify-end">
+                        <div className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-right">
+                          <div className="text-[11px] text-gray-600">Vence no período</div>
+                          <div className="text-lg font-extrabold text-gray-900">{fmtBRL(futurePaymentsTotal)}</div>
+                          <div className="text-[11px] text-gray-600">{futurePaymentsRows.length} estabelecimento(s)</div>
                         </div>
-                        <div className="text-[11px] text-gray-600">
-                          {futurePaymentsRows.length} estabelecimento(s)
+                        <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-right">
+                          <div className="text-[11px] text-emerald-800">Provável de receber</div>
+                          <div className="text-2xl font-extrabold text-emerald-700">{fmtBRL(futurePaymentsExpected)}</div>
+                          <div className="text-[11px] text-emerald-800">
+                            {futurePaymentsTotal > 0 ? Math.round((futurePaymentsExpected / futurePaymentsTotal) * 100) : 0}% do que vence
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-right">
+                          <div className="text-[11px] text-red-800">Em risco (frios)</div>
+                          <div className="text-lg font-extrabold text-red-700">{fmtBRL(futurePaymentsRiskTotal)}</div>
+                          <div className="text-[11px] text-red-800">{futurePaymentsRiskRows.length} estabelecimento(s)</div>
                         </div>
                       </div>
                     </div>
@@ -8201,22 +8276,37 @@ const AdminDashboard = () => {
                               <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Estabelecimento</th>
                               <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Código</th>
                               <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Vencimento</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Chance de pagar</th>
                               <th className="px-3 py-2 text-right text-xs font-medium text-gray-600 uppercase">Valor</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-200">
                             {futurePaymentsRows.map((row) => (
-                              <tr key={String(row.est.id)} className="hover:bg-gray-50">
+                              <tr key={String(row.est.id)} className={row.prob.heat === 'frio' ? 'bg-red-50/70 hover:bg-red-50' : 'hover:bg-gray-50'}>
                                 <td className="px-3 py-2 text-gray-900">{String(row.est.name || '—')}</td>
                                 <td className="px-3 py-2 text-gray-600">{String((row.est as any)?.code || '—')}</td>
                                 <td className="px-3 py-2 text-gray-700">{formatDateOnlyBR(row.due)}</td>
+                                <td className="px-3 py-2">
+                                  <span
+                                    className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-bold ${futurePaymentsHeatClass[row.prob.heat]}`}
+                                    title={[row.prob.activityLabel, ...row.prob.reasons].join(' · ')}
+                                  >
+                                    {futurePaymentsHeatLabel[row.prob.heat]} {row.prob.percent}%
+                                  </span>
+                                  <div className="mt-0.5 text-[11px] text-gray-600">
+                                    {row.prob.activityLabel}
+                                    {row.prob.reasons.length > 0 ? ` · ${row.prob.reasons.join(' · ')}` : ''}
+                                  </div>
+                                </td>
                                 <td className="px-3 py-2 text-right font-semibold text-gray-900">{fmtBRL(row.value)}</td>
                               </tr>
                             ))}
                           </tbody>
                           <tfoot className="bg-gray-100 sticky bottom-0">
                             <tr>
-                              <td className="px-3 py-2 font-bold text-gray-900" colSpan={3}>Total</td>
+                              <td className="px-3 py-2 font-bold text-gray-900" colSpan={4}>
+                                Total <span className="font-normal text-gray-600">· provável de receber {fmtBRL(futurePaymentsExpected)}</span>
+                              </td>
                               <td className="px-3 py-2 text-right font-extrabold text-emerald-700">{fmtBRL(futurePaymentsTotal)}</td>
                             </tr>
                           </tfoot>
