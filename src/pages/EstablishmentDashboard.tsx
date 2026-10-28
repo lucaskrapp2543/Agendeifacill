@@ -53,6 +53,7 @@ import { PlatformWalletCard } from '../components/PlatformWalletCard';
 import { NoShowPolicyCard } from '../components/NoShowPolicyCard';
 import { DEFAULT_NO_SHOW_POLICY, isNoShowPolicy } from '../lib/noShowPolicy';
 import { normalizePhoneForAttendance, type ClientAttendanceStats } from '../utils/noShowProbability';
+import { buildCommissionMapForSave, getProductCommissionPct } from '../utils/productCommission';
 import { PartnerReferralPanel } from '../components/PartnerReferralPanel';
 import { fetchPartnerReferralCodeForEstablishment } from '../lib/partnerReferral';
 import { RecebaNaHoraPageLayout } from '../components/RecebaNaHoraPageLayout';
@@ -6413,11 +6414,17 @@ const EstablishmentDashboard = () => {
 
     // Inicializar draft com base nos profissionais do estabelecimento
     const mapFromDb = (product as any)?.commission_percentages || {};
-    const professionalsList = (establishment?.professionals || []).map((p) => p.name).filter(Boolean);
+    // O draft continua por nome (é o que a tela mostra); o valor vem pelo ID ou pelo nome (legado).
     const nextDraft: Record<string, string> = {};
-    professionalsList.forEach((name) => {
-      const v = Number(mapFromDb?.[name]);
-      nextDraft[name] = Number.isFinite(v) && v >= 0 ? String(v) : '';
+    (establishment?.professionals || []).forEach((p: any) => {
+      const name = String(p?.name || '').trim();
+      if (!name) return;
+      const hasAny =
+        Object.prototype.hasOwnProperty.call(mapFromDb, String(p?.id || '').trim()) ||
+        Object.prototype.hasOwnProperty.call(mapFromDb, name);
+      nextDraft[name] = hasAny
+        ? String(getProductCommissionPct(mapFromDb, establishment?.professionals || [], { id: p?.id, name }))
+        : '';
     });
     setCommissionDraft(nextDraft);
   };
@@ -6430,13 +6437,20 @@ const EstablishmentDashboard = () => {
       setIsSavingCommission(true);
 
       // Sanitizar: apenas 0..100
-      const sanitized: Record<string, number> = {};
+      // Grava pelo ID do profissional (não muda ao renomear) e também pelo nome atual
+      // (app antigo em cache continua lendo). Nomes antigos são descartados.
+      const pctById: Record<string, number> = {};
       Object.entries(commissionDraft || {}).forEach(([name, raw]) => {
         const n = Number(String(raw || '').replace(',', '.'));
         if (!Number.isFinite(n)) return;
-        const clamped = Math.max(0, Math.min(100, n));
-        sanitized[name] = Math.round(clamped * 100) / 100;
+        const prof = (establishment?.professionals || []).find(
+          (p: any) => String(p?.name || '').trim() === String(name).trim()
+        );
+        const id = String((prof as any)?.id || '').trim();
+        if (!id) return;
+        pctById[id] = Math.max(0, Math.min(100, n));
       });
+      const sanitized = buildCommissionMapForSave(establishment?.professionals || [], pctById);
 
       const { error } = await supabase
         .from('establishment_products')
@@ -6556,9 +6570,10 @@ const EstablishmentDashboard = () => {
         if (!professionalName) return;
 
         const product = productById[productId];
-        const map = (product as any)?.commission_percentages || {};
-        const pct = Number(map?.[professionalName] ?? 0);
-        const safePct = Number.isFinite(pct) ? pct : 0;
+        const safePct = getProductCommissionPct((product as any)?.commission_percentages, establishment.professionals || [], {
+          id: rawProfessionalId,
+          name: professionalName,
+        });
 
         const totalValue = Math.max(0, quantity * unitPrice);
         const payout = Math.max(0, (totalValue * safePct) / 100);
@@ -6600,9 +6615,10 @@ const EstablishmentDashboard = () => {
           if (!professionalName) return;
 
           const product = productById[productId];
-          const map = (product as any)?.commission_percentages || {};
-          const pct = Number(map?.[professionalName] ?? 0);
-          const safePct = Number.isFinite(pct) ? pct : 0;
+          const safePct = getProductCommissionPct((product as any)?.commission_percentages, establishment.professionals || [], {
+            id: rawProfessionalId,
+            name: professionalName,
+          });
 
           const totalValue = Math.max(0, quantity * unitPrice);
           const payout = Math.max(0, (totalValue * safePct) / 100);
@@ -7335,9 +7351,10 @@ const EstablishmentDashboard = () => {
             if (!professionalName) return;
 
             const product = products.find((p) => String(p.id) === pid);
-            const map = (product as any)?.commission_percentages || {};
-            const pctRaw = Number(map?.[professionalName] ?? 0);
-            const pct = Number.isFinite(pctRaw) ? Math.max(0, Math.min(100, pctRaw)) : 0;
+            const pct = getProductCommissionPct((product as any)?.commission_percentages, establishment?.professionals || [], {
+              id: directProfessionalId || appointmentProfessionalRaw,
+              name: professionalName,
+            });
             const payout = Math.max(0, (saleValue * pct) / 100);
             payoutByProduct[pid] = Math.round(((payoutByProduct[pid] || 0) + payout) * 100) / 100;
           });
@@ -7371,9 +7388,10 @@ const EstablishmentDashboard = () => {
           if (!professionalName) return;
 
           const product = products.find((p) => String(p.id) === pid);
-          const map = (product as any)?.commission_percentages || {};
-          const pctRaw = Number(map?.[professionalName] ?? 0);
-          const pct = Number.isFinite(pctRaw) ? Math.max(0, Math.min(100, pctRaw)) : 0;
+          const pct = getProductCommissionPct((product as any)?.commission_percentages, establishment?.professionals || [], {
+            id: rawProfessionalId,
+            name: professionalName,
+          });
           const payout = Math.max(0, (saleValue * pct) / 100);
           payoutByProduct[pid] = Math.round(((payoutByProduct[pid] || 0) + payout) * 100) / 100;
         });
@@ -7422,10 +7440,8 @@ const EstablishmentDashboard = () => {
         if (id && name) profIdToName[id] = name;
       });
 
-      const resolvePct = (profName: string) => {
-        const raw = Number(commissionMap?.[profName] ?? 0);
-        return Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0;
-      };
+      const resolvePct = (profName: string) =>
+        getProductCommissionPct(commissionMap, establishment.professionals || [], { name: profName });
 
       const buildSalesForMonth = async (month: Date) => {
         const start = startOfMonth(month);
@@ -42944,9 +42960,11 @@ Estamos te aguardando!`;
                                       <div className="space-y-2">
                                         {productSalesData[product.id].map((sale, index) => {
                                           const profName = String(sale.professional_name || '').trim();
-                                          const map = (product as any)?.commission_percentages || {};
-                                          const pct = Number(map?.[profName] ?? 0);
-                                          const safePct = Number.isFinite(pct) ? pct : 0;
+                                          const safePct = getProductCommissionPct(
+                                            (product as any)?.commission_percentages,
+                                            establishment?.professionals || [],
+                                            { name: profName }
+                                          );
                                           const payout = Math.max(0, (Number(sale.total_value || 0) * safePct) / 100);
                                           const expandKey = `${product.id}::${sale.professional_name}`;
                                           const isExpanded = expandedSaleProfessional === expandKey;

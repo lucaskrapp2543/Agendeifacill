@@ -1199,7 +1199,7 @@ export const getClientAppointments = async (clientId: string) => {
           pix_payment_link,
           review_link,
           affiliate_link,
-          skip_client_whatsapp_booking_nudge
+          skip_client_whatsapp_booking_nudge, booking_min_cancel_minutes
         )
       `)
       .eq('client_id', clientId)
@@ -1310,7 +1310,7 @@ export const getAppointmentsByPhone = async (phone: string) => {
         if (estIds.length > 0) {
           const { data: ests } = await supabase
             .from('establishments')
-            .select('id, name, code, professionals, skip_client_whatsapp_booking_nudge, client_afcoins_enabled')
+            .select('id, name, code, professionals, skip_client_whatsapp_booking_nudge, booking_min_cancel_minutes, client_afcoins_enabled')
             .in('id', estIds as any[]);
           const estMap = new Map((ests || []).map((e: any) => [e.id, e]));
           for (const apt of appointments as any[]) {
@@ -1374,7 +1374,7 @@ export const getAppointmentsByPhone = async (phone: string) => {
             name,
             code,
             professionals,
-            skip_client_whatsapp_booking_nudge,
+            skip_client_whatsapp_booking_nudge, booking_min_cancel_minutes,
             client_afcoins_enabled
           )
         `)
@@ -1403,7 +1403,7 @@ export const getAppointmentsByPhone = async (phone: string) => {
               name,
               code,
               professionals,
-              skip_client_whatsapp_booking_nudge
+              skip_client_whatsapp_booking_nudge, booking_min_cancel_minutes
             )
           `)
           .ilike('client_whatsapp', `%${localNumber}%`)
@@ -1442,7 +1442,7 @@ export const getAppointmentsByPhone = async (phone: string) => {
             name,
             code,
             professionals,
-            skip_client_whatsapp_booking_nudge,
+            skip_client_whatsapp_booking_nudge, booking_min_cancel_minutes,
             client_afcoins_enabled
           )
         `)

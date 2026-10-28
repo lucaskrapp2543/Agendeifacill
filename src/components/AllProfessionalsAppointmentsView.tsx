@@ -43,6 +43,7 @@ import { SqueezeServicePickerModal } from './SqueezeServicePickerModal';
 import { useToast } from './ui/Toaster';
 import { ValidityDisplay } from './ValidityDisplay';
 import { StoryGeneratorModal } from './StoryGeneratorModal';
+import { getProductCommissionPct } from '../utils/productCommission';
 
 interface Professional {
   id: string;
@@ -5603,7 +5604,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
       const prof = professionals.find(p => appointmentBelongsToProfessionalColumn(apt, p)) || null;
       return (apt.sold_products || []).map(sp => {
         const productDef = establishmentProducts.find(p => p.id === sp.product_id);
-        const commissionPct = (prof && productDef?.commission_percentages?.[prof.name]) || 0;
+        const commissionPct = prof
+          ? getProductCommissionPct(productDef?.commission_percentages, professionals, { id: prof.id, name: prof.name })
+          : 0;
         return {
           ...sp,
           professionalName: prof?.name || '—',

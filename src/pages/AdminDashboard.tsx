@@ -746,6 +746,11 @@ const AdminDashboard = () => {
   const [clientesMeusPagosMonth, setClientesMeusPagosMonth] = useState<Date>(() => new Date());
   const [cardsRangeStart, setCardsRangeStart] = useState('');
   const [cardsRangeEnd, setCardsRangeEnd] = useState('');
+  // Histórico real de pagamentos do plano (establishment_billing_payments), por chave
+  // "m:AAAA-MM" (mês passado) ou "r:inicio|fim" (filtro De/Até). Ver buildPaidEntries.
+  type BillingHistoryRow = { id: string; establishmentId: string; paidAt: number; amount: number; paymentMethod: string };
+  type BillingHistoryState = { status: 'loading' | 'ok' | 'error'; rows: BillingHistoryRow[]; fetchedAt: number };
+  const [billingHistoryByKey, setBillingHistoryByKey] = useState<Record<string, BillingHistoryState>>({});
 
   // ✅ Saldo do dia: permitir navegar por dia (hoje / dia anterior / etc.)
   const [saldoDiaDate, setSaldoDiaDate] = useState<Date>(() => new Date());
@@ -3623,6 +3628,100 @@ const AdminDashboard = () => {
     };
   }, [showLastPaymentsModal]);
 
+  // ── Histórico real de pagamentos do plano (cards de mês passado / dia passado / De-Até) ──
+  // establishments.payment_paid_at guarda só a ÚLTIMA data de pagamento de cada barbearia:
+  // quando ela paga o mês seguinte, o pagamento anterior "some" do mês anterior (set/2026
+  // aparecia com 20 pagos em vez de ~115). Aqui buscamos cada pagamento pago do período
+  // na tabela de histórico. O mês/dia ATUAL continua pelo campo antigo, como sempre foi.
+  const BILLING_HISTORY_FRESH_MS = 5 * 60 * 1000;
+  const billingHistoryKeyForMonth = (d: Date) => `m:${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const billingHistoryRangeKey = cardsRangeStart && cardsRangeEnd ? `r:${cardsRangeStart}|${cardsRangeEnd}` : '';
+  useEffect(() => {
+    const today = new Date();
+    const wanted: Array<{ key: string; from: Date; to: Date }> = [];
+    const pushMonth = (d: Date, evenIfCurrentMonth: boolean) => {
+      if (!evenIfCurrentMonth && isSameMonthYear(d, today)) return;
+      const key = billingHistoryKeyForMonth(d);
+      if (wanted.some((w) => w.key === key)) return;
+      const { start, end } = getMonthRange(d);
+      wanted.push({ key, from: start, to: end });
+    };
+    pushMonth(saldoLucroMonth, false);
+    pushMonth(saldoMesMonth, false);
+    pushMonth(clientesMeusPagosMonth, false);
+    if (!isSameDay(saldoDiaDate, today)) pushMonth(saldoDiaDate, true);
+    if (billingHistoryRangeKey) {
+      const from = startOfDay(new Date(`${cardsRangeStart}T00:00:00`));
+      const to = endOfDay(new Date(`${cardsRangeEnd}T00:00:00`));
+      if (Number.isFinite(from.getTime()) && Number.isFinite(to.getTime()) && from.getTime() <= to.getTime()) {
+        wanted.push({ key: billingHistoryRangeKey, from, to });
+      }
+    }
+    const nowMs = Date.now();
+    const missing = wanted.filter((w) => {
+      const st = billingHistoryByKey[w.key];
+      if (!st) return true;
+      if (st.status === 'loading') return false;
+      if (st.status === 'error') return nowMs - st.fetchedAt > 60 * 1000; // tenta de novo depois de 1 min
+      // Mês passado não muda; período que inclui hoje pode ganhar pagamento novo.
+      const includesToday = w.to.getTime() >= startOfDay(today).getTime();
+      return includesToday && nowMs - st.fetchedAt > BILLING_HISTORY_FRESH_MS;
+    });
+    if (missing.length === 0) return;
+    setBillingHistoryByKey((prev) => {
+      const next = { ...prev };
+      missing.forEach((w) => {
+        next[w.key] = { status: 'loading', rows: prev[w.key]?.rows || [], fetchedAt: prev[w.key]?.fetchedAt || 0 };
+      });
+      return next;
+    });
+    const endpoint = import.meta.env.PROD
+      ? '/.netlify/functions/mercadopago-recent-establishment-billing-payments'
+      : '/api/mercadopago/recent-establishment-billing-payments';
+    void (async () => {
+      let token = '';
+      try {
+        const { data } = await supabase.auth.getSession();
+        token = String(data?.session?.access_token || '');
+      } catch {
+        token = '';
+      }
+      await Promise.all(
+        missing.map(async (w) => {
+          let result: BillingHistoryState = { status: 'error', rows: [], fetchedAt: Date.now() };
+          try {
+            const url = `${endpoint}?from=${encodeURIComponent(w.from.toISOString())}&to=${encodeURIComponent(w.to.toISOString())}`;
+            const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+            const payload = await response.json().catch(() => ({}));
+            if (response.ok && Array.isArray((payload as any)?.items)) {
+              const rows: BillingHistoryRow[] = [];
+              (payload as any).items.forEach((row: any) => {
+                const establishmentId = String(row?.establishment_id || '').trim();
+                const paidAt = new Date(String(row?.paid_at || '')).getTime();
+                const amountCents = Number(row?.amount_cents);
+                if (!establishmentId || !Number.isFinite(paidAt) || !Number.isFinite(amountCents) || amountCents <= 0) return;
+                rows.push({
+                  id: String(row?.id || `${establishmentId}:${paidAt}`),
+                  establishmentId,
+                  paidAt,
+                  amount: Math.round(amountCents) / 100,
+                  paymentMethod: String(row?.payment_method || ''),
+                });
+              });
+              result = { status: 'ok', rows, fetchedAt: Date.now() };
+            } else {
+              console.warn('Histórico de pagamentos do plano indisponível:', (payload as any)?.error || response.status);
+            }
+          } catch (error) {
+            console.error('Erro ao buscar histórico de pagamentos do plano:', error);
+          }
+          setBillingHistoryByKey((prev) => ({ ...prev, [w.key]: result }));
+        })
+      );
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saldoLucroMonth, saldoMesMonth, clientesMeusPagosMonth, saldoDiaDate, billingHistoryRangeKey, billingHistoryByKey, establishments]);
+
   useEffect(() => {
     if (!showAfBookingModal) return;
     let alive = true;
@@ -4902,6 +5001,76 @@ const AdminDashboard = () => {
     const hasAdvancedDueDate = Number.isFinite(dueAt) && Number.isFinite(createdAt) && dueAt > createdAt;
     return isCreatedInMonth && hasAdvancedDueDate;
   };
+
+  // ── Histórico real por período (ver o useEffect de billingHistoryByKey) ──
+  // Cada pagamento online do período conta uma vez; quem pagou manual (sem linha
+  // online no período) continua entrando pelo campo payment_paid_at + admin_profit_value.
+  type PaidEntry = {
+    key: string;
+    establishmentId: string;
+    est: Establishment | null;
+    paidAt: number;
+    value: number;
+    source: 'online' | 'manual';
+  };
+  const establishmentByIdForHistory = new Map<string, Establishment>();
+  metricsEstablishments.forEach((est) => establishmentByIdForHistory.set(est.id, est));
+  const buildPaidEntries = (rows: BillingHistoryRow[], rangeStart: Date, rangeEnd: Date): PaidEntry[] => {
+    const startMs = rangeStart.getTime();
+    const endMs = rangeEnd.getTime();
+    const entries: PaidEntry[] = [];
+    const onlineIds = new Set<string>();
+    rows.forEach((row) => {
+      if (row.paidAt < startMs || row.paidAt > endMs) return;
+      onlineIds.add(row.establishmentId);
+      entries.push({
+        key: `online:${row.id}`,
+        establishmentId: row.establishmentId,
+        est: establishmentByIdForHistory.get(row.establishmentId) || null,
+        paidAt: row.paidAt,
+        value: row.amount,
+        source: 'online',
+      });
+    });
+    metricsEstablishments.forEach((est) => {
+      if (onlineIds.has(est.id)) return;
+      if (!isPaidInDateRange(est, rangeStart, rangeEnd)) return;
+      const v = Number(est.admin_profit_value ?? 0);
+      const paidAt = est.payment_paid_at ? new Date(est.payment_paid_at).getTime() : NaN;
+      entries.push({
+        key: `manual:${est.id}`,
+        establishmentId: est.id,
+        est,
+        paidAt: Number.isFinite(paidAt) ? paidAt : startMs,
+        value: Number.isFinite(v) ? v : 0,
+        source: 'manual',
+      });
+    });
+    return entries.sort((a, b) => b.paidAt - a.paidAt);
+  };
+  const sumPaidEntries = (entries: PaidEntry[]) => entries.reduce((sum, en) => sum + en.value, 0);
+  type HistoryResolved = { status: 'loading' | 'ok' | 'error'; entries: PaidEntry[] | null };
+  const resolveHistory = (key: string, rangeStart: Date, rangeEnd: Date): HistoryResolved | null => {
+    if (!key) return null;
+    const st = billingHistoryByKey[key];
+    if (!st || st.status !== 'ok') return { status: st?.status || 'loading', entries: null };
+    return { status: 'ok', entries: buildPaidEntries(st.rows, rangeStart, rangeEnd) };
+  };
+  // Mês atual: null (continua pelo campo antigo). Mês passado: histórico.
+  const resolveMonthHistory = (monthDate: Date, rangeStart: Date, rangeEnd: Date): HistoryResolved | null =>
+    isSameMonthYear(monthDate, now) ? null : resolveHistory(billingHistoryKeyForMonth(monthDate), rangeStart, rangeEnd);
+  const historyHint = (resolved: HistoryResolved | null) => {
+    if (!resolved) return '';
+    if (resolved.status === 'loading') return ' • carregando histórico…';
+    if (resolved.status === 'error') return ' • histórico indisponível agora (valor parcial)';
+    return '';
+  };
+  const isRenewalEntry = (en: PaidEntry, periodStart: Date) => {
+    if (!en.est || en.est.plan_type !== 'monthly') return false;
+    const createdAt = new Date(en.est.created_at).getTime();
+    return Number.isFinite(createdAt) && createdAt < periodStart.getTime();
+  };
+
   const { start: saldoLucroMonthStart, end: saldoLucroMonthEndRaw } = getMonthRange(saldoLucroMonth);
   const saldoLucroMonthEnd = isSameMonthYear(saldoLucroMonth, now) ? now : saldoLucroMonthEndRaw;
   const paidInSaldoLucroMonth = metricsEstablishments.filter(est => isPaidInDateRange(est, saldoLucroMonthStart, saldoLucroMonthEnd));
@@ -4920,6 +5089,13 @@ const AdminDashboard = () => {
     const v = Number(est.admin_profit_value ?? 0);
     return sum + (Number.isFinite(v) ? v : 0);
   }, 0);
+  // Mês passado: histórico real (ver buildPaidEntries). Mês atual: igual ao de sempre.
+  const saldoLucroHistory = resolveMonthHistory(saldoLucroMonth, saldoLucroMonthStart, saldoLucroMonthEnd);
+  const totalAdminProfitInMonthDisplay = saldoLucroHistory?.entries ? sumPaidEntries(saldoLucroHistory.entries) : totalAdminProfitInMonth;
+  const paidInSaldoLucroMonthCount = saldoLucroHistory?.entries ? saldoLucroHistory.entries.length : paidInSaldoLucroMonth.length;
+  const saldoMesHistory = resolveMonthHistory(saldoMesMonth, saldoMesMonthStart, saldoMesMonthEnd);
+  const saldoMesProfitDisplay = saldoMesHistory?.entries ? sumPaidEntries(saldoMesHistory.entries) : saldoMesProfit;
+  const paidInSaldoMesMonthCount = saldoMesHistory?.entries ? saldoMesHistory.entries.length : paidInSaldoMesMonth.length;
   const newClientsInSaldoMesMonth = metricsEstablishments.filter(est => {
     const createdAt = new Date(est.created_at).getTime();
     if (!Number.isFinite(createdAt)) return false;
@@ -5165,11 +5341,21 @@ const AdminDashboard = () => {
     const tb = b.payment_paid_at ? new Date(b.payment_paid_at).getTime() : 0;
     return tb - ta;
   });
-  const clientesMeusPagosMesSelected = paidRenewalsInClientesMeusPagosMonth.reduce((sum, est) => {
-    const v = Number(est.admin_profit_value ?? 0);
-    return sum + (Number.isFinite(v) ? v : 0);
-  }, 0);
-  const paidRenewalIdsInClientesMeusPagosMonth = new Set(paidRenewalsInClientesMeusPagosMonth.map(est => est.id));
+  // Mês passado: renovações pelo histórico real (pagamentos de quem já era cliente antes do mês).
+  const renewalsHistory = resolveMonthHistory(clientesMeusPagosMonth, clientesMeusPagosMonthStart, clientesMeusPagosMonthEnd);
+  const renewalEntriesInMonth: PaidEntry[] | null = renewalsHistory?.entries
+    ? renewalsHistory.entries.filter((en) => isRenewalEntry(en, clientesMeusPagosMonthStart))
+    : null;
+  const renewalEntriesForModal: PaidEntry[] =
+    renewalEntriesInMonth ??
+    paidRenewalsInClientesMeusPagosMonthSorted.map((est) => {
+      const v = Number(est.admin_profit_value ?? 0);
+      const paidAt = est.payment_paid_at ? new Date(est.payment_paid_at).getTime() : NaN;
+      return { key: `manual:${est.id}`, establishmentId: est.id, est, paidAt, value: Number.isFinite(v) ? v : 0, source: 'manual' as const };
+    });
+  const clientesMeusPagosMesSelected = sumPaidEntries(renewalEntriesForModal);
+  const paidRenewalsInClientesMeusPagosMonthCount = renewalEntriesForModal.length;
+  const paidRenewalIdsInClientesMeusPagosMonth = new Set(renewalEntriesForModal.map((en) => en.establishmentId));
   const renewalMissingPaymentInClientesMeusPagosMonth = renewalExpectedInClientesMeusPagosMonth.filter(
     est => !paidRenewalIdsInClientesMeusPagosMonth.has(est.id)
   );
@@ -5221,6 +5407,20 @@ const AdminDashboard = () => {
     const v = Number(est.admin_profit_value ?? 0);
     return sum + (Number.isFinite(v) ? v : 0);
   }, 0);
+  // Dia passado: histórico real (mesma regra dos meses passados). Hoje: igual ao de sempre.
+  const saldoDiaHistory = isSameDay(saldoDiaDate, now) ? null : resolveHistory(billingHistoryKeyForMonth(saldoDiaDate), dayStart, dayEnd);
+  const paidEntriesOnDay: PaidEntry[] | null = saldoDiaHistory?.entries ?? null;
+  const paidOnDayCount = paidEntriesOnDay ? paidEntriesOnDay.length : paidOnDay.length;
+  const newOnDayNotPaidOnline = paidEntriesOnDay
+    ? newOnDay.filter((est) => !paidEntriesOnDay.some((en) => en.establishmentId === est.id))
+    : [];
+  const saldoDiaEntitiesCount = paidEntriesOnDay ? paidEntriesOnDay.length + newOnDayNotPaidOnline.length : saldoDiaEntities.length;
+  const saldoDiaCombinedProfitDisplay = paidEntriesOnDay
+    ? sumPaidEntries(paidEntriesOnDay) + newOnDayNotPaidOnline.reduce((sum, est) => {
+      const v = Number(est.admin_profit_value ?? 0);
+      return sum + (Number.isFinite(v) ? v : 0);
+    }, 0)
+    : saldoDiaCombinedProfit;
 
   // Clientes (estabelecimentos) criados hoje (para controle rápido, sem query extra)
   const clientesDiaCount = metricsEstablishments.filter(est => {
@@ -5290,7 +5490,19 @@ const AdminDashboard = () => {
       return isInCardsRange(dueAt);
     })
     : renewalExpectedInClientesMeusPagosMonth;
-  const paidRenewalsInCardsRangeIds = new Set(paidRenewalsInCardsRange.map((est) => est.id));
+  // Período De/Até: histórico real do período (cada pagamento conta).
+  const cardsRangeHistory = hasCardsRange && cardsRangeStartDate && cardsRangeEndDate
+    ? resolveHistory(billingHistoryRangeKey, cardsRangeStartDate, cardsRangeEndDate)
+    : null;
+  const paidEntriesInCardsRange: PaidEntry[] | null = cardsRangeHistory?.entries ?? null;
+  const paidInCardsRangeCount = paidEntriesInCardsRange ? paidEntriesInCardsRange.length : paidInCardsRange.length;
+  const paidRenewalEntriesInCardsRange: PaidEntry[] | null = paidEntriesInCardsRange && cardsRangeStartDate
+    ? paidEntriesInCardsRange.filter((en) => isRenewalEntry(en, cardsRangeStartDate))
+    : null;
+  const paidRenewalsInCardsRangeCount = paidRenewalEntriesInCardsRange ? paidRenewalEntriesInCardsRange.length : paidRenewalsInCardsRange.length;
+  const paidRenewalsInCardsRangeIds = new Set(
+    paidRenewalEntriesInCardsRange ? paidRenewalEntriesInCardsRange.map((en) => en.establishmentId) : paidRenewalsInCardsRange.map((est) => est.id)
+  );
   const renewalMissingPaymentInCardsRange = renewalExpectedInCardsRange.filter(
     (est) => !paidRenewalsInCardsRangeIds.has(est.id)
   );
@@ -5299,22 +5511,28 @@ const AdminDashboard = () => {
     return sum + (Number.isFinite(v) ? v : 0);
   }, 0);
   const saldoLucroValueDisplay = hasCardsRange
-    ? paidInCardsRange.reduce((sum, est) => {
-      const v = Number(est.admin_profit_value ?? 0);
-      return sum + (Number.isFinite(v) ? v : 0);
-    }, 0)
-    : totalAdminProfitInMonth;
-  const saldoMesValueDisplay = hasCardsRange ? saldoLucroValueDisplay : saldoMesProfit;
+    ? (paidEntriesInCardsRange
+      ? sumPaidEntries(paidEntriesInCardsRange)
+      : paidInCardsRange.reduce((sum, est) => {
+        const v = Number(est.admin_profit_value ?? 0);
+        return sum + (Number.isFinite(v) ? v : 0);
+      }, 0))
+    : totalAdminProfitInMonthDisplay;
+  const saldoMesValueDisplay = hasCardsRange ? saldoLucroValueDisplay : saldoMesProfitDisplay;
   const saldoMesClientesNovosDisplay = hasCardsRange
     ? paidNewInCardsRange.reduce((sum, est) => {
       const v = Number(est.admin_profit_value ?? 0);
       return sum + (Number.isFinite(v) ? v : 0);
     }, 0)
     : saldoMesClientesNovosProfit;
-  const renovacoesPagasValueDisplay = hasCardsRange ? paidRenewalsInCardsRange.reduce((sum, est) => {
-    const v = Number(est.admin_profit_value ?? 0);
-    return sum + (Number.isFinite(v) ? v : 0);
-  }, 0) : clientesMeusPagosMesSelected;
+  const renovacoesPagasValueDisplay = hasCardsRange
+    ? (paidRenewalEntriesInCardsRange
+      ? sumPaidEntries(paidRenewalEntriesInCardsRange)
+      : paidRenewalsInCardsRange.reduce((sum, est) => {
+        const v = Number(est.admin_profit_value ?? 0);
+        return sum + (Number.isFinite(v) ? v : 0);
+      }, 0))
+    : clientesMeusPagosMesSelected;
   const saldoPeriodoIds = new Set<string>([
     ...paidInCardsRange.map((est) => est.id),
     ...newInCardsRange.map((est) => est.id),
@@ -5324,7 +5542,20 @@ const AdminDashboard = () => {
     const v = Number(est.admin_profit_value ?? 0);
     return sum + (Number.isFinite(v) ? v : 0);
   }, 0);
-  const saldoDiaValueDisplay = hasCardsRange ? saldoPeriodoCombinedProfit : saldoDiaCombinedProfit;
+  // Com histórico: cada pagamento do período + lucro manual de quem é novo e não pagou online no período.
+  const saldoPeriodoNewOnlyEntities = paidEntriesInCardsRange
+    ? newInCardsRange.filter((est) => !paidEntriesInCardsRange.some((en) => en.establishmentId === est.id))
+    : [];
+  const saldoPeriodoCombinedProfitDisplay = paidEntriesInCardsRange
+    ? sumPaidEntries(paidEntriesInCardsRange) + saldoPeriodoNewOnlyEntities.reduce((sum, est) => {
+      const v = Number(est.admin_profit_value ?? 0);
+      return sum + (Number.isFinite(v) ? v : 0);
+    }, 0)
+    : saldoPeriodoCombinedProfit;
+  const saldoPeriodoEntitiesCount = paidEntriesInCardsRange
+    ? paidEntriesInCardsRange.length + saldoPeriodoNewOnlyEntities.length
+    : saldoPeriodoEntities.length;
+  const saldoDiaValueDisplay = hasCardsRange ? saldoPeriodoCombinedProfitDisplay : saldoDiaCombinedProfitDisplay;
   const totalEstablishmentsDisplay = hasCardsRange ? establishmentsInCardsRange.length : establishments.length;
   const clientsMonthCountDisplay = hasCardsRange ? newInCardsRange.length : clientsMonthCount;
   const pagamentosEmDiaDisplay = establishmentsInCardsRange.filter((e) => e.payment_status === 'paid').length;
@@ -5848,7 +6079,7 @@ const AdminDashboard = () => {
                 </p>
                 <p className="text-2xl font-bold text-gray-900">{fmtBRL(saldoLucroValueDisplay)}</p>
                 <div className="text-xs text-gray-500 mt-1">
-                  <span>{hasCardsRange ? paidInCardsRange.length : paidInSaldoLucroMonth.length} pago(s) • total geral {fmtBRL(totalAdminProfit)}</span>
+                  <span>{hasCardsRange ? paidInCardsRangeCount : paidInSaldoLucroMonthCount} pago(s) • total geral {fmtBRL(totalAdminProfit)}{historyHint(hasCardsRange ? cardsRangeHistory : saldoLucroHistory)}</span>
                   <button
                     type="button"
                     onClick={() => setShowSaldoLucroInfo(prev => !prev)}
@@ -5899,8 +6130,8 @@ const AdminDashboard = () => {
                 <p className="text-2xl font-bold text-green-900">{fmtBRL(saldoMesValueDisplay)}</p>
                 <p className="text-xs text-green-800/80 mt-1">
                   {hasCardsRange
-                    ? `${paidInCardsRange.length} pago(s) de ${cardsRangeLabel}`
-                    : `${paidInSaldoMesMonth.length} pago(s) de ${saldoMesMonthStart.toLocaleDateString('pt-BR')} até ${saldoMesMonthEnd.toLocaleDateString('pt-BR')}`}
+                    ? `${paidInCardsRangeCount} pago(s) de ${cardsRangeLabel}${historyHint(cardsRangeHistory)}`
+                    : `${paidInSaldoMesMonthCount} pago(s) de ${saldoMesMonthStart.toLocaleDateString('pt-BR')} até ${saldoMesMonthEnd.toLocaleDateString('pt-BR')}${historyHint(saldoMesHistory)}`}
                 </p>
               </div>
             </div>
@@ -5997,8 +6228,8 @@ const AdminDashboard = () => {
                 <p className="text-2xl font-bold text-emerald-900">{fmtBRL(renovacoesPagasValueDisplay)}</p>
                 <p className="text-xs text-emerald-800/80 mt-1">
                   {hasCardsRange
-                    ? `${paidRenewalsInCardsRange.length} renovação(ões) • não inclui novos do período`
-                    : `${paidRenewalsInClientesMeusPagosMonth.length} renovação(ões) • não inclui novos do mês selecionado`}
+                    ? `${paidRenewalsInCardsRangeCount} renovação(ões) • não inclui novos do período${historyHint(cardsRangeHistory)}`
+                    : `${paidRenewalsInClientesMeusPagosMonthCount} renovação(ões) • não inclui novos do mês selecionado${historyHint(renewalsHistory)}`}
                 </p>
                 <p className="text-xs text-amber-800 mt-1">
                   {hasCardsRange
@@ -6041,8 +6272,8 @@ const AdminDashboard = () => {
                 <p className="text-2xl font-bold text-emerald-900">{fmtBRL(saldoDiaValueDisplay)}</p>
                 <p className="text-xs text-emerald-800/80 mt-1">
                   {hasCardsRange
-                    ? `${paidInCardsRange.length} pago(s) • ${newInCardsRange.length} novo(s) • ${saldoPeriodoEntities.length} no saldo`
-                    : `${paidOnDay.length} pago(s) • ${clientesDiaCount} novo(s) • ${saldoDiaEntities.length} no saldo`}
+                    ? `${paidInCardsRangeCount} pago(s) • ${newInCardsRange.length} novo(s) • ${saldoPeriodoEntitiesCount} no saldo${historyHint(cardsRangeHistory)}`
+                    : `${paidOnDayCount} pago(s) • ${clientesDiaCount} novo(s) • ${saldoDiaEntitiesCount} no saldo${historyHint(saldoDiaHistory)}`}
                 </p>
               </div>
             </div>
@@ -8890,7 +9121,7 @@ const AdminDashboard = () => {
                         </div>
                         <div className="p-3 rounded border bg-gray-50">
                           <div className="text-[11px] text-gray-600">Quantidade de estabelecimentos</div>
-                          <div className="text-sm font-extrabold text-gray-900">{paidRenewalsInClientesMeusPagosMonthSorted.length}</div>
+                          <div className="text-sm font-extrabold text-gray-900">{renewalEntriesForModal.length}</div>
                         </div>
                         <div className="p-3 rounded border bg-amber-50">
                           <div className="text-[11px] text-amber-800">Faltam (vencem até fim do mês)</div>
@@ -8905,7 +9136,7 @@ const AdminDashboard = () => {
                           <div className="px-3 py-2 bg-emerald-50 border-b text-xs font-semibold text-emerald-900">
                             Pagaram renovação no mês
                           </div>
-                          {paidRenewalsInClientesMeusPagosMonthSorted.length === 0 ? (
+                          {renewalEntriesForModal.length === 0 ? (
                             <div className="p-4 text-sm text-gray-600">Nenhuma renovação paga encontrada neste mês.</div>
                           ) : (
                             <div className="overflow-auto">
@@ -8919,31 +9150,44 @@ const AdminDashboard = () => {
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-200">
-                                  {paidRenewalsInClientesMeusPagosMonthSorted.map((establishment) => (
-                                    <tr key={establishment.id}>
+                                  {renewalEntriesForModal.map((entry) => {
+                                    const establishment = entry.est;
+                                    return (
+                                    <tr key={entry.key}>
                                       <td className="px-3 py-2 text-xs text-gray-800">
-                                        {establishment.name} <span className="text-gray-500">({establishment.code})</span>
+                                        {establishment ? (
+                                          <>{establishment.name} <span className="text-gray-500">({establishment.code})</span></>
+                                        ) : (
+                                          <span className="text-gray-500">Barbearia removida</span>
+                                        )}
                                       </td>
                                       <td className="px-3 py-2 text-xs text-gray-700">
-                                        {establishment.payment_paid_at
-                                          ? new Date(establishment.payment_paid_at).toLocaleString('pt-BR')
+                                        {Number.isFinite(entry.paidAt)
+                                          ? new Date(entry.paidAt).toLocaleString('pt-BR')
                                           : '—'}
                                       </td>
                                       <td className="px-3 py-2 text-xs font-bold text-gray-900">
-                                        {fmtBRL(Number(establishment.admin_profit_value ?? 0))}
+                                        {fmtBRL(entry.value)}
                                       </td>
                                       <td className="px-3 py-2 text-xs">
-                                        <button
-                                          type="button"
-                                          onClick={() => setRenewalInSelectedMonth(establishment, false)}
-                                          disabled={isAdjustingRenewalByEstablishment[`renewal:${establishment.id}`]}
-                                          className="px-2 py-1 rounded border border-rose-300 text-rose-700 hover:bg-rose-50 disabled:opacity-50"
-                                        >
-                                          Remover do mês
-                                        </button>
+                                        {entry.source === 'online' || !establishment ? (
+                                          <span className="text-emerald-700" title="Pagamento online registrado no histórico (não dá para remover)">
+                                            Pagamento online
+                                          </span>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => setRenewalInSelectedMonth(establishment, false)}
+                                            disabled={isAdjustingRenewalByEstablishment[`renewal:${establishment.id}`]}
+                                            className="px-2 py-1 rounded border border-rose-300 text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                                          >
+                                            Remover do mês
+                                          </button>
+                                        )}
                                       </td>
                                     </tr>
-                                  ))}
+                                    );
+                                  })}
                                 </tbody>
                               </table>
                             </div>

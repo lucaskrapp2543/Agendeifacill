@@ -28,6 +28,42 @@ export const SYSTEM_UPDATE_KIND_LABEL: Record<SystemUpdateKind, string> = {
 
 export const SYSTEM_UPDATES: SystemUpdate[] = [
   {
+    id: 26,
+    date: '27/10/2026',
+    kind: 'correcao',
+    fromClientRequest: true,
+    title: '🛠️ Renomear profissional zerava a comissão dele nos produtos',
+    summary: 'O "% por colaborador" dos produtos ficava preso ao nome. Se você mudava o nome do profissional, as vendas novas dele saíam com 0% de comissão. Agora o % segue o profissional.',
+    details: [
+      {
+        title: 'O que acontecia',
+        text: 'Em Meus Produtos → "% por colaborador", o percentual era guardado pelo nome do profissional. Ao renomear (ex.: "Paulo Referência" virou "Paulo Damasceno"), o sistema não achava mais o % e passava a calcular 0 nas vendas seguintes. Nos campos aparecia tudo vazio.',
+      },
+      {
+        title: 'Como ficou',
+        text: 'O % agora é gravado pelo cadastro do profissional, que não muda com o nome. Quem já tinha % no nome atual não precisa fazer nada: converte sozinho na próxima vez que salvar. Quem renomeou antes dessa correção precisa digitar o % de novo uma única vez.',
+      },
+    ],
+  },
+  {
+    id: 25,
+    date: '27/10/2026',
+    kind: 'correcao',
+    fromClientRequest: true,
+    title: '🛠️ "Antecedência para cancelar" não valia na tela Meus Agendamentos do cliente',
+    summary: 'Você configurava 30 min, 1h ou 2h, mas a tela onde o cliente cancela usava sempre 3 horas. Agora vale exatamente o que você escolheu.',
+    details: [
+      {
+        title: 'O que acontecia',
+        text: 'Em Configurações → "Antecedência para cancelar" você escolhia o prazo (ex.: 1 hora). Só que a tela Meus Agendamentos do cliente não recebia esse valor e usava o padrão antigo de 3 horas: o cliente via o botão de cancelar apagado com o aviso "é necessário cancelar com pelo menos 3 horas de antecedência", mesmo com seu prazo menor.',
+      },
+      {
+        title: 'Como ficou',
+        text: 'Meus Agendamentos, a área do cliente e a área premium passam a usar o prazo que está nas suas Configurações. Quem deixou 3 horas não sente diferença. Quem desmarcou (sem prazo) deixa o cliente cancelar até a hora do atendimento.',
+      },
+    ],
+  },
+  {
     id: 24,
     date: '22/10/2026',
     kind: 'novidade',

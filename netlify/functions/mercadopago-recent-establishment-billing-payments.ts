@@ -59,6 +59,66 @@ async function fetchNetFromMercadoPago(paymentId: string, token: string): Promis
   }
 }
 
+const SUPPORT_ADMIN_EMAILS = String(process.env.SUPPORT_ADMIN_EMAILS || 'suporteagendeifacil@gmail.com')
+  .split(',')
+  .map((email) => String(email || '').trim().toLowerCase())
+  .filter(Boolean);
+const RANGE_MAX_MS = 400 * 24 * 60 * 60 * 1000;
+const RANGE_PAGE_SIZE = 1000;
+
+type RangeItem = {
+  id: string;
+  establishment_id: string;
+  paid_at: string | null;
+  payment_provider: string;
+  payment_method: string;
+  amount_cents: number | null;
+  net_received_amount: number | null;
+  mp_fee_amount: number | null;
+};
+
+/**
+ * Modo "período" (painel admin, cards de mês passado / De-Até): TODOS os pagamentos
+ * pagos do plano com paid_at dentro de [fromIso, toIso]. Cada pagamento conta — não
+ * fica só o último de cada barbearia como no modo `days`. Pagina de 1000 em 1000
+ * (um mês tem ~180 linhas).
+ */
+async function listPaidBillingPaymentsInRange(fromIso: string, toIso: string): Promise<RangeItem[] | null> {
+  if (!supabaseAdmin) return null;
+  const out: RangeItem[] = [];
+  for (let page = 0; page < 10; page += 1) {
+    const { data, error } = await supabaseAdmin
+      .from('establishment_billing_payments')
+      .select('id, establishment_id, amount_cents, paid_at, payment_provider, metadata')
+      .eq('status', 'paid')
+      .gte('paid_at', fromIso)
+      .lte('paid_at', toIso)
+      .order('paid_at', { ascending: true })
+      .range(page * RANGE_PAGE_SIZE, page * RANGE_PAGE_SIZE + RANGE_PAGE_SIZE - 1);
+    if (error) return null;
+    const rows = (data || []) as any[];
+    rows.forEach((row) => {
+      const establishmentId = String(row?.establishment_id || '').trim();
+      if (!establishmentId) return;
+      const amountCents = Number(row?.amount_cents);
+      const net = Number(row?.metadata?.net_received_amount);
+      const fee = Number(row?.metadata?.mp_fee_amount);
+      out.push({
+        id: String(row?.id || ''),
+        establishment_id: establishmentId,
+        paid_at: row?.paid_at ? String(row.paid_at) : null,
+        payment_provider: String(row?.payment_provider || 'mercadopago'),
+        payment_method: String(row?.metadata?.payment_method || ''),
+        amount_cents: Number.isFinite(amountCents) && amountCents > 0 ? amountCents : null,
+        net_received_amount: Number.isFinite(net) && net > 0 ? net : null,
+        mp_fee_amount: Number.isFinite(fee) && fee >= 0 ? fee : null,
+      });
+    });
+    if (rows.length < RANGE_PAGE_SIZE) break;
+  }
+  return out;
+}
+
 export const handler: Handler = async (event) => {
   if (event.httpMethod !== 'GET') {
     return json(405, { error: 'Method Not Allowed' }, { Allow: 'GET' });
@@ -67,6 +127,37 @@ export const handler: Handler = async (event) => {
   try {
     if (!supabaseAdmin) {
       return json(500, { error: 'Supabase admin nao configurado' });
+    }
+
+    // ── Modo "período" (só a conta de suporte): ver listPaidBillingPaymentsInRange ──
+    const fromParam = String(getQueryParam(event, 'from') || '').trim();
+    const toParam = String(getQueryParam(event, 'to') || '').trim();
+    if (fromParam || toParam) {
+      const authHeader = String(event.headers?.authorization || (event.headers as any)?.Authorization || '').trim();
+      const accessToken = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : '';
+      if (!accessToken) {
+        return json(401, { error: 'Nao autenticado' });
+      }
+      const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(accessToken);
+      const requesterEmail = String(userData?.user?.email || '').trim().toLowerCase();
+      if (userError || !requesterEmail || !SUPPORT_ADMIN_EMAILS.includes(requesterEmail)) {
+        return json(403, { error: 'Apenas a conta de suporte pode consultar o historico de pagamentos' });
+      }
+      const fromTs = new Date(fromParam).getTime();
+      const toTs = new Date(toParam).getTime();
+      if (!Number.isFinite(fromTs) || !Number.isFinite(toTs) || fromTs > toTs) {
+        return json(400, { error: 'Periodo invalido', required: ['from', 'to'] });
+      }
+      if (toTs - fromTs > RANGE_MAX_MS) {
+        return json(400, { error: 'Periodo maximo de 400 dias' });
+      }
+      const fromIso = new Date(fromTs).toISOString();
+      const toIso = new Date(toTs).toISOString();
+      const items = await listPaidBillingPaymentsInRange(fromIso, toIso);
+      if (items === null) {
+        return json(500, { error: 'Erro ao buscar historico de pagamentos' });
+      }
+      return json(200, { mode: 'range', from: fromIso, to: toIso, count: items.length, items });
     }
 
     const rawDays = Number(getQueryParam(event, 'days') || '10');

@@ -1998,15 +1998,110 @@ router.post('/list-preapprovals', async (req: Request, res: Response) => {
   }
 });
 
+const BILLING_RANGE_SUPPORT_ADMIN_EMAILS = String(process.env.SUPPORT_ADMIN_EMAILS || 'suporteagendeifacil@gmail.com')
+  .split(',')
+  .map((email) => String(email || '').trim().toLowerCase())
+  .filter(Boolean);
+const BILLING_RANGE_MAX_MS = 400 * 24 * 60 * 60 * 1000;
+const BILLING_RANGE_PAGE_SIZE = 1000;
+
+type BillingRangeItem = {
+  id: string;
+  establishment_id: string;
+  paid_at: string | null;
+  payment_provider: string;
+  payment_method: string;
+  amount_cents: number | null;
+  net_received_amount: number | null;
+  mp_fee_amount: number | null;
+};
+
+/**
+ * Modo "período" (painel admin, cards de mês passado / De-Até): TODOS os pagamentos
+ * pagos do plano com paid_at dentro de [fromIso, toIso]. Espelho da função do Netlify
+ * (mercadopago-recent-establishment-billing-payments) para o localhost.
+ */
+async function listPaidBillingPaymentsInRange(
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>,
+  fromIso: string,
+  toIso: string
+): Promise<BillingRangeItem[] | null> {
+  if (!supabaseAdmin) return null;
+  const out: BillingRangeItem[] = [];
+  for (let page = 0; page < 10; page += 1) {
+    const { data, error } = await supabaseAdmin
+      .from('establishment_billing_payments')
+      .select('id, establishment_id, amount_cents, paid_at, payment_provider, metadata')
+      .eq('status', 'paid')
+      .gte('paid_at', fromIso)
+      .lte('paid_at', toIso)
+      .order('paid_at', { ascending: true })
+      .range(page * BILLING_RANGE_PAGE_SIZE, page * BILLING_RANGE_PAGE_SIZE + BILLING_RANGE_PAGE_SIZE - 1);
+    if (error) return null;
+    const rows = (data || []) as any[];
+    rows.forEach((row) => {
+      const establishmentId = String(row?.establishment_id || '').trim();
+      if (!establishmentId) return;
+      const amountCents = Number(row?.amount_cents);
+      const net = Number(row?.metadata?.net_received_amount);
+      const fee = Number(row?.metadata?.mp_fee_amount);
+      out.push({
+        id: String(row?.id || ''),
+        establishment_id: establishmentId,
+        paid_at: row?.paid_at ? String(row.paid_at) : null,
+        payment_provider: String(row?.payment_provider || 'mercadopago'),
+        payment_method: String(row?.metadata?.payment_method || ''),
+        amount_cents: Number.isFinite(amountCents) && amountCents > 0 ? amountCents : null,
+        net_received_amount: Number.isFinite(net) && net > 0 ? net : null,
+        mp_fee_amount: Number.isFinite(fee) && fee >= 0 ? fee : null,
+      });
+    });
+    if (rows.length < BILLING_RANGE_PAGE_SIZE) break;
+  }
+  return out;
+}
+
 /**
  * GET /api/mercadopago/recent-establishment-billing-payments
  * Lista pagamentos automáticos (regularização) recentes por estabelecimento.
+ * Com ?from=&to= (ISO) devolve TODOS os pagamentos pagos do período (só admin).
  */
 router.get('/recent-establishment-billing-payments', async (req: Request, res: Response) => {
   try {
     const supabaseAdmin = getSupabaseAdmin();
     if (!supabaseAdmin) {
       return res.status(500).json({ error: 'Supabase admin não configurado' });
+    }
+
+    // ── Modo "período" (só a conta de suporte): ver listPaidBillingPaymentsInRange ──
+    const fromParam = String(req.query.from || '').trim();
+    const toParam = String(req.query.to || '').trim();
+    if (fromParam || toParam) {
+      const authHeader = String(req.headers.authorization || '').trim();
+      const accessToken = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : '';
+      if (!accessToken) {
+        return res.status(401).json({ error: 'Não autenticado' });
+      }
+      const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(accessToken);
+      const requesterEmail = String(userData?.user?.email || '').trim().toLowerCase();
+      if (userError || !requesterEmail || !BILLING_RANGE_SUPPORT_ADMIN_EMAILS.includes(requesterEmail)) {
+        return res.status(403).json({ error: 'Apenas a conta de suporte pode consultar o histórico de pagamentos' });
+      }
+      const fromTs = new Date(fromParam).getTime();
+      const toTs = new Date(toParam).getTime();
+      if (!Number.isFinite(fromTs) || !Number.isFinite(toTs) || fromTs > toTs) {
+        return res.status(400).json({ error: 'Período inválido', required: ['from', 'to'] });
+      }
+      if (toTs - fromTs > BILLING_RANGE_MAX_MS) {
+        return res.status(400).json({ error: 'Período máximo de 400 dias' });
+      }
+      const fromIso = new Date(fromTs).toISOString();
+      const toIso = new Date(toTs).toISOString();
+      const items = await listPaidBillingPaymentsInRange(supabaseAdmin, fromIso, toIso);
+      if (items === null) {
+        return res.status(500).json({ error: 'Erro ao buscar histórico de pagamentos' });
+      }
+      return res.json({ mode: 'range', from: fromIso, to: toIso, count: items.length, items });
     }
 
     const rawDays = Number(req.query.days || 10);
