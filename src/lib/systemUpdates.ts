@@ -28,6 +28,81 @@ export const SYSTEM_UPDATE_KIND_LABEL: Record<SystemUpdateKind, string> = {
 
 export const SYSTEM_UPDATES: SystemUpdate[] = [
   {
+    id: 30,
+    date: '03/11/2026',
+    kind: 'melhoria',
+    title: '⚡ "Fazer pedidos" agora se chama "Falar com suporte"',
+    summary: 'O botão de pedidos mudou de nome e continua fazendo o mesmo. O botão antigo, de chamar no WhatsApp, agora se chama "Falar com representante".',
+    details: [
+      {
+        title: 'Qual usar?',
+        text: 'Pedido, correção, erro ou dúvida: use "Falar com suporte". Vai direto para o T.I, com resposta mais rápida e com melhor qualidade, e a resposta chega nessa mesma tela. Para conversar pelo WhatsApp, use "Falar com representante".',
+      },
+    ],
+  },
+  {
+    id: 29,
+    date: '03/11/2026',
+    kind: 'novidade',
+    fromClientRequest: true,
+    title: '✨ Escolha os dias em que o cliente pode agendar cada serviço',
+    summary: 'Agora dá para deixar um serviço só em alguns dias no link de agendamento. Exemplo: corte infantil só nos dias mais tranquilos. É opcional: quem não mexer continua igual.',
+    details: [
+      {
+        title: 'Como usar',
+        text: 'Abra o serviço em "Editar Serviço". Em "Dias em que o cliente pode agendar", toque nos dias em que não quer esse serviço. Os dias em verde são os liberados. Depois é só salvar.',
+      },
+      {
+        title: 'O que o cliente vê',
+        text: 'No link de agendamento, o serviço mostra os dias em que é feito, e o cliente só consegue marcar nesses dias. Os outros serviços continuam normais.',
+      },
+      {
+        title: 'E no painel?',
+        text: 'Pelo painel você continua marcando e fazendo encaixe em qualquer dia. A opção vale só para o que o cliente agenda sozinho.',
+      },
+    ],
+  },
+  {
+    id: 28,
+    date: '03/11/2026',
+    kind: 'correcao',
+    fromClientRequest: true,
+    title: '🛠️ Assinante recebia "limite atingido" por engano no link de agendamento',
+    summary: 'No link, a conta dos atendimentos do assinante podia contar o mês inteiro, sem olhar a renovação. O assinante era barrado mesmo com atendimentos sobrando. Agora o link conta igual ao painel.',
+    details: [
+      {
+        title: 'O que acontecia',
+        text: 'Quem renovava no meio do mês podia aparecer com "limite atingido" no link, enquanto no seu painel ainda sobravam atendimentos. A opção do serviço ficava apagada e o cliente não conseguia marcar.',
+      },
+      {
+        title: 'Como ficou',
+        text: 'O link agora conta do mesmo jeito que o painel, respeitando a data da renovação, a assinatura contínua e os atendimentos extras. Se a sua barbearia usa assinatura contínua, quem já usou tudo desde a renovação é avisado que acabou.',
+      },
+    ],
+  },
+  {
+    id: 27,
+    date: '03/11/2026',
+    kind: 'correcao',
+    fromClientRequest: true,
+    title: '🛠️ "Falta pagar" do profissional saía errado quando as datas não eram um mês inteiro',
+    summary: 'Em "Ver atendimentos detalhado por profissional", escolher datas diferentes de um mês inteiro mudava o "Falta pagar" do acerto. Agora o acerto sempre conta os atendimentos e os pagamentos do mês dele.',
+    details: [
+      {
+        title: 'O que acontecia',
+        text: 'Com um período como 01/10 a 30/11, o acerto de novembro somava também os atendimentos de outubro, mas descontava só os pagamentos de novembro. O "Falta pagar" aparecia maior do que o real. Com um período curto, como "Esta semana", podia aparecer menor.',
+      },
+      {
+        title: 'Como ficou',
+        text: 'O quadro de acerto sempre conta o mês inteiro. "Produziu no período" e "Parte dele" continuam seguindo as datas que você escolheu. Os pagamentos já registrados não mudaram.',
+      },
+      {
+        title: 'Dica',
+        text: 'Para ver o acerto e o histórico de um mês passado, toque nas setinhas do mês, no topo do Financeiro. A tela agora lembra disso logo acima do acerto.',
+      },
+    ],
+  },
+  {
     id: 26,
     date: '27/10/2026',
     kind: 'correcao',
@@ -339,7 +414,7 @@ export const SYSTEM_UPDATES: SystemUpdate[] = [
     summary: 'Nesta tela você manda pedidos de melhoria, avisa de erros e tira dúvidas, com até 4 fotos ou prints. A resposta chega aqui mesmo.',
     details: [
       { title: 'Como usar', text: 'Escreva o que precisa, se quiser adicione fotos ou prints e toque em "Enviar pedido". Em "Meus pedidos e respostas" você acompanha a resposta.' },
-      { title: 'Aviso de resposta', text: 'Quando o suporte responde, aparece um balão vermelho no botão "Fazer pedidos" do menu.' },
+      { title: 'Aviso de resposta', text: 'Quando o suporte responde, aparece um balão vermelho no botão "Falar com suporte" do menu.' },
     ],
   },
   {

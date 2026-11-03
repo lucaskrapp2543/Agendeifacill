@@ -46,6 +46,8 @@ export interface SimpleService {
   image_url?: string | null;
   /** Profissionais bloqueados pela categoria do serviço (não veem o serviço no agendamento). */
   excluded_professional_ids?: string[];
+  /** Dias em que o cliente pode agendar pelo link (src/utils/serviceBookingDays.ts). Vazio = todos. */
+  booking_weekdays?: string[] | null;
 }
 
 /** Duração aceita número (minutos) ou "HH:MM"; qualquer outra coisa cai no padrão. */
@@ -188,6 +190,7 @@ export async function loadEstablishmentAndServices(code: string): Promise<{ esta
             price: Number(s.price || 0),
             duration: Number(s.duration || 30),
             image_url: String(s?.image_url || '').trim() || null,
+            booking_weekdays: s?.booking_weekdays ?? null,
             // Bloqueio de profissionais definido na CATEGORIA (união com o do serviço, se existir)
             excluded_professional_ids: Array.from(new Set([
               ...parseExcludedIds(s?.excluded_professional_ids),

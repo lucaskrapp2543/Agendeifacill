@@ -182,11 +182,14 @@ export function FeatureRequestsPanel({ establishmentId, toast, onAnswersSeen }: 
             </div>
             <h2 className="mt-3 flex items-center gap-2 text-2xl font-black text-white sm:text-3xl">
               <Lightbulb className="h-7 w-7 shrink-0 text-amber-400" />
-              Pedidos, correções e bugs
+              Falar com suporte
             </h2>
             <p className="mt-1 text-xs text-gray-300 sm:text-sm">
               Canal direto com o suporte para <strong className="text-white">tudo</strong>: peça uma melhoria, avise de um
               erro (bug) ou de algo que não está funcionando, tire uma dúvida. Nossa equipe lê tudo e responde aqui mesmo.
+            </p>
+            <p className="mt-3 rounded-xl border border-amber-400/60 bg-amber-400/15 px-3 py-2.5 text-sm font-extrabold text-amber-200">
+              ⚡ Pedidos feitos aqui vão direto para o T.I: resposta mais rápida e com melhor qualidade.
             </p>
           </div>
           <div className="shrink-0 rounded-2xl border border-amber-400/40 bg-gradient-to-br from-amber-400/20 to-amber-600/10 px-5 py-4 text-center shadow-lg shadow-amber-500/10">

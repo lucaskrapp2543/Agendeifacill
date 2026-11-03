@@ -1,3 +1,4 @@
+import { isBookingDayAllowedForServices } from '../utils/serviceBookingDays';
 import { format } from 'date-fns';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { TimeSlotSelector } from '../components/TimeSlotSelector';
@@ -225,6 +226,8 @@ export function useAvailableSlots(params: {
       for (const service of servicesForProfessional(pro)) {
         const name = String(service?.name || '').trim();
         if (!name) continue;
+        // Serviço com dias definidos pela barbearia só aparece nesses dias.
+        if (!isBookingDayAllowedForServices([service], pick.date)) continue;
         const key = name.toLowerCase();
         const duration = serviceDuration(service);
         const group =

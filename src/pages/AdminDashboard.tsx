@@ -6671,7 +6671,7 @@ const AdminDashboard = () => {
                 ? 'bg-white border-amber-300 text-amber-800 hover:bg-amber-50'
                 : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
                 }`}
-              title="Estabelecimentos com pedidos de melhoria aguardando resposta (menu Fazer pedidos)"
+              title="Estabelecimentos com pedidos de melhoria aguardando resposta (menu Falar com suporte)"
             >
               💡 <strong>Clientes com pedidos</strong>
               <span className="text-[10px] font-semibold opacity-80">({establishmentsWithPendingRequests})</span>

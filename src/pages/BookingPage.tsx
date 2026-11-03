@@ -1229,6 +1229,7 @@ export default function BookingPage() {
               loyalty_points: Math.max(0, Math.floor(Number(s.loyalty_points ?? 0))),
               category_id: String((s as any)?.category_id || '').trim() || null,
               category_name: String((s as any)?.service_categories?.name || '').trim() || null,
+              booking_weekdays: (s as any)?.booking_weekdays ?? null,
               show_for_subscriber_extra: Boolean((s as any)?.service_categories?.show_for_subscriber_extra),
               // Bloqueio de profissionais vive na CATEGORIA (service_categories.excluded_professional_ids);
               // une com o do serviço (se existir) para o filtro por profissional no chat.

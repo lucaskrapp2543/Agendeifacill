@@ -1,3 +1,4 @@
+import { formatBookingWeekdays, getCommonBookingWeekdays, isBookingDayAllowedForServices } from '../utils/serviceBookingDays';
 import { addMonths, endOfMonth, format, isSameMonth, startOfMonth, subMonths } from 'date-fns';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -274,6 +275,13 @@ const BookingSimplePage = () => {
   );
 
   const toggleService = (service: SimpleService) => {
+    if (!state.services.some((sv) => sv.id === service.id)) {
+      const commonDays = getCommonBookingWeekdays([...state.services, service]);
+      if (commonDays && commonDays.length === 0) {
+        toast.error('Esse serviço não é feito nos mesmos dias do que você já escolheu. Agende um de cada vez.');
+        return;
+      }
+    }
     setState((s) => {
       const alreadySelected = s.services.some((sv) => sv.id === service.id);
       return {
@@ -500,6 +508,8 @@ const BookingSimplePage = () => {
     if (d < todayStart) return false;
     const dayKey = BUSINESS_HOURS_DAY_KEYS[d.getDay()];
     if (!establishment?.business_hours?.[dayKey]?.enabled) return false;
+    // Serviço com dias definidos pela barbearia (ex.: corte infantil só em alguns dias).
+    if (!subscriberFlow && !isBookingDayAllowedForServices(state.services, d)) return false;
     if (subscriberFlow) {
       // Plano com dias restritos (origem: BookingChatFlow ~601-611)
       if (subscriberWeekdays.length > 0 && !subscriberWeekdays.includes(dayKey)) return false;
@@ -512,6 +522,14 @@ const BookingSimplePage = () => {
   const pickDate = (dateStr: string) => {
     setState((s) => ({ ...s, selectedDate: dateStr, selectedTime: '' }));
   };
+
+  // Trocou de serviço e o dia escolhido não vale para ele: limpa para escolher de novo.
+  useEffect(() => {
+    if (subscriberFlow || !state.selectedDate) return;
+    if (!isBookingDayAllowedForServices(state.services, state.selectedDate)) {
+      setState((s) => ({ ...s, selectedDate: '', selectedTime: '' }));
+    }
+  }, [state.services, state.selectedDate, subscriberFlow]);
 
   const selectedDateLabel = useMemo(() => {
     if (!state.selectedDate) return '';
@@ -1270,6 +1288,9 @@ const BookingSimplePage = () => {
                         <p className="text-gray-400">
                           {formatPrice(service.price)} · {service.duration} min
                         </p>
+                        {getCommonBookingWeekdays([service]) && (
+                          <p className="text-sm font-semibold" style={{ color: GOLD }}>📅 Só {formatBookingWeekdays(getCommonBookingWeekdays([service]))}</p>
+                        )}
                       </div>
                       <div
                         className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 border-2 ${
@@ -1289,6 +1310,11 @@ const BookingSimplePage = () => {
         {step === 'datetime' && state.professional && hasServiceSelection && (
           <div className="flex-1 flex flex-col gap-4">
             <h2 className="text-2xl font-extrabold text-white">Escolha data e horário</h2>
+            {!subscriberFlow && getCommonBookingWeekdays(state.services) && (
+              <p className="text-sm font-semibold" style={{ color: GOLD }}>
+                📅 Esse serviço é feito só em {formatBookingWeekdays(getCommonBookingWeekdays(state.services))}.
+              </p>
+            )}
 
             {!state.selectedDate ? (
               <div className="flex flex-col gap-3">

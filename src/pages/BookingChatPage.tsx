@@ -1,3 +1,4 @@
+import { formatBookingWeekdays, getCommonBookingWeekdays, isBookingDayAllowedForServices } from '../utils/serviceBookingDays';
 import { format } from 'date-fns';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -581,13 +582,15 @@ const BookingChatPage = () => {
       if (d < start) return false;
       const dayKey = BUSINESS_HOURS_DAY_KEYS[d.getDay()];
       if (!establishment?.business_hours?.[dayKey]?.enabled) return false;
+      // Serviço com dias definidos pela barbearia (ex.: corte infantil só em alguns dias).
+      if (!subscriberFlowRef.current && !isBookingDayAllowedForServices(form.services, d)) return false;
       if (subscriberFlowRef.current) {
         if (subscriberWeekdays.length > 0 && !subscriberWeekdays.includes(dayKey)) return false;
         if (subscriberEndDate && format(d, 'yyyy-MM-dd') > subscriberEndDate) return false;
       }
       return true;
     },
-    [establishment, subscriberWeekdays, subscriberEndDate]
+    [establishment, subscriberWeekdays, subscriberEndDate, form.services]
   );
 
   const selectableDays = useMemo(() => {
@@ -1290,13 +1293,19 @@ const BookingChatPage = () => {
     } else {
       const chosen = servicesForProfessional(formRef.current.professional).filter((s) => draftServiceIds.includes(String(s.id)));
       if (chosen.length === 0) return;
+      const commonDays = getCommonBookingWeekdays(chosen);
+      if (commonDays && commonDays.length === 0) {
+        toast.error('Esses serviços não são feitos nos mesmos dias. Agende um de cada vez.');
+        return;
+      }
       updateForm({ services: chosen });
       const label = chosen.map((s) => s.name).join(' + ');
       finishWidget('services', label);
       const total = chosen.reduce((sum, s) => sum + (Number(s.price) || 0), 0);
       userSay(`${label} · ${formatPrice(total)}`);
     }
-    await askDay();
+    const serviceDays = subscriberFlowRef.current ? null : getCommonBookingWeekdays(formRef.current.services);
+    await askDay(serviceDays ? `Esse serviço é feito só em ${formatBookingWeekdays(serviceDays)} 😉 Qual dia fica melhor pra você?` : undefined);
   };
 
   // A lista de horários pode avisar "0 horários" mais de uma vez (re-render).
@@ -2048,6 +2057,9 @@ const BookingChatPage = () => {
                           onExpand={() => setExpandedServiceIds((prev) => (prev.includes(id) ? prev : [...prev, id]))}
                         />
                         <span className="block text-xs mt-0.5" style={{ color: WA.muted }}>{Number(service.duration) || 30} min</span>
+                        {getCommonBookingWeekdays([service]) && (
+                          <span className="block text-xs mt-0.5 font-semibold" style={{ color: WA.accent }}>📅 Só {formatBookingWeekdays(getCommonBookingWeekdays([service]))}</span>
+                        )}
                       </span>
                       <span className="font-bold whitespace-nowrap text-[14px]" style={{ color: WA.text }}>{formatPrice(Number(service.price) || 0)}</span>
                     </button>

@@ -61,7 +61,7 @@ function RequestCard({ request, onAnswered }: { request: FeatureRequest; onAnswe
       <FeatureRequestPhotos paths={request.photo_paths} tone="light" />
 
       <label className="mt-3 block text-[11px] font-semibold text-gray-700">
-        Mensagem para o estabelecimento (opcional — ele vê na tela "Fazer pedidos")
+        Mensagem para o estabelecimento (opcional — ele vê na tela "Falar com suporte")
       </label>
       <textarea
         value={reply}

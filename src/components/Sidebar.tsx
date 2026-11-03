@@ -621,7 +621,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'support',
-      label: 'Falar com Suporte',
+      label: 'Falar com representante',
       icon: MessageSquare,
       onClick: () => {
         if (isItemLocked('support')) {
@@ -635,7 +635,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'feature-requests',
-      label: 'Fazer pedidos',
+      label: 'Falar com suporte',
       icon: Lightbulb,
       onClick: () => handleItemClick(() => onTabChange('feature-requests')),
       isActive: activeTab === 'feature-requests',
@@ -1005,7 +1005,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     'client-page': 'Veja sua página de agendamentos onde seus clientes agendam com você.',
     'placa-barbearia': 'Divulgue seus links em um QR Code bonito para expor no balcão.',
     reviews: 'Modere avaliações dos clientes e publique somente as aprovadas no booking.',
-    support: 'Fale com o suporte para ajuda rápida.',
+    support: 'Fale com o representante pelo WhatsApp.',
     config: 'Configurações do sistema e do seu estabelecimento.',
     logout: 'Sair da sua conta neste dispositivo.',
     hours: 'Em breve.',
@@ -1223,8 +1223,8 @@ const Sidebar: React.FC<SidebarProps> = ({
 
     const mainMobileMenuActions: Array<{ id: string; label: string; icon: LucideIcon; onClick: () => void; tone?: 'danger'; isActive?: boolean; badge?: number }> = [
       { id: 'admin-menu', label: 'Menu Admin', icon: Settings, onClick: openAdminMenu, isActive: showAdminMenu || isAdminTabActive },
-      { id: 'support', label: 'Falar com Suporte', icon: MessageSquare, onClick: () => executeMobileAction('support', () => onTabChange('support')) },
-      { id: 'feature-requests', label: 'Fazer pedidos', icon: Lightbulb, onClick: () => executeMobileAction('feature-requests', () => onTabChange('feature-requests')), isActive: activeTab === 'feature-requests', badge: unreadFeatureRequestAnswers },
+      { id: 'support', label: 'Falar com representante', icon: MessageSquare, onClick: () => executeMobileAction('support', () => onTabChange('support')) },
+      { id: 'feature-requests', label: 'Falar com suporte', icon: Lightbulb, onClick: () => executeMobileAction('feature-requests', () => onTabChange('feature-requests')), isActive: activeTab === 'feature-requests', badge: unreadFeatureRequestAnswers },
       { id: 'passo-a-passo', label: 'Como funciona', icon: Rocket, onClick: () => executeMobileAction('passo-a-passo', () => onTabChange('passo-a-passo')) },
       { id: 'logout', label: 'Sair', icon: LogOut, onClick: onSignOut, tone: 'danger' },
     ];

@@ -163,6 +163,31 @@ const fetchSubscriberAppointmentsForLimit = async (
 };
 
 /**
+ * Cliente sem login: a RLS esconde client_subscriptions, e a conta abaixo tratava o assinante como
+ * "não encontrado", contando o mês inteiro (sem início, renovação, assinatura contínua nem bônus).
+ * Caso real: assinante da 6008 barrado com "limite atingido" e o painel mostrando 2 restantes.
+ * A função devolve só os campos da contagem, sem nome nem telefone.
+ * Retorna null se a função ainda não existir no banco: nesse caso tudo segue como era.
+ */
+const fetchSubscriberLimitContext = async (
+  whatsappCandidates: string[],
+  establishmentId: string,
+  targetDateStr: string
+): Promise<any | null> => {
+  try {
+    const { data, error } = await supabase.rpc('get_subscriber_limit_context_by_whatsapp', {
+      p_whatsapp_candidates: whatsappCandidates,
+      p_establishment_id: establishmentId,
+      p_target_date: targetDateStr,
+    });
+    if (error || !data || typeof data !== 'object') return null;
+    return data;
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Verifica se um cliente assinante excedeu o limite mensal de agendamentos.
  * Regra atual (simplificada): virou o m?s, zera o saldo (sem carryover).
  */
@@ -229,6 +254,14 @@ export const checkMonthlyLimit = async (
         .maybeSingle();
       clientSubscription = subscriberWhatsappTry.data as any;
       subscriptionError = subscriberWhatsappTry.error as any;
+    }
+
+    if (!clientSubscription) {
+      const publicContext = await fetchSubscriberLimitContext(whatsappCandidates, establishmentId, targetDateStr);
+      if (publicContext) {
+        clientSubscription = publicContext;
+        subscriptionError = null;
+      }
     }
 
     if (subscriptionError || !clientSubscription) {

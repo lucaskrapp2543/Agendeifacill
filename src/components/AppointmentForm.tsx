@@ -1,3 +1,4 @@
+import { getCommonBookingWeekdays } from '../utils/serviceBookingDays';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Phone } from 'lucide-react';
@@ -3473,6 +3474,19 @@ export function AppointmentForm({
                 businessHours={establishment.business_hours}
                 allowedWeekdays={subscriberService?.weekdays}
                 isSubscriberBooking={isSubscriberBooking}
+                serviceAllowedWeekdays={
+                  isEstablishmentOwner
+                    ? null
+                    : getCommonBookingWeekdays(
+                      selectedCategoryServices.length > 0
+                        ? selectedCategoryServices
+                        : selectedServices.length > 0
+                          ? selectedServices
+                          : selectedService
+                            ? [selectedService]
+                            : []
+                    )
+                }
               />
             </div>
           </div>

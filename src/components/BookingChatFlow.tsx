@@ -1,3 +1,4 @@
+import { formatBookingWeekdays, getCommonBookingWeekdays, isBookingDayAllowedForServices } from '../utils/serviceBookingDays';
 import { format } from 'date-fns';
 import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
 import { isClientBookingBlocked, useClientBookingBlocked } from '../lib/clientBookingBlock';
@@ -670,6 +671,15 @@ export function BookingChatFlow({
     if (subscriberAllowedWeekdays.length === 0) return true;
     return subscriberAllowedWeekdays.includes(getWeekdayKey(selectedDate));
   }, [isSubscriberFlow, selectedDate, subscriberAllowedWeekdays]);
+
+  // Serviço com dias definidos pela barbearia (ex.: corte infantil só em alguns dias).
+  const serviceAllowedWeekdays = isSubscriberFlow ? null : getCommonBookingWeekdays(selectedServices);
+  const isSelectedDateAllowedForServices = isSubscriberFlow || isBookingDayAllowedForServices(selectedServices, selectedDate);
+
+  // Trocou de serviço e o dia escolhido não vale para ele: o horário marcado antes deixa de valer.
+  useEffect(() => {
+    if (!isSelectedDateAllowedForServices && selectedTime) setSelectedTime('');
+  }, [isSelectedDateAllowedForServices, selectedTime]);
 
   const fetchPublicLoyaltyProgress = async (
     establishmentId: string,
@@ -1454,6 +1464,14 @@ export function BookingChatFlow({
   };
 
   const toggleService = (serviceId: string) => {
+    if (!selectedServiceIds.includes(serviceId)) {
+      const candidate = allServices.find((service: any) => String(service?.id || '') === serviceId);
+      const commonDays = getCommonBookingWeekdays([...selectedServices, candidate]);
+      if (commonDays && commonDays.length === 0) {
+        toast.error('Esse serviço não é feito nos mesmos dias do que você já escolheu. Agende um de cada vez.');
+        return;
+      }
+    }
     setSelectedServiceIds((previous) => (previous.includes(serviceId) ? previous.filter((id) => id !== serviceId) : [...previous, serviceId]));
   };
 
@@ -1498,6 +1516,10 @@ export function BookingChatFlow({
         return;
       }
       setSameDayRescheduleMessage(null);
+    }
+    if (!isSelectedDateAllowedForServices) {
+      toast.error(`Esse serviço é feito só em ${formatBookingWeekdays(serviceAllowedWeekdays)}.`);
+      return;
     }
     if (isSubscriberFlow && !isSelectedDateAllowedForSubscriber) {
       const allowedDays = subscriberAllowedWeekdays.map((day) => weekdayPtMap[day] || day).join(', ');
@@ -2139,6 +2161,9 @@ export function BookingChatFlow({
                                 <span>•</span>
                                 <span>{formatDuration(serviceDuration > 0 ? serviceDuration : 30)}</span>
                               </div>
+                              {getCommonBookingWeekdays([service]) && (
+                                <div className="text-[11px] text-[#E6C78B] mt-0.5 font-semibold">📅 Só {formatBookingWeekdays(getCommonBookingWeekdays([service]))}</div>
+                              )}
                               {Math.max(0, Math.floor(Number(service?.loyalty_points ?? 0))) > 0 ? (
                                 <div className="text-[11px] text-[#E6C78B] mt-0.5 font-semibold">
                                   +{Math.max(0, Math.floor(Number(service?.loyalty_points ?? 0)))} pt(s) fidelidade ao concluir
@@ -2289,6 +2314,9 @@ export function BookingChatFlow({
 
             {step === 'datetime' && (
               <div className="space-y-2">
+                {serviceAllowedWeekdays && (
+                  <p className="text-sm font-semibold text-[#E6C78B]">📅 Esse serviço é feito só em {formatBookingWeekdays(serviceAllowedWeekdays)}.</p>
+                )}
                 <input
                   type="date"
                   value={format(selectedDate, 'yyyy-MM-dd')}
@@ -2337,7 +2365,11 @@ export function BookingChatFlow({
                     {sameDayRescheduleMessage}
                   </div>
                 )}
-                {isSubscriberFlow && (!isSelectedDateAllowedForSubscriber || subscriberDateLimitMessage) ? (
+                {!isSelectedDateAllowedForServices ? (
+                  <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+                    Esse serviço não é feito nesse dia. Escolha outra data no campo acima.
+                  </div>
+                ) : isSubscriberFlow && (!isSelectedDateAllowedForSubscriber || subscriberDateLimitMessage) ? (
                   <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
                     {subscriberDateLimitMessage || invalidSubscriberDateMessage || 'Esse dia não está disponível para sua assinatura. Escolha um dia permitido.'}
                   </div>

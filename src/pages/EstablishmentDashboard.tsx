@@ -41,6 +41,8 @@ import { NotificationPermission } from '../components/NotificationPermission';
 import { NotificationsPanel } from '../components/NotificationsPanel';
 import PinPasswordModal from '../components/PinPasswordModal';
 import { ProfessionalPaymentControl } from '../components/ProfessionalPaymentControl';
+import { ServiceBookingDaysPicker } from '../components/ServiceBookingDaysPicker';
+import { formatBookingWeekdays, getCommonBookingWeekdays } from '../utils/serviceBookingDays';
 import { BaileysWhatsAppSettings } from '../components/BaileysWhatsAppSettings';
 import ProfessionalPinModal from '../components/ProfessionalPinModal';
 import { ProfessionalSelector } from '../components/ProfessionalSelector';
@@ -411,6 +413,8 @@ interface ServiceSubcategory {
   oculto_da_reserva?: boolean;
   label_name?: string;
   label_color?: string;
+  /** Dias em que o cliente pode agendar pelo link. Vazio = todos. Não vale para o painel. */
+  booking_weekdays?: string[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -4460,7 +4464,7 @@ const EstablishmentDashboard = () => {
         try {
           if (!sessionStorage.getItem(sessionKey)) {
             sessionStorage.setItem(sessionKey, '1');
-            hotToast.success('💬 O suporte respondeu seu pedido! Veja em "Fazer pedidos".', { duration: 6000 });
+            hotToast.success('💬 O suporte respondeu seu pedido! Veja em "Falar com suporte".', { duration: 6000 });
           }
         } catch {
           // sem sessionStorage: só o balão do menu
@@ -6678,6 +6682,7 @@ const EstablishmentDashboard = () => {
   const [subcategoryLabelDraft, setSubcategoryLabelDraft] = useState({ name: '', color: '#111827' });
   const [isEditingSubcategoryCustomDuration, setIsEditingSubcategoryCustomDuration] = useState(false);
   const [uploadingServicePhotoKey, setUploadingServicePhotoKey] = useState<string | null>(null);
+  const [newSubcategoryBookingDays, setNewSubcategoryBookingDays] = useState<string[] | null>(null);
   const [newSubcategory, setNewSubcategory] = useState({
     name: '',
     price: '',
@@ -9300,6 +9305,7 @@ const EstablishmentDashboard = () => {
           oculto_da_reserva: typeof item?.oculto_da_reserva === 'boolean' ? item.oculto_da_reserva : undefined,
           label_name: typeof item?.label_name === 'string' ? item.label_name : undefined,
           label_color: typeof item?.label_color === 'string' ? item.label_color : undefined,
+          booking_weekdays: Array.isArray((item as any)?.booking_weekdays) ? (item as any).booking_weekdays : null,
           created_at: String(item?.created_at || ''),
           updated_at: String(item?.updated_at || ''),
         }))
@@ -9661,6 +9667,9 @@ const EstablishmentDashboard = () => {
       if (imageUrl) {
         insertPayload.image_url = imageUrl;
       }
+      if (newSubcategoryBookingDays) {
+        insertPayload.booking_weekdays = newSubcategoryBookingDays;
+      }
 
       // Atualizar sessão do Supabase antes de inserir (resolve problemas no iPhone/mobile)
       try {
@@ -9684,6 +9693,21 @@ const EstablishmentDashboard = () => {
 
       let effectiveInsertedSubcategory = insertedSubcategory;
       let effectiveError = error;
+
+      // Campo novo ainda não criado no banco: salva o serviço sem os dias.
+      if (effectiveError && insertPayload.booking_weekdays && String((effectiveError as any)?.message || '').includes('booking_weekdays')) {
+        delete insertPayload.booking_weekdays;
+        const retryWithoutDays = await supabase
+          .from('service_subcategories')
+          .insert(insertPayload)
+          .select('*')
+          .single();
+        effectiveInsertedSubcategory = retryWithoutDays.data;
+        effectiveError = retryWithoutDays.error as any;
+        if (!retryWithoutDays.error) {
+          toast('Serviço salvo, mas os dias não foram gravados: falta aplicar o SQL novo.', 'error');
+        }
+      }
 
       if (effectiveError && imageUrl) {
         const msg = `${String((effectiveError as any)?.message || '')} ${String((effectiveError as any)?.details || '')}`.toLowerCase();
@@ -9769,7 +9793,7 @@ const EstablishmentDashboard = () => {
         }
       }
 
-      setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0', image_url: '' });
+      setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0', image_url: '' }); setNewSubcategoryBookingDays(null);
       setShowAddSubcategoryModal(false);
       setSelectedCategoryForSubcategory(null);
 
@@ -10013,6 +10037,12 @@ const EstablishmentDashboard = () => {
         loyalty_points: loyaltyPts,
         image_url: imageUrl || null,
       };
+      const bookingWeekdays = (editingSubcategory as any).booking_weekdays ?? null;
+      const savedSubcategory = serviceSubcategories.find((sub) => sub.id === editingSubcategory.id);
+      // Só envia o campo quando a barbearia usa a opção: quem não usa grava exatamente o mesmo de antes.
+      if (bookingWeekdays || savedSubcategory?.booking_weekdays) {
+        updatePayload.booking_weekdays = bookingWeekdays;
+      }
       let { error } = await supabase
         .from('service_subcategories')
         .update(updatePayload)
@@ -10021,12 +10051,13 @@ const EstablishmentDashboard = () => {
       if (error) {
         const msg = String((error as any)?.message || '').toLowerCase();
         if (
-          (msg.includes('loyalty_points') || msg.includes('image_url')) &&
+          (msg.includes('loyalty_points') || msg.includes('image_url') || msg.includes('booking_weekdays')) &&
           (msg.includes('column') || msg.includes('schema') || msg.includes('does not exist'))
         ) {
           const fallbackPayload = { ...updatePayload };
           if (msg.includes('loyalty_points')) delete fallbackPayload.loyalty_points;
           if (msg.includes('image_url')) delete fallbackPayload.image_url;
+          if (msg.includes('booking_weekdays')) delete fallbackPayload.booking_weekdays;
           const { error: err2 } = await supabase
             .from('service_subcategories')
             .update(fallbackPayload)
@@ -10034,6 +10065,9 @@ const EstablishmentDashboard = () => {
           error = err2 as any;
           if (!err2 && msg.includes('image_url') && imageUrl) {
             toast('Serviço salvo, mas falta aplicar a migration image_url para vincular a foto.', 'error');
+          }
+          if (!err2 && msg.includes('booking_weekdays')) {
+            toast('Serviço salvo, mas os dias não foram gravados: falta aplicar o SQL novo.', 'error');
           }
         }
       }
@@ -10055,6 +10089,7 @@ const EstablishmentDashboard = () => {
               duration: duration,
               image_url: imageUrl || null,
               loyalty_points: loyaltyPts,
+              booking_weekdays: bookingWeekdays,
             }
             : sub
         )
@@ -26527,6 +26562,29 @@ Estamos te aguardando!`;
     return new Date(startDt.getFullYear(), startDt.getMonth(), 1);
   };
 
+  // O ACERTO com o profissional é sempre de UM mês: atendimentos desse mês x pagamentos desse mês.
+  // Antes, com datas que não eram um mês inteiro (ex.: 01/10 a 30/11), a conta somava os atendimentos
+  // de todas as datas, mas descontava só os pagamentos do mês do acerto: o "Falta pagar" saía errado
+  // e apertar PAGAR pagaria de novo o que já tinha sido pago (pedido da 1637).
+  // Só o quadro de acerto usa esta lista: "Produziu no período" continua seguindo as datas.
+  const professionalAcertoAppointments: Appointment[] = (() => {
+    if (!showProfessionalRevenueSection) return [];
+    const startRaw = String(professionalRevenueRangeStart || '').trim();
+    const endRaw = String(professionalRevenueRangeEnd || '').trim();
+    const startDt = new Date(`${startRaw}T12:00:00`);
+    const isFullMonthRange =
+      Boolean(startRaw && endRaw) &&
+      !Number.isNaN(startDt.getTime()) &&
+      startRaw === format(startOfMonth(startDt), 'yyyy-MM-dd') &&
+      endRaw === format(endOfMonth(startDt), 'yyyy-MM-dd');
+    // Mês inteiro: a lista do período já é o mês do acerto (ver resolveProfessionalRevenueReferenceMonth).
+    if (isFullMonthRange) return professionalRevenueAppointments;
+    // Outras datas: o mês do acerto é o mês selecionado, então usa a mesma base do financeiro mensal.
+    return (monthlyAppointments || [])
+      .filter((apt) => !isWaitlistAppointment(apt))
+      .filter((apt) => isCompletedAppointmentStatus(apt));
+  })();
+
   // "no mês" só quando as datas De/Até são o mês inteiro; senão é um período escolhido.
   const professionalRevenuePeriodWord: string = (() => {
     const startRaw = String(professionalRevenueRangeStart || '').trim();
@@ -31788,7 +31846,7 @@ Estamos te aguardando!`;
                         <MessageSquare className="w-10 h-10 text-white" />
                       </div>
                       <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center">
-                        Falar com Suporte
+                        Falar com representante
                       </h2>
                       <p className="text-gray-600 text-center text-base sm:text-lg max-w-md">
                         Precisa de ajuda? Entre em contato conosco pelo WhatsApp e nossa equipe te ajudará!
@@ -31804,7 +31862,7 @@ Estamos te aguardando!`;
                         className="w-full sm:w-auto px-8 py-4 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-semibold text-lg flex items-center justify-center gap-3 shadow-lg"
                       >
                         <MessageSquare className="w-6 h-6" />
-                        Conversar com Suporte
+                        Conversar com representante
                       </button>
                     </div>
                   </div>
@@ -38124,7 +38182,7 @@ Estamos te aguardando!`;
                         const professionalRevenuePaymentMonth = resolveProfessionalRevenueReferenceMonth();
                         const paymentValidation = buildValidatedProfessionalPaymentData(
                           professional,
-                          professionalRevenueAppointments,
+                          professionalAcertoAppointments,
                           professionalRevenuePaymentMonth
                         );
                         // ── Produto a pagar para este profissional ──────────────────────
@@ -38299,12 +38357,19 @@ Estamos te aguardando!`;
                                 </p>
                               ) : (
                                 <>
-                                <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-gray-400">
                                   {professionalRevenueAcertoLabel(professionalRevenuePaymentMonth)}
-                                  <span className="ml-2 font-normal normal-case tracking-normal text-gray-500">
-                                    o acerto com o profissional é por mês, mesmo que as datas acima sejam outras
-                                  </span>
                                 </p>
+                                {/* Aviso em linguagem simples: as datas não mudam o acerto; quem muda são as setinhas do mês. */}
+                                {professionalRevenuePeriodWord === 'no mês' ? (
+                                  <p className="mb-2 text-xs text-gray-300">
+                                    Para ver o acerto e o histórico de outro mês, toque nas setinhas ‹ › do mês, lá em cima nesta mesma tela.
+                                  </p>
+                                ) : (
+                                  <p className="mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                                    ⚠️ Este acerto é do mês inteiro. As datas lá em cima não mudam ele. Para ver o acerto e o histórico de outro mês, toque nas setinhas ‹ › do mês, lá em cima nesta mesma tela.
+                                  </p>
+                                )}
                                 <ProfessionalPaymentControl
                                   establishmentId={establishment?.id || ''}
                                   professionalId={professional.id}
@@ -42345,6 +42410,11 @@ Estamos te aguardando!`;
                                     <h4 className="font-semibold text-gray-900 text-sm md:text-base leading-snug break-words">
                                       {subcategory.name}
                                     </h4>
+                                    {getCommonBookingWeekdays([subcategory]) && (
+                                      <p className="mt-1 text-[11px] font-semibold text-emerald-700">
+                                        📅 Cliente agenda só em {formatBookingWeekdays(getCommonBookingWeekdays([subcategory]))}
+                                      </p>
+                                    )}
                                     {(subcategory.label_name || isOcultoNoBooking(subcategory as any)) && (
                                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                                         {subcategory.label_name && (
@@ -45215,7 +45285,7 @@ Estamos te aguardando!`;
                 <h3 className="text-lg font-semibold text-gray-900">Adicionar Serviço</h3>
                 <button
                   onClick={() => {
-                    setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0', image_url: '' });
+                    setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0', image_url: '' }); setNewSubcategoryBookingDays(null);
                     setShowAddSubcategoryModal(false);
                     setSelectedCategoryForSubcategory(null);
                   }}
@@ -45344,11 +45414,16 @@ Estamos te aguardando!`;
                     </div>
                   </div>
                 </div>
+                <ServiceBookingDaysPicker
+                  value={newSubcategoryBookingDays}
+                  onChange={setNewSubcategoryBookingDays}
+                  businessHours={(establishment as any)?.business_hours}
+                />
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
                     onClick={() => {
-                      setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0', image_url: '' });
+                      setNewSubcategory({ name: '', price: '', duration: '30', customDuration: '', loyalty_points: '0', image_url: '' }); setNewSubcategoryBookingDays(null);
                       setShowAddSubcategoryModal(false);
                       setSelectedCategoryForSubcategory(null);
                     }}
@@ -45785,6 +45860,11 @@ Estamos te aguardando!`;
                     </div>
                   </div>
                 </div>
+                <ServiceBookingDaysPicker
+                  value={(editingSubcategory as any).booking_weekdays}
+                  onChange={(next) => setEditingSubcategory((prev) => (prev ? { ...prev, booking_weekdays: next } : prev))}
+                  businessHours={(establishment as any)?.business_hours}
+                />
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"

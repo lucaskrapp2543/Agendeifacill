@@ -1,3 +1,4 @@
+import { formatBookingWeekdays, getCommonBookingWeekdays, isBookingDayAllowedForServices } from '../utils/serviceBookingDays';
 import { format } from 'date-fns';
 import { ArrowLeft, Calendar, Eye, EyeOff, MapPin } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -381,6 +382,7 @@ const EstablishmentDirectBooking: React.FC = () => {
           price: Number(sub.price),
           duration: Number(sub.duration || 30),
           image_url: String(sub?.image_url || '').trim() || null,
+          booking_weekdays: sub?.booking_weekdays ?? null,
           _categoria: c.name,
         }))
       );
@@ -853,6 +855,9 @@ const EstablishmentDirectBooking: React.FC = () => {
                             onClick={() => {
                               setSelectedService(service);
                               setSelectedTime('');
+                              if (selectedDate && !isBookingDayAllowedForServices([service], selectedDate)) {
+                                setSelectedDate('');
+                              }
                             }}
                             className={`w-full p-4 rounded-lg ${isSelected ? 'bg-[#242628] text-white' : 'bg-gray-50 text-gray-900'
                               }`}
@@ -907,7 +912,14 @@ const EstablishmentDirectBooking: React.FC = () => {
                     <input
                       type="date"
                       value={selectedDate}
-                      onChange={(e) => setSelectedDate(e.target.value)}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value && selectedService && !isBookingDayAllowedForServices([selectedService], value)) {
+                          toast.error(`Esse serviço é feito só em ${formatBookingWeekdays(getCommonBookingWeekdays([selectedService]))}.`);
+                          return;
+                        }
+                        setSelectedDate(value);
+                      }}
                       min={format(new Date(), 'yyyy-MM-dd')}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900"
                       style={{ backgroundColor: '#ffffff', color: '#111827' }}
