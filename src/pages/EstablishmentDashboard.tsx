@@ -35057,7 +35057,7 @@ Estamos te aguardando!`;
                             <div className="flex-1 min-w-0">
                               <label htmlFor="hideClientPhoneForProfessionals" className="block text-sm font-bold text-white">Não mostrar número dos clientes para profissionais</label>
                               <p className="text-[10px] text-gray-400 mt-0.5">
-                                Em Meus agendamentos o WhatsApp do cliente aparece como ******** e somem os botões que abrem a conversa (WhatsApp e Imprevisto).
+                                Em Meus agendamentos o WhatsApp do cliente aparece como ******** e somem os botões que abrem a conversa (WhatsApp, Imprevisto, Enviar lembrete e Enviar agradecimento).
                                 O número continua salvo: lembretes automáticos e Meus Clientes funcionam normal. Quem entra como dono pelo acesso com PIN continua vendo.
                               </p>
                             </div>
@@ -43309,7 +43309,7 @@ Estamos te aguardando!`;
                           <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-600/50 bg-emerald-600/10 px-3 py-2">
                             <div className="min-w-0">
                               <p className="text-sm font-semibold text-white truncate">👤 {sellSelectedClient.name}</p>
-                              {sellSelectedClient.whatsapp && (
+                              {sellSelectedClient.whatsapp && !maskClientPhonesInAgenda && (
                                 <p className="text-[11px] text-gray-400 truncate">{sellSelectedClient.whatsapp}</p>
                               )}
                             </div>
@@ -43359,7 +43359,7 @@ Estamos te aguardando!`;
                                       className="w-full text-left px-3 py-2 bg-[#232425] hover:bg-[#2c2d2f] transition-colors"
                                     >
                                       <p className="text-sm text-white truncate">{c.name}</p>
-                                      {c.whatsapp && <p className="text-[11px] text-gray-400 truncate">{c.whatsapp}</p>}
+                                      {c.whatsapp && !maskClientPhonesInAgenda && <p className="text-[11px] text-gray-400 truncate">{c.whatsapp}</p>}
                                     </button>
                                   ))}
                                 </div>
@@ -46423,6 +46423,7 @@ Estamos te aguardando!`;
         showReservarClienteModal && establishment && (
           <ReservarCliente
             establishmentId={establishment.id}
+            maskClientPhones={maskClientPhonesInAgenda}
             initialProfessionalId={reserveClientPrefilledProfessionalId || undefined}
             slotPrefill={reserveClientSlotPrefill}
             use15MinuteInterval={use15MinuteInterval}

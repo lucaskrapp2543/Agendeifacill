@@ -28,6 +28,24 @@ export const SYSTEM_UPDATE_KIND_LABEL: Record<SystemUpdateKind, string> = {
 
 export const SYSTEM_UPDATES: SystemUpdate[] = [
   {
+    id: 31,
+    date: '04/11/2026',
+    kind: 'correcao',
+    fromClientRequest: true,
+    title: '🛠️ "Não mostrar número dos clientes" agora esconde mais coisas',
+    summary: 'Com a opção ligada, o profissional não abre mais a conversa do cliente pelos botões Enviar lembrete e Enviar agradecimento, e o número também sumiu de outras telas da agenda.',
+    details: [
+      {
+        title: 'O que mudou',
+        text: 'Com a opção ligada, somem os botões Enviar lembrete e Enviar agradecimento. O número também deixa de aparecer ao reservar cliente, fazer encaixe, vender produto e na lista de clientes sumidos do profissional.',
+      },
+      {
+        title: 'O que continua igual',
+        text: 'Os lembretes automáticos continuam saindo normalmente. Quem entra como dono pelo acesso com PIN continua vendo o número e os botões. Quem não ligou a opção não percebe nenhuma mudança.',
+      },
+    ],
+  },
+  {
     id: 30,
     date: '03/11/2026',
     kind: 'melhoria',

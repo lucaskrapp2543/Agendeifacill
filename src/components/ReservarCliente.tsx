@@ -127,6 +127,8 @@ interface ReservarClienteProps {
   use20MinuteScheduleProp?: boolean;
   use60MinuteScheduleProp?: boolean;
   closedTimeEnabledProp?: boolean;
+  /** "Não mostrar número dos clientes": só muda o que aparece na tela; o agendamento salva o número normal. */
+  maskClientPhones?: boolean;
   onClose: () => void;
   onAppointmentCreated?: (payload: { isAvulso: boolean; createdCount: number }) => void;
 }
@@ -139,6 +141,7 @@ export default function ReservarCliente({
   use20MinuteScheduleProp = false,
   use60MinuteScheduleProp = false,
   closedTimeEnabledProp = false,
+  maskClientPhones = false,
   onClose,
   onAppointmentCreated,
 }: ReservarClienteProps) {
@@ -2974,7 +2977,7 @@ export default function ReservarCliente({
                     <ReservarSubscriberClientCard
                       key={client.id}
                       name={client.name}
-                      whatsapp={String(client.whatsapp || '').replace(/\D/g, '')}
+                      whatsapp={maskClientPhones ? '********' : String(client.whatsapp || '').replace(/\D/g, '')}
                       planName={selectedSubscriberPlan?.name}
                       lastVisitLabel={formatLastVisitLabel(client.lastVisitDate)}
                       isFrequent={(client.visitCount || 0) >= 3}
@@ -3134,7 +3137,7 @@ export default function ReservarCliente({
                       <ReservarKnownClientCard
                         key={client.whatsapp || `${client.id}_${index}`}
                         name={client.name}
-                        whatsapp={client.whatsapp}
+                        whatsapp={maskClientPhones ? '********' : client.whatsapp}
                         appointmentCount={client.appointmentCount}
                         isSubscriber={client.isSubscriber}
                         subscriberPlanName={client.subscriberPlanName}
@@ -3211,7 +3214,7 @@ export default function ReservarCliente({
               {selectedClient && (
                 <div className="mt-4 p-3 bg-gray-100 border border-gray-300 rounded-lg">
                   <p className="text-sm text-gray-800">
-                    <strong>Cliente selecionado:</strong> {selectedClient.name} ({selectedClient.whatsapp})
+                    <strong>Cliente selecionado:</strong> {selectedClient.name}{maskClientPhones ? '' : ` (${selectedClient.whatsapp})`}
                   </p>
                 </div>
               )}

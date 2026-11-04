@@ -82,6 +82,8 @@ interface ProfessionalInfoModalProps {
     subscription_id?: string | null;
     client_name?: string;
   }>;
+  /** "Não mostrar número dos clientes": sem número nem botão de WhatsApp nos clientes sumidos. */
+  maskClientPhones?: boolean;
   dormantClientsSource?: Array<{
     name: string;
     whatsapp?: string;
@@ -206,6 +208,7 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
   metaSelectedServiceNames = [],
   serviceInsights = [],
   financialAppointments = [],
+  maskClientPhones = false,
   dormantClientsSource,
   onRefreshDormantClientsSource,
   preComputedPastMonthPending = null,
@@ -2354,8 +2357,8 @@ export const ProfessionalInfoModal: React.FC<ProfessionalInfoModalProps> = ({
                   ) : (
                     <div className="space-y-2">
                       {visibleDormantClients.map((client, idx) => {
-                        const whatsappUrl = buildWhatsappLink(client.whatsapp);
-                        const whatsappDisplay = formatWhatsappDisplay(client.whatsapp);
+                        const whatsappUrl = maskClientPhones ? '' : buildWhatsappLink(client.whatsapp);
+                        const whatsappDisplay = maskClientPhones ? '' : formatWhatsappDisplay(client.whatsapp);
                         return (
                           <div key={`${client.name}-${idx}`} className="rounded-lg border border-slate-200 bg-white p-3">
                             <div className="flex items-start justify-between gap-2">

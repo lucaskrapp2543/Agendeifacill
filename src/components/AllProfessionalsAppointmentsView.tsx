@@ -8220,8 +8220,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                       </div>
                                     )}
 
-                                    {/* Botão Enviar Lembrete - Aparece quando NÃO expandido */}
-                                    {!isExpanded && apt.status !== 'cancelled' && (
+                                    {/* Botão Enviar Lembrete - Aparece quando NÃO expandido.
+                                        Com "Não mostrar número" ligado, só resta o atalho "Faltou": sem ele, a faixa nem aparece. */}
+                                    {!isExpanded && apt.status !== 'cancelled' && (!maskClientPhones || (onClientNoShow && (apt.status === 'pending' || apt.status === 'confirmed') && hasAppointmentStartPassed(apt))) && (
                                       <div className="mt-2 pt-2 border-t border-white/20 flex flex-wrap gap-1.5 [&>button]:flex-1 [&>button]:basis-[calc(50%-0.375rem)]">
                                         {/* 📲 Pedir confirmação — manual, só acima de 30% de probabilidade de falta */}
                                         {canRequestPresenceConfirmation(apt) && (
@@ -8254,26 +8255,31 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                             🚫 Faltou
                                           </button>
                                         )}
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (onOpenReminderModal) onOpenReminderModal(apt);
-                                          }}
-                                          className="rounded-lg border border-black/20 bg-black/40 px-1.5 py-1.5 text-[10px] font-bold text-white hover:bg-black/55 transition-colors leading-tight"
-                                          title="Enviar lembrete via WhatsApp"
-                                        >
-                                          📱 Enviar lembrete
-                                        </button>
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (onSendThankYou) onSendThankYou(apt);
-                                          }}
-                                          className="rounded-lg border border-[#E6C78B] bg-[#E6C78B] px-1.5 py-1.5 text-[10px] font-bold text-black hover:bg-[#f3e7c7] transition-colors leading-tight"
-                                          title="Enviar agradecimento e pedir avaliação via WhatsApp"
-                                        >
-                                          ⭐ Enviar agradecimento
-                                        </button>
+                                        {/* Os dois abrem a conversa com o cliente: somem com "Não mostrar número" ligado. */}
+                                        {!maskClientPhones && (
+                                          <>
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (onOpenReminderModal) onOpenReminderModal(apt);
+                                              }}
+                                              className="rounded-lg border border-black/20 bg-black/40 px-1.5 py-1.5 text-[10px] font-bold text-white hover:bg-black/55 transition-colors leading-tight"
+                                              title="Enviar lembrete via WhatsApp"
+                                            >
+                                              📱 Enviar lembrete
+                                            </button>
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (onSendThankYou) onSendThankYou(apt);
+                                              }}
+                                              className="rounded-lg border border-[#E6C78B] bg-[#E6C78B] px-1.5 py-1.5 text-[10px] font-bold text-black hover:bg-[#f3e7c7] transition-colors leading-tight"
+                                              title="Enviar agradecimento e pedir avaliação via WhatsApp"
+                                            >
+                                              ⭐ Enviar agradecimento
+                                            </button>
+                                          </>
+                                        )}
                                       </div>
                                     )}
                                   </div>
@@ -9764,7 +9770,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 {s.display_name}
                               </div>
                               <div className="text-xs text-gray-600 truncate">
-                                {String(s.whatsapp || '').replace(/\D/g, '')}
+                                {maskClientPhones ? '********' : String(s.whatsapp || '').replace(/\D/g, '')}
                                 {s.plan_name ? ` • ${s.plan_name}` : ''}
                               </div>
                             </div>
@@ -9950,6 +9956,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
           professionals.find((p) => p.id === selectedProfessionalForInfo) || { id: '', name: '' }
         ) && (
             <ProfessionalInfoModal
+              maskClientPhones={maskClientPhones}
               professional={
                 professionals.find((p) => p.id === selectedProfessionalForInfo) || {
                   id: '',
@@ -10167,7 +10174,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                     >
                       <div className="text-sm font-semibold">👑 {c.name}</div>
                       <div className="text-xs text-amber-200">
-                        {String(c.whatsapp || '').replace(/\D/g, '') || 'Sem WhatsApp'}
+                        {maskClientPhones ? '********' : (String(c.whatsapp || '').replace(/\D/g, '') || 'Sem WhatsApp')}
                       </div>
                     </button>
                   ));
@@ -10375,7 +10382,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
                                 }`}
                             >
                               <div className="text-sm font-semibold">{c.name}</div>
-                              <div className="text-xs text-gray-300">{String(c.whatsapp || '').replace(/\D/g, '')}</div>
+                              <div className="text-xs text-gray-300">{maskClientPhones ? '********' : String(c.whatsapp || '').replace(/\D/g, '')}</div>
                             </button>
                           );
                         });
