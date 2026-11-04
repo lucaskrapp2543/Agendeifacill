@@ -28,6 +28,28 @@ export const SYSTEM_UPDATE_KIND_LABEL: Record<SystemUpdateKind, string> = {
 
 export const SYSTEM_UPDATES: SystemUpdate[] = [
   {
+    id: 32,
+    date: '04/11/2026',
+    kind: 'correcao',
+    fromClientRequest: true,
+    title: '🛠️ O faturamento de assinaturas do mês não cai mais quando o cliente vence',
+    summary: 'O pagamento agora fica no mês em que foi feito, mesmo que o plano do cliente vença ou seja renovado depois. O Financeiro e Meus Assinantes passam a mostrar o mesmo valor.',
+    details: [
+      {
+        title: 'O que estava errado',
+        text: 'Quando o plano de um cliente vencia, o pagamento dele saía do mês em que foi feito. Por isso o valor de um mês fechado mudava de um dia para o outro. Em Meus Assinantes, quem era cadastrado num dia e pagava em outro ainda contava duas vezes.',
+      },
+      {
+        title: 'O que mudou',
+        text: 'Cada pagamento conta uma vez, no mês em que foi feito. Vencer, renovar, arquivar ou apagar o assinante depois não muda mais o valor daquele mês. Se você marcou pago por engano e desfez no mesmo mês, esse pagamento não conta.',
+      },
+      {
+        title: 'O número de um mês passado pode mudar agora',
+        text: 'Ao abrir um mês passado, o valor pode aparecer diferente do que você viu antes, porque agora ele está certo. O registro detalhado começou em 24/09/2026. Antes dessa data, o sistema só consegue ler a última informação de cada assinante, então esses meses podem ficar incompletos.',
+      },
+    ],
+  },
+  {
     id: 31,
     date: '04/11/2026',
     kind: 'correcao',

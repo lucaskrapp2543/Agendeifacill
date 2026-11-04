@@ -13,7 +13,7 @@ import { ClientAfcoinBadge } from '../components/AfcoinClientModals';
 import { AllProfessionalsAppointmentsView } from '../components/AllProfessionalsAppointmentsView';
 import { ChangeAppointmentServiceModal } from '../components/ChangeAppointmentServiceModal';
 import {
-  buildEntryEventsComHistorico,
+  calcularEntradasDoMes,
   mesFechado,
   reconstruirAtivosDoMes,
   usaEntradasComHistorico,
@@ -7984,15 +7984,32 @@ const EstablishmentDashboard = () => {
         // Campos que o select antigo acima não traz, mas que Meus Assinantes usa:
         // arquivado/desativado (ficam fora de "ativos" e "não pagos") e a forma de
         // pagamento (define a taxa do Líquido).
-        const [estadosPorAssinante, extrasRes] = await Promise.all([
+        const [estadosPorAssinante, extrasRes, planosRes] = await Promise.all([
           fetchHistoricoEstadosDoMes(establishment.id, year, month0),
           supabase
             .from('client_subscriptions')
-            .select('id, archived_at, deactivated_at, subscriber_payment_method')
+            .select('id, archived_at, deactivated_at, subscriber_payment_method, extra_charge_value')
             .eq('establishment_id', establishment.id),
+          supabase.from('subscriptions').select('id,name,value').eq('establishment_id', establishment.id),
         ]);
         const extrasPorId = new Map<string, any>();
         for (const r of (extrasRes.data || []) as any[]) extrasPorId.set(String(r?.id || ''), r);
+        // Ficha apagada ou plano trocado também precisam do valor do plano da época.
+        for (const p of (planosRes.data || []) as any[]) {
+          const id = String(p?.id || '').trim();
+          const value = Number(p?.value || 0);
+          if (id && !subscriptionValueById.has(id) && Number.isFinite(value) && value > 0) subscriptionValueById.set(id, value);
+        }
+        // Mesmo valor de Meus Assinantes: personalizado ou do plano, mais o extra fixo do assinante.
+        const comExtra = (cs: any) => ({
+          ...cs,
+          extra_charge_value: extrasPorId.get(String(cs?.id || ''))?.extra_charge_value ?? null,
+        });
+        const valorComExtra = (cs: any): number => {
+          const extra = Number(cs?.extra_charge_value ?? 0);
+          return getSubscriptionValue(cs) + (Number.isFinite(extra) && extra > 0 ? extra : 0);
+        };
+        const fichasSemRepetir = (subscriptionsRows as any[]).map(comExtra);
         const foraDaConta = (cs: any): boolean => {
           const extra = extrasPorId.get(String(cs?.id || ''));
           return Boolean(extra?.archived_at || extra?.deactivated_at);
@@ -8032,35 +8049,30 @@ const EstablishmentDashboard = () => {
             extrasPorId.get(String(cs?.id || ''))?.subscriber_payment_method
           );
 
-        // Entradas do mês: ficha de hoje + histórico (pagamento conta mesmo vencido/arquivado).
-        const totalArrecadadoHist = (subscriptionsRows as any[]).reduce((sum, cs: any) => {
-          const eventos = buildEntryEventsComHistorico(
-            cs,
-            estadosPorAssinante.get(String(cs?.id || '')),
-            year,
-            month0,
-            getSubscriptionValue
-          );
-          return sum + eventos.reduce((s, ev) => s + ev.value, 0);
-        }, 0);
+        // Entradas do mês: tudo o que entrou, com TODAS as fichas (mesmo repetidas ou
+        // arquivadas) e as apagadas que o histórico lembra. Mesmo cálculo de Meus Assinantes.
+        const totalArrecadadoHist = calcularEntradasDoMes({
+          fichas: ((clientSubscriptions || []) as any[]).map(comExtra),
+          estadosPorAssinante,
+          year,
+          month0,
+          valueOf: valorComExtra,
+        }).reduce((sum, entrada) => sum + entrada.value, 0);
 
         let brutoHist: number;
         let liquidoHist: number;
         let totalHist: number;
         if (mesFechado(year, month0)) {
           // Mês fechado: ativos = quem foi assinante no mês (agenda + pagamentos).
-          const [agenda, planosRes] = await Promise.all([
-            fetchAgendaAssinantesDoMes(establishment.id, year, month0),
-            supabase.from('subscriptions').select('id,name,value').eq('establishment_id', establishment.id),
-          ]);
+          const agenda = await fetchAgendaAssinantesDoMes(establishment.id, year, month0);
           const ativos = reconstruirAtivosDoMes({
-            clientSubscriptions: subscriptionsRows as any[],
+            clientSubscriptions: fichasSemRepetir,
             agenda,
             estadosPorAssinante,
             planos: (planosRes.data || []) as any[],
             year,
             month0,
-            valueOf: getSubscriptionValue,
+            valueOf: valorComExtra,
             netOf: liquidoDaFicha,
             nameOf: (cs) => String(cs?.subscriber_name || 'Cliente'),
             planNameOf: () => 'Plano',
@@ -8070,12 +8082,12 @@ const EstablishmentDashboard = () => {
           totalHist = ativos.length;
         } else {
           // Mês atual: mesma regra de Meus Assinantes (pago, não arquivado, janela no mês).
-          const ativosPagos = (subscriptionsRows as any[]).filter(
+          const ativosPagos = fichasSemRepetir.filter(
             (cs: any) => !foraDaConta(cs) && isSubscriberActiveAndPaidInReferenceMonth(cs)
           );
-          brutoHist = ativosPagos.reduce((s, cs: any) => s + getSubscriptionValue(cs), 0);
-          liquidoHist = ativosPagos.reduce((s, cs: any) => s + liquidoDaFicha(cs, getSubscriptionValue(cs)), 0);
-          totalHist = (subscriptionsRows as any[]).filter(
+          brutoHist = ativosPagos.reduce((s, cs: any) => s + valorComExtra(cs), 0);
+          liquidoHist = ativosPagos.reduce((s, cs: any) => s + liquidoDaFicha(cs, valorComExtra(cs)), 0);
+          totalHist = fichasSemRepetir.filter(
             (cs: any) => !foraDaConta(cs) && isSubscriptionActiveInReferenceMonth(cs)
           ).length;
         }
@@ -16727,7 +16739,8 @@ Estamos te aguardando!`;
       if (nowMs - lastForegroundSyncAtRef.current < 2500) return;
       lastForegroundSyncAtRef.current = nowMs;
       void refreshAppointmentsData({ month: selectedMonth });
-      void loadSubscribersFinancialSummary();
+      // O resumo de assinantes só aparece no Financeiro: fora dele não precisa consultar de novo.
+      if (activeTab === 'financial-dashboard') void loadSubscribersFinancialSummary();
       void loadSubscriberProfessionalFinancial();
     };
 
@@ -16749,7 +16762,7 @@ Estamos te aguardando!`;
       window.removeEventListener('pageshow', handlePageShow);
       window.removeEventListener('online', handleOnline);
     };
-  }, [establishment?.id, selectedMonth, loadSubscribersFinancialSummary, loadSubscriberProfessionalFinancial]);
+  }, [establishment?.id, activeTab, selectedMonth, loadSubscribersFinancialSummary, loadSubscriberProfessionalFinancial]);
 
 
 

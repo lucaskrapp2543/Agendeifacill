@@ -1,30 +1,23 @@
 /**
- * Histórico mensal de assinantes — regra "com histórico", ligada por estabelecimento.
+ * Histórico mensal de assinantes — quanto entrou em cada mês e quem foi assinante.
  *
  * FONTE ÚNICA para a aba "Meus Assinantes" (SubscribersManager) e para o card
  * "Financeiro de Meus Assinantes" do dashboard (EstablishmentDashboard), para os
- * dois espelharem exatamente o mesmo número.
+ * dois mostrarem exatamente o mesmo número.
  *
- * Regra antiga (todo mundo, inalterada):
- *   - "Entradas do mês" só conta quem está PAGO HOJE e não arquivado;
- *   - "ativos" olham a janela (início/fim) da ficha de HOJE.
- *   Por isso o mês passado "some" quando o assinante vence, é removido ou renova
- *   (a renovação sobrescreve a ficha).
- *
- * Regra nova (só para quem está em ESTABELECIMENTOS_ENTRADAS_COM_HISTORICO):
- *   1. a data de pagamento gravada na ficha conta no mês dela, mesmo que hoje o
- *      assinante esteja vencido/não pago ou arquivado (o dinheiro entrou);
- *   2. os estados gravados em client_subscription_history (desde 24/09/2026)
- *      preservam o mês mesmo depois de a ficha ser sobrescrita pela renovação;
- *   3. "desfazer" (marcar NÃO PAGO no mesmo mês do pagamento) cancela o clique;
+ * Regra (vale para todos os estabelecimentos desde 04/11/2026, decisão do Lucas):
+ *   1. pagamento feito fica no mês dele: vencer, renovar, arquivar ou apagar a
+ *      ficha depois NÃO tira o valor daquele mês (o dinheiro entrou);
+ *   2. cada pagamento conta UMA vez: cadastrar num dia e pagar em outro é um
+ *      pagamento só, não "novo assinante" + "renovação";
+ *   3. "desfazer" (marcar NÃO PAGO com o plano ainda correndo, no mesmo mês do
+ *      pagamento) cancela o clique. Vencimento natural NÃO é desfazer;
  *   4. em mês FECHADO (anterior ao atual), "assinantes ativos" = quem apareceu
  *      como assinante na agenda do mês + quem pagou no mês — inclusive quem já
  *      teve a ficha apagada (a agenda ainda lembra). O mês atual não muda.
  *
- * Pedido: Costa Barbearia (9223), 24/09/2026. Para ligar para todos, trocar a
- * checagem de `usaEntradasComHistorico` por `true` — mas isso muda meses passados
- * de outras barbearias (simulação de ago/2026: 44 de 60 mudariam), então só com
- * decisão explícita do Lucas.
+ * Fonte: linha do tempo de client_subscription_history (desde 24/09/2026). O que
+ * veio antes disso só pode ser lido da ficha, então meses antigos ficam parciais.
  *
  * Este arquivo é PURO (sem supabase) para poder ser testado fora do navegador.
  * As consultas ficam em subscriberMonthHistoryFetch.ts.
@@ -36,18 +29,19 @@ import {
   parseSubscriberBoolean,
 } from './subscriberAppointmentFlags';
 
-export const ESTABELECIMENTOS_ENTRADAS_COM_HISTORICO = new Set<string>([
-  'f90f3509-3ddf-487a-aac6-206b09982bc7', // Costa Barbearia & Tatuagem (9223)
-]);
-
-export const usaEntradasComHistorico = (establishmentId: unknown): boolean =>
-  ESTABELECIMENTOS_ENTRADAS_COM_HISTORICO.has(String(establishmentId || '').trim());
+/** Ligada para todos. Para voltar à regra antiga (ficha de hoje), basta devolver false aqui. */
+export const usaEntradasComHistorico = (_establishmentId?: unknown): boolean => true;
 
 /** Mês fechado = anterior ao mês atual. month0 vai de 0 a 11, igual a Date#getMonth. */
 export const mesFechado = (year: number, month0: number, agora: Date = new Date()): boolean =>
   year < agora.getFullYear() || (year === agora.getFullYear() && month0 < agora.getMonth());
 
-export type HistoricoEstadoAssinante = { createdAt: string; row: Record<string, any> };
+export type HistoricoEstadoAssinante = {
+  createdAt: string;
+  /** SNAPSHOT | INSERT | UPDATE | DELETE. DELETE vem com row vazia. */
+  operation?: string;
+  row: Record<string, any>;
+};
 
 export type AgendaAssinanteMesRow = {
   client_name: string;
@@ -57,6 +51,9 @@ export type AgendaAssinanteMesRow = {
 };
 
 export type MonthEntryEvent = { dateRaw: string; typeLabel: string; value: number };
+
+/** Uma entrada do mês com a ficha de onde veio (a ficha pode já ter sido apagada). */
+export type EntradaDoMes = MonthEntryEvent & { fichaId: string; ficha: any };
 
 export type AtivoReconstruido = {
   id: string;
@@ -82,17 +79,47 @@ const dataNoMes = (raw: unknown, year: number, month0: number): boolean => {
   return Boolean(p) && p!.year === year && p!.month === month0;
 };
 
-const mesmoDia = (a: unknown, b: unknown): boolean => {
-  const pa = partesDeData(a);
-  const pb = partesDeData(b);
-  return Boolean(pa && pb) && pa!.year === pb!.year && pa!.month === pb!.month && pa!.day === pb!.day;
+/** Menos dias que isso entre duas datas, sem o plano ganhar prazo = o mesmo pagamento (planos são mensais). */
+const DIAS_MINIMOS_ENTRE_PAGAMENTOS = 20;
+
+const diaDe = (raw: unknown): string => {
+  const p = partesDeData(raw);
+  if (!p) return '';
+  return `${p.year}-${String(p.month + 1).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+};
+
+/** b - a, em dias. As duas datas no formato AAAA-MM-DD. */
+const diasEntre = (a: string, b: string): number =>
+  Math.round((Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8, 10)) - Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8, 10))) / 86400000);
+
+/** Dia, no horário de Brasília, em que a alteração da ficha foi gravada. */
+const diaDoRegistro = (createdAt: unknown): string => {
+  const t = new Date(String(createdAt || '')).getTime();
+  return Number.isFinite(t) ? new Date(t - 3 * 3600000).toISOString().slice(0, 10) : '';
+};
+
+const estaPago = (estado: any): boolean => String(estado?.payment_status || '').toLowerCase() === 'paid';
+
+/** Data do pagamento que este estado representa: a gravada ou, sem ela, o início do plano. */
+const dataDoPagamento = (estado: any): string => diaDe(estado?.last_payment_date) || diaDe(estado?.start_date);
+
+/**
+ * Ficha de hoje + estado gravado. O plano do estado vale sobre o de hoje: se o
+ * assinante trocou de plano depois, o valor daquele mês continua o da época.
+ */
+const mesclarEstado = (cs: any, row: Record<string, any>): any => {
+  const estado = { ...(cs || {}), ...(row || {}) };
+  if (row?.subscription_id && String(row.subscription_id) !== String(cs?.subscription_id || '')) {
+    delete (estado as any).subscriptions;
+  }
+  return estado;
 };
 
 /**
- * Eventos de UM estado da ficha (a ficha de hoje ou um estado gravado no
- * histórico). A data de pagamento conta mesmo se o estado está 'unpaid' (venceu
- * depois) ou arquivado. O início do plano conta se estava pago ou se existe
- * alguma data de pagamento.
+ * Eventos de UM estado da ficha quando NÃO há linha do tempo para acompanhar
+ * (ficha sem histórico ou "foto" tirada em 24/09/2026). A data de pagamento conta
+ * mesmo se o estado está 'unpaid' (venceu depois) ou arquivado. O início do plano
+ * só é um pagamento à parte se não houver pagamento registrado perto dele.
  */
 export function eventosDoEstadoComHistorico(
   estado: any,
@@ -104,28 +131,27 @@ export function eventosDoEstadoComHistorico(
   const value = Number(valueOf(estado) || 0);
   if (!Number.isFinite(value) || value <= 0) return eventos;
 
-  const pago = String(estado?.payment_status || '').toLowerCase() === 'paid';
-  const startRaw = String(estado?.start_date || '').trim();
-  const paymentRaw = String(estado?.last_payment_date || '').trim();
+  const inicio = diaDe(estado?.start_date);
+  const pagamento = diaDe(estado?.last_payment_date);
+  const pertoDoInicio = Boolean(inicio && pagamento) && diasEntre(inicio, pagamento) < DIAS_MINIMOS_ENTRE_PAGAMENTOS;
 
-  const contaInicio = (pago || Boolean(paymentRaw)) && dataNoMes(startRaw, year, month0);
-  if (contaInicio) {
-    eventos.push({ dateRaw: startRaw.slice(0, 10), typeLabel: 'Novo assinante', value });
+  if (pagamento && dataNoMes(pagamento, year, month0)) {
+    eventos.push({ dateRaw: pagamento, typeLabel: pertoDoInicio ? 'Novo assinante' : 'Renovação', value });
   }
 
-  if (dataNoMes(paymentRaw, year, month0)) {
-    const duplicateStart = contaInicio && mesmoDia(startRaw, paymentRaw);
-    if (!duplicateStart) {
-      eventos.push({ dateRaw: paymentRaw.slice(0, 10), typeLabel: 'Renovação', value });
-    }
+  const inicioContaSozinho = pagamento ? !pertoDoInicio : estaPago(estado);
+  if (inicio && inicioContaSozinho && dataNoMes(inicio, year, month0)) {
+    eventos.push({ dateRaw: inicio, typeLabel: 'Novo assinante', value });
   }
 
   return eventos;
 }
 
 /**
- * Entradas do mês de UM assinante: estados do histórico (cronológicos) + ficha de
- * hoje, sem duplicar a mesma data, com cancelamento de "desfazer".
+ * Entradas do mês de UM assinante, acompanhando a linha do tempo da ficha:
+ * virou pago = um pagamento; data trocada logo depois = correção do mesmo
+ * pagamento; virou não pago com o plano correndo, no mesmo mês = desfazer.
+ * Os estados precisam vir em ordem cronológica e sem filtro de mês.
  */
 export function buildEntryEventsComHistorico(
   cs: any,
@@ -134,38 +160,154 @@ export function buildEntryEventsComHistorico(
   month0: number,
   valueOf: (estado: any) => number
 ): MonthEntryEvent[] {
-  const porData = new Map<string, MonthEntryEvent>();
-  const canceladas = new Set<string>();
-
-  // 1) Estados gravados no histórico, em ordem cronológica (desde 24/09/2026).
-  //    Mesclar com a ficha de hoje garante o plano (valor) e os campos que o
-  //    estado antigo não tem.
-  for (const h of estados || []) {
-    const estado = { ...(cs || {}), ...(h.row || {}) };
-    const pagoNaEpoca = String(h.row?.payment_status || '').toLowerCase() === 'paid';
-    if (pagoNaEpoca) {
-      for (const ev of eventosDoEstadoComHistorico(estado, year, month0, valueOf)) {
-        canceladas.delete(ev.dateRaw);
-        if (!porData.has(ev.dateRaw)) porData.set(ev.dateRaw, ev);
-      }
-      continue;
-    }
-    // "Desfazer": marcou NÃO PAGO no mesmo mês do pagamento → o clique de pago
-    // foi engano. Vencer meses depois não cancela: o pagamento foi real.
-    const dataPagamento = String(h.row?.last_payment_date || '').slice(0, 10);
-    if (dataPagamento && String(h.createdAt || '').slice(0, 7) === dataPagamento.slice(0, 7)) {
-      porData.delete(dataPagamento);
-      canceladas.add(dataPagamento);
-    }
+  if (!estados || estados.length === 0) {
+    return eventosDoEstadoComHistorico(cs, year, month0, valueOf);
   }
 
-  // 2) Ficha de hoje (cobre o passado anterior ao histórico).
-  for (const ev of eventosDoEstadoComHistorico(cs, year, month0, valueOf)) {
-    if (canceladas.has(ev.dateRaw)) continue;
-    if (!porData.has(ev.dateRaw)) porData.set(ev.dateRaw, ev);
+  const porData = new Map<string, MonthEntryEvent>();
+  const canceladas = new Set<string>();
+  let anterior: any = null;
+  let pagamentosFeitos = 0;
+
+  const registrar = (estado: any, data: string) => {
+    const novoAssinante = pagamentosFeitos === 0;
+    pagamentosFeitos += 1;
+    if (!data || !dataNoMes(data, year, month0)) return;
+    const value = Number(valueOf(estado) || 0);
+    if (!Number.isFinite(value) || value <= 0) return;
+    canceladas.delete(data);
+    if (!porData.has(data)) {
+      porData.set(data, { dateRaw: data, typeLabel: novoAssinante ? 'Novo assinante' : 'Renovação', value });
+    }
+  };
+  const cancelar = (data: string) => {
+    if (!data) return;
+    porData.delete(data);
+    canceladas.add(data);
+    pagamentosFeitos = Math.max(0, pagamentosFeitos - 1);
+  };
+
+  for (const h of estados) {
+    const dia = diaDoRegistro(h.createdAt);
+
+    if (h.operation === 'DELETE') {
+      // Apagou no mesmo mês do pagamento: cadastro errado. Apagar depois não muda o passado.
+      const dataAntes = anterior ? dataDoPagamento(anterior) : '';
+      if (dataAntes && dia.slice(0, 7) === dataAntes.slice(0, 7)) cancelar(dataAntes);
+      anterior = null;
+      continue;
+    }
+
+    const estado = mesclarEstado(cs, h.row);
+
+    // Primeira linha: se a ficha nasceu com histórico, a linha do tempo está inteira.
+    // Se é a "foto" de 24/09/2026 (ou outra linha solta), o passado só existe nesse estado.
+    if (!anterior) {
+      if (h.operation === 'INSERT') {
+        if (estaPago(estado)) registrar(estado, dataDoPagamento(estado));
+      } else {
+        const eventos = eventosDoEstadoComHistorico(estado, year, month0, valueOf);
+        for (const ev of eventos) {
+          canceladas.delete(ev.dateRaw);
+          if (!porData.has(ev.dateRaw)) porData.set(ev.dateRaw, ev);
+        }
+        if (estaPago(estado) || diaDe(estado?.last_payment_date)) pagamentosFeitos += 1;
+      }
+      anterior = estado;
+      continue;
+    }
+
+    const pago = estaPago(estado);
+    const pagoAntes = estaPago(anterior);
+    const data = dataDoPagamento(estado);
+    const dataAntes = dataDoPagamento(anterior);
+
+    if (pago && !pagoAntes) {
+      registrar(estado, data);
+    } else if (pago && pagoAntes && data !== dataAntes) {
+      const fim = diaDe(estado?.end_date);
+      const fimAntes = diaDe(anterior?.end_date);
+      const ganhouPrazo = Boolean(fim && fimAntes) && diasEntre(fimAntes, fim) >= DIAS_MINIMOS_ENTRE_PAGAMENTOS;
+      const mesmoPagamento =
+        !ganhouPrazo && Boolean(data && dataAntes) && Math.abs(diasEntre(dataAntes, data)) < DIAS_MINIMOS_ENTRE_PAGAMENTOS;
+      if (!mesmoPagamento) {
+        registrar(estado, data);
+      } else if (porData.has(dataAntes)) {
+        // Correção da data: o pagamento continua um só.
+        const ev = porData.get(dataAntes)!;
+        porData.delete(dataAntes);
+        if (dataNoMes(data, year, month0)) porData.set(data, { ...ev, dateRaw: data });
+      } else if (dataNoMes(data, year, month0) && !dataNoMes(dataAntes, year, month0)) {
+        // A correção trouxe o pagamento de outro mês para este.
+        const value = Number(valueOf(estado) || 0);
+        if (Number.isFinite(value) && value > 0) {
+          porData.set(data, { dateRaw: data, typeLabel: pagamentosFeitos > 1 ? 'Renovação' : 'Novo assinante', value });
+        }
+      }
+    } else if (!pago && pagoAntes) {
+      const fim = diaDe(anterior?.end_date);
+      const venceu = Boolean(fim) && fim <= dia;
+      if (!venceu && dataAntes && dia.slice(0, 7) === dataAntes.slice(0, 7)) cancelar(dataAntes);
+    }
+
+    anterior = estado;
+  }
+
+  // Segurança: se a ficha de hoje traz um pagamento que a linha do tempo não pegou, ele conta.
+  const pagamentoHoje = diaDe(cs?.last_payment_date);
+  if (pagamentoHoje && dataNoMes(pagamentoHoje, year, month0) && !porData.has(pagamentoHoje) && !canceladas.has(pagamentoHoje)) {
+    const value = Number(valueOf(cs) || 0);
+    if (Number.isFinite(value) && value > 0) {
+      porData.set(pagamentoHoje, { dateRaw: pagamentoHoje, typeLabel: pagamentosFeitos > 1 ? 'Renovação' : 'Novo assinante', value });
+    }
   }
 
   return Array.from(porData.values());
+}
+
+/**
+ * Tudo o que entrou no mês na barbearia: fichas de hoje + fichas já apagadas, que
+ * só o histórico lembra. A mesma pessoa, no mesmo plano e no mesmo dia, conta uma
+ * vez, mesmo se tiver duas fichas repetidas. É daqui que saem Financeiro e
+ * Meus Assinantes.
+ */
+export function calcularEntradasDoMes(params: {
+  fichas: any[];
+  estadosPorAssinante: Map<string, HistoricoEstadoAssinante[]>;
+  year: number;
+  month0: number;
+  valueOf: (estado: any) => number;
+}): EntradaDoMes[] {
+  const { fichas, estadosPorAssinante, year, month0, valueOf } = params;
+  const entradas = new Map<string, EntradaDoMes>();
+
+  const somar = (ficha: any, estados: HistoricoEstadoAssinante[] | undefined) => {
+    const pessoa =
+      normalizeSubscriberPhoneDigits(ficha?.subscriber_whatsapp || ficha?.client_whatsapp || '') ||
+      normalizeSubscriberNameKey(ficha?.subscriber_name) ||
+      String(ficha?.id || '');
+    for (const ev of buildEntryEventsComHistorico(ficha, estados, year, month0, valueOf)) {
+      const chave = `${pessoa}|${String(ficha?.subscription_id || '')}|${ev.dateRaw}`;
+      if (!entradas.has(chave)) entradas.set(chave, { ...ev, fichaId: String(ficha?.id || ''), ficha });
+    }
+  };
+
+  const idsDeHoje = new Set<string>();
+  for (const ficha of fichas || []) {
+    const id = String(ficha?.id || '');
+    if (id) idsDeHoje.add(id);
+    somar(ficha, estadosPorAssinante.get(id));
+  }
+
+  for (const [id, estados] of estadosPorAssinante) {
+    if (idsDeHoje.has(id)) continue;
+    // Sem nome ou telefone não é assinante de verdade: as telas também não mostram.
+    const ultimoEstado = [...estados].reverse().find((h) => h.operation !== 'DELETE')?.row;
+    if (!ultimoEstado?.subscriber_name || !ultimoEstado?.subscriber_whatsapp) continue;
+    somar({ id, ...ultimoEstado }, estados);
+  }
+
+  return Array.from(entradas.values());
 }
 
 /** Linhas cruas de client_subscription_history → estados por assinante, em ordem cronológica. */
@@ -176,9 +318,10 @@ export function agruparEstadosPorAssinante(rows: any[]): Map<string, HistoricoEs
   );
   for (const h of ordenadas) {
     const subId = String(h?.client_subscription_id || '').trim();
-    if (!subId || !h?.new_row) continue;
+    const operation = String(h?.operation || '');
+    if (!subId || (!h?.new_row && operation !== 'DELETE')) continue;
     const lista = mapa.get(subId) || [];
-    lista.push({ createdAt: String(h.created_at || ''), row: h.new_row });
+    lista.push({ createdAt: String(h.created_at || ''), operation, row: h.new_row || {} });
     mapa.set(subId, lista);
   }
   return mapa;

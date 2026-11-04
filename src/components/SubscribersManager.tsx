@@ -30,6 +30,7 @@ import { syncSubscribersToManualClients } from '../lib/manualClientsSync';
 import { clientNameHasSubscriberLabel } from '../lib/subscriberAppointmentFlags';
 import {
   buildEntryEventsComHistorico,
+  calcularEntradasDoMes,
   mesFechado,
   reconstruirAtivosDoMes,
   usaEntradasComHistorico,
@@ -1348,6 +1349,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
 
   // "Entradas do mês" com histórico — regra em src/lib/subscriberMonthHistory.ts.
   const entradasComHistorico = usaEntradasComHistorico(establishmentId);
+  // Fichas repetidas (mesmo telefone) que a lista esconde: o pagamento delas é real e conta no mês.
+  const [fichasForaDaLista, setFichasForaDaLista] = useState<ClientSubscription[]>([]);
   // Estados da ficha gravados em client_subscription_history com data de início
   // ou de pagamento no mês selecionado, por assinante, em ordem cronológica.
   const [historicoEstadosPorAssinante, setHistoricoEstadosPorAssinante] = useState<Map<string, HistoricoEstadoAssinante[]>>(
@@ -3204,6 +3207,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
           return;
         }
         const dedupedOldData = deduplicateSubscriberRows((oldData || []) as ClientSubscription[]);
+        const idsDaListaAntiga = new Set(dedupedOldData.map((row) => String(row.id || '')));
+        setFichasForaDaLista(((oldData || []) as ClientSubscription[]).filter((row) => !idsDaListaAntiga.has(String(row.id || ''))));
         setClientSubscriptions(dedupedOldData);
         void syncSubscribersToManualClients(establishmentId).catch((syncError) => {
           console.warn('⚠️ Falha ao sincronizar assinantes em Meus Clientes:', syncError);
@@ -3223,6 +3228,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       }));
 
       const dedupedSubscribers = deduplicateSubscriberRows(transformedSubscribers as ClientSubscription[]);
+      const idsDaLista = new Set(dedupedSubscribers.map((row) => String(row.id || '')));
+      setFichasForaDaLista((transformedSubscribers as ClientSubscription[]).filter((row) => !idsDaLista.has(String(row.id || ''))));
       setClientSubscriptions(dedupedSubscribers);
       void syncSubscribersToManualClients(establishmentId).catch((syncError) => {
         console.warn('⚠️ Falha ao sincronizar assinantes em Meus Clientes:', syncError);
@@ -5018,9 +5025,6 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     return events;
   };
 
-  const sumSubscriptionMonthEntryCents = (cs: ClientSubscription): number =>
-    buildSubscriptionMonthEntryEvents(cs).reduce((sum, event) => sum + toCents(event.value), 0);
-
   const getSubscriptionValue = (cs: ClientSubscription): number => {
     const value = Number(getSubscriptionValueForClient(cs));
     return Number.isFinite(value) ? value : 0;
@@ -5169,8 +5173,24 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       );
     }, 0);
 
-  // Entradas do mês: pagamentos no período (novo assinante pelo start_date + renovação pelo last_payment_date).
-  const emContaEntradasCents = clientSubscriptions.reduce((sum, cs) => sum + sumSubscriptionMonthEntryCents(cs), 0);
+  // Entradas do mês: cada pagamento do período, uma vez só. Mesmo cálculo do Financeiro
+  // (src/lib/subscriberMonthHistory.ts), para os dois mostrarem o mesmo número.
+  const entradasDoMes = useMemo(() => {
+    if (!entradasComHistorico) {
+      return clientSubscriptions.flatMap((cs) =>
+        buildSubscriptionMonthEntryEvents(cs).map((event) => ({ ...event, fichaId: String(cs.id || ''), ficha: cs as any }))
+      );
+    }
+    return calcularEntradasDoMes({
+      fichas: [...clientSubscriptions, ...fichasForaDaLista],
+      estadosPorAssinante: historicoEstadosPorAssinante,
+      year: selectedYear,
+      month0: selectedMonth,
+      valueOf: getSubscriptionValue,
+    });
+  }, [entradasComHistorico, clientSubscriptions, fichasForaDaLista, historicoEstadosPorAssinante, selectedMonth, selectedYear, subscriptions]);
+
+  const emContaEntradasCents = entradasDoMes.reduce((sum, event) => sum + toCents(event.value), 0);
 
   // Saídas do mês: pagamentos realizados para profissionais no módulo de assinantes
   // (já filtrados por competência/mês em fetchProfessionalPayments).
@@ -5187,21 +5207,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const emContaMes = fromCents(Math.max(0, emContaEntradasCents - emContaSaidasCents));
 
   const emContaBreakdown = useMemo(() => {
-    return clientSubscriptions
-      .flatMap((cs) => {
-        const clientName = getSubscriberDisplayName(cs);
-        const planName = getSubscriberPlanName(cs as any);
-        return buildSubscriptionMonthEntryEvents(cs).map((event) => {
-          const paymentDate = parseISO(event.dateRaw);
-          return {
-            id: `${String(cs.id || '')}-${event.typeLabel}-${event.dateRaw}`,
-            clientName,
-            planName,
-            paymentDate: Number.isNaN(paymentDate.getTime()) ? null : paymentDate,
-            value: event.value,
-            typeLabel: event.typeLabel,
-          };
-        });
+    return entradasDoMes
+      .map((event) => {
+        const paymentDate = parseISO(event.dateRaw);
+        return {
+          id: `${event.fichaId}-${event.typeLabel}-${event.dateRaw}`,
+          clientName: getSubscriberDisplayName(event.ficha),
+          planName: getSubscriberPlanName(event.ficha),
+          paymentDate: Number.isNaN(paymentDate.getTime()) ? null : paymentDate,
+          value: event.value,
+          typeLabel: event.typeLabel,
+        };
       })
       .filter((row): row is {
         id: string;
@@ -5212,7 +5228,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         typeLabel: string;
       } => Boolean(row.paymentDate))
       .sort((a, b) => b.paymentDate.getTime() - a.paymentDate.getTime());
-  }, [clientSubscriptions, selectedMonth, selectedYear, historicoEstadosPorAssinante]);
+  }, [entradasDoMes]);
 
   const liquidoAtivoBreakdown = useMemo(() => {
     if (reconstruirAtivosPeloHistorico) {
