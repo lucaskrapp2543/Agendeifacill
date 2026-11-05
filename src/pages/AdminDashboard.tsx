@@ -36,6 +36,16 @@ import { NewRegistrations } from '../components/NewRegistrations';
 import { PWADownloadLink } from '../components/PWADownloadLink';
 import { SiteClientsPanel } from '../components/SiteClientsPanel';
 import { AdminFeatureRequestsModal } from '../components/AdminFeatureRequestsModal';
+import { AdminLastPaymentsModal, type LastPaymentsPeriodStatus } from '../components/AdminLastPaymentsModal';
+import {
+  MANUAL_METHOD_LABEL,
+  netFromManualPayment,
+  netFromOnlinePayment,
+  onlinePaymentMethodLabel,
+  statusLabelOf,
+  type LastPaymentNetInfo,
+  type LastPaymentRow,
+} from '../lib/adminLastPayments';
 import { adminListFeatureRequests, type FeatureRequest } from '../lib/featureRequests';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -204,7 +214,8 @@ const AdminDashboard = () => {
   const [isPayingByEstablishment, setIsPayingByEstablishment] = useState<Record<string, boolean>>({});
   const [showPayoutHistoryModal, setShowPayoutHistoryModal] = useState(false);
   const [showLastPaymentsModal, setShowLastPaymentsModal] = useState(false);
-  const [lastPaymentsSearch, setLastPaymentsSearch] = useState('');
+  const [lastPaymentsFrom, setLastPaymentsFrom] = useState('');
+  const [lastPaymentsTo, setLastPaymentsTo] = useState('');
   // "Não renovaram": vencimento passou e ninguém marcou pago — inclui quem já foi para a lixeira.
   const [showNotRenewedModal, setShowNotRenewedModal] = useState(false);
   const [notRenewedSearch, setNotRenewedSearch] = useState('');
@@ -748,7 +759,16 @@ const AdminDashboard = () => {
   const [cardsRangeEnd, setCardsRangeEnd] = useState('');
   // Histórico real de pagamentos do plano (establishment_billing_payments), por chave
   // "m:AAAA-MM" (mês passado) ou "r:inicio|fim" (filtro De/Até). Ver buildPaidEntries.
-  type BillingHistoryRow = { id: string; establishmentId: string; paidAt: number; amount: number; paymentMethod: string };
+  type BillingHistoryRow = {
+    id: string;
+    establishmentId: string;
+    paidAt: number;
+    amount: number;
+    paymentMethod: string;
+    paymentProvider: string;
+    netAmount: number | null;
+    mpFeeAmount: number | null;
+  };
   type BillingHistoryState = { status: 'loading' | 'ok' | 'error'; rows: BillingHistoryRow[]; fetchedAt: number };
   const [billingHistoryByKey, setBillingHistoryByKey] = useState<Record<string, BillingHistoryState>>({});
 
@@ -3610,6 +3630,42 @@ const AdminDashboard = () => {
           }
         });
 
+        // Os últimos 100 vão além de 10 dias. Sem esta busca, quem pagou online há mais tempo
+        // aparecia como "manual". Se ela falhar, segue com o resultado acima.
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const accessToken = String(sessionData?.session?.access_token || '');
+          const toIso = new Date().toISOString();
+          const fromIso = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+          const rangeBase = import.meta.env.PROD
+            ? '/.netlify/functions/mercadopago-recent-establishment-billing-payments'
+            : '/api/mercadopago/recent-establishment-billing-payments';
+          const rangeResponse = await fetch(`${rangeBase}?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`, {
+            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+          });
+          const rangePayload = await rangeResponse.json().catch(() => ({}));
+          const rangeItems = rangeResponse.ok && Array.isArray((rangePayload as any)?.items) ? (rangePayload as any).items : [];
+          rangeItems.forEach((row: any) => {
+            const id = String(row?.establishment_id || '').trim();
+            const ts = new Date(String(row?.paid_at || '')).getTime();
+            if (!id || !Number.isFinite(ts)) return;
+            if (next[id] && ts <= next[id].timestamp) return;
+            const amountCents = Number(row?.amount_cents);
+            const net = Number(row?.net_received_amount);
+            const fee = Number(row?.mp_fee_amount);
+            next[id] = {
+              timestamp: ts,
+              paymentProvider: String(row?.payment_provider || 'mercadopago').trim(),
+              paymentMethod: String(row?.payment_method || '').trim(),
+              amountCents: Number.isFinite(amountCents) && amountCents > 0 ? amountCents : null,
+              netAmount: Number.isFinite(net) && net > 0 ? net : null,
+              mpFeeAmount: Number.isFinite(fee) && fee >= 0 ? fee : null,
+            };
+          });
+        } catch (rangeError) {
+          console.warn('Histórico para classificar os últimos pagamentos indisponível:', rangeError);
+        }
+
         if (alive) setAutomaticPaymentInfoByEstablishment(next);
       } catch (error) {
         console.error('Erro ao classificar pagamentos automáticos:', error);
@@ -3636,6 +3692,17 @@ const AdminDashboard = () => {
   const BILLING_HISTORY_FRESH_MS = 5 * 60 * 1000;
   const billingHistoryKeyForMonth = (d: Date) => `m:${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   const billingHistoryRangeKey = cardsRangeStart && cardsRangeEnd ? `r:${cardsRangeStart}|${cardsRangeEnd}` : '';
+  // Período escolhido em "Últimos pagamentos". Mesmo limite de 400 dias do endpoint.
+  const lastPaymentsPeriodDates = (() => {
+    if (!lastPaymentsFrom || !lastPaymentsTo) return null;
+    const from = startOfDay(new Date(`${lastPaymentsFrom}T00:00:00`));
+    const to = endOfDay(new Date(`${lastPaymentsTo}T00:00:00`));
+    if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || from.getTime() > to.getTime()) return null;
+    if (to.getTime() - from.getTime() > 400 * 24 * 60 * 60 * 1000) return null;
+    return { from, to };
+  })();
+  const lastPaymentsPeriodKey =
+    showLastPaymentsModal && lastPaymentsPeriodDates ? `r:${lastPaymentsFrom}|${lastPaymentsTo}` : '';
   useEffect(() => {
     const today = new Date();
     const wanted: Array<{ key: string; from: Date; to: Date }> = [];
@@ -3656,6 +3723,9 @@ const AdminDashboard = () => {
       if (Number.isFinite(from.getTime()) && Number.isFinite(to.getTime()) && from.getTime() <= to.getTime()) {
         wanted.push({ key: billingHistoryRangeKey, from, to });
       }
+    }
+    if (lastPaymentsPeriodKey && lastPaymentsPeriodDates && !wanted.some((w) => w.key === lastPaymentsPeriodKey)) {
+      wanted.push({ key: lastPaymentsPeriodKey, from: lastPaymentsPeriodDates.from, to: lastPaymentsPeriodDates.to });
     }
     const nowMs = Date.now();
     const missing = wanted.filter((w) => {
@@ -3706,6 +3776,9 @@ const AdminDashboard = () => {
                   paidAt,
                   amount: Math.round(amountCents) / 100,
                   paymentMethod: String(row?.payment_method || ''),
+                  paymentProvider: String(row?.payment_provider || ''),
+                  netAmount: Number.isFinite(Number(row?.net_received_amount)) && Number(row?.net_received_amount) > 0 ? Number(row?.net_received_amount) : null,
+                  mpFeeAmount: Number.isFinite(Number(row?.mp_fee_amount)) && Number(row?.mp_fee_amount) >= 0 ? Number(row?.mp_fee_amount) : null,
                 });
               });
               result = { status: 'ok', rows, fetchedAt: Date.now() };
@@ -3720,7 +3793,7 @@ const AdminDashboard = () => {
       );
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saldoLucroMonth, saldoMesMonth, clientesMeusPagosMonth, saldoDiaDate, billingHistoryRangeKey, billingHistoryByKey, establishments]);
+  }, [saldoLucroMonth, saldoMesMonth, clientesMeusPagosMonth, saldoDiaDate, billingHistoryRangeKey, lastPaymentsPeriodKey, billingHistoryByKey, establishments]);
 
   useEffect(() => {
     if (!showAfBookingModal) return;
@@ -5012,6 +5085,7 @@ const AdminDashboard = () => {
     paidAt: number;
     value: number;
     source: 'online' | 'manual';
+    billing?: BillingHistoryRow;
   };
   const establishmentByIdForHistory = new Map<string, Establishment>();
   metricsEstablishments.forEach((est) => establishmentByIdForHistory.set(est.id, est));
@@ -5030,6 +5104,7 @@ const AdminDashboard = () => {
         paidAt: row.paidAt,
         value: row.amount,
         source: 'online',
+        billing: row,
       });
     });
     metricsEstablishments.forEach((est) => {
@@ -5248,73 +5323,68 @@ const AdminDashboard = () => {
    * Manual: o valor que o admin informou em "lucro" (admin_profit_value); sem ele, o
    * valor da mensalidade com aviso de que é o bruto.
    */
-  const getLastPaymentNetInfo = (est: Establishment): { value: number | null; exact: boolean; gross: number | null; fee: number | null; note: string } => {
+  const getLastPaymentNetInfo = (est: Establishment): LastPaymentNetInfo => {
     const auto = automaticPaymentInfoByEstablishment[est.id];
-    const isAuto = isAutomaticPaymentInLastDays(est) && Boolean(auto);
-    if (isAuto && auto) {
-      const gross = auto.amountCents !== null ? auto.amountCents / 100 : null;
-      if (auto.netAmount !== null) {
-        return { value: auto.netAmount, exact: true, gross, fee: auto.mpFeeAmount, note: 'líquido exato do Mercado Pago' };
-      }
-      if (gross !== null) {
-        const method = String(auto.paymentMethod || '').toLowerCase();
-        const provider = String(auto.paymentProvider || '').toLowerCase();
-        const isCard = method.includes('credit') || method.includes('card') || method.includes('cred') || provider.includes('subscription');
-        const rate = isCard ? 0.0499 : method.includes('debit') ? 0.0199 : 0.0099;
-        return { value: Math.round(gross * (1 - rate) * 100) / 100, exact: false, gross, fee: null, note: 'estimativa pela taxa do Mercado Pago' };
-      }
-      return { value: null, exact: false, gross: null, fee: null, note: 'valor não disponível' };
-    }
-    const informed = Number(est.admin_profit_value ?? 0);
-    if (Number.isFinite(informed) && informed > 0) {
-      return { value: Math.round(informed * 100) / 100, exact: true, gross: null, fee: null, note: 'líquido informado por você' };
-    }
-    const planAmount = Number(est.mercadopago_billing_amount ?? 0);
-    if (Number.isFinite(planAmount) && planAmount > 0) {
-      return { value: Math.round(planAmount * 100) / 100, exact: false, gross: planAmount, fee: null, note: 'valor da mensalidade (bruto) — líquido não informado' };
-    }
-    return { value: null, exact: false, gross: null, fee: null, note: 'valor não informado' };
+    if (isAutomaticPaymentInLastDays(est) && auto) return netFromOnlinePayment(auto);
+    return netFromManualPayment(est);
   };
 
   const getLastPaymentMethodLabel = (est: Establishment): string => {
-    const automaticInfo = automaticPaymentInfoByEstablishment[est.id];
-    if (!isAutomaticPaymentInLastDays(est) || !automaticInfo) {
-      return 'Manual (não informado)';
-    }
-
-    const method = String(automaticInfo.paymentMethod || '').toLowerCase();
-    if (
-      method.includes('recurring_card') ||
-      method.includes('credit_card') ||
-      method.includes('credito') ||
-      method.includes('credit')
-    ) {
-      return 'Crédito';
-    }
-    if (method.includes('pix')) return 'PIX';
-
-    const provider = String(automaticInfo.paymentProvider || '').toLowerCase();
-    if (
-      provider.includes('subscription') ||
-      provider.includes('card') ||
-      provider.includes('credit') ||
-      provider.includes('credito')
-    ) {
-      return 'Crédito';
-    }
-
-    if (
-      provider.includes('pix') ||
-      provider.includes('mercadopago') ||
-      provider.includes('pagarme')
-    ) {
-      return 'PIX';
-    }
-
-    return 'Automático';
+    const auto = automaticPaymentInfoByEstablishment[est.id];
+    if (!isAutomaticPaymentInLastDays(est) || !auto) return MANUAL_METHOD_LABEL;
+    return onlinePaymentMethodLabel(auto);
   };
-  const automaticLastTenDaysPayments = lastTenDaysPayments.filter((est) => isAutomaticPaymentInLastDays(est));
-  const manualLastTenDaysPayments = lastTenDaysPayments.filter((est) => !isAutomaticPaymentInLastDays(est));
+
+  // ── Linhas do modal "Últimos pagamentos" ──
+  const lastPaymentsDefaultRows: LastPaymentRow[] = lastTenDaysPayments.map((est) => {
+    const paidAt = getPaymentTimestamp(est);
+    return {
+      key: `last-${est.id}`,
+      name: String(est.name || ''),
+      code: String(est.code || ''),
+      planLabel: String(est.plan_type || ''),
+      statusLabel: statusLabelOf(est.payment_status),
+      source: isAutomaticPaymentInLastDays(est) ? 'auto' : 'manual',
+      methodLabel: getLastPaymentMethodLabel(est),
+      paidAt: Number.isFinite(paidAt) ? paidAt : null,
+      net: getLastPaymentNetInfo(est),
+    };
+  });
+  const lastPaymentsPeriodResolved = lastPaymentsPeriodKey && lastPaymentsPeriodDates
+    ? resolveHistory(lastPaymentsPeriodKey, lastPaymentsPeriodDates.from, lastPaymentsPeriodDates.to)
+    : null;
+  const lastPaymentsPeriodRows: LastPaymentRow[] = (lastPaymentsPeriodResolved?.entries || []).map((entry) => {
+    const est = entry.est;
+    const billing = entry.billing;
+    const online = entry.source === 'online' && billing
+      ? {
+        amountCents: Math.round(billing.amount * 100),
+        netAmount: billing.netAmount,
+        mpFeeAmount: billing.mpFeeAmount,
+        paymentMethod: billing.paymentMethod,
+        paymentProvider: billing.paymentProvider,
+      }
+      : null;
+    return {
+      key: entry.key,
+      name: String(est?.name || 'Barbearia não encontrada'),
+      code: String(est?.code || ''),
+      planLabel: String(est?.plan_type || ''),
+      statusLabel: est ? statusLabelOf(est.payment_status) : null,
+      source: online ? 'auto' : 'manual',
+      methodLabel: online ? onlinePaymentMethodLabel(online) : MANUAL_METHOD_LABEL,
+      paidAt: entry.paidAt,
+      net: online ? netFromOnlinePayment(online) : netFromManualPayment(est || {}),
+    };
+  });
+  const lastPaymentsPeriodStatus: LastPaymentsPeriodStatus = (() => {
+    if (!lastPaymentsFrom && !lastPaymentsTo) return 'idle';
+    if (!lastPaymentsFrom || !lastPaymentsTo) return 'partial';
+    if (lastPaymentsFrom > lastPaymentsTo) return 'invalid';
+    if (!lastPaymentsPeriodDates) return 'tooLong';
+    return lastPaymentsPeriodResolved?.status || 'loading';
+  })();
+
   // Usa somente a lista visível na tela (mesmo critério da tabela),
   // para não incluir lixeira/itens fora do filtro atual.
   const visibleEstablishments = metricsEstablishments;
@@ -8681,210 +8751,24 @@ const AdminDashboard = () => {
               )}
 
               {showLastPaymentsModal && (
-                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
-                  <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-3 border-b gap-3">
-                      <div className="shrink-0">
-                        <div className="text-sm font-bold text-gray-900">Últimos pagamentos</div>
-                        <div className="text-xs text-gray-600">
-                          Últimos 100 • mais recente primeiro
-                        </div>
-                      </div>
-                      <input
-                        type="text"
-                        value={lastPaymentsSearch}
-                        onChange={e => setLastPaymentsSearch(e.target.value)}
-                        placeholder="Buscar por nome ou código..."
-                        className="flex-1 min-w-0 text-sm border border-gray-300 rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
-                      />
-                      <button
-                        onClick={() => { setShowLastPaymentsModal(false); setLastPaymentsSearch(''); }}
-                        className="p-1 rounded hover:bg-gray-100 text-gray-600 shrink-0"
-                        title="Fechar"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-
-                    <div className="p-4 overflow-y-auto max-h-[70vh]">
-                      {(() => {
-                        const _search = lastPaymentsSearch.toLowerCase().trim();
-                        const _filteredAuto = automaticLastTenDaysPayments.filter(est =>
-                          !_search ||
-                          String(est.name || '').toLowerCase().includes(_search) ||
-                          String(est.code || '').includes(_search)
-                        );
-                        const _filteredManual = manualLastTenDaysPayments.filter(est =>
-                          !_search ||
-                          String(est.name || '').toLowerCase().includes(_search) ||
-                          String(est.code || '').includes(_search)
-                        );
-                        const _totalFiltered = _filteredAuto.length + _filteredManual.length;
-                        return (
-                      <>
-                      {lastTenDaysPayments.length === 0 ? (
-                        <div className="text-sm text-gray-600">
-                          Nenhum pagamento encontrado.
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          <div className="flex flex-wrap items-center gap-2 text-xs">
-                            <span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700 font-semibold">
-                              Automáticos: {_filteredAuto.length}
-                            </span>
-                            <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700 font-semibold">
-                              Manuais: {_filteredManual.length}
-                            </span>
-                            <span className="inline-flex items-center rounded border-2 border-emerald-400 bg-emerald-50 px-2 py-1 text-emerald-800 font-black">
-                              Líquido total (lista): {fmtBRL([..._filteredAuto, ..._filteredManual].reduce((sum, est) => sum + (getLastPaymentNetInfo(est).value || 0), 0))}
-                            </span>
-                            {_search && (
-                              <span className="text-gray-500">
-                                {_totalFiltered} resultado{_totalFiltered !== 1 ? 's' : ''} para "{lastPaymentsSearch}"
-                              </span>
-                            )}
-                            {isLoadingLastPaymentsSources ? (
-                              <span className="text-gray-500">Classificando origem do pagamento...</span>
-                            ) : null}
-                          </div>
-
-                          {lastPaymentsSourcesWarning ? (
-                            <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                              {lastPaymentsSourcesWarning}
-                            </div>
-                          ) : null}
-
-                          <div className="rounded border border-emerald-200">
-                            <div className="px-3 py-2 bg-emerald-50 border-b border-emerald-200 text-xs font-semibold text-emerald-900">
-                              Pagamentos automáticos
-                            </div>
-                            {_filteredAuto.length === 0 ? (
-                              <div className="px-3 py-3 text-sm text-gray-500">
-                                Nenhum pagamento automático encontrado.
-                              </div>
-                            ) : (
-                              <div className="p-2 space-y-2">
-                                {_filteredAuto.map((est, idx) => {
-                                  const paidAt = getPaymentTimestamp(est);
-                                  const paidAtLabel = Number.isFinite(paidAt)
-                                    ? new Date(paidAt).toLocaleString('pt-BR')
-                                    : 'Sem data de pagamento';
-
-                                  return (
-                                    <div
-                                      key={`last-payment-auto-${est.id}`}
-                                      className="rounded-lg border border-gray-200 p-3 flex items-center justify-between gap-3"
-                                    >
-                                      <div className="min-w-0">
-                                        <div className="text-sm font-semibold text-gray-900 truncate">
-                                          {idx + 1}. {est.name}
-                                        </div>
-                                        <div className="text-xs text-gray-600 mt-0.5">
-                                          Código: {est.code || '—'} • Plano: {est.plan_type || '—'}
-                                        </div>
-                                        <div className="text-xs text-gray-500 mt-0.5">
-                                          Status atual: {est.payment_status === 'paid' ? 'Pago' : est.payment_status === 'expired' ? 'Vencido' : 'Pendente'}
-                                        </div>
-                                        <div className="text-xs text-gray-500 mt-0.5">
-                                          Forma de pagamento: {getLastPaymentMethodLabel(est)}
-                                        </div>
-                                        {(() => {
-                                          const net = getLastPaymentNetInfo(est);
-                                          return (
-                                            <div className="mt-2 inline-flex flex-col rounded-lg border-2 border-emerald-400 bg-emerald-50 px-3 py-1.5">
-                                              <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">Líquido pra você</span>
-                                              <span className="text-2xl font-black text-emerald-800 leading-tight">
-                                                {net.value !== null ? `${net.exact ? '' : '≈ '}${fmtBRL(net.value)}` : '—'}
-                                              </span>
-                                              <span className="text-[10px] text-emerald-700">
-                                                {net.gross !== null && net.exact && net.value !== null && net.gross > net.value
-                                                  ? `bruto ${fmtBRL(net.gross)} · taxa MP ${fmtBRL(Math.round((net.gross - net.value) * 100) / 100)}`
-                                                  : net.note}
-                                              </span>
-                                            </div>
-                                          );
-                                        })()}
-                                      </div>
-                                      <div className="text-right shrink-0">
-                                        <div className="text-xs text-gray-500">Pago em</div>
-                                        <div className="text-sm font-semibold text-green-700">{paidAtLabel}</div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="rounded border border-amber-200">
-                            <div className="px-3 py-2 bg-amber-50 border-b border-amber-200 text-xs font-semibold text-amber-900">
-                              Pagamentos manuais
-                            </div>
-                            {_filteredManual.length === 0 ? (
-                              <div className="px-3 py-3 text-sm text-gray-500">
-                                Nenhum pagamento manual encontrado.
-                              </div>
-                            ) : (
-                              <div className="p-2 space-y-2">
-                                {_filteredManual.map((est, idx) => {
-                                  const paidAt = getPaymentTimestamp(est);
-                                  const paidAtLabel = Number.isFinite(paidAt)
-                                    ? new Date(paidAt).toLocaleString('pt-BR')
-                                    : 'Sem data de pagamento';
-
-                                  return (
-                                    <div
-                                      key={`last-payment-manual-${est.id}`}
-                                      className="rounded-lg border border-gray-200 p-3 flex items-center justify-between gap-3"
-                                    >
-                                      <div className="min-w-0">
-                                        <div className="text-sm font-semibold text-gray-900 truncate">
-                                          {idx + 1}. {est.name}
-                                        </div>
-                                        <div className="text-xs text-gray-600 mt-0.5">
-                                          Código: {est.code || '—'} • Plano: {est.plan_type || '—'}
-                                        </div>
-                                        <div className="text-xs text-gray-500 mt-0.5">
-                                          Status atual: {est.payment_status === 'paid' ? 'Pago' : est.payment_status === 'expired' ? 'Vencido' : 'Pendente'}
-                                        </div>
-                                        <div className="text-xs text-gray-500 mt-0.5">
-                                          Forma de pagamento: {getLastPaymentMethodLabel(est)}
-                                        </div>
-                                        {(() => {
-                                          const net = getLastPaymentNetInfo(est);
-                                          return (
-                                            <div className="mt-2 inline-flex flex-col rounded-lg border-2 border-emerald-400 bg-emerald-50 px-3 py-1.5">
-                                              <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">Líquido pra você</span>
-                                              <span className="text-2xl font-black text-emerald-800 leading-tight">
-                                                {net.value !== null ? `${net.exact ? '' : '≈ '}${fmtBRL(net.value)}` : '—'}
-                                              </span>
-                                              <span className="text-[10px] text-emerald-700">
-                                                {net.gross !== null && net.exact && net.value !== null && net.gross > net.value
-                                                  ? `bruto ${fmtBRL(net.gross)} · taxa MP ${fmtBRL(Math.round((net.gross - net.value) * 100) / 100)}`
-                                                  : net.note}
-                                              </span>
-                                            </div>
-                                          );
-                                        })()}
-                                      </div>
-                                      <div className="text-right shrink-0">
-                                        <div className="text-xs text-gray-500">Pago em</div>
-                                        <div className="text-sm font-semibold text-green-700">{paidAtLabel}</div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      </>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </div>
+                <AdminLastPaymentsModal
+                  defaultRows={lastPaymentsDefaultRows}
+                  periodRows={lastPaymentsPeriodRows}
+                  periodStatus={lastPaymentsPeriodStatus}
+                  periodFrom={lastPaymentsFrom}
+                  periodTo={lastPaymentsTo}
+                  onPeriodChange={(from, to) => {
+                    setLastPaymentsFrom(from);
+                    setLastPaymentsTo(to);
+                  }}
+                  isClassifying={isLoadingLastPaymentsSources}
+                  warning={lastPaymentsSourcesWarning}
+                  onClose={() => {
+                    setShowLastPaymentsModal(false);
+                    setLastPaymentsFrom('');
+                    setLastPaymentsTo('');
+                  }}
+                />
               )}
 
               {/* Modal - Booking AF */}
