@@ -13,6 +13,7 @@ import {
   Zap,
 } from 'lucide-react';
 import React from 'react';
+import { isUnlimitedServiceLimit } from '../utils/subscriptionUnlimited';
 
 export const ReservarModalFrame: React.FC<{
   title: string;
@@ -190,7 +191,7 @@ export const ReservarSubscriberServicesSection: React.FC<{
                             {formatDuration(svc.duration)} •{' '}
                             <span className="text-amber-300 font-bold">GRATUITO</span>
                             {svc.limit > 0 ? (
-                              <span className="text-amber-200/60"> • até {svc.limit} uso(s) no ciclo</span>
+                              <span className="text-amber-200/60"> • {isUnlimitedServiceLimit(svc.limit) ? 'uso ilimitado' : `até ${svc.limit} uso(s) no ciclo`}</span>
                             ) : null}
                           </p>
                         </div>

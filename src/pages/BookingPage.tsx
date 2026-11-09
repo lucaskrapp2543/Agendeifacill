@@ -51,6 +51,7 @@ import {
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
 import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
 import { ReviewProfessionalSelector } from '../components/ReviewProfessionalSelector';
+import { formatServiceLimit } from '../utils/subscriptionUnlimited';
 import {
   isExclusiveBookingLinkEnabledForProfessional,
   parseExclusiveProfessionalIdFromSearch,
@@ -4344,7 +4345,7 @@ export default function BookingPage() {
                                 <div>
                                   <h4 className="font-semibold text-white">{service.name}</h4>
                                   <p className="text-xs text-white/70 mt-1">
-                                    Tempo: {service.duration} min • Limite na assinatura: {service.limit}
+                                    Tempo: {service.duration} min • Limite na assinatura: {formatServiceLimit(service.limit)}
                                   </p>
                                 </div>
                                 <span className="px-3 py-1 text-xs rounded-full bg-white/10 text-white/80">
@@ -5128,7 +5129,7 @@ export default function BookingPage() {
                             <div>
                               <h4 className="font-semibold text-gray-900">{service.name}</h4>
                               <p className="text-xs text-gray-600 mt-1">
-                                Tempo: {service.duration} min • Limite na assinatura: {service.limit}
+                                Tempo: {service.duration} min • Limite na assinatura: {formatServiceLimit(service.limit)}
                               </p>
                             </div>
                             <span className="px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-700">

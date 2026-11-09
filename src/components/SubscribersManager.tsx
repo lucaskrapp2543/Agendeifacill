@@ -71,6 +71,8 @@ import {
 } from '../utils/subscriptionUsagePeriod';
 import { openWhatsAppWithBusinessPriority } from '../utils/whatsapp';
 import { ClientRecoveryModal } from './ClientRecoveryModal';
+import { ServiceLimitField, UnlimitedCommissionPicker } from './SubscriptionUnlimitedControls';
+import { commissionModelOfPlan, isUnlimitedServiceLimit, type UnlimitedCommissionModel } from '../utils/subscriptionUnlimited';
 import { ProfessionalAttendedClientsModal } from './ProfessionalAttendedClientsModal';
 import { useToast } from './ui/Toaster';
 
@@ -441,6 +443,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [newSubscriptionWeekdays, setNewSubscriptionWeekdays] = useState<string[]>([]);
   const [newSubscriptionDescription, setNewSubscriptionDescription] = useState(''); // Nova descrição
   const [newDivideTotalEnabled, setNewDivideTotalEnabled] = useState(false);
+  // Plano com serviço "Ilimitado": modelo de comissão escolhido (obrigatório para salvar).
+  const [newUnlimitedModel, setNewUnlimitedModel] = useState<UnlimitedCommissionModel | ''>('');
   const [newDivideTotalAttendances, setNewDivideTotalAttendances] = useState<string>(''); // Ex: 4
   const [newDivideServicesEnabled, setNewDivideServicesEnabled] = useState(true);
   const [newDividedServices, setNewDividedServices] = useState<DividedSubscriptionService[]>([
@@ -1507,9 +1511,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const [editSubscriptionValue, setEditSubscriptionValue] = useState<string>(''); // R$
   const [editRepassePercent, setEditRepassePercent] = useState<string>(''); // %
   const [editDivideTotalEnabled, setEditDivideTotalEnabled] = useState(false);
+  const [editUnlimitedModel, setEditUnlimitedModel] = useState<UnlimitedCommissionModel>('fixo');
   const [editDivideTotalAttendances, setEditDivideTotalAttendances] = useState<string>(''); // Ex: 4
   const [editDivideServicesEnabled, setEditDivideServicesEnabled] = useState(false);
   const [editDividedServices, setEditDividedServices] = useState<DividedSubscriptionService[]>([]);
+  const newPlanHasUnlimited = newDividedServices.some((service) => isUnlimitedServiceLimit(service.limit));
+  const editPlanHasUnlimited = editDividedServices.some((service) => isUnlimitedServiceLimit(service.limit));
   const [editSubscriptionLabelColor, setEditSubscriptionLabelColor] = useState<string>('');
 
   // Estados para edição de link personalizado
@@ -1968,9 +1975,12 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
   const getDisplayLimitForClientSub = (cs: any): number | null => {
     const id = String(cs?.id || '');
     const totalLimit = subscriberEffectiveLimitByClientSubId[id] ?? null;
+    // Ilimitado: o cartão mostra só quantos atendimentos teve, sem "de 999".
+    if (isUnlimitedServiceLimit(totalLimit)) return null;
     if (totalLimit !== null && totalLimit > 0) return totalLimit;
 
     const dividedServices = cs?.subscriptions?.divided_services;
+    if (Array.isArray(dividedServices) && dividedServices.some((item: any) => isUnlimitedServiceLimit(item?.limit))) return null;
     const sumServiceLimits = Array.isArray(dividedServices)
       ? dividedServices.reduce((sum: number, item: any) => {
         const itemLimit = Number(item?.limit || 0);
@@ -3708,6 +3718,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
         return;
       }
 
+      if (normalizedDividedServices.some((service) => isUnlimitedServiceLimit(service.limit))) {
+        if (!newUnlimitedModel) {
+          toast.error('Escolha como dividir a comissão do plano ilimitado.');
+          return;
+        }
+        if (newUnlimitedModel === 'fixo' && !(newPercentualComissaoDiaria > 0)) {
+          toast.error('Informe a comissão (%) por atendimento do plano ilimitado.');
+          return;
+        }
+      }
+
       const { error } = await createSubscription(
         establishmentId,
         newSubscriptionName,
@@ -3736,6 +3757,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
       setNewSubscriptionWeekdays([]);
       setNewSubscriptionDescription(''); // Limpar descrição
       setNewDivideTotalEnabled(false);
+      setNewUnlimitedModel('');
       setNewDivideTotalAttendances('');
       setNewDivideServicesEnabled(true);
       setNewDividedServices([createEmptyDividedService()]);
@@ -4046,6 +4068,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
     }
     if (nextDividedServices.length === 0) {
       toast.error('Adicione pelo menos 1 serviço válido em “Serviços oferecidos na assinatura” (nome, duração e limite).');
+      return;
+    }
+    if (nextDividedServices.some((service) => isUnlimitedServiceLimit(service.limit)) && editUnlimitedModel === 'fixo' && !(nextPercent > 0)) {
+      toast.error('Informe a comissão (%) por atendimento do plano ilimitado.');
       return;
     }
 
@@ -6809,6 +6835,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               required
             />
           </div>
+          {!newPlanHasUnlimited && (
+          <>
           <div>
             <label htmlFor="percentualComissaoDiaria" className="block text-sm font-medium text-gray-400 mb-1">
               Comissão por serviço diário dessa assinatura (%)
@@ -6870,6 +6898,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               />
             </div>
           </div>
+          </>
+          )}
           <div className="p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg">
             <label className="flex items-center gap-2 text-sm font-semibold text-white">
               👉 Serviços oferecidos na assinatura <span className="text-amber-300 text-xs">(obrigatório)</span>
@@ -6919,25 +6949,17 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                           className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500"
                         />
                       </div>
-                      <div>
-                        <label className="block text-[11px] text-gray-400 mb-1">Limite de atendimentos</label>
-                        <input
-                          type="number"
-                          min={1}
-                          step={1}
-                          value={service.limit}
-                          onChange={(e) =>
-                            setNewDividedServices((prev) =>
-                              prev.map((item) => (item.id === service.id ? { ...item, limit: Number(e.target.value || 0) } : item))
-                            )
-                          }
-                          placeholder="Ex: 4"
-                          className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-gray-500"
-                        />
-                      </div>
+                      <ServiceLimitField
+                        limit={service.limit}
+                        onChange={(limit) =>
+                          setNewDividedServices((prev) =>
+                            prev.map((item) => (item.id === service.id ? { ...item, limit } : item))
+                          )
+                        }
+                      />
                     </div>
                     <p className="text-[11px] text-gray-500">
-                      Tempo = duração do serviço no agendamento. Limite = quantas vezes esse serviço pode ser usado na assinatura.
+                      Tempo = duração do serviço no agendamento. Limite = quantas vezes esse serviço pode ser usado na assinatura. Ilimitado = sem limite.
                     </p>
                   </div>
                 </div>
@@ -6951,6 +6973,24 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
               </button>
             </div>
           </div>
+          {newPlanHasUnlimited && (
+            <UnlimitedCommissionPicker
+              model={newUnlimitedModel}
+              onModelChange={(model) => {
+                setNewUnlimitedModel(model);
+                setNewDivideTotalEnabled(model === 'dividir');
+                if (model === 'pontos') setNewPercentualComissaoDiaria(0);
+              }}
+              planValue={newSubscriptionValue}
+              percent={newPercentualComissaoDiaria > 0 ? String(newPercentualComissaoDiaria) : ''}
+              onPercentChange={(raw) => {
+                const p = Number(String(raw).replace(',', '.'));
+                setNewPercentualComissaoDiaria(Number.isFinite(p) ? Math.max(0, Math.min(100, p)) : 0);
+              }}
+              divideQty={newDivideTotalAttendances}
+              onDivideQtyChange={setNewDivideTotalAttendances}
+            />
+          )}
           <div className="p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg">
             <div className="flex items-center justify-between gap-2 mb-2">
               <p className="text-sm font-semibold text-white">🏷️ Etiqueta</p>
@@ -7352,6 +7392,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   {Boolean((sub as any)?.divide_services_enabled) && (
                     <p className="text-emerald-300 text-xs mt-1">
                       ✂️ Serviços oferecidos na assinatura ({parseDividedServices((sub as any)?.divided_services).length} serviço(s))
+                      {parseDividedServices((sub as any)?.divided_services).some((service) => isUnlimitedServiceLimit(service.limit)) ? ' • ♾️ ilimitado' : ''}
                     </p>
                   )}
                   {sub.weekdays && sub.weekdays.length > 0 && (
@@ -7412,6 +7453,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                         setEditRepassePercent(String(Math.round(pct * 100) / 100).replace('.', ','));
                       }
                       setEditDivideTotalEnabled(Boolean((sub as any)?.divide_total_enabled));
+                      setEditUnlimitedModel(commissionModelOfPlan(sub as any));
                       setEditDivideTotalAttendances(
                         Number.isFinite(Number((sub as any)?.divide_total_attendances)) && Number((sub as any)?.divide_total_attendances) > 0
                           ? String(Number((sub as any)?.divide_total_attendances))
@@ -9412,6 +9454,7 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-400"
                   />
                 </div>
+                {!editPlanHasUnlimited && (
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-2">
                     % de repasse pro profissional
@@ -9425,7 +9468,10 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                     className="w-full px-3 py-2 bg-[#2a2b2c] rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-white placeholder-gray-400"
                   />
                 </div>
+                )}
               </div>
+              {!editPlanHasUnlimited && (
+              <>
               <div className="p-2 bg-gray-100 border border-gray-300 rounded-lg">
                 {(() => {
                   const v = Number(String(editSubscriptionValue || '').replace(',', '.'));
@@ -9469,6 +9515,8 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                 </div>
               </div>
 
+              </>
+              )}
               <div className="p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg">
                 <label className="flex items-center gap-2 text-sm font-semibold text-white">
                   👉 Serviços oferecidos na assinatura <span className="text-amber-300 text-xs">(obrigatório)</span>
@@ -9518,25 +9566,18 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                               className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-blue-500"
                             />
                           </div>
-                          <div>
-                            <label className="block text-[11px] text-gray-400 mb-1">Limite de atendimentos</label>
-                            <input
-                              type="number"
-                              min={1}
-                              step={1}
-                              value={service.limit}
-                              onChange={(e) =>
-                                setEditDividedServices((prev) =>
-                                  prev.map((item) => (item.id === service.id ? { ...item, limit: Number(e.target.value || 0) } : item))
-                                )
-                              }
-                              placeholder="Ex: 4"
-                              className="w-full px-3 py-2 bg-[#111213] rounded-lg border border-white/10 text-white focus:outline-none focus:border-blue-500"
-                            />
-                          </div>
+                          <ServiceLimitField
+                            limit={service.limit}
+                            focusClass="focus:border-blue-500"
+                            onChange={(limit) =>
+                              setEditDividedServices((prev) =>
+                                prev.map((item) => (item.id === service.id ? { ...item, limit } : item))
+                              )
+                            }
+                          />
                         </div>
                         <p className="text-[11px] text-gray-500">
-                          Tempo = duração do serviço no agendamento. Limite = quantas vezes esse serviço pode ser usado na assinatura.
+                          Tempo = duração do serviço no agendamento. Limite = quantas vezes esse serviço pode ser usado na assinatura. Ilimitado = sem limite.
                         </p>
                       </div>
                     </div>
@@ -9550,6 +9591,22 @@ export const SubscribersManager: React.FC<SubscribersManagerProps> = ({ establis
                   </button>
                 </div>
               </div>
+              {editPlanHasUnlimited && (
+                <UnlimitedCommissionPicker
+                  model={editUnlimitedModel}
+                  onModelChange={(model) => {
+                    setEditUnlimitedModel(model);
+                    setEditDivideTotalEnabled(model === 'dividir');
+                    if (model === 'pontos') setEditRepassePercent('0');
+                  }}
+                  planValue={Number(String(editSubscriptionValue || '').replace(',', '.')) || 0}
+                  percent={editRepassePercent === '0' ? '' : editRepassePercent}
+                  onPercentChange={(raw) => setEditRepassePercent(raw.trim() === '' ? '0' : raw)}
+                  divideQty={editDivideTotalAttendances}
+                  onDivideQtyChange={setEditDivideTotalAttendances}
+                  focusClass="focus:border-blue-500"
+                />
+              )}
               <div className="p-3 bg-[#2a2b2c] border border-gray-600 rounded-lg">
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <p className="text-sm font-semibold text-white">🏷️ Etiqueta</p>

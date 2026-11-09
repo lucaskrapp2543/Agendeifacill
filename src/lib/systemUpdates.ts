@@ -28,6 +28,28 @@ export const SYSTEM_UPDATE_KIND_LABEL: Record<SystemUpdateKind, string> = {
 
 export const SYSTEM_UPDATES: SystemUpdate[] = [
   {
+    id: 33,
+    date: '09/11/2026',
+    kind: 'novidade',
+    fromClientRequest: true,
+    title: '♾️ Serviço ilimitado na assinatura',
+    summary: 'Agora tem o botão "Deixar ilimitado" em cada serviço do plano. Não precisa mais colocar 999 no limite.',
+    details: [
+      {
+        title: 'Como usar',
+        text: 'Em Meus Assinantes, abra a aba Planos, crie ou edite um plano e toque em "♾️ Deixar ilimitado" no serviço que não tem limite de uso. Para voltar a ter limite, toque em "Colocar limite".',
+      },
+      {
+        title: 'Como fica a comissão',
+        text: 'Quando um serviço fica ilimitado, você escolhe como dividir a comissão: por atendimento (uma % do plano a cada visita), dividindo o valor total por uma quantidade de visitas que você escolhe, ou por pontos.',
+      },
+      {
+        title: 'Quem já usava 999',
+        text: 'Continua funcionando igual. Agora aparece "Ilimitado" no lugar do 999.',
+      },
+    ],
+  },
+  {
     id: 32,
     date: '04/11/2026',
     kind: 'correcao',
