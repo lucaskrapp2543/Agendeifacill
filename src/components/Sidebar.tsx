@@ -226,7 +226,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         type="button"
         onClick={handleClearDeviceCache}
         disabled={isClearingDeviceCache}
-        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
           isLight
             ? 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100'
             : 'border-red-500/40 bg-red-600/15 text-red-300 hover:bg-red-600/25'
@@ -935,28 +935,28 @@ const Sidebar: React.FC<SidebarProps> = ({
   const computeFeaturedToneClasses = (tone: 'cyan' | 'emerald' | 'sky' | 'violet') => ({
     active:
       tone === 'emerald'
-        ? 'bg-gradient-to-r from-emerald-600 to-amber-500 text-white border-emerald-300 shadow-lg shadow-emerald-500/20'
+        ? 'bg-emerald-600 text-white border-emerald-300'
         : tone === 'sky'
-          ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white border-sky-300 shadow-lg shadow-sky-500/20'
+          ? 'bg-sky-600 text-white border-sky-300'
           : tone === 'violet'
-            ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white border-violet-300 shadow-lg shadow-violet-500/20'
-            : 'bg-gradient-to-r from-[#009EE3] to-[#0077B6] text-white border-cyan-300 shadow-lg shadow-cyan-500/20',
+            ? 'bg-violet-600 text-white border-violet-300'
+            : 'bg-[#0087c9] text-white border-cyan-300',
     idleLight:
       tone === 'emerald'
-        ? 'bg-gradient-to-r from-emerald-50 to-amber-50 text-emerald-950 border-emerald-400 hover:from-emerald-100 hover:to-amber-100 shadow-md shadow-emerald-200/60'
+        ? 'bg-emerald-50 text-emerald-950 border-emerald-400 hover:bg-emerald-100'
         : tone === 'sky'
-          ? 'bg-gradient-to-r from-sky-50 to-blue-50 text-sky-950 border-sky-400 hover:from-sky-100 hover:to-blue-100 shadow-md shadow-sky-200/60'
+          ? 'bg-sky-50 text-sky-950 border-sky-400 hover:bg-sky-100'
           : tone === 'violet'
-            ? 'bg-gradient-to-r from-violet-50 to-fuchsia-50 text-violet-950 border-violet-400 hover:from-violet-100 hover:to-fuchsia-100 shadow-md shadow-violet-200/60'
-            : 'bg-gradient-to-r from-cyan-50 to-sky-100 text-cyan-950 border-cyan-400 hover:from-cyan-100 hover:to-sky-200 shadow-md shadow-cyan-200/60',
+            ? 'bg-violet-50 text-violet-950 border-violet-400 hover:bg-violet-100'
+            : 'bg-cyan-50 text-cyan-950 border-cyan-400 hover:bg-cyan-100',
     idleDark:
       tone === 'emerald'
-        ? 'bg-gradient-to-r from-emerald-500/30 to-amber-500/15 text-white border-emerald-400/70 hover:from-emerald-500/40 hover:to-amber-500/25 shadow-md shadow-emerald-500/10'
+        ? 'bg-emerald-500/25 text-white border-emerald-400/70 hover:bg-emerald-500/35'
         : tone === 'sky'
-          ? 'bg-gradient-to-r from-sky-500/30 to-blue-600/20 text-white border-sky-400/70 hover:from-sky-500/40 hover:to-blue-600/30 shadow-md shadow-sky-500/10'
+          ? 'bg-sky-500/25 text-white border-sky-400/70 hover:bg-sky-500/35'
           : tone === 'violet'
-            ? 'bg-gradient-to-r from-violet-500/30 to-fuchsia-500/15 text-white border-violet-400/70 hover:from-violet-500/40 hover:to-fuchsia-500/25 shadow-md shadow-violet-500/10'
-            : 'bg-gradient-to-r from-[#009EE3]/30 to-cyan-500/15 text-white border-cyan-400/70 hover:from-[#009EE3]/40 hover:to-cyan-500/25 shadow-md shadow-cyan-500/10',
+            ? 'bg-violet-500/25 text-white border-violet-400/70 hover:bg-violet-500/35'
+            : 'bg-[#009EE3]/25 text-white border-cyan-400/70 hover:bg-[#009EE3]/35',
   });
 
   const resolveAdminCardClassName = (opts: {
@@ -1092,7 +1092,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             : ['Meta Mensal', `${monthlyGoalPercent}% conquistado`],
           icon: Trophy,
           onClick: () => executeMobileAction('monthly-goal', onMonthlyGoalClick || (() => { })),
-          className: 'bg-gradient-to-br from-amber-400 to-yellow-500 text-black',
+          className: 'bg-amber-400 text-black',
         }]),
       {
         id: 'appointments',
@@ -1132,14 +1132,14 @@ const Sidebar: React.FC<SidebarProps> = ({
         label: (!establishment || establishmentHasMercadoPago(establishment)) ? '💰 Receba Antes' : '💰 Saques / Pagamentos online',
         icon: CreditCard,
         onClick: () => executeMobileAction('receber-adiantado', openReceberAdiantadoSection),
-        className: 'bg-gradient-to-r from-sky-500 to-blue-600 border border-sky-400/40',
+        className: 'bg-sky-600 border border-sky-400/40',
       },
       {
         id: 'indication',
         label: '💰 Ganhe Dinheiro',
         icon: Gift,
         onClick: () => executeMobileAction('indication', () => onTabChange('indication')),
-        className: 'bg-gradient-to-r from-emerald-600 to-amber-500 border border-emerald-400/40',
+        className: 'bg-emerald-600 border border-emerald-400/40',
       },
       {
         id: 'fila-espera',
@@ -1239,7 +1239,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       return (
         <div className="fixed inset-x-0 top-0 z-40 pointer-events-none">
           <div className="p-3 flex items-center justify-between">
-            <div className={`pointer-events-auto flex items-center gap-2 transition-all duration-300 ${hideToggleButton ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+            <div className={`pointer-events-auto flex items-center gap-2 transition-opacity duration-200 ${hideToggleButton ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
               <button
                 type="button"
                 onClick={() => setIsExpanded(true)}
@@ -1678,7 +1678,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       {isMobile && !isExpanded && (
         <div className="fixed inset-x-0 top-0 z-40 pointer-events-none md:hidden">
           <div className="p-3 flex items-center justify-between">
-            <div className={`pointer-events-auto flex items-center gap-2 transition-all duration-300 ${hideToggleButton ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+            <div className={`pointer-events-auto flex items-center gap-2 transition-opacity duration-200 ${hideToggleButton ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
               <button
                 type="button"
                 onClick={() => setIsExpanded(true)}
@@ -1717,7 +1717,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       {/* Overlay do sidebar antigo (somente desktop). Em mobile isso causava camada escura presa. */}
       {!isMobile && isExpanded && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden"
+          className="fixed inset-0 bg-black/50 z-30 hidden md:block xl:hidden"
           onClick={() => setIsExpanded(false)}
         />
       )}
@@ -1835,19 +1835,21 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       <div
         aria-hidden="true"
-        className={`hidden md:block flex-shrink-0 transition-all duration-300 ${isExpanded ? 'w-64' : 'w-16'}`}
+        // Só em tela grande (xl) o menu aberto empurra a agenda. No tablet ele abre por cima:
+        // empurrar faz a agenda inteira ser redesenhada, e era isso que travava tablet e celular fraco.
+        className={`hidden md:block flex-shrink-0 ${isExpanded ? 'w-16 xl:w-64' : 'w-16'}`}
       />
 
       {(!isMobile || isExpanded) && (
       <div
-        className={`flex fixed left-0 top-0 bottom-0 border-r transition-all duration-300 z-40 flex-col ${isExpanded ? 'w-64' : 'w-16'
-          } ${isLight ? 'bg-white border-gray-200' : 'bg-gradient-to-b from-gray-900 via-black to-black border-gray-800'
+        className={`flex fixed left-0 top-0 bottom-0 border-r z-40 flex-col ${isExpanded ? 'w-64' : 'w-16'
+          } ${isLight ? 'bg-white border-gray-200' : 'bg-[#0b0b0d] border-gray-800'
           }`}
         style={{ minHeight: '100vh' }}
       >
         {/* Botão de toggle */}
         <div
-          className={`flex justify-between items-center p-2 border-b flex-shrink-0 ${isLight ? 'bg-white border-gray-200' : 'bg-gradient-to-r from-gray-900 to-black border-gray-800'
+          className={`flex justify-between items-center p-2 border-b flex-shrink-0 ${isLight ? 'bg-white border-gray-200' : 'bg-[#0b0b0d] border-gray-800'
             }`}
         >
           {isExpanded && (
@@ -1864,10 +1866,10 @@ const Sidebar: React.FC<SidebarProps> = ({
             <button
               data-sidebar-toggle
               onClick={() => setIsExpanded(!isExpanded)}
-              className={`p-2.5 rounded-lg hover:bg-gray-800 transition-all relative border-2 ${!isExpanded
+              className={`p-2.5 rounded-lg hover:bg-gray-800 transition-colors relative border-2 ${!isExpanded
                 ? isLight
-                  ? 'border-gray-400 bg-white shadow-md hover:shadow-lg hover:scale-105 hover:bg-gray-50'
-                  : 'border-white bg-gray-900 shadow-md hover:shadow-lg hover:scale-105'
+                  ? 'border-gray-400 bg-white hover:bg-gray-50'
+                  : 'border-white bg-gray-900'
                 : 'border-transparent hover:bg-transparent'
                 }`}
               title={isExpanded ? 'Recolher menu' : 'Clique para abrir o menu'}
@@ -1875,12 +1877,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               {isExpanded ? (
                 <ChevronLeft className={`h-5 w-5 ${isLight ? 'text-gray-800' : 'text-white'}`} />
               ) : (
-                <div className="relative">
-                  <ChevronRight className={`h-5 w-5 ${isLight ? 'text-gray-800' : 'text-white'}`} />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className={`w-2 h-2 rounded-full animate-ping ${isLight ? 'bg-gray-800' : 'bg-white'}`}></div>
-                  </div>
-                </div>
+                <ChevronRight className={`h-5 w-5 ${isLight ? 'text-gray-800' : 'text-white'}`} />
               )}
             </button>
             {!isExpanded && (
@@ -1899,7 +1896,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <nav
           ref={navRef}
           onScroll={updateMenuScrollHint}
-          className={`p-2 space-y-1 overflow-y-auto flex-1 scrollbar-hide ${isLight ? 'bg-white' : 'bg-gradient-to-b from-gray-900 via-black to-black'
+          className={`p-2 space-y-1 overflow-y-auto flex-1 scrollbar-hide ${isLight ? 'bg-white' : 'bg-[#0b0b0d]'
             }`}
           style={{ minHeight: 0 }}
         >
@@ -1917,7 +1914,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   <button
                     type="button"
                     onClick={onToggleLayoutTheme}
-                    className="inline-flex items-center justify-center px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all shadow-sm bg-white text-gray-900 hover:bg-gray-100"
+                    className="inline-flex items-center justify-center px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors shadow-sm bg-white text-gray-900 hover:bg-gray-100"
                   >
                     {useLightLayout ? 'Preto' : 'Claro'}
                   </button>
@@ -1926,7 +1923,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <button
                   type="button"
                   onClick={onToggleLayoutTheme}
-                  className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-[10px] font-medium transition-all ${isLight
+                  className={`w-full flex items-center justify-center px-2 py-2 rounded-lg text-[10px] font-medium transition-colors ${isLight
                     ? 'text-gray-900 hover:bg-gray-100'
                     : 'text-white hover:bg-gray-800'
                     }`}
@@ -1962,32 +1959,32 @@ const Sidebar: React.FC<SidebarProps> = ({
                     // queremos permitir o clique para mostrar a mensagem de "siga o passo a passo".
                     // Só desabilitamos itens realmente "Em breve" (sem ação).
                     disabled={item.id === 'hours'}
-                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${isMonthlyGoalItem
-                      ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-black hover:from-amber-500 hover:to-yellow-500 shadow-lg border border-amber-200 ring-1 ring-amber-300/50'
+                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors group ${isMonthlyGoalItem
+                      ? 'bg-amber-400 text-black hover:bg-amber-500 border border-amber-200'
                       : isIndicationItem
                       ? item.isActive
                         ? 'bg-white text-black shadow-md'
-                        : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-md'
+                        : 'bg-emerald-600 text-white hover:bg-emerald-700'
                       : isAppointmentsItem
                         ? item.isActive
-                          ? 'bg-gradient-to-r from-[#ff7a18] to-[#ff4d6d] text-white shadow-md border border-[#ffb38a]/40'
-                          : 'bg-gradient-to-r from-[#ff9a3d] to-[#ff6b8a] text-white hover:from-[#ff8a24] hover:to-[#ff5c7d] shadow-md border border-[#ffc299]/30'
+                          ? 'bg-[#ff5a3c] text-white border border-[#ffb38a]/40'
+                          : 'bg-[#ff7a4d] text-white hover:bg-[#ff6a3d] border border-[#ffc299]/30'
                       : isBookingPageItem
                         ? item.isActive
-                          ? 'bg-gradient-to-r from-[#00b4d8] to-[#4361ee] text-white shadow-md border border-[#90e0ef]/40'
-                          : 'bg-gradient-to-r from-[#22c1e8] to-[#5a74f5] text-white hover:from-[#0db7df] hover:to-[#4c67f0] shadow-md border border-[#ade8f4]/30'
+                          ? 'bg-[#2f7fe6] text-white border border-[#90e0ef]/40'
+                          : 'bg-[#3b8ef0] text-white hover:bg-[#2f7fe6] border border-[#ade8f4]/30'
                       : isSubscribersItem && !isPlanLocked && !item.disabled
                         ? item.isActive
-                          ? 'bg-gradient-to-r from-fuchsia-500 to-violet-600 text-white shadow-md border border-fuchsia-300/40'
-                          : 'bg-gradient-to-r from-fuchsia-500/95 to-violet-600/95 text-white hover:from-fuchsia-600 hover:to-violet-700 shadow-md border border-fuchsia-300/30'
+                          ? 'bg-fuchsia-600 text-white border border-fuchsia-300/40'
+                          : 'bg-fuchsia-600 text-white hover:bg-fuchsia-700 border border-fuchsia-300/30'
                       : isWhatsappPremiumItem
                         ? item.disabled
                           ? isLight
                             ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
                             : 'bg-transparent text-gray-500 cursor-not-allowed opacity-50'
                           : item.isActive
-                            ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-black shadow-md border border-amber-200'
-                            : 'bg-gradient-to-r from-amber-300 to-yellow-400 text-black hover:from-amber-400 hover:to-yellow-500 shadow-md border border-amber-200'
+                            ? 'bg-amber-400 text-black border border-amber-200'
+                            : 'bg-amber-300 text-black hover:bg-amber-400 border border-amber-200'
                         : isPlanLocked
                           ? isLight
                             ? 'bg-gray-100 text-gray-500 border border-gray-200 opacity-75 hover:bg-gray-100'
@@ -2008,7 +2005,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 ? 'bg-white text-gray-800 hover:bg-gray-100 border border-gray-200'
                                 : 'bg-transparent text-white'
                       } ${shouldHighlightAppointmentsShortcut
-                        ? 'ring-2 ring-yellow-300 shadow-[0_0_0_2px_rgba(253,224,71,0.35)] animate-pulse'
+                        ? 'ring-2 ring-yellow-300'
                         : ''
                       }`}
                     title={item.tooltip || (isExpanded ? '' : item.label)}
@@ -2178,9 +2175,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                         }
                         handleItemClick(openReceberAdiantadoSection);
                       }}
-                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen
+                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors group ${activeTab === 'receber-adiantado' || isReceberAdiantadoOpen
                           ? 'bg-white text-black shadow-md'
-                          : 'bg-gradient-to-r from-sky-500 to-blue-600 text-white hover:from-sky-600 hover:to-blue-700 shadow-md shadow-sky-500/20 border border-sky-400/40'
+                          : 'bg-sky-600 text-white hover:bg-sky-700 border border-sky-400/40'
                         }`}
                       title={isExpanded ? '' : ((!establishment || establishmentHasMercadoPago(establishment)) ? 'Receba Antes' : 'Saques / Pagamentos online')}
                       aria-label={(!establishment || establishmentHasMercadoPago(establishment)) ? 'Receba Antes' : 'Saques / Pagamentos online'}
@@ -2225,11 +2222,11 @@ const Sidebar: React.FC<SidebarProps> = ({
                           }
                           handleItemClick(() => onTabChange('fila-espera'));
                         }}
-                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${activeTab === 'fila-espera'
+                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors group ${activeTab === 'fila-espera'
                             ? 'bg-white text-black shadow-md'
                             : isPlanLockedItem('fila-espera') || isItemLocked('fila-espera')
                               ? 'bg-white/5 text-gray-400 opacity-60 cursor-not-allowed'
-                              : 'bg-gradient-to-r from-purple-600 to-fuchsia-700 text-white hover:from-purple-700 hover:to-fuchsia-800 shadow-md'
+                              : 'bg-purple-700 text-white hover:bg-purple-800'
                           }`}
                         title={isExpanded ? '' : 'Fila de espera'}
                         aria-label="Fila de espera"
@@ -2282,11 +2279,11 @@ const Sidebar: React.FC<SidebarProps> = ({
                           }
                           handleItemClick(() => onTabChange('placa-barbearia'));
                         }}
-                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${activeTab === 'placa-barbearia'
+                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors group ${activeTab === 'placa-barbearia'
                           ? 'bg-white text-black shadow-md'
                           : isItemLocked('placa-barbearia')
                             ? 'bg-white/5 text-gray-400 opacity-60 cursor-not-allowed'
-                            : 'bg-gradient-to-r from-cyan-500 to-blue-700 text-white hover:from-cyan-600 hover:to-blue-800 shadow-md'
+                            : 'bg-cyan-700 text-white hover:bg-cyan-800'
                           }`}
                         title={isExpanded ? '' : 'Placa Barbearia'}
                         aria-label="Placa Barbearia"
@@ -2330,12 +2327,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                           }
                           handleItemClick(() => onTabChange('reviews'));
                         }}
-                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200 group ${
+                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors group ${
                           activeTab === 'reviews'
                             ? 'bg-white text-black shadow-md'
                             : isItemLocked('reviews')
                               ? 'bg-white/5 text-gray-400 opacity-60 cursor-not-allowed'
-                              : 'bg-gradient-to-r from-gray-700 to-gray-900 text-white hover:from-gray-800 hover:to-black shadow-md'
+                              : 'bg-gray-800 text-white hover:bg-gray-900'
                         }`}
                         title={isExpanded ? '' : 'Avaliações'}
                         aria-label="Avaliações"

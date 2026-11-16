@@ -122,6 +122,8 @@ import {
   formatClientWhatsappForMessage,
 } from '../utils/reviewThankYouMessage';
 import { isAppStandbyActive, subscribeToAppStandby } from '../utils/appStandby';
+import { isSamePlainList, isSamePlainValue } from '../utils/samePlainData';
+import { PromoBannerCarousel } from '../components/PromoBannerCarousel';
 import { LEGACY_LIMITE_CANCELAMENTO_MINUTOS } from '../utils/regrasCancelamento';
 import { isUsageInContinuousWindow, resolveContinuousUsageWindow } from '../utils/subscriptionUsagePeriod';
 import {
@@ -1118,16 +1120,10 @@ const EstablishmentDashboard = () => {
   const [isSavingQuickSubscriber, setIsSavingQuickSubscriber] = useState(false);
 
 
-  const [promoCarouselIdx, setPromoCarouselIdx] = useState(0);
+  // A troca automática do banner (a cada 10s) mora dentro do PromoBannerCarousel:
+  // assim ela redesenha só o banner, e não o painel inteiro.
   const [isAtPageTop, setIsAtPageTop] = useState(true);
-  const promoPausedUntilRef = useRef<number>(0);
-  const promoSlidesLengthRef = useRef<number>(0);
   const [hasIndicationCode, setHasIndicationCode] = useState(false);
-
-  const handleCarouselNav = (newIdx: number) => {
-    promoPausedUntilRef.current = Date.now() + 45000;
-    setPromoCarouselIdx(newIdx);
-  };
 
   const [promoPopup, setPromoPopup] = useState<{ emoji: string; title: string; message: string; cta: string; onConfirm: () => void } | null>(null);
 
@@ -1889,22 +1885,6 @@ const EstablishmentDashboard = () => {
     setShowQuickSubscriberModal(true);
   }, [resetQuickSubscriberForm]);
 
-  useEffect(() => {
-    promoSlidesLengthRef.current = promoSlides.length;
-    if (promoSlides.length > 0 && promoCarouselIdx >= promoSlides.length) {
-      setPromoCarouselIdx(0);
-    }
-  }, [promoSlides.length, promoCarouselIdx]);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (Date.now() < promoPausedUntilRef.current) return;
-      const len = promoSlidesLengthRef.current;
-      if (len === 0) return;
-      setPromoCarouselIdx(prev => (prev + 1) % len);
-    }, 10000);
-    return () => clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     const handleScroll = () => setIsAtPageTop(window.scrollY < 60);
@@ -16214,7 +16194,7 @@ Estamos te aguardando!`;
         }
 
         if (!cancelled) {
-          setBaileysDashboardStatus({
+          const nextDashboardStatus = {
             loaded: true,
             connected,
             status: nextStatus || (connected ? 'connected' : 'disconnected'),
@@ -16222,17 +16202,25 @@ Estamos te aguardando!`;
             connectedAt: result?.connected_at || null,
             lastSeen: result?.last_seen || null,
             apiError: null,
-          });
+          };
+          // Resposta igual à anterior (campo por campo) → mantém o mesmo estado e a tela
+          // não é redesenhada à toa a cada 30s. Qualquer diferença → atualiza como sempre.
+          setBaileysDashboardStatus((current) =>
+            isSamePlainValue(current, nextDashboardStatus) ? current : nextDashboardStatus
+          );
         }
       } catch (error: any) {
         if (!cancelled) {
-          setBaileysDashboardStatus((current) => ({
-            ...current,
-            loaded: true,
-            connected: false,
-            status: current.status || 'error',
-            apiError: String(error?.message || error || 'Erro ao consultar WhatsApp.'),
-          }));
+          setBaileysDashboardStatus((current) => {
+            const nextDashboardStatus = {
+              ...current,
+              loaded: true,
+              connected: false,
+              status: current.status || 'error',
+              apiError: String(error?.message || error || 'Erro ao consultar WhatsApp.'),
+            };
+            return isSamePlainValue(current, nextDashboardStatus) ? current : nextDashboardStatus;
+          });
         }
       }
     };
@@ -16515,6 +16503,28 @@ Estamos te aguardando!`;
     void loadHighlightMonthAttendances();
   }, [activeTab, establishment?.id, highlightMonthCursor, showDetailedAttendancesPanel]);
 
+  // ⏰ Relógio da tela: a cada 30s redesenha o painel para atualizar o que depende da HORA
+  // ("Já passou" nos horários livres, botões que mudam quando chega a hora do cliente, etc.).
+  // Antes isso acontecia "de carona" nos redesenhos automáticos (agenda, WhatsApp, banner),
+  // que agora só redesenham quando algo muda de verdade. Mesmo ritmo de antes (30s) e
+  // NÃO consulta o banco — só redesenha.
+  const [agendaClockTick, setAgendaClockTick] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      setAgendaClockTick((n) => n + 1);
+    }, 30000);
+    // Voltou para a tela (desbloqueou o tablet / trocou de aba): atualiza a hora na hora.
+    const handleVisibilityChange = () => {
+      if (!document.hidden) setAgendaClockTick((n) => n + 1);
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
   // Atualização automática a cada 30 segundos COM PROTEÇÃO PARA EXCLUSÕES
   useEffect(() => {
     if (!establishment) return;
@@ -16625,6 +16635,11 @@ Estamos te aguardando!`;
           // 3) não remove os que sumiram da query para preservar o comportamento atual
           if (isAppStandbyActive()) return;
 
+          // "Foto" da lista para a próxima rodada (detectar novo/cancelado). Fica ANTES do
+          // setAppointments: se a lista não mudou, o próprio setAppointments abaixo devolve a
+          // foto para a lista da tela (igual ao que o efeito de `appointments` fazia antes).
+          previousAppointmentsRef.current = normalizedIncomingAppointments as any;
+
           setAppointments(currentList => {
             const incomingById = new Map(normalizedIncomingAppointments.map((item: any) => [item.id, item]));
             const currentIds = new Set(currentList.map((item) => item.id));
@@ -16643,12 +16658,19 @@ Estamos te aguardando!`;
             const mergedList = newAppointmentsToAdd.length > 0
               ? [...mergedCurrent, ...newAppointmentsToAdd]
               : mergedCurrent;
-            return dedupeAppointmentsById(
+            const nextList = dedupeAppointmentsById(
               enrichAppointmentsWithSubscriberFlags(
                 mergedList as any[],
                 subscriberSubscriptionsCacheRef.current
               ) as any[]
             );
+            // Nada mudou (mesmos agendamentos, mesmos valores em TODOS os campos) → mantém a
+            // lista atual: a tela não é redesenhada à toa. Qualquer diferença → atualiza.
+            if (isSamePlainList(currentList, nextList)) {
+              previousAppointmentsRef.current = currentList;
+              return currentList;
+            }
+            return nextList;
           });
 
           if (hasUpdatesInExistingAppointments) {
@@ -16661,8 +16683,6 @@ Estamos te aguardando!`;
             if (isAppStandbyActive()) return;
             void fetchMonthlyAppointments(selectedMonth);
           }
-
-          previousAppointmentsRef.current = normalizedIncomingAppointments as any;
         }
       } catch (error) {
         if ((error as any)?.name === 'AbortError') return;
@@ -29317,80 +29337,16 @@ Estamos te aguardando!`;
                   <div className="w-9" />
                 </div>
 
-                {/* Carrossel promocional — borda a borda no mobile, card no desktop */}
-                <div className="-mx-3 sm:mx-0 relative overflow-hidden sm:rounded-xl shadow-md">
-                  {/* Técnica clássica: inner tem N*100% de largura, cada slide 1/N */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      width: `${promoSlides.length * 100}%`,
-                      transform: `translateX(-${promoCarouselIdx * (100 / promoSlides.length)}%)`,
-                      transition: 'transform 0.5s ease-in-out',
-                    }}
-                  >
-                    {promoSlides.map((slide, i) => (
-                      <picture
-                        key={i}
-                        style={{ width: `${100 / promoSlides.length}%`, display: 'block', flexShrink: 0 }}
-                        onClick={
-                          (slide as any).key === 'wpp' ? handleWppImageClick :
-                          (slide as any).key === 'mp' ? handleRecebaImageClick :
-                          handleIndiqueImageClick
-                        }
-                        className="cursor-pointer"
-                      >
-                        {(slide as any).desktopWebp && (
-                          <source media="(min-width: 768px)" type="image/webp" srcSet={(slide as any).desktopWebp} />
-                        )}
-                        {slide.desktop && (
-                          <source media="(min-width: 768px)" srcSet={slide.desktop} />
-                        )}
-                        {(slide as any).mobileWebp && (
-                          <source type="image/webp" srcSet={(slide as any).mobileWebp} />
-                        )}
-                        <img
-                          src={slide.mobile}
-                          alt={`Promo ${i + 1}`}
-                          draggable={false}
-                          className="w-full h-auto"
-                        />
-                      </picture>
-                    ))}
-                  </div>
-
-                  {/* Seta esquerda */}
-                  <button
-                    type="button"
-                    onClick={() => handleCarouselNav((promoCarouselIdx - 1 + promoSlides.length) % promoSlides.length)}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center text-white text-lg font-bold transition-colors"
-                    aria-label="Anterior"
-                  >
-                    ‹
-                  </button>
-
-                  {/* Seta direita */}
-                  <button
-                    type="button"
-                    onClick={() => handleCarouselNav((promoCarouselIdx + 1) % promoSlides.length)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center text-white text-lg font-bold transition-colors"
-                    aria-label="Próximo"
-                  >
-                    ›
-                  </button>
-
-                  {/* Bolinhas indicadoras */}
-                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
-                    {promoSlides.map((_, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => handleCarouselNav(i)}
-                        className={`w-2 h-2 rounded-full transition-all ${i === promoCarouselIdx ? 'bg-white scale-125' : 'bg-white/50'}`}
-                        aria-label={`Slide ${i + 1}`}
-                      />
-                    ))}
-                  </div>
-                </div>
+                {/* Carrossel promocional — borda a borda no mobile, card no desktop.
+                    A troca automática fica dentro do componente (redesenha só o banner). */}
+                <PromoBannerCarousel
+                  slides={promoSlides}
+                  onSlideClick={(slideKey) => {
+                    if (slideKey === 'wpp') handleWppImageClick();
+                    else if (slideKey === 'mp') handleRecebaImageClick();
+                    else handleIndiqueImageClick();
+                  }}
+                />
 
               </div>
             )}
@@ -29720,6 +29676,7 @@ Estamos te aguardando!`;
                     <AllProfessionalsAppointmentsView
                       professionals={professionals || []}
                       maskClientPhones={maskClientPhonesInAgenda}
+                      clockTick={agendaClockTick}
                       appointments={appointments}
                       monthlyAppointments={monthlyAppointments}
                       returningClientPhones={returningClientPhones}

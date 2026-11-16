@@ -28,6 +28,40 @@ export const SYSTEM_UPDATE_KIND_LABEL: Record<SystemUpdateKind, string> = {
 
 export const SYSTEM_UPDATES: SystemUpdate[] = [
   {
+    id: 35,
+    date: '16/11/2026',
+    kind: 'melhoria',
+    title: '🪶 Agenda mais leve com a tela parada',
+    summary: 'A agenda parou de se redesenhar inteira à toa enquanto fica aberta. Menos travadinhas no tablet e no celular.',
+    details: [
+      {
+        title: 'O que mudou',
+        text: 'A agenda continua se atualizando sozinha a cada 30 segundos, mas agora só redesenha a tela quando chega algo novo: agendamento, cancelamento, pagamento ou qualquer alteração. A troca automática do banner do topo também ficou mais leve.',
+      },
+      {
+        title: 'O que continua igual',
+        text: 'Os avisos de novo agendamento e de cancelamento, a baixa automática dos horários que passaram, o "Já passou" nos horários livres, os bloqueios e o financeiro funcionam exatamente como antes.',
+      },
+    ],
+  },
+  {
+    id: 34,
+    date: '16/11/2026',
+    kind: 'melhoria',
+    title: '⚡ Menu mais leve e rápido no tablet e no celular',
+    summary: 'O menu lateral e o Menu Admin abrem na hora, sem travar, inclusive em tablet e celular mais simples.',
+    details: [
+      {
+        title: 'O que mudou',
+        text: 'O menu deixou de "crescer" com animação. No tablet ele abre por cima da agenda, e é só tocar fora dele para fechar. As cores ficaram sólidas e tiramos os brilhos que piscavam, que deixavam a tela pesada.',
+      },
+      {
+        title: 'O que continua igual',
+        text: 'Os mesmos botões, no mesmo lugar e com as mesmas cores de sempre: só ficaram mais leves.',
+      },
+    ],
+  },
+  {
     id: 33,
     date: '09/11/2026',
     kind: 'novidade',

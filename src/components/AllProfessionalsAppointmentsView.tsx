@@ -323,6 +323,8 @@ interface AllProfessionalsAppointmentsViewProps {
   professionals: Professional[];
   /** "Não mostrar número dos clientes para profissionais": mostra ******** e esconde os botões que abrem o WhatsApp do cliente. */
   maskClientPhones?: boolean;
+  /** Relógio do painel (muda a cada 30s): atualiza o que depende da hora, como "Já passou". */
+  clockTick?: number;
   appointments: Appointment[];
   monthlyAppointments: Appointment[];
   /** Telefones normalizados de clientes recorrentes (≥1 concluído). null = ainda carregando. */
@@ -435,6 +437,7 @@ export const AllProfessionalsAppointmentsView: React.FC<
 > = ({
   professionals,
   maskClientPhones = false,
+  clockTick = 0,
   appointments,
   monthlyAppointments,
   returningClientPhones,
@@ -3827,9 +3830,9 @@ export const AllProfessionalsAppointmentsView: React.FC<
       if (!professional) return;
       setAvailabilityProfessionalName(professional.name);
       setAvailabilitySlots(generateTimeSlotsWithAppointments(professional));
-      // Atualiza automaticamente o modal quando agendamentos/data mudarem,
-      // mantendo a mesma lógica visual do Booking.
-    }, [showAvailabilityModal, availabilityProfessionalId, appointments, selectedDate, professionals]);
+      // Atualiza automaticamente o modal quando agendamentos/data mudarem (e a cada 30s pelo
+      // relógio do painel, para o "já passou" andar), mantendo a mesma lógica visual do Booking.
+    }, [showAvailabilityModal, availabilityProfessionalId, appointments, selectedDate, professionals, clockTick]);
 
     const toggleAppointmentExpansion = (appointmentId: string) => {
       setModalAptId((prev) => {
