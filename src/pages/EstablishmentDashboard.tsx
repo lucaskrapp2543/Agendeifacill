@@ -123,6 +123,7 @@ import {
 } from '../utils/reviewThankYouMessage';
 import { isAppStandbyActive, subscribeToAppStandby } from '../utils/appStandby';
 import { isSamePlainList, isSamePlainValue } from '../utils/samePlainData';
+import { getShowcaseFixedDate, isShowcaseEstablishment, SHOWCASE_FIXED_DATE_KEY } from '../utils/showcaseEstablishment';
 import { PromoBannerCarousel } from '../components/PromoBannerCarousel';
 import { LEGACY_LIMITE_CANCELAMENTO_MINUTOS } from '../utils/regrasCancelamento';
 import { isUsageInContinuousWindow, resolveContinuousUsageWindow } from '../utils/subscriptionUsagePeriod';
@@ -898,6 +899,17 @@ const EstablishmentDashboard = () => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('todos');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedMonth, setSelectedMonth] = useState(new Date());
+  // 🎬 Barbearia de APRESENTAÇÃO (vitrine): a agenda fica sempre no dia fixo.
+  // Para qualquer outra barbearia `isShowcaseAgenda` é false e nada disto roda.
+  const isShowcaseAgenda = isShowcaseEstablishment(establishment);
+  const showcasePinnedRef = useRef(false);
+  useEffect(() => {
+    if (!isShowcaseAgenda) return;
+    // Rede de segurança: se por qualquer caminho o dia sair do dia fixo, volta.
+    if (format(selectedDate, 'yyyy-MM-dd') !== SHOWCASE_FIXED_DATE_KEY) {
+      setSelectedDate(getShowcaseFixedDate());
+    }
+  }, [isShowcaseAgenda, selectedDate]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [monthlyAppointments, setMonthlyAppointments] = useState<Appointment[]>([]);
   const [monthlyStatusSummary, setMonthlyStatusSummary] = useState<MonthlyAppointmentStatusSummary>({
@@ -15054,6 +15066,15 @@ Estamos te aguardando!`;
       if (establishmentData) {
         // ✅ CORRIGIDO: Só sobrescrever se não há dados locais mais recentes
         // Isso evita perder modificações locais (como serviços específicos)
+        // 🎬 Barbearia de apresentação: agenda e financeiro já abrem no dia fixo
+        // (uma vez só; depois o dia não muda e o mês do financeiro fica livre para navegar).
+        if (isShowcaseEstablishment(establishmentData) && !showcasePinnedRef.current) {
+          showcasePinnedRef.current = true;
+          setSelectedDate(getShowcaseFixedDate());
+          setSelectedMonth(getShowcaseFixedDate());
+          // Apresentação sem nenhuma tela de senha: o financeiro já abre direto.
+          setIsDashboardUnlocked(true);
+        }
         setEstablishment(establishmentData);
         setEstablishmentName(establishmentData.name || '');
         setEstablishmentDescription(establishmentData.description || '');
@@ -25093,9 +25114,11 @@ Estamos te aguardando!`;
     setBlockedHourHistoryDateFilter(getLocalDateKey());
 
     const professional = professionals.find(p => p.id === professionalId);
-    setBlockTimeDate(getLocalDateKey());
+    // 🎬 Barbearia de apresentação: o bloqueio já abre no dia fixo da agenda (nas outras, hoje, como sempre).
+    const blockModalDateKey = isShowcaseAgenda ? SHOWCASE_FIXED_DATE_KEY : getLocalDateKey();
+    setBlockTimeDate(blockModalDateKey);
 
-    const today = getLocalDateKey();
+    const today = blockModalDateKey;
     const professionalBlockedHours = professional && (professional as any).blocked_hours
       ? (professional as any).blocked_hours
       : {};
@@ -29697,7 +29720,11 @@ Estamos te aguardando!`;
                       use20MinuteSchedule={use20MinuteSchedule}
                       use60MinuteSchedule={use60MinuteSchedule}
                       serviceSubcategories={serviceSubcategories}
-                      onDateChange={(newDate) => setSelectedDate(newDate)}
+                      onDateChange={(newDate) => {
+                        // 🎬 Barbearia de apresentação: setas, "Hoje" e calendário aparecem, mas o dia não muda.
+                        if (isShowcaseAgenda) return;
+                        setSelectedDate(newDate);
+                      }}
                       onAppointmentUpdate={() => {
                         void refreshAppointmentsData();
                       }}

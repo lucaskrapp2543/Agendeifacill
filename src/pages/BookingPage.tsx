@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 import { Accessibility, AlertCircle, Armchair, CalendarDays, CarFront, ChevronDown, ChevronLeft, ChevronRight, Coffee, CupSoda, Download, LogOut, Music2, Snowflake, Star, Tv, UtensilsCrossed, Wifi, type LucideIcon } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AppointmentForm } from '../components/AppointmentForm';
@@ -49,6 +49,7 @@ import {
   isClientAfcoinsEnabledForEstablishment,
 } from '../utils/afcoin';
 import { filterTimesAlignedToScheduleGrid, getScheduleIntervalMinutes } from '../utils/scheduleGrid';
+import { getShowcaseFixedDate, isShowcaseEstablishment, SHOWCASE_FIXED_DATE_KEY } from '../utils/showcaseEstablishment';
 import { storagePublicUrlForBrowser, fallbackToOriginalStorageImage } from '../utils/storagePublicUrl';
 import { ReviewProfessionalSelector } from '../components/ReviewProfessionalSelector';
 import { formatServiceLimit } from '../utils/subscriptionUnlimited';
@@ -146,7 +147,15 @@ export default function BookingPage() {
   const [establishment, setEstablishment] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isBookingBlocked, setIsBookingBlocked] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDateRaw] = useState(new Date());
+  // 🎬 Barbearia de APRESENTAÇÃO (vitrine): o cliente vê o campo de data, mas o dia fica sempre no dia fixo.
+  // Para qualquer outra barbearia a trava fica desligada e `setSelectedDate` funciona como sempre.
+  const showcaseDateLockRef = useRef(false);
+  showcaseDateLockRef.current = isShowcaseEstablishment(establishment);
+  const setSelectedDate = useCallback((nextDate: Date) => {
+    if (showcaseDateLockRef.current) return;
+    setSelectedDateRaw(nextDate);
+  }, []);
   const [existingAppointments, setExistingAppointments] = useState<any[]>([]);
   const [forceRender, setForceRender] = useState(0);
   const [showBookingForm, setShowBookingForm] = useState(false);
@@ -1266,6 +1275,12 @@ export default function BookingPage() {
       };
 
       console.log('✅ Estabelecimento encontrado:', resolvedEstablishment);
+      // 🎬 Barbearia de apresentação: já entra no dia fixo, junto com os dados da barbearia
+      // (assim os horários livres mostrados são sempre os do dia em que o agendamento vai cair).
+      if (isShowcaseEstablishment(resolvedEstablishment)) {
+        showcaseDateLockRef.current = true;
+        setSelectedDateRaw(getShowcaseFixedDate());
+      }
       setEstablishment(resolvedEstablishment);
       setIsBookingBlocked(false);
 
@@ -3231,7 +3246,8 @@ export default function BookingPage() {
 
       const now = new Date();
       const pad2 = (n: number) => String(n).padStart(2, '0');
-      const appointmentDate = format(now, 'yyyy-MM-dd');
+      // 🎬 Barbearia de apresentação: a fila também cai no dia fixo (nas outras, hoje, como sempre).
+      const appointmentDate = isShowcaseEstablishment(establishment) ? SHOWCASE_FIXED_DATE_KEY : format(now, 'yyyy-MM-dd');
       const appointmentTime = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
 
       const firstId = String(ids[0] || '').trim();

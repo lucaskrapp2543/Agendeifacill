@@ -6,6 +6,7 @@ import { isDateInsidePaidSubscription } from '../lib/subscriberAppointmentFlags'
 import { syncSubscribersToManualClients } from '../lib/manualClientsSync';
 import { checkWhatsAppSubscriber, supabase } from '../lib/supabase';
 import { getScheduleIntervalMinutes } from '../utils/scheduleGrid';
+import { isShowcaseEstablishmentId, SHOWCASE_FIXED_DATE_KEY } from '../utils/showcaseEstablishment';
 import { applySpecificServiceOverride, findSpecificServiceByName, mergeSpecificServices } from '../utils/specificServiceOverride';
 import { PaymentModal } from './PaymentModal';
 import {
@@ -156,7 +157,15 @@ export default function ReservarCliente({
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [selectedTime, setSelectedTime] = useState<string>('');
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  // 🎬 Barbearia de APRESENTAÇÃO (vitrine): toda reserva cai no dia fixo da agenda.
+  // Para qualquer outra barbearia `showcaseLockedDate` é null e tudo segue como sempre.
+  const showcaseLockedDate = isShowcaseEstablishmentId(establishmentId) ? SHOWCASE_FIXED_DATE_KEY : null;
+  const [selectedDate, setSelectedDate] = useState<string>(() => showcaseLockedDate || new Date().toISOString().split('T')[0]);
+  useEffect(() => {
+    if (!showcaseLockedDate) return;
+    // Rede de segurança: data preenchida e diferente do dia fixo volta para o dia fixo.
+    if (selectedDate && selectedDate !== showcaseLockedDate) setSelectedDate(showcaseLockedDate);
+  }, [showcaseLockedDate, selectedDate]);
   const [loading, setLoading] = useState(false);
 
   // Estado para configuração de horários
@@ -3476,7 +3485,7 @@ export default function ReservarCliente({
                 <input
                   type="date"
                   value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
+                  onChange={(e) => setSelectedDate(showcaseLockedDate || e.target.value)}
                   className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 text-gray-900 bg-white"
                 />
               </div>
@@ -3701,6 +3710,11 @@ export default function ReservarCliente({
                     <button
                       type="button"
                       onClick={() => {
+                        if (showcaseLockedDate) {
+                          // 🎬 Barbearia de apresentação: não espalha reservas por outros dias.
+                          alert('Barbearia de apresentação: todo agendamento fica no dia de demonstração.');
+                          return;
+                        }
                         setReservarMensal((v) => {
                           const next = !v;
                           if (next) {

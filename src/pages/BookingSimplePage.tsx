@@ -20,6 +20,7 @@ import {
 } from '../utils/afcoin';
 import { AFCOIN_POINTS_LOCAL, AFCOIN_POINTS_ONLINE, isLocalAfcoinPaymentMethod } from '../utils/appointmentPayment';
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
+import { resolveShowcaseDateKey } from '../utils/showcaseEstablishment';
 import {
   buildCouponPayloadFields,
   computeCouponDiscount,
@@ -520,7 +521,9 @@ const BookingSimplePage = () => {
   };
 
   const pickDate = (dateStr: string) => {
-    setState((s) => ({ ...s, selectedDate: dateStr, selectedTime: '' }));
+    // 🎬 Barbearia de apresentação: qualquer dia escolhido vira o dia fixo (nas outras, não muda nada).
+    const effectiveDateStr = resolveShowcaseDateKey(establishment?.id, dateStr);
+    setState((s) => ({ ...s, selectedDate: effectiveDateStr, selectedTime: '' }));
   };
 
   // Trocou de serviço e o dia escolhido não vale para ele: limpa para escolher de novo.
@@ -1017,7 +1020,7 @@ const BookingSimplePage = () => {
                   ...s,
                   professional: pick.professional,
                   services: [pick.service],
-                  selectedDate: pick.date,
+                  selectedDate: resolveShowcaseDateKey(establishment?.id, pick.date),
                   selectedTime: pick.time,
                 }));
                 setStep('name');

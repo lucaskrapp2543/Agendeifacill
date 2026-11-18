@@ -29,6 +29,7 @@ import {
 } from '../utils/afcoin';
 import { AFCOIN_POINTS_LOCAL, AFCOIN_POINTS_ONLINE, isLocalAfcoinPaymentMethod } from '../utils/appointmentPayment';
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
+import { resolveShowcaseDateKey } from '../utils/showcaseEstablishment';
 import {
   buildCouponPayloadFields,
   computeCouponDiscount,
@@ -1312,8 +1313,10 @@ const BookingChatPage = () => {
   // Esta trava garante uma única mensagem de "dia lotado" por dia escolhido.
   const noSlotsHandledRef = useRef(false);
 
-  const handlePickDay = async (dateStr: string) => {
+  const handlePickDay = async (pickedDateStr: string) => {
     if (!establishment?.id) return;
+    // 🎬 Barbearia de apresentação: qualquer dia escolhido vira o dia fixo (nas outras, não muda nada).
+    const dateStr = resolveShowcaseDateKey(establishment.id, pickedDateStr);
     finishWidget('days', dateLabel(dateStr));
     userSay(dateLabel(dateStr).replace(/^./, (c) => c.toUpperCase()));
     updateForm({ selectedDate: dateStr, selectedTime: '' });
@@ -1380,7 +1383,7 @@ const BookingChatPage = () => {
     userSay(`${dayText.replace(/^./, (c) => c.toUpperCase())} às ${time}`);
     slots.setPick({ date, time });
     setSlotServiceKey('');
-    updateForm({ selectedDate: date, selectedTime: time, services: [], professional: null });
+    updateForm({ selectedDate: resolveShowcaseDateKey(establishment?.id, date), selectedTime: time, services: [], professional: null });
     setStep('services');
     await botWidget('slot_services', `Boa! ${dayText.replace(/^./, (c) => c.toUpperCase())} às *${time}* 😄 Qual serviço você quer?`, 400);
   };
@@ -1433,7 +1436,7 @@ const BookingChatPage = () => {
     finishWidget('slot_suggestions', time);
     userSay(time);
     slots.setPick({ date: pick.date, time });
-    updateForm({ selectedDate: pick.date, selectedTime: time });
+    updateForm({ selectedDate: resolveShowcaseDateKey(establishment?.id, pick.date), selectedTime: time });
     setStep('professional');
     await botWidget('slot_professionals', `Boa! Às *${time}* então. Com quem você prefere ser atendido(a)?`, 300);
   };

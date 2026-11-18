@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { TimeSlotSelector } from './TimeSlotSelector';
 import { useToast } from './ui/Toaster';
+import { isShowcaseEstablishmentId, SHOWCASE_FIXED_DATE_KEY } from '../utils/showcaseEstablishment';
 
 interface EstablishmentForReschedule {
   id: string;
@@ -69,6 +70,8 @@ export function RescheduleAppointmentModal({
   closedTimeEnabled = false,
 }: RescheduleAppointmentModalProps) {
   const { toast } = useToast();
+  // 🎬 Barbearia de APRESENTAÇÃO (vitrine): trocar horário só dentro do dia fixo. Nas outras, null = como sempre.
+  const showcaseLockedDate = isShowcaseEstablishmentId(establishment?.id) ? SHOWCASE_FIXED_DATE_KEY : null;
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [existingAppointments, setExistingAppointments] = useState<Array<{
@@ -116,7 +119,7 @@ export function RescheduleAppointmentModal({
   // Inicializar quando abrir
   useEffect(() => {
     if (!isOpen || !appointment) return;
-    setSelectedDate(String(appointment.appointment_date || ''));
+    setSelectedDate(showcaseLockedDate || String(appointment.appointment_date || ''));
     setSelectedTime(String(appointment.appointment_time || ''));
     setExistingAppointments([]);
   }, [isOpen, appointment]);
@@ -219,7 +222,7 @@ export function RescheduleAppointmentModal({
                 type="date"
                 value={selectedDate}
                 onChange={(e) => {
-                  const v = e.target.value;
+                  const v = showcaseLockedDate || e.target.value;
                   setSelectedDate(v);
                   setSelectedTime('');
                 }}
