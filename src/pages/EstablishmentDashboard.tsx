@@ -32578,12 +32578,21 @@ Estamos te aguardando!`;
                       </p>
                     </div>
                   )}
-                  {/* Sem Mercado Pago: saldo dos pagamentos online (conta da plataforma) + saque.
-                      Fica FORA do MercadoPagoCard (que é recriado a cada render) para não perder estado. */}
-                  {(!establishmentHasMercadoPago(establishment as any) || establishmentMercadoPagoNeedsReconnect(establishment as any)) && establishment?.id && (
+                  {/* Saldo dos pagamentos online que caíram na conta da plataforma + saque.
+                      Fica FORA do MercadoPagoCard (que é recriado a cada render) para não perder estado.
+
+                      Renderiza SEMPRE: quem tem o Mercado Pago conectado e carteira vazia não vê
+                      nada (o próprio card se esconde). Antes a condição era "só sem MP ou com MP
+                      caído", e quem reconectava perdia o acesso ao saldo que entrou enquanto o MP
+                      esteve fora do ar — dinheiro dele preso, sem botão de sacar. */}
+                  {establishment?.id && (
                     <PlatformWalletCard
                       establishmentId={String(establishment.id)}
                       pixKey={String((establishment as any)?.pix_key || pixKey || '').trim()}
+                      isMercadoPagoConnected={
+                        establishmentHasMercadoPago(establishment as any) &&
+                        !establishmentMercadoPagoNeedsReconnect(establishment as any)
+                      }
                       onConnectMercadoPago={() =>
                         document.getElementById('mp-connect-button')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
                       }

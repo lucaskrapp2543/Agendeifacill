@@ -8,7 +8,6 @@ type RecebaNaHoraPageLayoutProps = {
 
 export const RecebaNaHoraPageLayout: React.FC<RecebaNaHoraPageLayoutProps> = ({
   children,
-  isMpConnected = true,
 }) => {
   return (
     <div className="w-full min-h-screen bg-gradient-to-b from-[#0a1628] via-[#0b1220] to-[#070a12]">
@@ -24,7 +23,7 @@ export const RecebaNaHoraPageLayout: React.FC<RecebaNaHoraPageLayoutProps> = ({
           ☰ Menu
         </button>
         <span className="text-xs font-bold text-white/90 tracking-wide">
-          {isMpConnected ? '💰 Receba Antes' : '💰 Saques / Pagamentos online'}
+          {'💰 Saques / Pagamentos online'}
         </span>
         <div className="w-[52px]" aria-hidden="true" />
       </div>

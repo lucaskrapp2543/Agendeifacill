@@ -50,6 +50,15 @@ type Props = {
   pixKey?: string | null;
   /** Leva o dono até o botão "Conectar Mercado Pago". */
   onConnectMercadoPago?: () => void;
+  /**
+   * Mercado Pago conectado AGORA.
+   *
+   * Com MP conectado o dinheiro cai direto na conta do dono, então a carteira
+   * normalmente não tem nada e o card não aparece. Mas pode haver saldo de
+   * quando o MP esteve fora do ar: nesse caso o card PRECISA aparecer, senão o
+   * dono fica sem como sacar um dinheiro que é dele.
+   */
+  isMercadoPagoConnected?: boolean;
 };
 
 const brl = (cents: number) =>
@@ -77,7 +86,12 @@ const statusBadge = (status: string) => {
   return { label: 'Pendente', cls: 'bg-amber-500/20 text-amber-200 border-amber-400/40' };
 };
 
-export const PlatformWalletCard: React.FC<Props> = ({ establishmentId, pixKey, onConnectMercadoPago }) => {
+export const PlatformWalletCard: React.FC<Props> = ({
+  establishmentId,
+  pixKey,
+  onConnectMercadoPago,
+  isMercadoPagoConnected = false,
+}) => {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
@@ -176,6 +190,23 @@ export const PlatformWalletCard: React.FC<Props> = ({ establishmentId, pixKey, o
   const visiblePayments = showAllPayments ? approvedPayments : approvedPayments.slice(0, 5);
   const requests = wallet?.requests || [];
 
+  // Tem alguma coisa na carteira? Saldo, pedido de saque ou pagamento recebido.
+  const hasWalletActivity = balance > 0 || requests.length > 0 || approvedPayments.length > 0;
+
+  /**
+   * Com Mercado Pago conectado o card só aparece se houver algo na carteira.
+   *
+   * É o caso de quem teve o MP fora do ar: o pagamento do cliente caiu na conta
+   * do Agendei Fácil e virou saldo. Antes desta regra o card sumia assim que o
+   * dono reconectava — e o dinheiro ficava preso, sem botão de sacar.
+   *
+   * Sem nada na carteira, não renderiza nada: a tela de quem está conectado
+   * continua exatamente como era.
+   */
+  if (isMercadoPagoConnected && (isLoading || unavailable || !hasWalletActivity)) {
+    return null;
+  }
+
   return (
     <div className="relative overflow-hidden rounded-2xl border border-emerald-400/30 bg-gradient-to-br from-emerald-500/15 via-[#0b1a2b] to-[#0a1628] p-5 sm:p-7 text-white">
       <div className="absolute -top-16 -right-16 h-40 w-40 rounded-full bg-emerald-400/15 blur-3xl pointer-events-none" />
@@ -191,6 +222,16 @@ export const PlatformWalletCard: React.FC<Props> = ({ establishmentId, pixKey, o
             ? 'Saldo indisponível no momento. Tente novamente mais tarde.'
             : 'Valor líquido dos pagamentos online dos seus clientes, pronto para sacar.'}
         </p>
+
+        {/* Conectado e com saldo = dinheiro que entrou enquanto o MP estava fora
+            do ar. Sem essa explicação o dono não entende de onde veio. */}
+        {!unavailable && isMercadoPagoConnected && (
+          <p className="mt-2 rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-100/90 leading-relaxed">
+            Seu Mercado Pago está conectado — os próximos pagamentos caem direto na sua conta.
+            Este saldo é de pagamentos que entraram enquanto ele esteve fora do ar e ficaram na
+            conta do Agendei Fácil. Peça o saque e receba por PIX.
+          </p>
+        )}
 
         {/* Botão sacar / status do pedido */}
         {!unavailable && (
@@ -313,7 +354,9 @@ export const PlatformWalletCard: React.FC<Props> = ({ establishmentId, pixKey, o
           </div>
         )}
 
-        {/* CTA Mercado Pago */}
+        {/* CTA Mercado Pago — só para quem ainda não conectou. Quem já está
+            conectado só precisa do saque, não do convite. */}
+        {!isMercadoPagoConnected && (
         <div className="mt-6 rounded-xl border border-sky-400/30 bg-sky-500/10 p-4">
           <p className="text-sm font-extrabold text-white">⚡ Quer receber na hora, direto na sua conta, no momento em que o cliente paga?</p>
           <p className="text-xs text-white/70 mt-1">Conecte o Mercado Pago: o dinheiro cai na sua conta na hora, sem esperar o saque.</p>
@@ -325,6 +368,7 @@ export const PlatformWalletCard: React.FC<Props> = ({ establishmentId, pixKey, o
             Conectar Mercado Pago
           </button>
         </div>
+        )}
       </div>
     </div>
   );

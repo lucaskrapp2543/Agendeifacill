@@ -28,6 +28,28 @@ export const SYSTEM_UPDATE_KIND_LABEL: Record<SystemUpdateKind, string> = {
 
 export const SYSTEM_UPDATES: SystemUpdate[] = [
   {
+    id: 36,
+    date: '19/11/2026',
+    kind: 'correcao',
+    title: '💰 Saldo preso depois de reconectar o Mercado Pago',
+    summary: 'Quem reconectou o Mercado Pago e tinha dinheiro para sacar ficou sem o botão de saque. Agora o saldo aparece sempre que existe.',
+    fromClientRequest: true,
+    details: [
+      {
+        title: 'O que estava acontecendo',
+        text: 'Quando o Mercado Pago da barbearia saía do ar, o pagamento do cliente caía na conta do Agendei Fácil e virava saldo para você sacar. Só que, assim que você reconectava o Mercado Pago, a tela do saldo sumia — e o dinheiro ficava lá, sem botão para pedir o saque.',
+      },
+      {
+        title: 'Como ficou',
+        text: 'O saldo agora aparece sempre que existe, com Mercado Pago conectado ou não, junto com o botão de sacar e o histórico. Se a sua carteira está zerada, nada muda: a tela continua igual à de antes.',
+      },
+      {
+        title: 'Também mudou o nome no menu',
+        text: 'O item do menu agora se chama "💰 Saques / Pagamentos online" para todo mundo. Antes aparecia "Receba Antes" para quem já tinha o Mercado Pago conectado, o que escondia que ali também é o lugar de pedir saque.',
+      },
+    ],
+  },
+  {
     id: 35,
     date: '16/11/2026',
     kind: 'melhoria',
