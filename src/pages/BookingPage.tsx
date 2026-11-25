@@ -2641,13 +2641,18 @@ export default function BookingPage() {
       }
 
       // 🔥 VALIDAÇÃO DE 1 AGENDAMENTO POR SEMANA PARA ASSINANTES
-      if (appointmentData.is_subscriber && currentUser?.id) {
+      // O telefone é quem identifica o assinante (antes ia o id do login, que nunca batia com nenhum agendamento).
+      const subscriberPhoneForOneWeek = String(
+        appointmentData?.client_whatsapp || guestClientData?.phone || ''
+      ).trim();
+      if (appointmentData.is_subscriber && subscriberPhoneForOneWeek) {
         console.log('🔍 Validando limitação de 1 agendamento por semana...');
 
         const validation = await validateOneWeekLimit(
-          currentUser.id,
+          subscriberPhoneForOneWeek,
           establishment.id,
-          new Date(appointmentData.appointment_date)
+          // Meio-dia local: só a data (yyyy-MM-dd) viraria o dia anterior por causa do fuso.
+          new Date(String(appointmentData.appointment_date).slice(0, 10) + 'T12:00:00')
         );
 
         if (!validation.canBook) {

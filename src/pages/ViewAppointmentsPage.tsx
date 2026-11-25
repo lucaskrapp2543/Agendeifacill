@@ -1,6 +1,6 @@
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ArrowLeft, Calendar, Clock, CreditCard, Download, MapPin, Phone, User, X } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, CreditCard, Download, MapPin, MessageCircle, Phone, User, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -10,7 +10,7 @@ import { AfcoinHowItWorksModal, AfcoinUseModal } from '../components/AfcoinClien
 import { getAppointmentsByPhone, supabase } from '../lib/supabase';
 import { removeSubscriberAttendanceForCancelledAppointment } from '../lib/subscriberSystem';
 import { CANCELLATION_SOURCE } from '../utils/appointmentCancellationMeta';
-import { estadoCancelamentoParaAgendamentoCliente } from '../utils/regrasCancelamento';
+import { estadoCancelamentoParaAgendamentoCliente, linkPedidoCancelamentoWhatsApp } from '../utils/regrasCancelamento';
 import {
   AFCOIN_EARN_HINT,
   AFCOIN_REDEEM_THRESHOLD,
@@ -584,6 +584,27 @@ export default function ViewAppointmentsPage() {
     } finally {
       setIsLoadingInfoByAppointment((prev) => ({ ...prev, [appointmentId]: false }));
     }
+  };
+
+  // Barbearia com "Cancelar pelo WhatsApp" valendo: o cliente não cancela sozinho,
+  // só abre o WhatsApp da barbearia com o pedido de cancelamento pronto.
+  const handlePedirCancelamentoWhatsApp = (appointment: any) => {
+    const url = linkPedidoCancelamentoWhatsApp(appointment?.establishments, {
+      appointment_date: appointment?.appointment_date,
+      appointment_time: appointment?.appointment_time,
+      service: appointment?.service,
+      service_name: appointment?.service_name,
+      professional_name: appointment?.professional_name,
+      client_name: appointment?.client_name,
+    });
+    if (!url) {
+      toast.error('WhatsApp da barbearia não encontrado.');
+      return;
+    }
+    // Em iPhone/iPad, location.href é mais confiável (evita bloqueio de popup)
+    if (/iPad|iPhone|iPod/.test(navigator.userAgent)) window.location.href = url;
+    else window.open(url, '_blank');
+    toast.success('Abrindo WhatsApp...');
   };
 
   const handleCancelAppointment = async (appointmentId: string) => {
@@ -1843,7 +1864,30 @@ Por favor, confirme o cancelamento. Obrigado!`;
                     )}
 
                     {/* Botão de Cancelamento */}
-                    {appointment.status !== 'cancelled' && (
+                    {appointment.status !== 'cancelled' && cancelEstado.pedirPeloWhatsApp && (
+                      <>
+                        <p
+                          className="text-sm rounded-lg p-3 border"
+                          style={{
+                            color: '#FCD34D',
+                            background: 'rgba(180,83,9,0.15)',
+                            borderColor: 'rgba(245,158,11,0.35)',
+                          }}
+                        >
+                          Nesta barbearia o cancelamento é pedido pelo WhatsApp. Toque no botão abaixo para avisar a barbearia.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handlePedirCancelamentoWhatsApp(appointment)}
+                          className="w-full px-4 py-2 rounded-lg transition-colors font-medium flex items-center justify-center gap-2"
+                          style={{ background: '#16A34A', color: '#FFFFFF' }}
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                          Pedir cancelamento pelo WhatsApp
+                        </button>
+                      </>
+                    )}
+                    {appointment.status !== 'cancelled' && !cancelEstado.pedirPeloWhatsApp && (
                       <>
                         {!cancelEstado.permitido && cancelEstado.motivo ? (
                           <p

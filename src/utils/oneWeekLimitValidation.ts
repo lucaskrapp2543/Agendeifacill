@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { fetchClientAppointmentsSecure } from './secureAppointmentReads';
+import { mesmoTelefone } from './subscriberWeekRules';
 
 /**
  * Verifica se um estabelecimento tem limitação de 1 agendamento por semana
@@ -80,8 +81,8 @@ export const hasAppointmentInSameWeek = async (
 
     // Verificar se algum agendamento ativo é do mesmo WhatsApp
     const matchingAppointments = activeAppointments.filter(appointment => {
-      const appointmentPhone = appointment.client_whatsapp?.replace(/\D/g, '') || '';
-      return appointmentPhone === normalizedWhatsapp;
+      // Com ou sem 55 na frente é o mesmo telefone (antes a comparação era exata e quase nunca batia).
+      return mesmoTelefone(appointment.client_whatsapp, normalizedWhatsapp);
     });
 
     const hasAppointment = matchingAppointments.length > 0;

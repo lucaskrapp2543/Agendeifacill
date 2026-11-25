@@ -16,6 +16,7 @@ import { isClientBookingBlocked, useClientBookingBlocked } from '../lib/clientBo
 import {
   estadoCancelamentoParaAgendamentoCliente,
   formatarDuracaoMinutosParaTexto,
+  linkPedidoCancelamentoWhatsApp,
   minutosEfetivosCancelamentoCliente,
 } from '../utils/regrasCancelamento';
 import { CANCELLATION_SOURCE } from '../utils/appointmentCancellationMeta';
@@ -29,6 +30,7 @@ import {
 } from '../utils/afcoin';
 import { AFCOIN_POINTS_LOCAL, AFCOIN_POINTS_ONLINE, isLocalAfcoinPaymentMethod } from '../utils/appointmentPayment';
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
+import { checkSubscriberWeekRules } from '../utils/subscriberWeekRules';
 import { resolveShowcaseDateKey } from '../utils/showcaseEstablishment';
 import {
   buildCouponPayloadFields,
@@ -394,6 +396,8 @@ const BookingChatPage = () => {
   const [myAppointments, setMyAppointments] = useState<any[]>([]);
   // Cancelamento pelo chat: agendamento aguardando o "tem certeza?"
   const [cancelTarget, setCancelTarget] = useState<any>(null);
+  // Agendamento cujo cancelamento só pode ser PEDIDO pelo WhatsApp (opção "Cancelar pelo WhatsApp" da barbearia).
+  const [cancelRequestTarget, setCancelRequestTarget] = useState<any>(null);
   const [cancelling, setCancelling] = useState(false);
   // "Ver assinaturas": planos visíveis da barbearia (botão só aparece se houver) e compra
   const [plans, setPlans] = useState<any[]>([]);
@@ -946,12 +950,23 @@ const BookingChatPage = () => {
 
   const handleAskCancel = async (a: any) => {
     if (!establishment || submitting || cancelling) return;
-    const { permitido } = estadoCancelamentoParaAgendamentoCliente(
+    const { permitido, pedirPeloWhatsApp } = estadoCancelamentoParaAgendamentoCliente(
       { appointment_date: a?.appointment_date, appointment_time: a?.appointment_time },
       establishment
     );
+    setCancelRequestTarget(null);
     finishWidget('my_appointments', `Cancelar ${appointmentLabel(a)}`);
     userSay(`Cancelar o horário de ${appointmentLabel(a)} ❌`);
+    if (!permitido && pedirPeloWhatsApp) {
+      // Barbearia com "Cancelar pelo WhatsApp" valendo: aqui o cliente só pede o cancelamento.
+      setCancelTarget(null);
+      setCancelRequestTarget(a);
+      await botSay(
+        `Aqui na *${String(establishment?.name || 'barbearia').trim()}* o cancelamento é pedido direto pelo WhatsApp da barbearia 🙂`
+      );
+      await botWidget('cancel_done', 'Toque no botão abaixo para pedir o cancelamento 👇', 400);
+      return;
+    }
     if (!permitido) {
       // Dentro do prazo mínimo (ou já passou): não cancela por aqui, só avisa com calma.
       const minutos = minutosEfetivosCancelamentoCliente(establishment);
@@ -1072,6 +1087,27 @@ const BookingChatPage = () => {
   };
 
   const handleNotifyCancelOnWhatsapp = (a: any | null) => {
+    if (cancelRequestTarget) {
+      // Pedido de cancelamento (a barbearia é quem cancela): abre o WhatsApp com o pedido pronto.
+      const pedido = cancelRequestTarget;
+      const profissional = (Array.isArray(establishment?.professionals) ? establishment.professionals : []).find(
+        (p: any) => String(p?.id || '') === String(pedido?.professional || '')
+      );
+      const urlPedido = linkPedidoCancelamentoWhatsApp(establishment, {
+        appointment_date: pedido?.appointment_date,
+        appointment_time: pedido?.appointment_time,
+        service: pedido?.service,
+        professional_name: String(pedido?.professional_name || profissional?.name || ''),
+        client_name: pedido?.client_name,
+      });
+      if (!urlPedido) {
+        toast.error('A barbearia não cadastrou WhatsApp.');
+        return;
+      }
+      finishWidget('cancel_done', 'Pedir cancelamento no WhatsApp');
+      window.open(urlPedido, '_blank', 'noopener');
+      return;
+    }
     const texto = a
       ? `Olá! Cancelei meu horário pelo Agendei Fácil:\n\n*Data:* ${String(a?.appointment_date || '').slice(0, 10).split('-').reverse().join('/')}\n*Horário:* ${String(a?.appointment_time || '').slice(0, 5)}\n*Serviço:* ${String(a?.service || 'Não especificado')}`
       : `Olá! Preciso de ajuda com meu agendamento na ${String(establishment?.name || '').trim()}.`;
@@ -1319,6 +1355,24 @@ const BookingChatPage = () => {
     const dateStr = resolveShowcaseDateKey(establishment.id, pickedDateStr);
     finishWidget('days', dateLabel(dateStr));
     userSay(dateLabel(dateStr).replace(/^./, (c) => c.toUpperCase()));
+    // Assinante: regras de semana da barbearia ("só na mesma semana" e "1 agendamento na semana").
+    if (subscriberFlowRef.current) {
+      const regraSemana = await checkSubscriberWeekRules({
+        establishment,
+        clientWhatsapp: formRef.current.clientWhatsapp,
+        dateKey: dateStr,
+      });
+      if (!regraSemana.ok) {
+        await botSay(regraSemana.message);
+        if (regraSemana.rule === 'mesma_semana') {
+          await askDay('Escolha um dia desta semana 👇');
+        } else {
+          setCancelRequestTarget(null);
+          await botWidget('cancel_done', 'Se precisar, fala direto com a gente 👇', 400);
+        }
+        return;
+      }
+    }
     updateForm({ selectedDate: dateStr, selectedTime: '' });
     setStep('time');
     setInputMode('none');
@@ -1599,6 +1653,24 @@ const BookingChatPage = () => {
           setBotTyping(false);
           await botSay('Sua assinatura não permite agendar nesse dia da semana.');
           await askDay('Escolha outro dia 👇');
+          return;
+        }
+        // Conferência final das regras de semana do assinante (também pega quem veio por "Ver vagas").
+        const regraSemana = await checkSubscriberWeekRules({
+          establishment,
+          clientWhatsapp: f.clientWhatsapp,
+          dateKey: f.selectedDate,
+        });
+        if (!regraSemana.ok) {
+          removeMessage(typingId);
+          setBotTyping(false);
+          await botSay(regraSemana.message);
+          if (regraSemana.rule === 'mesma_semana') {
+            await askDay('Escolha um dia desta semana 👇');
+          } else {
+            setCancelRequestTarget(null);
+            await botWidget('cancel_done', 'Se precisar, fala direto com a gente 👇', 400);
+          }
           return;
         }
         for (const option of selectedSubscriberOptions) {
@@ -2355,7 +2427,9 @@ const BookingChatPage = () => {
               </ChipButton>
             )}
             {String(establishment?.whatsapp || '').trim() && (
-              <ChipButton disabled={done} onClick={() => handleNotifyCancelOnWhatsapp(cancelTarget)}>💬 Falar com a barbearia no WhatsApp</ChipButton>
+              <ChipButton disabled={done} onClick={() => handleNotifyCancelOnWhatsapp(cancelTarget)}>
+                {cancelRequestTarget ? '💬 Pedir cancelamento no WhatsApp' : '💬 Falar com a barbearia no WhatsApp'}
+              </ChipButton>
             )}
           </div>
         );

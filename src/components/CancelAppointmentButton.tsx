@@ -27,7 +27,7 @@ export function CancelAppointmentButton({ appointmentId, onCancelled, appointmen
     try {
       const { data: establishment, error } = await supabase
         .from('establishments')
-        .select('enable_whatsapp_notifications, whatsapp, booking_min_cancel_minutes')
+        .select('id, enable_whatsapp_notifications, whatsapp, booking_min_cancel_minutes, require_cancellation_request')
         .eq('id', appointment.establishment_id)
         .single();
 

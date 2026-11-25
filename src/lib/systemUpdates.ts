@@ -28,6 +28,94 @@ export const SYSTEM_UPDATE_KIND_LABEL: Record<SystemUpdateKind, string> = {
 
 export const SYSTEM_UPDATES: SystemUpdate[] = [
   {
+    id: 40,
+    date: '25/11/2026',
+    kind: 'novidade',
+    title: '🎂 Mensagem de aniversário automática no WhatsApp',
+    summary: 'O sistema manda sozinho uma mensagem de parabéns no dia do aniversário do cliente. Você liga e edita o texto em "Lembretes para clientes".',
+    fromClientRequest: true,
+    details: [
+      {
+        title: 'Como ativar',
+        text: 'Vá em "Lembretes para clientes", marque "🎂 Mensagem de aniversário", ajuste o texto se quiser e toque em "Salvar". Vem desligado: só envia para quem ligar. Precisa estar com o WhatsApp conectado no sistema (Plano Diamante).',
+      },
+      {
+        title: 'Como funciona',
+        text: 'No dia do aniversário, entre 9h e 19h, o cliente recebe a sua mensagem pelo WhatsApp da barbearia. É uma mensagem por cliente por ano, no máximo 30 por dia. No texto dá para usar o nome do cliente, o nome da barbearia e o link de agendamento.',
+      },
+      {
+        title: 'Quem recebe',
+        text: 'Os clientes com a data de aniversário cadastrada em "Meus Clientes". Cliente sem data cadastrada não recebe, e cliente bloqueado também não.',
+      },
+    ],
+  },
+  {
+    id: 39,
+    date: '25/11/2026',
+    kind: 'melhoria',
+    title: '🚫 "Cliente Faltou": avise o cliente com um toque',
+    summary: 'Depois de marcar "Cliente Faltou", o sistema oferece a mensagem pronta para você enviar pelo seu WhatsApp. Nada é enviado sozinho.',
+    fromClientRequest: true,
+    details: [
+      {
+        title: 'O que mudou',
+        text: 'Ao clicar em "Cliente Faltou" (ou no atalho "Faltou" da agenda), aparece uma janela com a mensagem pronta: "Sentimos sua falta na [sua barbearia]. Seu horário passou e você não compareceu", com a data, o horário e o profissional. Toque em "Enviar no WhatsApp" e ela abre na conversa do cliente: é só enviar. Se não quiser avisar, toque em "Não enviar".',
+      },
+      {
+        title: 'Por que mudou',
+        text: 'Antes, quem tinha o WhatsApp conectado no sistema via o cliente receber sozinho a mensagem de "agendamento cancelado", como se a barbearia tivesse cancelado. Agora, na falta, nada é enviado sozinho: você decide se avisa.',
+      },
+      {
+        title: 'O que não muda',
+        text: 'A falta continua sendo somada no histórico do cliente e o horário continua saindo da agenda. O botão "Cancelar" continua igual.',
+      },
+    ],
+  },
+  {
+    id: 38,
+    date: '25/11/2026',
+    kind: 'correcao',
+    title: '👑 Regras de assinante valendo em todas as páginas de agendamento',
+    summary: 'As opções "1 agendamento na semana" e "Limitar agendamentos de assinantes" não eram conferidas na página em formato de conversa. Agora são.',
+    fromClientRequest: true,
+    details: [
+      {
+        title: 'O que estava acontecendo',
+        text: 'Mesmo com as opções ligadas em "Meus Assinantes", um assinante conseguia marcar vários horários na mesma semana quando agendava pela página em formato de conversa (chat) ou pela página simples. Era um defeito nosso.',
+      },
+      {
+        title: 'Como ficou',
+        text: 'Com "1 agendamento na semana" ligada, se o assinante já tem um horário marcado na semana, o sistema avisa e não deixa marcar outro até esse ser cancelado. Com "Limitar agendamentos de assinantes" ligada, o assinante só consegue escolher dias da semana atual. Vale nas três páginas de agendamento.',
+      },
+      {
+        title: 'O que não muda',
+        text: 'Quem não ligou essas opções continua igual. As regras valem só para agendamento feito pela assinatura; horário já atendido não conta, só o que está marcado e ainda não aconteceu. A semana é contada de domingo a sábado.',
+      },
+    ],
+  },
+  {
+    id: 37,
+    date: '25/11/2026',
+    kind: 'correcao',
+    title: '🚫 "Cancelar pelo WhatsApp" voltou a funcionar',
+    summary: 'Quem marcou essa opção: o cliente não cancela mais sozinho. Ele toca num botão e pede o cancelamento no seu WhatsApp.',
+    fromClientRequest: true,
+    details: [
+      {
+        title: 'O que estava acontecendo',
+        text: 'A opção "Cancelar pelo WhatsApp (pedido de cancelamento)", em Configurações, estava marcada em várias barbearias, mas o cliente continuava conseguindo cancelar sozinho pela página "Meus agendamentos". Era um defeito nosso.',
+      },
+      {
+        title: 'Como ficou',
+        text: 'Com a opção marcada, o botão "Cancelar Agendamento" do cliente vira "Pedir cancelamento pelo WhatsApp". Ele abre uma conversa com você já com a data, o horário, o serviço e o campo "Motivo". O horário só sai da agenda quando VOCÊ cancelar no painel.',
+      },
+      {
+        title: 'Não quer assim?',
+        text: 'É só desmarcar a opção em Configurações, na parte "No agendamento, você quer pedir". Com ela desmarcada, o cliente volta a cancelar sozinho, respeitando o prazo mínimo que você definiu. Quem nunca marcou a opção não muda nada.',
+      },
+    ],
+  },
+  {
     id: 36,
     date: '19/11/2026',
     kind: 'correcao',

@@ -78,6 +78,14 @@ const DEFAULT_CANCELLATION_TEMPLATE =
   '⏰ Horário: {{horario}}\n' +
   '💈 Profissional: {{profissional_nome}}\n\n' +
   'Se quiser, você pode agendar novamente quando preferir.';
+// Botão "Cliente Faltou" do painel: o agendamento vira cancelado, mas o robô NÃO manda nada
+// (antes mandava "seu agendamento foi cancelado", como se a barbearia tivesse cancelado).
+// Quem avisa o cliente é o próprio barbeiro, se quiser: o painel abre o WhatsApp dele com a
+// mensagem de falta pronta (src/utils/noShowMessage.ts). Assim não há envio automático à toa.
+/** O painel grava este motivo quando o barbeiro clica em "Cliente Faltou" (EstablishmentDashboard). */
+export const isNoShowCancellation = (source: unknown, detail: unknown): boolean =>
+  String(source || '').trim().toLowerCase() === 'establishment_staff' &&
+  String(detail || '').trim().toLowerCase().includes('cliente faltou');
 const DEFAULT_PAYMENT_FAILURE_CANCELLATION_TEMPLATE =
   'Poxa, {{cliente_nome}}! 😕\n' +
   'Infelizmente não recebemos seu pagamento e o agendamento foi cancelado.\n\n' +
@@ -169,6 +177,51 @@ const brazilNowParts = (): { date: string; hour: number } => {
 const shiftDateOnly = (dateOnly: string, days: number): string => {
   const [y, m, d] = String(dateOnly || '').split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+};
+
+// ── Mensagem de aniversário — pedido 8916 (25/11/2026) ───────────────────────────
+// Barbearia liga em "Lembretes para Clientes"; no dia do aniversário o cliente recebe UMA
+// mensagem (uma por ano). As datas vêm de client_birthdays ("Meus Clientes") e de
+// manual_clients.birthday (cadastro rápido). Desligado para todo mundo por padrão.
+const BIRTHDAY_TYPE_PREFIX = 'birthday_'; // + ano (ex.: birthday_2026): a trava do banco é por ano
+const BIRTHDAY_MAX_PER_DAY = 30; // por barbearia por dia (anti-spam / anti-ban)
+const BIRTHDAY_GAP_MS = 20_000; // espaço entre uma mensagem e outra
+const DEFAULT_BIRTHDAY_TEMPLATE =
+  'Parabéns, {{cliente_nome}}! 🎉\n' +
+  'Hoje é o seu dia! Nós da {{barbearia_nome}} desejamos muita saúde e felicidade. 🥳\n\n' +
+  'Quando quiser dar um trato no visual, é só agendar aqui: {{link_agendamento}}';
+let birthdayLastRunMs = 0;
+const birthdayDoneByEstablishment = new Map<string, string>(); // establishmentId → 'yyyy-mm-dd'
+
+/** Dias (MM-DD) que fazem aniversário "hoje". Em 28/02 de ano não bissexto entra também quem nasceu em 29/02. */
+export const birthdayMonthDaysFor = (today: string): string[] => {
+  const [y, m, d] = String(today || '').slice(0, 10).split('-');
+  if (!y || !m || !d) return [];
+  const days = [`${m}-${d}`];
+  const year = Number(y);
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  if (m === '02' && d === '28' && !leap) days.push('02-29');
+  return days;
+};
+
+/** Junta as fontes de aniversário e devolve telefone → nome de quem faz aniversário nos dias pedidos. */
+export const collectBirthdayCandidates = (
+  sources: Array<Array<{ phone: unknown; name: unknown; birthday: unknown }>>,
+  monthDays: string[]
+): Map<string, string> => {
+  const out = new Map<string, string>();
+  const wanted = new Set(monthDays);
+  if (wanted.size === 0) return out;
+  for (const rows of sources) {
+    for (const row of rows || []) {
+      const monthDay = String(row?.birthday || '').slice(5, 10);
+      if (!wanted.has(monthDay)) continue;
+      const phone = normalizePhone(String(row?.phone || ''));
+      if (!phone || phone.length < 12) continue;
+      if (!out.has(phone)) out.set(phone, String(row?.name || '').trim() || 'Cliente');
+    }
+  }
+  return out;
 };
 
 const isMissingAutomationSettingsTable = (error: any) => {
@@ -1095,6 +1148,7 @@ export class WhatsAppReminderScheduler {
     try {
       this.settingsCache.clear();
       await this.runReturnReminders();
+      await this.runBirthdayMessages();
       this.cleanupGuard(Date.now());
       const now = new Date();
       const today = new Date(now);
@@ -1504,6 +1558,10 @@ export class WhatsAppReminderScheduler {
         if (rescheduleCancelSource === 'rescheduled_by_staff') {
           continue;
         }
+        // "Cliente Faltou": o robô fica quieto; o barbeiro avisa pelo WhatsApp dele se quiser.
+        if (isNoShowCancellation(appointment.cancellation_source, appointment.cancellation_detail)) {
+          continue;
+        }
 
         const cancellationPayload = this.buildCancellationPayload(appointment, establishment, vars);
         const cancellationKey = `${appointment.id}::${cancellationPayload.messageType}`;
@@ -1730,6 +1788,199 @@ export class WhatsAppReminderScheduler {
       }
     } catch (error) {
       console.error('[whatsapp/scheduler] return_reminder: erro inesperado (ignorado):', error);
+    }
+  }
+
+  // ── Mensagem de aniversário ──────────────────────────────────────────────────
+  // Roda no máximo a cada 30 min, só entre 9h e 19h (Brasília), 1x por dia por barbearia.
+  // Candidato = cliente com data de aniversário cadastrada cujo dia/mês é hoje.
+  // Controle de "já mandei": whatsapp_message_logs com type birthday_ANO (um por cliente por
+  // barbearia por ano; o índice único do banco é a trava final). Nunca lança erro: qualquer
+  // falha vira log, para não derrubar lembretes e saudações.
+  private async runBirthdayMessages() {
+    try {
+      const nowMs = Date.now();
+      if (nowMs - birthdayLastRunMs < 30 * 60_000) return;
+      const { date: today, hour } = brazilNowParts();
+      if (hour < 9 || hour >= 19) return;
+      birthdayLastRunMs = nowMs;
+
+      const { data: settingsRows, error: settingsError } = await this.supabase
+        .from('whatsapp_automation_settings')
+        .select('user_id,birthday_template')
+        .eq('birthday_enabled', true);
+      if (settingsError) {
+        const code = String((settingsError as any)?.code || '').trim();
+        const msg = String((settingsError as any)?.message || '').toLowerCase();
+        // SQL da mensagem de aniversário ainda não aplicado: fica quieto.
+        if (code === '42703' || msg.includes('birthday') || isMissingAutomationSettingsTable(settingsError)) return;
+        console.warn('[whatsapp/scheduler] birthday: falha ao ler configurações:', settingsError);
+        return;
+      }
+      const templateByOwner = new Map<string, string>();
+      (settingsRows || []).forEach((row: any) => {
+        const userId = String(row?.user_id || '').trim();
+        if (!userId) return;
+        templateByOwner.set(userId, String(row?.birthday_template || '').trim() || DEFAULT_BIRTHDAY_TEMPLATE);
+      });
+      if (templateByOwner.size === 0) return;
+
+      const monthDays = birthdayMonthDaysFor(today);
+      if (monthDays.length === 0) return;
+      const messageType = `${BIRTHDAY_TYPE_PREFIX}${today.slice(0, 4)}`;
+
+      const ownerIds = Array.from(templateByOwner.keys());
+      const [establishmentsRes, sessionsRes] = await Promise.all([
+        this.supabase.from('establishments').select('id,owner_id,name,code,whatsapp').in('owner_id', ownerIds),
+        this.supabase.from('whatsapp_sessions').select('user_id,status').in('user_id', ownerIds),
+      ]);
+      if (establishmentsRes.error) {
+        console.warn('[whatsapp/scheduler] birthday: falha ao ler estabelecimentos:', establishmentsRes.error);
+        return;
+      }
+      const connectedOwners = new Set(
+        ((sessionsRes.data || []) as any[])
+          .filter((row) => String(row?.status || '').toLowerCase() === 'connected')
+          .map((row) => String(row?.user_id || '').trim())
+      );
+
+      for (const est of (establishmentsRes.data || []) as any[]) {
+        const establishmentId = String(est?.id || '').trim();
+        const ownerId = String(est?.owner_id || '').trim();
+        if (!establishmentId || !ownerId) continue;
+        if (!this.belongsToThisWorker(establishmentId)) continue;
+        if (birthdayDoneByEstablishment.get(establishmentId) === today) continue;
+        // Sem WhatsApp conectado agora: tenta de novo no próximo ciclo (não marca como feito).
+        if (!connectedOwners.has(ownerId)) continue;
+        const template = templateByOwner.get(ownerId);
+        if (!template) continue;
+
+        const [birthdaysRes, manualRes] = await Promise.all([
+          this.supabase
+            .from('client_birthdays')
+            .select('client_whatsapp,client_name,birthday')
+            .eq('establishment_id', establishmentId)
+            .not('birthday', 'is', null)
+            .limit(5000),
+          this.supabase
+            .from('manual_clients')
+            .select('whatsapp,name,birthday')
+            .eq('establishment_id', establishmentId)
+            .not('birthday', 'is', null)
+            .limit(5000),
+        ]);
+        if (birthdaysRes.error && manualRes.error) {
+          console.warn('[whatsapp/scheduler] birthday: falha ao ler aniversários:', birthdaysRes.error, manualRes.error);
+          continue;
+        }
+        const candidates = collectBirthdayCandidates(
+          [
+            ((birthdaysRes.data || []) as any[]).map((row) => ({
+              phone: row?.client_whatsapp,
+              name: row?.client_name,
+              birthday: row?.birthday,
+            })),
+            ((manualRes.data || []) as any[]).map((row) => ({
+              phone: row?.whatsapp,
+              name: row?.name,
+              birthday: row?.birthday,
+            })),
+          ],
+          monthDays
+        );
+        if (candidates.size === 0) {
+          birthdayDoneByEstablishment.set(establishmentId, today);
+          continue;
+        }
+
+        const establishmentPhone = normalizePhone(String(est?.whatsapp || ''));
+        const establishmentName = String(est?.name || '').trim() || 'nossa barbearia';
+        const code = String(est?.code || '').trim();
+        const bookingLink = code ? `https://agendeifacil.com/booking/${code}` : 'https://agendeifacil.com';
+        let sent = 0;
+        for (const [phone, clientName] of candidates.entries()) {
+          if (sent >= BIRTHDAY_MAX_PER_DAY) break;
+          if (establishmentPhone && phone === establishmentPhone) continue;
+          // Cliente bloqueado pela barbearia ("Bloquear cliente") não recebe.
+          try {
+            const { data: blocked } = await this.supabase.rpc('public_is_client_booking_blocked', {
+              p_establishment_id: establishmentId,
+              p_phone: phone,
+            });
+            if (blocked === true) continue;
+          } catch {
+            // na dúvida, segue
+          }
+          // Já recebeu este ano? (confere antes; o índice único do banco é a trava final)
+          const { data: alreadySent, error: alreadyError } = await this.supabase
+            .from('whatsapp_message_logs')
+            .select('id')
+            .eq('provider', 'baileys')
+            .eq('establishment_id', establishmentId)
+            .eq('recipient_phone', phone)
+            .eq('message_type', messageType)
+            .limit(1);
+          if (alreadyError) continue; // sem conseguir conferir, não envia (melhor falhar do que repetir)
+          if (Array.isArray(alreadySent) && alreadySent.length > 0) continue;
+          const { error: reserveError } = await this.supabase.from('whatsapp_message_logs').insert({
+            appointment_id: null,
+            establishment_id: establishmentId,
+            sender_user_id: ownerId,
+            recipient_phone: phone,
+            message_type: messageType,
+            provider: 'baileys',
+            status: 'queued',
+            error: null,
+            sent_at: null,
+          });
+          if (reserveError) {
+            // 23505 = já existe (outro ciclo mandou). Qualquer outro erro: sem registro, não envia.
+            if (String((reserveError as any)?.code || '').trim() !== '23505') {
+              console.warn('[whatsapp/scheduler] birthday: falha ao reservar registro:', reserveError);
+            }
+            continue;
+          }
+          const message = formatTemplate(template, {
+            cliente_nome: clientName,
+            barbearia_nome: establishmentName,
+            link_agendamento: bookingLink,
+          });
+          const res = await this.deps.enqueueOrSend({
+            userId: ownerId,
+            phone,
+            message,
+            delayMs: sent * BIRTHDAY_GAP_MS,
+            idempotencyKey: `${messageType}:${establishmentId}:${phone}`,
+          });
+          const status = resolveLogStatus(res);
+          const { error: statusError } = await this.supabase
+            .from('whatsapp_message_logs')
+            .update({
+              status,
+              error: res.error || null,
+              sent_at: status === 'sent' ? new Date().toISOString() : null,
+            })
+            .eq('provider', 'baileys')
+            .eq('establishment_id', establishmentId)
+            .eq('recipient_phone', phone)
+            .eq('message_type', messageType)
+            .is('appointment_id', null);
+          if (statusError) {
+            console.warn('[whatsapp/scheduler] birthday: falha ao atualizar registro:', statusError);
+          }
+          sent += 1;
+          console.info('[whatsapp/scheduler] birthday', {
+            establishmentId,
+            phone,
+            ok: res.ok,
+            deliveryMode: res.deliveryMode || 'direct',
+            error: res.error || null,
+          });
+        }
+        birthdayDoneByEstablishment.set(establishmentId, today);
+      }
+    } catch (error) {
+      console.error('[whatsapp/scheduler] birthday: erro inesperado (ignorado):', error);
     }
   }
 }

@@ -20,6 +20,7 @@ import {
 } from '../utils/afcoin';
 import { AFCOIN_POINTS_LOCAL, AFCOIN_POINTS_ONLINE, isLocalAfcoinPaymentMethod } from '../utils/appointmentPayment';
 import { checkMonthlyLimit } from '../utils/monthlyLimitValidation';
+import { assinanteSoNaSemanaAtual, checkSubscriberWeekRules, diaEstaNaSemanaAtual } from '../utils/subscriberWeekRules';
 import { resolveShowcaseDateKey } from '../utils/showcaseEstablishment';
 import {
   buildCouponPayloadFields,
@@ -516,6 +517,8 @@ const BookingSimplePage = () => {
       if (subscriberWeekdays.length > 0 && !subscriberWeekdays.includes(dayKey)) return false;
       // Não deixa agendar depois do vencimento da assinatura
       if (subscriberEndDate && format(d, 'yyyy-MM-dd') > subscriberEndDate) return false;
+      // Barbearia com "Limitar agendamentos de assinantes": só dias da semana atual.
+      if (assinanteSoNaSemanaAtual(establishment) && !diaEstaNaSemanaAtual(format(d, 'yyyy-MM-dd'))) return false;
     }
     return true;
   };
@@ -623,6 +626,17 @@ const BookingSimplePage = () => {
         const selectedDayKey = BUSINESS_HOURS_DAY_KEYS[new Date(`${state.selectedDate}T12:00:00`).getDay()];
         if (subscriberWeekdays.length > 0 && !subscriberWeekdays.includes(selectedDayKey)) {
           toast.error('Sua assinatura não permite agendar neste dia da semana.');
+          setStep('datetime');
+          return;
+        }
+        // Regras de semana do assinante ("só na mesma semana" e "1 agendamento na semana").
+        const regraSemana = await checkSubscriberWeekRules({
+          establishment,
+          clientWhatsapp: state.clientWhatsapp,
+          dateKey: state.selectedDate,
+        });
+        if (!regraSemana.ok) {
+          toast.error(regraSemana.message);
           setStep('datetime');
           return;
         }

@@ -13,6 +13,13 @@ const AUTOMATION_SETTINGS_COLUMNS_FULL = `${AUTOMATION_SETTINGS_COLUMNS},greetin
 // Lembrete de retorno (cliente sumido) — migration 20261022_lembrete_retorno_cliente.sql
 const AUTOMATION_SETTINGS_COLUMNS_FULL2 =
   `${AUTOMATION_SETTINGS_COLUMNS_FULL},return_reminder_enabled,return_reminder_days,return_reminder_template`;
+// Mensagem de aniversário — migration 20261125_mensagem_aniversario.sql
+const AUTOMATION_SETTINGS_COLUMNS_FULL3 = `${AUTOMATION_SETTINGS_COLUMNS_FULL2},birthday_enabled,birthday_template`;
+const REQUIRED_BIRTHDAY_TOKENS = ['cliente_nome'];
+const DEFAULT_BIRTHDAY_TEMPLATE =
+  'Parabéns, {{cliente_nome}}! 🎉\n' +
+  'Hoje é o seu dia! Nós da {{barbearia_nome}} desejamos muita saúde e felicidade. 🥳\n\n' +
+  'Quando quiser dar um trato no visual, é só agendar aqui: {{link_agendamento}}';
 const RETURN_REMINDER_DAYS_OPTIONS = new Set([15, 20, 30]);
 const REQUIRED_RETURN_REMINDER_TOKENS = ['cliente_nome'];
 const DEFAULT_RETURN_REMINDER_TEMPLATE =
@@ -148,6 +155,8 @@ const normalizeAutomationSettings = (row: any, userId: string) => ({
     ? Number(row?.return_reminder_days)
     : 20,
   return_reminder_template: String(row?.return_reminder_template || '').trim() || DEFAULT_RETURN_REMINDER_TEMPLATE,
+  birthday_enabled: row?.birthday_enabled === true,
+  birthday_template: String(row?.birthday_template || '').trim() || DEFAULT_BIRTHDAY_TEMPLATE,
   presentation_enabled: row?.presentation_enabled !== false,
   presentation_link: PRESENTATION_LINK_OPTIONS.has(String(row?.presentation_link || '').trim().toLowerCase())
     ? String(row.presentation_link).trim().toLowerCase()
@@ -410,7 +419,7 @@ router.get('/automation-settings', async (req, res) => {
 
     let data: any = null;
     let error: any = null;
-    let columns = AUTOMATION_SETTINGS_COLUMNS_FULL2;
+    let columns = AUTOMATION_SETTINGS_COLUMNS_FULL3;
     for (let attempt = 1; attempt <= 5; attempt++) {
       const response = await supabaseAdmin
         .from('whatsapp_automation_settings')
@@ -420,6 +429,10 @@ router.get('/automation-settings', async (req, res) => {
       data = response.data;
       error = response.error;
       if (!error) break;
+      if (isMissingColumnError(error) && columns === AUTOMATION_SETTINGS_COLUMNS_FULL3) {
+        columns = AUTOMATION_SETTINGS_COLUMNS_FULL2; // SQL da mensagem de aniversário ainda não aplicado
+        continue;
+      }
       if (isMissingColumnError(error) && columns === AUTOMATION_SETTINGS_COLUMNS_FULL2) {
         columns = AUTOMATION_SETTINGS_COLUMNS_FULL; // migration do lembrete de retorno ainda não aplicada
         continue;
@@ -498,6 +511,15 @@ router.post('/automation-settings', async (req, res) => {
           'retorno'
         )
       : '';
+    // Mensagem de aniversário: só entra no payload se a tela mandou (telas antigas não zeram nada).
+    const hasBirthday = typeof req.body?.birthday_enabled === 'boolean';
+    const normalizedBirthdayTemplate = hasBirthday
+      ? normalizeTemplateWithRequiredTokens(
+          String(req.body?.birthday_template || '').trim() || DEFAULT_BIRTHDAY_TEMPLATE,
+          REQUIRED_BIRTHDAY_TOKENS,
+          'aniversário'
+        )
+      : '';
 
     const payload = {
       user_id: userId,
@@ -518,12 +540,18 @@ router.post('/automation-settings', async (req, res) => {
             return_reminder_template: normalizedReturnReminderTemplate,
           }
         : {}),
+      ...(hasBirthday
+        ? {
+            birthday_enabled: req.body.birthday_enabled === true,
+            birthday_template: normalizedBirthdayTemplate,
+          }
+        : {}),
       updated_at: new Date().toISOString(),
     };
 
     let data: any = null;
     let error: any = null;
-    let columns = AUTOMATION_SETTINGS_COLUMNS_FULL2;
+    let columns = AUTOMATION_SETTINGS_COLUMNS_FULL3;
     let payloadToSave: Record<string, any> = payload;
     for (let attempt = 1; attempt <= 5; attempt++) {
       const response = await supabaseAdmin
@@ -534,6 +562,13 @@ router.post('/automation-settings', async (req, res) => {
       data = response.data;
       error = response.error;
       if (!error) break;
+      if (isMissingColumnError(error) && columns === AUTOMATION_SETTINGS_COLUMNS_FULL3) {
+        // SQL da mensagem de aniversário ainda não aplicado: salva sem esses campos
+        columns = AUTOMATION_SETTINGS_COLUMNS_FULL2;
+        const { birthday_enabled: _be, birthday_template: _bt, ...withoutBirthday } = payloadToSave as Record<string, any>;
+        payloadToSave = withoutBirthday;
+        continue;
+      }
       if (isMissingColumnError(error) && columns === AUTOMATION_SETTINGS_COLUMNS_FULL2) {
         // migration do lembrete de retorno ainda não aplicada: salva sem esses campos
         columns = AUTOMATION_SETTINGS_COLUMNS_FULL;
@@ -563,6 +598,8 @@ router.post('/automation-settings', async (req, res) => {
           return_reminder_enabled: _rre2,
           return_reminder_days: _rrd2,
           return_reminder_template: _rrt2,
+          birthday_enabled: _be2,
+          birthday_template: _bt2,
           ...legacyPayload
         } = payload as Record<string, any>;
         payloadToSave = legacyPayload;

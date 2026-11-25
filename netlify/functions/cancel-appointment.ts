@@ -1,6 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
-import { minutosEfetivosCancelamentoCliente, podeCancelarAgendamento } from '../../src/utils/regrasCancelamento';
+import { estadoCancelamentoParaAgendamentoCliente } from '../../src/utils/regrasCancelamento';
 import { json, parseJsonBody } from './_utils';
 
 export const handler: Handler = async (event) => {
@@ -82,14 +82,13 @@ export const handler: Handler = async (event) => {
       estabRow = est ?? undefined;
     }
 
-    const minutosCancel = minutosEfetivosCancelamentoCliente(estabRow);
-    const { permitido, motivo } = podeCancelarAgendamento(
+    // Mesma regra das telas do cliente: prazo mínimo + opção 'Cancelar pelo WhatsApp' da barbearia.
+    const { permitido, motivo } = estadoCancelamentoParaAgendamentoCliente(
       {
         appointment_date: existingAppointment.appointment_date,
         appointment_time: existingAppointment.appointment_time,
       },
-      new Date(),
-      minutosCancel
+      estabRow
     );
 
     if (!permitido) {

@@ -124,6 +124,7 @@ import {
 import { isAppStandbyActive, subscribeToAppStandby } from '../utils/appStandby';
 import { isSamePlainList, isSamePlainValue } from '../utils/samePlainData';
 import { getShowcaseFixedDate, isShowcaseEstablishment, SHOWCASE_FIXED_DATE_KEY } from '../utils/showcaseEstablishment';
+import { buildNoShowWhatsAppMessage, phoneForWhatsApp } from '../utils/noShowMessage';
 import { PromoBannerCarousel } from '../components/PromoBannerCarousel';
 import { LEGACY_LIMITE_CANCELAMENTO_MINUTOS } from '../utils/regrasCancelamento';
 import { isUsageInContinuousWindow, resolveContinuousUsageWindow } from '../utils/subscriptionUsagePeriod';
@@ -5795,7 +5796,18 @@ const EstablishmentDashboard = () => {
     }
   };
 
-  const handleClientNoShowFromAppointment = async (appointment: { id: string; client_whatsapp?: string | null }) => {
+  // Depois de marcar 'Cliente Faltou': pergunta se o barbeiro quer avisar o cliente pelo WhatsApp dele.
+  // A mensagem já vai pronta e NADA é enviado sozinho (o robô não manda mensagem na falta).
+  const [noShowWhatsappPrompt, setNoShowWhatsappPrompt] = useState<{ phone: string; clientName: string; message: string } | null>(null);
+
+  const handleClientNoShowFromAppointment = async (appointment: {
+    id: string;
+    client_whatsapp?: string | null;
+    client_name?: string | null;
+    appointment_date?: string | null;
+    appointment_time?: string | null;
+    professional?: string | null;
+  }) => {
     const whatsapp = String(appointment.client_whatsapp || '').trim().replace(/\D/g, '');
     if (!whatsapp) {
       toast.error('Agendamento sem WhatsApp; não é possível registrar falta.');
@@ -5815,6 +5827,23 @@ const EstablishmentDashboard = () => {
       );
       if (error) throw error;
       toast.success('Agendamento cancelado.');
+      // Com 'Não mostrar número' ligado para os profissionais, não abre o WhatsApp (mostraria o número).
+      const noShowPhone = maskClientPhonesInAgenda ? '' : phoneForWhatsApp(whatsapp);
+      if (noShowPhone) {
+        const professionalName =
+          (professionals || []).find((p: any) => String(p?.id || '') === String(appointment.professional || ''))?.name || '';
+        setNoShowWhatsappPrompt({
+          phone: noShowPhone,
+          clientName: String(appointment.client_name || '').trim(),
+          message: buildNoShowWhatsAppMessage({
+            clientName: appointment.client_name,
+            establishmentName: establishment?.name,
+            appointmentDate: appointment.appointment_date,
+            appointmentTime: appointment.appointment_time,
+            professionalName,
+          }),
+        });
+      }
     } catch (e: any) {
       toast.error(e?.message || 'Erro ao cancelar agendamento');
     } finally {
@@ -47380,6 +47409,53 @@ Estamos te aguardando!`;
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Depois de 'Cliente Faltou': o barbeiro escolhe se avisa o cliente pelo WhatsApp (mensagem pronta). */}
+      {noShowWhatsappPrompt && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.65)' }}
+          onClick={() => setNoShowWhatsappPrompt(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto"
+            style={{ background: '#FFFFFF', color: '#111827' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-lg font-extrabold" style={{ color: '#111827' }}>Falta registrada ✅</div>
+            <p className="mt-1 text-sm" style={{ color: '#374151' }}>
+              Quer avisar {noShowWhatsappPrompt.clientName || 'o cliente'} pelo WhatsApp? A mensagem já vai pronta, é só enviar.
+            </p>
+            <div
+              className="mt-3 whitespace-pre-wrap rounded-lg border p-3 text-sm"
+              style={{ background: '#F3F4F6', borderColor: '#E5E7EB', color: '#111827' }}
+            >
+              {noShowWhatsappPrompt.message}
+            </div>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => {
+                  openWhatsAppWithBusinessPriority(noShowWhatsappPrompt.phone, noShowWhatsappPrompt.message);
+                  setNoShowWhatsappPrompt(null);
+                }}
+                className="flex-1 rounded-lg px-4 py-3 text-sm font-bold"
+                style={{ background: '#16A34A', color: '#FFFFFF' }}
+              >
+                📲 Enviar no WhatsApp
+              </button>
+              <button
+                type="button"
+                onClick={() => setNoShowWhatsappPrompt(null)}
+                className="flex-1 rounded-lg px-4 py-3 text-sm font-bold"
+                style={{ background: '#E5E7EB', color: '#111827' }}
+              >
+                Não enviar
+              </button>
+            </div>
           </div>
         </div>
       )}

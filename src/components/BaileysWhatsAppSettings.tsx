@@ -48,6 +48,9 @@ type AutomationSettings = {
   return_reminder_enabled?: boolean;
   return_reminder_days?: number;
   return_reminder_template?: string;
+  /** Mensagem de aniversário: manda sozinho no dia do aniversário do cliente (uma por ano). Padrão: desligado. */
+  birthday_enabled?: boolean;
+  birthday_template?: string;
 };
 
 type AutomationSettingsResponse = {
@@ -114,6 +117,11 @@ const DEFAULT_RETURN_REMINDER_TEMPLATE =
   'Já faz {{dias_sem_vir}} dias desde seu último corte na {{barbearia_nome}}. Bora dar um trato no visual? 💈\n\n' +
   'É só agendar aqui: {{link_agendamento}}';
 const REQUIRED_RETURN_REMINDER_TOKENS = ['cliente_nome'];
+const DEFAULT_BIRTHDAY_TEMPLATE =
+  'Parabéns, {{cliente_nome}}! 🎉\n' +
+  'Hoje é o seu dia! Nós da {{barbearia_nome}} desejamos muita saúde e felicidade. 🥳\n\n' +
+  'Quando quiser dar um trato no visual, é só agendar aqui: {{link_agendamento}}';
+const REQUIRED_BIRTHDAY_TOKENS = ['cliente_nome'];
 const REQUIRED_REMINDER_TOKENS = [
   'cliente_nome',
   'barbearia_nome',
@@ -228,6 +236,8 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
     return_reminder_enabled: false,
     return_reminder_days: 20,
     return_reminder_template: DEFAULT_RETURN_REMINDER_TEMPLATE,
+    birthday_enabled: false,
+    birthday_template: DEFAULT_BIRTHDAY_TEMPLATE,
   });
   // Código e páginas ativas do estabelecimento (para mostrar os links da apresentação)
   const [presentationEstablishment, setPresentationEstablishment] = useState<{
@@ -673,6 +683,17 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
             .join(', ')}`
         );
       }
+      const missingBirthdayTokens = findMissingTokens(
+        String(payloadSettings.birthday_template || ''),
+        REQUIRED_BIRTHDAY_TOKENS
+      );
+      if (missingBirthdayTokens.length > 0) {
+        throw new Error(
+          `A mensagem de aniversário precisa manter: ${missingBirthdayTokens
+            .map((token) => `{{${token}}}`)
+            .join(', ')}`
+        );
+      }
 
       const headers = await buildAuthHeaders();
       if (!headers) throw new Error('Sessão expirada. Faça login novamente.');
@@ -692,6 +713,8 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
           return_reminder_enabled: payloadSettings.return_reminder_enabled === true,
           return_reminder_days: payloadSettings.return_reminder_days || 20,
           return_reminder_template: payloadSettings.return_reminder_template || DEFAULT_RETURN_REMINDER_TEMPLATE,
+          birthday_enabled: payloadSettings.birthday_enabled === true,
+          birthday_template: payloadSettings.birthday_template || DEFAULT_BIRTHDAY_TEMPLATE,
         }),
       });
       const data = await parseApiResponse<AutomationSettingsResponse>(response);
@@ -700,8 +723,17 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
       }
       setApiUnavailable(false);
       setApiUnavailableMessage('');
-      setSettings((prev) => ({ ...prev, ...data.settings }));
-      if (!options?.silent) {
+      // Servidor ainda sem a mensagem de aniversário (ou banco sem os campos): não finge que ligou.
+      const aniversarioNaoGravou =
+        payloadSettings.birthday_enabled === true && (data.settings as AutomationSettings).birthday_enabled !== true;
+      setSettings((prev) => ({
+        ...prev,
+        ...data.settings,
+        ...(aniversarioNaoGravou ? { birthday_enabled: false } : {}),
+      }));
+      if (aniversarioNaoGravou) {
+        toast.error('A mensagem de aniversário ainda não foi liberada no sistema. O restante foi salvo.');
+      } else if (!options?.silent) {
         toast.success('Configurações automáticas de WhatsApp salvas com sucesso.');
       }
     } catch (error: any) {
@@ -742,6 +774,8 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
           return_reminder_enabled: nextSettings.return_reminder_enabled === true,
           return_reminder_days: nextSettings.return_reminder_days || 20,
           return_reminder_template: nextSettings.return_reminder_template || DEFAULT_RETURN_REMINDER_TEMPLATE,
+          birthday_enabled: nextSettings.birthday_enabled === true,
+          birthday_template: nextSettings.birthday_template || DEFAULT_BIRTHDAY_TEMPLATE,
         }),
       });
       const data = await parseApiResponse<AutomationSettingsResponse>(response);
@@ -1007,7 +1041,7 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
         <h3 className="text-lg font-bold text-white">🤖 Mensagens automáticas</h3>
         <p className="mt-1 text-xs text-gray-400">
           Cada bloco abaixo é uma automação. Ligue, veja a prévia de como o cliente recebe e, se quiser, abra
-          "Editar mensagem". Apresentação salva na hora; lembrete, saudação e retorno salvam no botão laranja no final.
+          "Editar mensagem". Apresentação salva na hora; lembrete, saudação, retorno e aniversário salvam no botão laranja no final.
         </p>
       </div>
 
@@ -1363,11 +1397,84 @@ export function BaileysWhatsAppSettings({ userId, isPlanPrataActive = false }: P
         </details>
       </section>
 
+      {/* 🎂 Mensagem de aniversário — pedido 8916 */}
+      <section className="rounded-2xl border border-pink-500/30 bg-pink-500/5 p-4 sm:p-5">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-1 h-5 w-5 shrink-0"
+            checked={settings.birthday_enabled === true}
+            onChange={(e) =>
+              setSettings((prev) => ({
+                ...prev,
+                birthday_enabled: e.target.checked,
+              }))
+            }
+          />
+          <span className="min-w-0">
+            <span className="block text-base font-bold text-white">🎂 Mensagem de aniversário</span>
+            <span className="mt-1 block text-xs text-gray-300">
+              O sistema manda sozinho uma mensagem de parabéns no dia do aniversário do cliente. Uma mensagem por
+              cliente por ano, só entre 9h e 19h, no máximo 30 por dia. Vale para os clientes com a data de
+              aniversário cadastrada em &quot;Meus Clientes&quot;.
+            </span>
+          </span>
+        </label>
+
+        <WhatsAppPreview
+          establishmentName={previewEstablishmentName}
+          text={fillPreviewTemplate(settings.birthday_template || '', previewVars)}
+          note="No cliente de verdade entra o nome salvo dele e o link da sua barbearia. A prévia muda enquanto você edita a mensagem."
+        />
+
+        <details className="group mt-3">
+          <summary className={editorSummaryClass}>
+            <span>✏️ Editar mensagem de aniversário</span>
+            <span className="text-xs transition-transform group-open:rotate-180">▼</span>
+          </summary>
+          <div className="mt-3">
+            <div className="flex items-center justify-between gap-2">
+              <label className="block text-sm font-semibold text-white">Mensagem de aniversário (editável)</label>
+              <button
+                type="button"
+                onClick={() =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    birthday_template: DEFAULT_BIRTHDAY_TEMPLATE,
+                  }))
+                }
+                className={restoreButtonClass}
+              >
+                Restaurar padrão
+              </button>
+            </div>
+            <textarea
+              value={settings.birthday_template || ''}
+              disabled={settings.birthday_enabled !== true}
+              onChange={(e) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  birthday_template: e.target.value,
+                }))
+              }
+              rows={5}
+              className={textareaClass}
+            />
+            <p className="mt-2 text-xs text-amber-300">
+              Obrigatório manter: {'{{cliente_nome}}'} (é por ele que o sistema coloca o nome salvo do cliente).
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              Variáveis disponíveis: {'{{cliente_nome}}'}, {'{{barbearia_nome}}'}, {'{{link_agendamento}}'}.
+            </p>
+          </div>
+        </details>
+      </section>
+
       {/* Salvar: fica grudado embaixo para não se perder na rolagem do celular. */}
       <div className="sticky bottom-2 z-10 rounded-xl border border-amber-500/40 bg-[#101112]/95 p-3 backdrop-blur">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-gray-300">
-            Lembrete, saudação e retorno só valem depois de salvar.
+            Lembrete, saudação, retorno e aniversário só valem depois de salvar.
           </p>
           <button
             type="button"
