@@ -66,6 +66,7 @@ const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 import AppInstallPage from './pages/AppInstallPage';
 import BlockedPage from './pages/BlockedPage';
 import CadastroAg from './pages/CadastroAg';
+import Cadastrar from './pages/Cadastrar';
 import Conhecer from './pages/Conhecer';
 import ConhecerV2 from './pages/ConhecerV2';
 import ConhecerV3 from './pages/ConhecerV3';
@@ -146,6 +147,8 @@ function App() {
                   <Route path="/conhecerv4" element={<ConhecerV4 />} />
                   <Route path="/conhecerv5" element={<ConhecerV5 />} />
                   <Route path="/cadastroag" element={<CadastroAg />} />
+                  {/* Conta nova depois de pagar na Cakto (precisa ficar antes de "/:slug") */}
+                  <Route path="/cadastrar" element={<Cadastrar />} />
                   <Route path="/testefree" element={<TesteFree />} />
                   <Route path="/suporte060622" element={<Suporte060622 />} />
 

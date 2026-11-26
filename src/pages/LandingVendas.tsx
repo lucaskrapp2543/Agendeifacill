@@ -47,6 +47,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { CAKTO_CHECKOUT_ATIVO, CAKTO_CHECKOUT_URL } from '../lib/caktoConfig';
 import { buildCadastroAgLink } from '../lib/partnerReferralCode';
 import { getCurrentVersion } from '../utils/versionManager';
 
@@ -183,7 +184,9 @@ const FAQS: { q: string; a: string }[] = [
   },
   {
     q: 'Como eu pago a assinatura?',
-    a: 'No PIX ou no cartão, pelo Mercado Pago. Sua conta é criada assim que o pagamento é aprovado.',
+    a: CAKTO_CHECKOUT_ATIVO
+      ? 'No PIX automático ou no cartão, pela Cakto. Depois do pagamento você cria a sua conta em 1 minuto, com o mesmo e-mail da compra.'
+      : 'No PIX ou no cartão, pelo Mercado Pago. Sua conta é criada assim que o pagamento é aprovado.',
   },
   {
     q: 'Funciona no celular?',
@@ -1023,6 +1026,8 @@ const LandingVendas = () => {
   const img = (path: string) => `${path}?v=${assetVersion}`;
 
   const cadastroDiamante = buildCadastroAgLink({ plan: 'diamante' });
+  // Chave em src/lib/caktoConfig.ts. Ligada: paga na Cakto e cria a conta em /cadastrar. Desligada: cadastro de sempre.
+  const destinoDiamante = CAKTO_CHECKOUT_ATIVO ? { href: CAKTO_CHECKOUT_URL } : { to: cadastroDiamante };
   const cadastroPrata = buildCadastroAgLink({ plan: 'prata' });
 
   // Fontes dos títulos: carregadas SÓ nesta página (Inter já vem do index.html).
@@ -1638,12 +1643,13 @@ const LandingVendas = () => {
                 </p>
 
                 <BotaoOuro
-                  to={cadastroDiamante}
+                  {...destinoDiamante}
                   principal="Quero o Agendei Fácil agora"
-                  linha="Sua conta é criada assim que o pagamento é aprovado"
+                  linha={CAKTO_CHECKOUT_ATIVO ? 'Depois do pagamento você cria a sua conta em 1 minuto' : 'Sua conta é criada assim que o pagamento é aprovado'}
                 />
                 <p className="afv-secure">
-                  <Lock size={14} /> Compra segura pelo Mercado Pago · PIX ou cartão
+                  <Lock size={14} />{' '}
+                  {CAKTO_CHECKOUT_ATIVO ? 'Compra segura pela Cakto · PIX automático ou cartão' : 'Compra segura pelo Mercado Pago · PIX ou cartão'}
                 </p>
                 <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="afv-ghost afv-offer-alt">
                   <MessageCircle size={16} /> Prefere tirar dúvida antes? Fala no WhatsApp
@@ -1695,7 +1701,11 @@ const LandingVendas = () => {
               </span>
               <div>
                 <h3>Compra segura</h3>
-                <p>O pagamento é feito pelo Mercado Pago, no PIX ou no cartão.</p>
+                <p>
+                  {CAKTO_CHECKOUT_ATIVO
+                    ? 'O pagamento é feito pela Cakto, no PIX automático ou no cartão.'
+                    : 'O pagamento é feito pelo Mercado Pago, no PIX ou no cartão.'}
+                </p>
               </div>
             </div>
             <div className="afv-safe-card">
@@ -1753,7 +1763,7 @@ const LandingVendas = () => {
           </p>
           <div className="afv-mt">
             <BotaoOuro
-              to={cadastroDiamante}
+              {...destinoDiamante}
               principal="Quero o Agendei Fácil agora"
               linha={`R$ ${PRECO_DIAMANTE}/mês · PIX ou cartão · sem fidelidade`}
             />

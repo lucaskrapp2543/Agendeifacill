@@ -35,6 +35,7 @@ import { AppDownloadLinks } from '../components/AppDownloadLinks';
 import { NewRegistrations } from '../components/NewRegistrations';
 import { PWADownloadLink } from '../components/PWADownloadLink';
 import { SiteClientsPanel } from '../components/SiteClientsPanel';
+import { CaktoSalesPanel } from '../components/CaktoSalesPanel';
 import { AdminFeatureRequestsModal } from '../components/AdminFeatureRequestsModal';
 import { AdminLastPaymentsModal, type LastPaymentsPeriodStatus } from '../components/AdminLastPaymentsModal';
 import {
@@ -318,6 +319,7 @@ const AdminDashboard = () => {
   const [deletedContainmentIds, setDeletedContainmentIds] = useState<string[]>([]);
   const [showNewRegistrations, setShowNewRegistrations] = useState(false);
   const [showSiteClientsPanel, setShowSiteClientsPanel] = useState(false);
+  const [showCaktoSalesPanel, setShowCaktoSalesPanel] = useState(false);
   const [showPartnerCollaboratorsPanel, setShowPartnerCollaboratorsPanel] = useState(false);
   const [pendingRegistrationsCount, setPendingRegistrationsCount] = useState(0);
   const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
@@ -5825,6 +5827,17 @@ const AdminDashboard = () => {
 
               <button
                 type="button"
+                onClick={() => canEditEverything() && setShowCaktoSalesPanel(true)}
+                disabled={!canEditEverything()}
+                className="flex items-center space-x-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title={!canEditEverything() ? 'Apenas Lucas e Erlon podem acessar' : 'Quem pagou o Diamante pela Cakto e quem já criou a conta'}
+              >
+                <DollarSign className="h-4 w-4" />
+                <span>Vendas Cakto</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={openTop5DetailsModal}
                 className="flex items-center space-x-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
                 title="Abre detalhamento do Top 5 com até 20 posições"
@@ -9873,6 +9886,10 @@ const AdminDashboard = () => {
 
       {showSiteClientsPanel && (
         <SiteClientsPanel onClose={() => setShowSiteClientsPanel(false)} />
+      )}
+
+      {showCaktoSalesPanel && (
+        <CaktoSalesPanel onClose={() => setShowCaktoSalesPanel(false)} />
       )}
 
       {showPartnerCollaboratorsPanel && (
