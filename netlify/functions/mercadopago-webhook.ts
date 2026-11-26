@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import { recordAdminMpCommission } from '../../src/lib/mercadopago/adminMpCommission';
 import { gravarServicosDaContaPronta, montarContaPronta } from '../../src/lib/contaPronta';
+import { avisarCompraDoCadastroSite } from '../../src/lib/metaConversionsApi';
 import { confirmPendingAppointmentFromMpPaymentMetadata } from '../../src/lib/mercadopago/confirmAppointmentFromMpPayment';
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { checkMPPaymentStatus } from '../../src/lib/mercadopago/mp-service';
@@ -363,6 +364,9 @@ const createSiteRegistrationAccountIfNeeded = async (
         }
       }
     }
+
+    // Aviso de compra para o Meta (pixel). Só um aviso a mais: nunca lança erro e não muda a conta nem o pagamento.
+    await avisarCompraDoCadastroSite(checkoutId, checkoutAny, plan);
 
     return { handled: true, created: true, establishmentId, userId: authData.user.id };
   } catch (conversionError: any) {

@@ -9,6 +9,8 @@ import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { emailValido, normalizarEmail } from '../../src/lib/caktoPayload';
 import { criarContaComPagamentoCakto, type CodigoCadastroCakto } from '../../src/lib/caktoProcessing';
+import { avisarCompraAoMeta, lerCarimbosDoMeta } from '../../src/lib/metaConversionsApi';
+import { idCompraCakto } from '../../src/lib/metaPixelConfig';
 import { limparTelefone, paisTelefone, telefoneCompleto, validarTelefone } from '../../src/lib/telefonePais';
 import { json, parseJsonBody } from './_utils';
 
@@ -106,6 +108,29 @@ export const handler: Handler = async (event) => {
       userAgent: String(event.headers?.['user-agent'] || '').slice(0, 400) || null,
     });
 
+    // Aviso de compra para o Meta (pixel). Só um aviso a mais: a conta JÁ está criada e nada aqui desfaz isso.
+    let compraMeta: { eventId: string; valor: number } | null = null;
+    try {
+      if (resultado.ok && resultado.orderId) {
+        compraMeta = { eventId: idCompraCakto(resultado.orderId), valor: Number(resultado.amountCents || 0) / 100 };
+        const carimbos = lerCarimbosDoMeta(body.meta_pixel);
+        await avisarCompraAoMeta({
+          eventId: compraMeta.eventId,
+          valor: compraMeta.valor,
+          plano: 'Diamante',
+          email,
+          telefone: telefoneCompleto(telefone, pais.code),
+          ip: ipValido(String(event.headers?.['x-nf-client-connection-ip'] || event.headers?.['x-forwarded-for'] || '')),
+          userAgent: String(event.headers?.['user-agent'] || '').slice(0, 400) || null,
+          fbp: carimbos.fbp,
+          fbc: carimbos.fbc,
+          urlOrigem: 'https://agendeifacil.com/cadastrar',
+        });
+      }
+    } catch {
+      // o aviso nunca atrapalha a criação da conta
+    }
+
     const resposta = RESPOSTAS[resultado.code] || RESPOSTAS.erro;
     if (!resultado.ok && resultado.code === 'erro') {
       console.error('[cakto/cadastro] erro ao criar conta:', resultado.detalhe || '(sem detalhe)');
@@ -115,6 +140,7 @@ export const handler: Handler = async (event) => {
       code: resultado.code,
       mensagem: resposta.mensagem,
       ...(resultado.ok ? { establishmentCode: resultado.establishmentCode } : {}),
+      ...(resultado.ok && compraMeta ? { compraMeta } : {}),
     });
   } catch (error: any) {
     console.error('[cakto/cadastro] erro inesperado:', String(error?.message || error));

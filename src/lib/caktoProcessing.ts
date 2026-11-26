@@ -400,6 +400,9 @@ export interface ResultadoCadastroCakto {
   establishmentCode?: string;
   establishmentId?: string;
   userId?: string;
+  /** Pedido da Cakto que virou esta conta e quanto foi pago (usados no aviso de compra do Meta). */
+  orderId?: string;
+  amountCents?: number;
   detalhe?: string;
 }
 
@@ -662,5 +665,13 @@ export async function criarContaComPagamentoCakto(
     console.error('[cakto/cadastro] falha ao gravar ficha de cadastro', { establishmentId, error });
   }
 
-  return { ok: true, code: 'ok', establishmentCode, establishmentId, userId };
+  return {
+    ok: true,
+    code: 'ok',
+    establishmentCode,
+    establishmentId,
+    userId,
+    orderId: String(livre.cakto_order_id || ''),
+    amountCents: Number(livre.amount_cents) > 0 ? Number(livre.amount_cents) : CAKTO_PLANO.amountCents,
+  };
 }

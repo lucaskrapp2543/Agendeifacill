@@ -13,6 +13,8 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { CAKTO_CHECKOUT_URL } from '../lib/caktoConfig';
 import { emailValido } from '../lib/caktoPayload';
+import { iniciarPixel, lerCarimbosDoMeta, pixelEvento, pixelIdentificar, pixelPageView } from '../lib/metaPixel';
+import { META_VALOR_PLANO } from '../lib/metaPixelConfig';
 import {
   PAISES_TELEFONE,
   formatarTelefone,
@@ -52,6 +54,9 @@ export default function Cadastrar() {
 
   useEffect(() => {
     document.title = 'Criar conta | Agendei Fácil';
+    // Pixel do Meta: abriu a página de criar a conta. Só avisa; não muda nada.
+    iniciarPixel();
+    pixelPageView();
     // Se o link trouxer o e-mail (?email=...), já deixa preenchido.
     const doLink = new URLSearchParams(location.search).get('email');
     if (doLink && emailValido(doLink)) setEmail(doLink.trim().toLowerCase());
@@ -95,6 +100,8 @@ export default function Cadastrar() {
           nomeBarbearia: nomeBarbearia.trim(),
           pais,
           telefone,
+          // Carimbos do pixel do Meta (qual visita / qual anúncio). O servidor só usa no aviso de compra.
+          meta_pixel: lerCarimbosDoMeta(),
         }),
       });
       let dados: any = null;
@@ -106,6 +113,21 @@ export default function Cadastrar() {
 
       if (resposta.ok && dados?.ok) {
         setContaCriada({ codigo: String(dados.establishmentCode || '') });
+        // Pixel do Meta: conta criada = compra confirmada. Mesmo nome do aviso do servidor (não conta em dobro).
+        pixelIdentificar({ email: emailLimpo, telefone: `${paisAtual.ddi}${telefone}` });
+        pixelEvento('CompleteRegistration', { content_name: 'Plano Diamante', status: true }, { umaVez: 'visita', chave: 'CompleteRegistration' });
+        if (dados.compraMeta?.eventId) {
+          pixelEvento(
+            'Purchase',
+            {
+              content_name: 'Plano Diamante',
+              value: Number(dados.compraMeta.valor) > 0 ? Number(dados.compraMeta.valor) : META_VALOR_PLANO.diamante,
+              currency: 'BRL',
+              num_items: 1,
+            },
+            { eventId: String(dados.compraMeta.eventId), umaVez: 'sempre', chave: `Purchase:${dados.compraMeta.eventId}` }
+          );
+        }
         // Entra sozinho. Se o login falhar por qualquer motivo, a conta já existe: manda para a tela de entrar.
         try {
           const { user } = await signIn(emailLimpo, senha);

@@ -3,6 +3,7 @@ import {
   ensurePartnerReferralLinkForConvertedCheckout,
 } from './partnerReferralCheckout';
 import { gravarServicosDaContaPronta, montarContaPronta } from './contaPronta';
+import { avisarCompraDoCadastroSite } from './metaConversionsApi';
 
 const SITE_REGISTRATION_PLAN_CONFIG = {
   prata: { label: 'PRATA', amountCents: 3790, planPrataActive: true },
@@ -434,6 +435,9 @@ export async function convertSiteRegistrationCheckoutIfPaid(
       partnerReferralResult,
       nowIso,
     });
+
+    // Aviso de compra para o Meta (pixel). Só um aviso a mais: nunca lança erro e não muda a conta nem o pagamento.
+    await avisarCompraDoCadastroSite(checkoutId, checkoutAny, plan);
 
     return {
       handled: true,

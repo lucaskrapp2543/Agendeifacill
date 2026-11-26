@@ -12,8 +12,12 @@
  * cadastro antigo (/cadastroag, Mercado Pago). Só virar para `true` DEPOIS de testar
  * uma compra de verdade: se os botões apontarem para a Cakto sem o aviso configurado,
  * o cliente paga e não consegue criar a conta.
+ *
+ * LIGADA em 26/11/2026 por decisão do Lucas, para os anúncios novos já venderem pela Cakto.
+ * O aviso da Cakto, a chave e a página /cadastrar estavam no ar e conferidos; a primeira compra
+ * de verdade ainda não tinha sido feita. Para voltar ao cadastro antigo, é só pôr false aqui.
  */
-export const CAKTO_CHECKOUT_ATIVO: boolean = false;
+export const CAKTO_CHECKOUT_ATIVO: boolean = true;
 
 /** Link de pagamento da oferta "Agendei Fácil" (R$ 67,90/mês, Pix automático ou cartão). */
 export const CAKTO_CHECKOUT_URL = 'https://pay.cakto.com.br/mk63zjt_645031';

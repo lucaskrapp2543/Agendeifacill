@@ -3,6 +3,7 @@ import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import { createMPPayment } from '../../src/lib/mercadopago/mp-service';
 import { convertSiteRegistrationCheckoutIfPaid } from '../../src/lib/siteRegistrationCheckoutConversion';
+import { lerCarimbosDoMeta } from '../../src/lib/metaConversionsApi';
 import {
   buildSiteRegistrationCheckoutPartnerColumns,
   getPartnerReferralRecurringStartDateIso,
@@ -131,6 +132,8 @@ export const handler: Handler = async (event) => {
           created_from: 'cadastroag',
           document_type: documentType,
           document_last4: documentNumber ? documentNumber.slice(-4) : null,
+          // Carimbos do pixel do Meta (qual visita / qual anúncio). Só usados no aviso de compra.
+          meta_pixel: lerCarimbosDoMeta(body?.meta_pixel),
         },
         updated_at: nowIso,
       } as any)

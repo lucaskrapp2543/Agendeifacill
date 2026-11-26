@@ -48,6 +48,8 @@ import {
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { CAKTO_CHECKOUT_ATIVO, CAKTO_CHECKOUT_URL } from '../lib/caktoConfig';
+import { criarRastreadorDeVideo, iniciarPixel, pixelEvento, pixelPageView } from '../lib/metaPixel';
+import { META_VALOR_PLANO } from '../lib/metaPixelConfig';
 import { buildCadastroAgLink } from '../lib/partnerReferralCode';
 import { getCurrentVersion } from '../utils/versionManager';
 
@@ -591,6 +593,8 @@ function VideoTopo({
   // (vídeo e contagem) em vez de começar do zero.
   const [salvo] = useState(lerProgressoVideo);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Pixel do Meta: acompanha quanto do vídeo a pessoa viu. Só avisa; não muda o vídeo nem a trava.
+  const [pixelVideo] = useState(() => criarRastreadorDeVideo('topo'));
   const ultimoTempo = useRef(salvo.posicao);
   const retomarEm = useRef(salvo.posicao);
   // Começa igual ao salvo: assim abrir a página não regrava o progresso com a posição 0.
@@ -638,6 +642,7 @@ function VideoTopo({
 
   useEffect(() => {
     if (assistido < LIBERAR_APOS_SEGUNDOS || jaLiberou.current) return;
+    pixelVideo.assistiuUmMinuto();
     jaLiberou.current = true;
     setLiberouAgora(true);
     aoLiberar();
@@ -698,6 +703,7 @@ function VideoTopo({
           onClick={alternar}
           onContextMenu={(e) => e.preventDefault()}
           onPlay={() => {
+            pixelVideo.comecou();
             setComecou(true);
             setTocando(true);
           }}
@@ -716,6 +722,7 @@ function VideoTopo({
             setCarregando(false);
           }}
           onEnded={() => {
+            pixelVideo.terminou();
             setTocando(false);
             setCarregando(false);
           }}
@@ -730,6 +737,7 @@ function VideoTopo({
           }}
           onTimeUpdate={(e) => {
             const t = e.currentTarget.currentTime;
+            pixelVideo.andou(t, e.currentTarget.duration);
             const passo = t - ultimoTempo.current;
             ultimoTempo.current = t;
             // Só soma o tempo que andou assistindo (pulos para frente não contam).
@@ -1029,6 +1037,60 @@ const LandingVendas = () => {
   // Chave em src/lib/caktoConfig.ts. Ligada: paga na Cakto e cria a conta em /cadastrar. Desligada: cadastro de sempre.
   const destinoDiamante = CAKTO_CHECKOUT_ATIVO ? { href: CAKTO_CHECKOUT_URL } : { to: cadastroDiamante };
   const cadastroPrata = buildCadastroAgLink({ plan: 'prata' });
+
+  // Pixel do Meta (só nas páginas de venda): visita, clique em comprar e clique no WhatsApp.
+  // Um ouvinte só, na raiz da página: não mexe em nenhum botão nem em nenhum link.
+  useEffect(() => {
+    iniciarPixel();
+    pixelPageView();
+    const root = rootRef.current;
+    if (!root) return;
+    const aoClicar = (e: MouseEvent) => {
+      const link = (e.target as Element | null)?.closest?.('a');
+      const destino = link?.getAttribute('href') || '';
+      if (!destino) return;
+      if (destino.startsWith('https://wa.me/')) {
+        pixelEvento('Contact', { content_name: 'WhatsApp do site' });
+        return;
+      }
+      if (destino.includes('/cadastroag') || destino === CAKTO_CHECKOUT_URL) {
+        const plano = destino.includes('plan=prata') ? 'prata' : 'diamante';
+        pixelEvento(
+          'InitiateCheckout',
+          {
+            content_name: plano === 'prata' ? 'Plano Prata' : 'Plano Diamante',
+            value: META_VALOR_PLANO[plano],
+            currency: 'BRL',
+            num_items: 1,
+          },
+          { umaVez: 'visita', chave: 'InitiateCheckout' }
+        );
+      }
+    };
+    root.addEventListener('click', aoClicar);
+    return () => root.removeEventListener('click', aoClicar);
+  }, []);
+
+  // Pixel do Meta: a pessoa chegou na parte do preço (a oferta só existe na tela depois de liberada).
+  useEffect(() => {
+    if (!liberado || typeof IntersectionObserver === 'undefined') return;
+    const oferta = document.getElementById('oferta');
+    if (!oferta) return;
+    const io = new IntersectionObserver(
+      (entradas) => {
+        if (!entradas.some((x) => x.isIntersecting)) return;
+        io.disconnect();
+        pixelEvento(
+          'ViewContent',
+          { content_name: 'Plano Diamante', content_type: 'product', value: META_VALOR_PLANO.diamante, currency: 'BRL' },
+          { umaVez: 'visita', chave: 'ViewContent:oferta' }
+        );
+      },
+      { rootMargin: '0px 0px -35% 0px', threshold: 0 }
+    );
+    io.observe(oferta);
+    return () => io.disconnect();
+  }, [liberado]);
 
   // Fontes dos títulos: carregadas SÓ nesta página (Inter já vem do index.html).
   useEffect(() => {

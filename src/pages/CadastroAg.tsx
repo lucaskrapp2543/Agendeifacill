@@ -10,6 +10,8 @@ import {
   readPartnerReferralCupomFromSearch,
 } from '../lib/partnerReferralCode';
 import { resolvePartnerReferralDiamanteDiscountPercent } from '../lib/partnerReferralTestCoupon';
+import { iniciarPixel, lerCarimbosDoMeta, pixelEvento, pixelIdentificar, pixelPageView } from '../lib/metaPixel';
+import { idCompraSite } from '../lib/metaPixelConfig';
 
 interface RegistrationData {
   clientName: string;
@@ -281,6 +283,19 @@ const CadastroAg = () => {
       .replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, '$1.$2.$3/$4-$5');
   };
 
+  // Pixel do Meta: abriu a página de cadastro e pagamento (conta como "começou a compra").
+  // Só avisa; não muda nada no cadastro nem no pagamento.
+  useEffect(() => {
+    iniciarPixel();
+    pixelPageView();
+    pixelEvento(
+      'InitiateCheckout',
+      { content_name: `Plano ${selectedPlanConfig.label}`, value: selectedPlanConfig.amount, currency: 'BRL', num_items: 1 },
+      { umaVez: 'visita', chave: 'InitiateCheckout' }
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     try {
       window.sessionStorage.setItem(
@@ -536,6 +551,12 @@ const CadastroAg = () => {
           pollTimerRef.current = null;
           setPaymentStatusMessage('');
           clearCadastroAgDraft();
+          // Pixel do Meta: compra confirmada. Usa o mesmo nome do aviso do servidor (o Meta não conta em dobro).
+          pixelEvento(
+            'Purchase',
+            { content_name: `Plano ${selectedPlanConfig.label}`, value: checkoutAmountToday, currency: 'BRL', num_items: 1 },
+            { eventId: idCompraSite(id), umaVez: 'sempre', chave: `Purchase:${id}` }
+          );
           setShowAccountCreatedModal(true);
           return;
         }
@@ -597,6 +618,18 @@ const CadastroAg = () => {
     setShowCardForm(false);
     setPaymentStatusMessage('');
     toast.success('Cadastro preenchido. Agora escolha como pagar para criar a conta.');
+    // Pixel do Meta: preencheu o cadastro. É só um aviso; nunca atrapalha o cadastro.
+    try {
+      const ficha = buildRegistrationData();
+      pixelIdentificar({ email: ficha.email, telefone: ficha.client_whatsapp, nome: ficha.client_name });
+    } catch {
+      // segue sem identificar
+    }
+    pixelEvento(
+      'Lead',
+      { content_name: `Plano ${selectedPlanConfig.label}`, value: selectedPlanConfig.amount, currency: 'BRL' },
+      { umaVez: 'visita', chave: 'Lead' }
+    );
     setTimeout(() => {
       paymentOptionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 100);
@@ -639,6 +672,8 @@ const CadastroAg = () => {
           plan: selectedPlan,
           method,
           registration: buildRegistrationData(),
+          // Carimbos do pixel do Meta (qual visita / qual anúncio). O servidor só guarda e usa no aviso de compra.
+          meta_pixel: lerCarimbosDoMeta(),
           ...(selectedPlan === 'diamante' && partnerReferralAppliedCode
             ? { partner_referral_code: partnerReferralAppliedCode }
             : {}),
@@ -667,6 +702,17 @@ const CadastroAg = () => {
 
       setCheckoutData(data);
       setCheckoutId(String(data.checkout_id || ''));
+      // Pixel do Meta: gerou o PIX ou enviou o cartão.
+      pixelEvento(
+        'AddPaymentInfo',
+        {
+          content_name: `Plano ${selectedPlanConfig.label}`,
+          content_category: method === 'pix' ? 'pix' : 'cartao',
+          value: checkoutAmountToday,
+          currency: 'BRL',
+        },
+        { umaVez: 'visita', chave: `AddPaymentInfo:${method}` }
+      );
 
       if (method === 'recurring_card') {
         setPaymentStatusMessage('Cartão enviado com segurança. Estamos confirmando a assinatura mensal...');
