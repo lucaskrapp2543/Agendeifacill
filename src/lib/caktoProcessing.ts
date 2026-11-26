@@ -10,6 +10,7 @@
  */
 import { CAKTO_PAYMENT_PROVIDER, CAKTO_PLANO, CAKTO_PRODUCT_ID, caktoPaymentId } from './caktoConfig';
 import { classificarAvisoCakto, emailValido, lerAvisoCakto, normalizarEmail, type CaktoOrder } from './caktoPayload';
+import { gravarServicosDaContaPronta, montarContaPronta } from './contaPronta';
 
 const defaultBusinessHours = {
   monday: { enabled: true, open1: '08:00', close1: '18:00', open2: null, close2: null },
@@ -512,6 +513,8 @@ export async function criarContaComPagamentoCakto(
       .pop() || nowIso;
 
   const valorMensal = (Number(livre.amount_cents) > 0 ? Number(livre.amount_cents) : CAKTO_PLANO.amountCents) / 100;
+  // Conta pronta: serviços, 2 profissionais, horário com almoço, logo e capas de exemplo. Sem passo a passo.
+  const contaPronta = montarContaPronta({ planoPrata: CAKTO_PLANO.planPrataActive });
   let establishmentId = '';
   let establishmentCode = '';
   try {
@@ -554,6 +557,7 @@ export async function criarContaComPagamentoCakto(
         plan_prata_active: CAKTO_PLANO.planPrataActive,
         admin_profit_value: valorMensal,
         mercadopago_billing_amount: valorMensal,
+        ...contaPronta.camposDaBarbearia,
       } as any)
       .select('id')
       .single();
@@ -573,6 +577,11 @@ export async function criarContaComPagamentoCakto(
   }
 
   // Daqui para baixo a conta JÁ EXISTE. Falha em registro auxiliar não pode derrubar o cadastro.
+  const servicosProntos = await gravarServicosDaContaPronta(supabaseAdmin, establishmentId, contaPronta);
+  if (!servicosProntos.ok) {
+    console.error('[cakto/cadastro] conta pronta: serviços padrão não gravados', { establishmentId, erro: servicosProntos.erro });
+  }
+
   // Ligar o pedido à conta é o que faz as renovações acharem a barbearia depois: tenta duas vezes.
   const ligarPedidos = async (): Promise<string | null> => {
     try {

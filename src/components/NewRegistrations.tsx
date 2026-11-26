@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
+import { gravarServicosDaContaPronta, montarContaPronta } from '../lib/contaPronta';
 import { supabase } from '../lib/supabase';
 
 interface RegistrationForm {
@@ -271,6 +272,8 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
         ? new Date(now.getTime() + 180 * 24 * 60 * 60 * 1000)
         : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
+      // Conta pronta: serviços, 2 profissionais, horário com almoço, logo e capas de exemplo. Sem passo a passo.
+      const contaPronta = montarContaPronta();
       const { error: establishmentError } = await supabase.from('establishments').insert({
         name: input.establishment_name,
         code: establishmentCode,
@@ -304,12 +307,29 @@ export const NewRegistrations: React.FC<NewRegistrationsProps> = ({ onClose }) =
         is_deleted: false,
         is_blocked: false,
         onboarding_step: 1,
+        ...contaPronta.camposDaBarbearia,
       });
 
       if (establishmentError) {
         console.error('Erro ao criar estabelecimento:', establishmentError);
         toast.error(`Erro ao criar estabelecimento: ${establishmentError.message}`);
         return { success: false };
+      }
+
+      // Categorias e serviços padrão. Se falhar, a conta continua criada (não derruba nada).
+      try {
+        const { data: criada } = await supabase
+          .from('establishments')
+          .select('id')
+          .eq('owner_id', authData.user.id)
+          .eq('code', establishmentCode)
+          .maybeSingle();
+        if (criada?.id) {
+          const servicosProntos = await gravarServicosDaContaPronta(supabase, String(criada.id), contaPronta);
+          if (!servicosProntos.ok) console.error('Conta pronta: serviços padrão não gravados:', servicosProntos.erro);
+        }
+      } catch (contaProntaError) {
+        console.error('Conta pronta: erro ao gravar serviços padrão:', contaProntaError);
       }
 
       const registrationNotes = isTestAccount

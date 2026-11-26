@@ -28,6 +28,31 @@ export const SYSTEM_UPDATE_KIND_LABEL: Record<SystemUpdateKind, string> = {
 
 export const SYSTEM_UPDATES: SystemUpdate[] = [
   {
+    id: 41,
+    date: '25/11/2026',
+    kind: 'melhoria',
+    title: '🧭 Menu mais fácil: "Ajustes da barbearia"',
+    summary: 'O "Menu Admin" agora se chama "Ajustes da barbearia": tudo separado por assunto e com busca. Nenhuma função saiu do lugar.',
+    details: [
+      {
+        title: 'O que mudou',
+        text: 'O botão "Menu Admin" virou "Ajustes da barbearia". Dentro dele as opções estão em 4 grupos: Minha barbearia, Clientes, Dinheiro e Divulgar. No menu fechado, cada ícone agora tem o nome embaixo.',
+      },
+      {
+        title: 'Busca',
+        text: 'No topo dos ajustes tem um campo "O que você quer mudar?". Digite "horário", "preço" ou "foto" e ele mostra onde fica.',
+      },
+      {
+        title: 'Atalhos novos',
+        text: '"Horário de funcionamento" e "Logo e fotos" abrem direto na parte certa das configurações, sem precisar procurar.',
+      },
+      {
+        title: 'O que não muda',
+        text: 'Todas as opções continuam lá, funcionando igual. Quem tem senha de 4 dígitos continua precisando dela para entrar.',
+      },
+    ],
+  },
+  {
     id: 40,
     date: '25/11/2026',
     kind: 'novidade',

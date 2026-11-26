@@ -9,6 +9,7 @@ import {
   Crown,
   DollarSign,
   Gift,
+  Image as ImageIcon,
   Layers,
   Lightbulb,
   Link,
@@ -21,6 +22,7 @@ import {
   Package,
   Receipt,
   Rocket,
+  Search,
   Settings,
   Trash2,
   Trophy,
@@ -128,6 +130,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   hideToggleButton = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [adminMenuSearch, setAdminMenuSearch] = useState(''); // busca dentro de "Ajustes da barbearia"
   const [showPlanUpgradeModal, setShowPlanUpgradeModal] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showMenuScrollHint, setShowMenuScrollHint] = useState(false);
@@ -444,7 +447,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'admin-menu',
-      label: 'Menu Admin',
+      label: 'Ajustes da barbearia',
       icon: Settings,
       onClick: openAdminMenu,
       isActive: false,
@@ -749,6 +752,25 @@ const Sidebar: React.FC<SidebarProps> = ({
     onTabChange('receber-adiantado');
   };
 
+  // Abre "Configurações" e rola até a seção pedida. As seções já têm id no painel
+  // (quiz-section-funcionamento, quiz-step-foto...). Usa o MESMO clique do item "config",
+  // então senha de 4 dígitos e bloqueios continuam valendo.
+  const openSettingsSection = (sectionId: string) => {
+    menuItems.find((item) => item.id === 'config')?.onClick();
+    setShowAdminMenu(false);
+    let tentativas = 0;
+    const tentar = () => {
+      const alvo = document.getElementById(sectionId);
+      if (alvo) {
+        alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+      tentativas += 1;
+      if (tentativas < 40) window.setTimeout(tentar, 250); // até 10s: dá tempo de digitar a senha
+    };
+    window.setTimeout(tentar, 300);
+  };
+
   const adminShortcutItems: Array<{
     id: string;
     label: string;
@@ -893,28 +915,33 @@ const Sidebar: React.FC<SidebarProps> = ({
         setShowAdminMenu(false);
       },
     },
+    {
+      id: 'config-horario',
+      label: '🕐 Horário de funcionamento',
+      description: 'Os dias e as horas em que a barbearia abre e fecha, e o intervalo de almoço.',
+      icon: Clock,
+      isActive: false,
+      onClick: () => openSettingsSection('quiz-section-funcionamento'),
+    },
+    {
+      id: 'config-fotos',
+      label: '🖼️ Logo e fotos',
+      description: 'Troque a logo e as fotos de capa que o cliente vê na sua página.',
+      icon: ImageIcon,
+      isActive: false,
+      onClick: () => openSettingsSection('quiz-step-foto'),
+    },
   ];
 
-  const ADMIN_MENU_PANEL_ORDER: string[] = [
-    // Destaques por família de cor (verde = dinheiro, azul = clientes/agenda, roxo = catálogo/equipe)
-    'receber-adiantado',
-    'indication',
-    'subscribers',
-    'client-page',
-    'clients',
-    'dashboard',
-    'products',
-    'professionals',
-    'service-categories',
-    'whatsapp-reminders',
-    // Resto (sem destaque)
-    'expenses',
-    'taxes',
-    'fila-espera',
-    'reviews',
-    'placa-barbearia',
-    'config',
+  // Ajustes da barbearia (antigo "Menu Admin"): os MESMOS itens de sempre, agora separados
+  // por assunto, na ordem em que um dono novo precisa. Nenhuma função foi tirada.
+  const ADMIN_MENU_GROUPS: Array<{ id: string; title: string; hint: string; itemIds: string[] }> = [
+    { id: 'barbearia', title: '💈 Minha barbearia', hint: 'O básico para receber agendamentos', itemIds: ['config-horario', 'service-categories', 'professionals', 'config-fotos', 'config', 'client-page'] },
+    { id: 'clientes', title: '👥 Clientes', hint: 'Quem agenda com você', itemIds: ['clients', 'subscribers', 'reviews', 'fila-espera'] },
+    { id: 'dinheiro', title: '💰 Dinheiro', hint: 'O que entra e o que sai', itemIds: ['dashboard', 'expenses', 'taxes', 'receber-adiantado', 'products'] },
+    { id: 'divulgar', title: '📣 Divulgar e automatizar', hint: 'WhatsApp, placa e indicações', itemIds: ['whatsapp-reminders', 'placa-barbearia', 'indication'] },
   ];
+  const ADMIN_MENU_PANEL_ORDER: string[] = ADMIN_MENU_GROUPS.flatMap((group) => group.itemIds);
   const adminMenuPanelItems: Array<
     | { kind: 'menu'; item: (typeof menuItems)[number] }
     | { kind: 'shortcut'; item: (typeof adminShortcutItems)[number] }
@@ -1009,6 +1036,74 @@ const Sidebar: React.FC<SidebarProps> = ({
     config: 'Configurações do sistema e do seu estabelecimento.',
     logout: 'Sair da sua conta neste dispositivo.',
     hours: 'Em breve.',
+  };
+
+  // Nome e explicação em linguagem simples + palavras que a busca entende.
+  // Só muda o TEXTO do cartão dentro de "Ajustes da barbearia"; o clique é o de sempre.
+  const ADMIN_MENU_FRIENDLY: Record<string, { label?: string; description?: string; keywords: string }> = {
+    'config-horario': { keywords: 'horario horarios funcionamento abre fecha abrir fechar dia dias semana almoco intervalo domingo sabado' },
+    'service-categories': { label: 'Serviços e preços', description: 'Mude o nome, o preço e o tempo de cada serviço. Crie categorias e cupons.', keywords: 'servico servicos preco precos valor valores corte barba cupom desconto categoria tempo duracao' },
+    professionals: { label: 'Profissionais', description: 'Nome, foto, comissão e horário de trabalho de cada um. Folgas e bloqueios.', keywords: 'profissional profissionais barbeiro barbeiros equipe funcionario comissao porcentagem horario folga ausencia bloqueio almoco intervalo foto nome' },
+    'config-fotos': { keywords: 'logo logotipo foto fotos capa imagem imagens carrossel galeria perfil' },
+    config: { label: 'Dados e configurações gerais', description: 'Nome da barbearia, comodidades, regras de agendamento e senha de 4 dígitos.', keywords: 'configuracao configuracoes pagina dados nome endereco wifi comodidades senha pin regras cancelamento antecedencia intervalo' },
+    'client-page': { label: '🌐 Meu link de agendamento', description: 'O link que você manda para o cliente agendar sozinho.', keywords: 'link pagina agendamento agendar cliente site divulgar instagram compartilhar' },
+    clients: { keywords: 'cliente clientes cadastro historico anotacao aniversario telefone' },
+    subscribers: { keywords: 'assinante assinantes assinatura plano mensal clube pacote' },
+    reviews: { keywords: 'avaliacao avaliacoes estrela nota comentario depoimento' },
+    'fila-espera': { keywords: 'fila espera encaixe ordem chegada' },
+    dashboard: { description: 'Quanto entrou, quanto cada profissional fez e os repasses.', keywords: 'financeiro dinheiro faturamento ganho ganhei lucro caixa relatorio comissao repasse pagamento' },
+    expenses: { keywords: 'despesa despesas gasto gastos conta contas custo aluguel' },
+    taxes: { keywords: 'taxa taxas maquininha cartao bandeira credito debito' },
+    'receber-adiantado': { keywords: 'saque saques pix pagamento online adiantado mercado pago receber sinal' },
+    products: { keywords: 'produto produtos estoque venda pomada bebida' },
+    'whatsapp-reminders': { label: 'WhatsApp: lembretes e mensagens', description: 'Conecte o WhatsApp e ligue os avisos automáticos para o cliente.', keywords: 'whatsapp zap lembrete lembretes mensagem mensagens automatica confirmacao aviso aniversario retorno qr' },
+    'placa-barbearia': { keywords: 'placa qr code balcao divulgar divulgacao' },
+    indication: { keywords: 'indique indicar indicacao ganhe ganhar dinheiro parceiro comissao' },
+  };
+  // Busca sem acento e sem diferença de maiúscula: "horário" acha "horario".
+  const normalizeAdminSearch = (value: string) => {
+    let out = '';
+    for (const ch of String(value || '').toLowerCase().normalize('NFD')) {
+      const code = ch.charCodeAt(0);
+      if (code < 0x0300 || code > 0x036f) out += ch;
+    }
+    return out.trim();
+  };
+  const adminSearchTokens = normalizeAdminSearch(adminMenuSearch).split(' ').filter(Boolean);
+  const adminEntryMatchesSearch = (entry: (typeof adminMenuPanelItems)[number]) => {
+    if (adminSearchTokens.length === 0) return true;
+    const id = entry.item.id;
+    const friendly = ADMIN_MENU_FRIENDLY[id];
+    const description = entry.kind === 'shortcut' ? entry.item.description : mobileDescriptions[id] || '';
+    const haystack = normalizeAdminSearch(
+      [friendly?.label, entry.item.label, friendly?.description, description, friendly?.keywords].filter(Boolean).join(' ')
+    );
+    return adminSearchTokens.every((token) => haystack.includes(token));
+  };
+  type AdminMenuPanelRow =
+    | (typeof adminMenuPanelItems)[number]
+    | { kind: 'heading'; id: string; title: string; hint: string };
+  const adminMenuPanelRows: AdminMenuPanelRow[] = ADMIN_MENU_GROUPS.flatMap((group): AdminMenuPanelRow[] => {
+    const entries = group.itemIds
+      .map((id) => adminMenuPanelItems.find((entry) => entry.item.id === id))
+      .filter((entry): entry is (typeof adminMenuPanelItems)[number] => Boolean(entry))
+      .filter(adminEntryMatchesSearch);
+    if (entries.length === 0) return [];
+    return [{ kind: 'heading', id: group.id, title: group.title, hint: group.hint }, ...entries];
+  });
+
+  // Nome curto embaixo de cada ícone quando o menu está recolhido (antes era só o desenho).
+  const collapsedShortLabels: Record<string, string> = {
+    notifications: 'Avisos',
+    'top10-clientes': 'Top 5',
+    'monthly-goal': 'Meta',
+    appointments: 'Agenda',
+    'client-page': 'Meu link',
+    'admin-menu': 'Ajustes',
+    support: 'Contato',
+    'feature-requests': 'Suporte',
+    'passo-a-passo': 'Ajuda',
+    logout: 'Sair',
   };
 
   if (isMobile && useLegacyMobileMenu) {
@@ -1222,7 +1317,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     ];
 
     const mainMobileMenuActions: Array<{ id: string; label: string; icon: LucideIcon; onClick: () => void; tone?: 'danger'; isActive?: boolean; badge?: number }> = [
-      { id: 'admin-menu', label: 'Menu Admin', icon: Settings, onClick: openAdminMenu, isActive: showAdminMenu || isAdminTabActive },
+      { id: 'admin-menu', label: 'Ajustes da barbearia', icon: Settings, onClick: openAdminMenu, isActive: showAdminMenu || isAdminTabActive },
       { id: 'support', label: 'Falar com representante', icon: MessageSquare, onClick: () => executeMobileAction('support', () => onTabChange('support')) },
       { id: 'feature-requests', label: 'Falar com suporte', icon: Lightbulb, onClick: () => executeMobileAction('feature-requests', () => onTabChange('feature-requests')), isActive: activeTab === 'feature-requests', badge: unreadFeatureRequestAnswers },
       { id: 'passo-a-passo', label: 'Como funciona', icon: Rocket, onClick: () => executeMobileAction('passo-a-passo', () => onTabChange('passo-a-passo')) },
@@ -1733,23 +1828,45 @@ const Sidebar: React.FC<SidebarProps> = ({
         >
           <div className={`flex items-center justify-between px-4 py-4 border-b ${isLight ? 'border-gray-200' : 'border-white/10'}`}>
             <div>
-              <div className="text-lg font-extrabold">Menu Admin</div>
+              <div className="text-lg font-extrabold">Ajustes da barbearia</div>
               <div className={`text-xs mt-0.5 ${isLight ? 'text-gray-600' : 'text-white/60'}`}>
-                Opções internas liberadas com a senha de 4 dígitos.
+                Menu Admin · tudo o que dá para mudar, separado por assunto.
               </div>
             </div>
             <button
               type="button"
               onClick={() => setShowAdminMenu(false)}
               className={`h-9 w-9 rounded-lg flex items-center justify-center ${isLight ? 'hover:bg-gray-100' : 'hover:bg-white/10'}`}
-              title="Fechar Menu Admin"
+              title="Fechar ajustes"
             >
               <X className="h-5 w-5" />
             </button>
           </div>
 
-          <div className="p-3 space-y-2 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 86px)' }}>
-            {adminMenuPanelItems.map((entry) => {
+          <div className="px-3 pt-3">
+            <div className="relative">
+              <Search className={`pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 ${isLight ? 'text-gray-400' : 'text-white/50'}`} />
+              <input
+                type="search"
+                value={adminMenuSearch}
+                onChange={(event) => setAdminMenuSearch(event.target.value)}
+                placeholder="O que você quer mudar? Ex.: horário, preço"
+                aria-label="Buscar nos ajustes da barbearia"
+                className={`w-full rounded-xl border py-2.5 pl-9 pr-3 text-sm outline-none ${isLight ? 'border-gray-300 bg-white text-gray-900 placeholder-gray-400' : 'border-white/15 bg-white/5 text-white placeholder-white/40'}`}
+              />
+            </div>
+          </div>
+
+          <div className="p-3 space-y-2 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 148px)' }}>
+            {adminMenuPanelRows.map((entry) => {
+              if (entry.kind === 'heading') {
+                return (
+                  <div key={`admin-group-${entry.id}`} className="px-1 pt-3 first:pt-0">
+                    <div className={`text-[13px] font-black ${isLight ? 'text-gray-900' : 'text-white'}`}>{entry.title}</div>
+                    <div className={`text-[11px] ${isLight ? 'text-gray-500' : 'text-white/50'}`}>{entry.hint}</div>
+                  </div>
+                );
+              }
               if (entry.kind === 'menu') {
                 const item = entry.item;
                 const Icon = item.icon;
@@ -1781,11 +1898,11 @@ const Sidebar: React.FC<SidebarProps> = ({
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-extrabold truncate">
-                        {item.label}
+                      <div className="text-sm font-extrabold leading-snug">
+                        {ADMIN_MENU_FRIENDLY[item.id]?.label || item.label}
                       </div>
                       <div className={`text-[11px] mt-0.5 ${item.isActive ? 'opacity-70' : isLight ? 'text-gray-500' : 'text-white/50'}`}>
-                        {isPlanLocked ? 'Recurso do plano Diamante' : isOnboardingLocked ? 'Bloqueado pelo passo a passo' : mobileDescriptions[item.id] || 'Abrir opção administrativa'}
+                        {isPlanLocked ? 'Recurso do plano Diamante' : isOnboardingLocked ? 'Bloqueado pelo passo a passo' : ADMIN_MENU_FRIENDLY[item.id]?.description || mobileDescriptions[item.id] || 'Abrir opção administrativa'}
                       </div>
                     </div>
                     <ChevronRight className="h-4 w-4 opacity-50" />
@@ -1818,17 +1935,22 @@ const Sidebar: React.FC<SidebarProps> = ({
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-extrabold truncate">
-                      {item.label}
+                    <div className="text-sm font-extrabold leading-snug">
+                      {ADMIN_MENU_FRIENDLY[item.id]?.label || item.label}
                     </div>
                     <div className={`text-[11px] mt-0.5 ${item.isActive ? 'opacity-70' : isLight ? 'text-gray-500' : 'text-white/50'}`}>
-                      {isPlanLocked ? 'Recurso do plano Diamante' : isOnboardingLocked ? 'Bloqueado pelo passo a passo' : item.description}
+                      {isPlanLocked ? 'Recurso do plano Diamante' : isOnboardingLocked ? 'Bloqueado pelo passo a passo' : ADMIN_MENU_FRIENDLY[item.id]?.description || item.description}
                     </div>
                   </div>
                   <ChevronRight className="h-4 w-4 opacity-50" />
                 </button>
               );
             })}
+            {adminMenuPanelRows.length === 0 && (
+              <div className={`rounded-xl border px-3 py-4 text-center text-sm ${isLight ? 'border-gray-200 text-gray-600' : 'border-white/10 text-white/70'}`}>
+                Não achei nada com essa palavra. Tente outra, como &quot;horário&quot; ou &quot;preço&quot;.
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1959,7 +2081,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     // queremos permitir o clique para mostrar a mensagem de "siga o passo a passo".
                     // Só desabilitamos itens realmente "Em breve" (sem ação).
                     disabled={item.id === 'hours'}
-                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors group ${isMonthlyGoalItem
+                    className={`w-full flex items-center rounded-lg transition-colors group ${isExpanded ? 'gap-3 px-3 py-3' : 'flex-col justify-center gap-1 px-0.5 py-2'} ${isMonthlyGoalItem
                       ? 'bg-amber-400 text-black hover:bg-amber-500 border border-amber-200'
                       : isIndicationItem
                       ? item.isActive
@@ -2057,6 +2179,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                         </span>
                       )}
                     </div>
+
+                    {!isExpanded && collapsedShortLabels[item.id] && (
+                      <span className="block w-full truncate text-center text-[9px] font-semibold leading-none">
+                        {collapsedShortLabels[item.id]}
+                      </span>
+                    )}
 
                     {isExpanded && isMonthlyGoalItem && (
                       <>

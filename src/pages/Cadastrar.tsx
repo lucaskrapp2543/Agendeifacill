@@ -310,6 +310,18 @@ export default function Cadastrar() {
               <p className="flex items-center justify-center gap-1 text-xs text-slate-500">
                 <Lock className="h-3.5 w-3.5" /> Só quem pagou consegue criar a conta.
               </p>
+              {/* A conta nova já nasce pronta e não passa mais pelo passo a passo onde os termos eram aceitos. */}
+              <p className="text-center text-xs text-slate-500">
+                Ao criar a conta, você concorda com os{' '}
+                <Link to="/terms" className="font-semibold text-slate-700 underline">
+                  Termos de Uso
+                </Link>{' '}
+                e a{' '}
+                <Link to="/privacy" className="font-semibold text-slate-700 underline">
+                  Política de Privacidade
+                </Link>
+                .
+              </p>
             </form>
           )}
         </div>

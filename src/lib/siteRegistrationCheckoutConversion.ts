@@ -2,6 +2,7 @@ import {
   createPartnerReferralAfterConversion,
   ensurePartnerReferralLinkForConvertedCheckout,
 } from './partnerReferralCheckout';
+import { gravarServicosDaContaPronta, montarContaPronta } from './contaPronta';
 
 const SITE_REGISTRATION_PLAN_CONFIG = {
   prata: { label: 'PRATA', amountCents: 3790, planPrataActive: true },
@@ -353,6 +354,8 @@ export async function convertSiteRegistrationCheckoutIfPaid(
       establishmentCode = existingEstablishment.code || (await generateUniqueEstablishmentCode(supabaseAdmin));
     } else {
       establishmentCode = await generateUniqueEstablishmentCode(supabaseAdmin);
+      // Conta pronta: serviços, profissionais, horário com almoço, logo e capas de exemplo. Sem passo a passo.
+      const contaPronta = montarContaPronta({ planoPrata: plan.planPrataActive });
       const recurringAmountCents = Number(
         checkoutAny.original_amount_cents || checkoutAny.amount_cents || plan.amountCents
       );
@@ -395,6 +398,7 @@ export async function convertSiteRegistrationCheckoutIfPaid(
           plan_prata_active: plan.planPrataActive,
           admin_profit_value: recurringAmountCents / 100,
           mercadopago_billing_amount: recurringAmountCents / 100,
+          ...contaPronta.camposDaBarbearia,
         } as any)
         .select('id')
         .single();
@@ -404,6 +408,11 @@ export async function convertSiteRegistrationCheckoutIfPaid(
       }
 
       establishmentId = String((establishment as any).id);
+
+      const servicosProntos = await gravarServicosDaContaPronta(supabaseAdmin, establishmentId, contaPronta);
+      if (!servicosProntos.ok) {
+        console.error('[site/cadastro] conta pronta: serviços padrão não gravados', { establishmentId, erro: servicosProntos.erro });
+      }
     }
 
     const partnerReferralResult = await createPartnerReferralAfterConversion(supabaseAdmin, {

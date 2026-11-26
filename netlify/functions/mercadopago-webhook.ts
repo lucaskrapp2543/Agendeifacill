@@ -2,6 +2,7 @@ import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import { recordAdminMpCommission } from '../../src/lib/mercadopago/adminMpCommission';
+import { gravarServicosDaContaPronta, montarContaPronta } from '../../src/lib/contaPronta';
 import { confirmPendingAppointmentFromMpPaymentMetadata } from '../../src/lib/mercadopago/confirmAppointmentFromMpPayment';
 import { refreshAccessToken } from '../../src/lib/mercadopago/mp-oauth';
 import { checkMPPaymentStatus } from '../../src/lib/mercadopago/mp-service';
@@ -203,6 +204,8 @@ const createSiteRegistrationAccountIfNeeded = async (
     const recurringAmountCents = Number(
       checkoutAny.original_amount_cents || checkoutAny.amount_cents || plan.amountCents
     );
+    // Conta pronta: serviços, profissionais, horário com almoço, logo e capas de exemplo. Sem passo a passo.
+    const contaPronta = montarContaPronta({ planoPrata: plan.planPrataActive });
     const { data: establishment, error: establishmentError } = await supabaseAdmin!
       .from('establishments')
       .insert({
@@ -241,6 +244,7 @@ const createSiteRegistrationAccountIfNeeded = async (
         plan_prata_active: plan.planPrataActive,
         admin_profit_value: recurringAmountCents / 100,
         mercadopago_billing_amount: recurringAmountCents / 100,
+        ...contaPronta.camposDaBarbearia,
       } as any)
       .select('id')
       .single();
@@ -250,6 +254,10 @@ const createSiteRegistrationAccountIfNeeded = async (
     }
 
     const establishmentId = String((establishment as any).id);
+    const servicosProntos = await gravarServicosDaContaPronta(supabaseAdmin!, establishmentId, contaPronta);
+    if (!servicosProntos.ok) {
+      console.error('[MP Webhook] conta pronta: serviços padrão não gravados', { establishmentId, erro: servicosProntos.erro });
+    }
     const amountCents = Number(checkoutAny.amount_cents || plan.amountCents);
 
     const partnerReferralResult = await createPartnerReferralAfterConversion(supabaseAdmin!, {
